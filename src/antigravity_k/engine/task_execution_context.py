@@ -28,6 +28,10 @@ class TaskStateStoreProtocol(Protocol):
         status: TaskStatusName,
         output: str | None = None,
         error: str | None = None,
+        *,
+        expected_status: TaskStatusName | str | None = None,
+        expected_version: int | None = None,
+        record_event: bool = False,
     ) -> bool: ...
 
     def get_task(self, task_id: str, owner_subject: str | None = None) -> TaskRecord | None: ...

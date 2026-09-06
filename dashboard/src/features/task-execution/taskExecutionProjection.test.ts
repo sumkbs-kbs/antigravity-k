@@ -168,4 +168,48 @@ describe('CTX-03 compress outcome status mapping', () => {
     expect(projection.checklist[1]?.status).toBe('degraded');
     expect(projection.checklist[2]?.status).toBe('failed');
   });
+
+  it('DAT-01: authoritative store status wins over contradictory terminal events', () => {
+    const taskA = TaskIdSchema.parse('task-a');
+    const events = [
+      TaskEventSchema.parse({
+        sequence: 1,
+        schema_version: 2,
+        task_id: 'task-a',
+        step_id: 'run',
+        agent_id: 'agent-1',
+        parent_id: null,
+        tool_call_id: null,
+        approval_id: null,
+        resource_job_id: null,
+        correlation_id: null,
+        event_type: 'task.status',
+        payload: { from_status: 'running', to_status: 'cancelled', terminal: true },
+        created_at: '2026-09-06T00:00:00Z',
+      }),
+      TaskEventSchema.parse({
+        sequence: 2,
+        schema_version: 2,
+        task_id: 'task-a',
+        step_id: 'run',
+        agent_id: 'agent-1',
+        parent_id: null,
+        tool_call_id: null,
+        approval_id: null,
+        resource_job_id: null,
+        correlation_id: null,
+        event_type: 'direct_completed',
+        payload: { output_length: 12 },
+        created_at: '2026-09-06T00:00:01Z',
+      }),
+    ];
+
+    const without = projectTaskExecution(taskA, events);
+    expect(without.agents[0]?.status).toBe('completed');
+
+    const withStore = projectTaskExecution(taskA, events, 'cancelled');
+    expect(withStore.agents[0]?.status).toBe('cancelled');
+    expect(withStore.checklist[0]?.status).toBe('cancelled');
+  });
+
 });

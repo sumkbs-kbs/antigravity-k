@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from collections.abc import Generator
@@ -34,6 +35,8 @@ from antigravity_k.engine.task_state_types import (
     InvalidTaskTransitionError,
     TaskRecord,
     TaskStatusName,
+    TaskTransitionConflictError,
+    is_terminal_task_status,
 )
 
 
@@ -51,6 +54,15 @@ def _row_value(row: sqlite3.Row, key: str) -> object:
 
 @final
 class TaskStateStore:
+    """Persisted task state with status/version CAS transitions (DAT-01).
+
+    Observation order (UI must not show contradictory terminals):
+    1. ``task_history.status`` / ``version`` is authoritative for terminal outcome.
+    2. A successful CAS may append ``task.status`` in the same write transaction;
+       event ``sequence`` therefore never claims a terminal that lost the CAS.
+    3. Projectors prefer store status over event-derived status when they differ.
+    """
+
     def __init__(self, db_path: str) -> None:
         p = Path(db_path)
         try:
@@ -67,9 +79,10 @@ class TaskStateStore:
 
     @contextmanager
     def _connection(self) -> Generator[sqlite3.Connection, None, None]:
-        connection = sqlite3.connect(self.db_path, check_same_thread=False)
+        connection = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30.0)
         connection.row_factory = sqlite3.Row
         _ = cast(sqlite3.Row | None, connection.execute("PRAGMA journal_mode=WAL").fetchone())
+        _ = connection.execute("PRAGMA busy_timeout=30000")
         try:
             yield connection
             connection.commit()
@@ -83,7 +96,8 @@ class TaskStateStore:
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL UNIQUE, "
                 + "prompt TEXT NOT NULL, status TEXT NOT NULL, output TEXT, error TEXT, "
                 + "created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT, owner_pid INTEGER, "
-                + "owner_subject TEXT NOT NULL DEFAULT 'loopback')",
+                + "owner_subject TEXT NOT NULL DEFAULT 'loopback', "
+                + "version INTEGER NOT NULL DEFAULT 0)",
             )
             _ = connection.execute(
                 "CREATE TABLE IF NOT EXISTS task_checkpoints ("
@@ -109,6 +123,8 @@ class TaskStateStore:
                 _ = connection.execute(
                     "ALTER TABLE task_history ADD COLUMN owner_subject TEXT NOT NULL DEFAULT 'loopback'"
                 )
+            if "version" not in columns:
+                _ = connection.execute("ALTER TABLE task_history ADD COLUMN version INTEGER NOT NULL DEFAULT 0")
             idempotency_info = _fetchall(connection.execute("PRAGMA table_info(task_idempotency)"))
             idempotency_columns = {_row_value(row, "name") for row in idempotency_info}
             if "owner_subject" not in idempotency_columns:
@@ -160,8 +176,8 @@ class TaskStateStore:
                     return str(_row_value(row, "task_id"))
 
             _ = connection.execute(
-                "INSERT INTO task_history (task_id, prompt, status, created_at, updated_at, owner_subject) "
-                + "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO task_history (task_id, prompt, status, created_at, updated_at, owner_subject, version) "
+                + "VALUES (?, ?, ?, ?, ?, ?, 0)",
                 (task_id, prompt, status, created_at, created_at, normalized_owner),
             )
             if idempotency_key:
@@ -177,7 +193,7 @@ class TaskStateStore:
             if owner_subject is None:
                 row = _fetchone(
                     connection.execute(
-                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version "
                         + "FROM task_history WHERE task_id = ?",
                         (task_id,),
                     )
@@ -185,23 +201,14 @@ class TaskStateStore:
             else:
                 row = _fetchone(
                     connection.execute(
-                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version "
                         + "FROM task_history WHERE task_id = ? AND owner_subject = ?",
                         (task_id, owner_subject),
                     )
                 )
         if not row:
             return None
-        return {
-            "task_id": str(_row_value(row, "task_id")),
-            "prompt": str(_row_value(row, "prompt")),
-            "status": str(_row_value(row, "status")),
-            "output": str(_row_value(row, "output") or ""),
-            "error": cast(str | None, _row_value(row, "error")),
-            "created_at": str(_row_value(row, "created_at")),
-            "updated_at": str(_row_value(row, "updated_at") or _row_value(row, "created_at")),
-            "completed_at": cast(str | None, _row_value(row, "completed_at")),
-        }
+        return self._row_to_task(row)
 
     def transition(
         self,
@@ -209,14 +216,29 @@ class TaskStateStore:
         status: TaskStatusName,
         output: str | None = None,
         error: str | None = None,
+        *,
+        expected_status: TaskStatusName | str | None = None,
+        expected_version: int | None = None,
+        record_event: bool = False,
     ) -> bool:
+        """CAS transition on expected status+version.
+
+        When ``expected_status`` / ``expected_version`` are omitted, the current
+        row values are used as the CAS predicate (still conditional — not last-write-wins).
+        Affected row 0 raises ``TaskTransitionConflictError``.
+
+        Pass ``record_event=True`` to append ``task.status`` in the same write
+        transaction as the CAS winner (recommended for terminal handoff paths that
+        do not already emit a domain-specific completion event).
+        """
         if status not in TASK_STATUSES:
             raise InvalidTaskStatusError(status)
 
         with self._connection() as connection:
+            _ = connection.execute("BEGIN IMMEDIATE")
             row = _fetchone(
                 connection.execute(
-                    "SELECT status, output, error FROM task_history WHERE task_id = ?",
+                    "SELECT status, output, error, version FROM task_history WHERE task_id = ?",
                     (task_id,),
                 )
             )
@@ -224,61 +246,133 @@ class TaskStateStore:
                 return False
 
             current = str(_row_value(row, "status"))
+            current_version = int(cast(int, _row_value(row, "version") or 0))
+            current_output = cast(str | None, _row_value(row, "output"))
+            current_error = cast(str | None, _row_value(row, "error"))
+
+            cas_status = current if expected_status is None else str(expected_status)
+            cas_version = current_version if expected_version is None else int(expected_version)
+
+            if expected_status is not None and str(expected_status) != current:
+                raise TaskTransitionConflictError(
+                    task_id,
+                    requested=status,
+                    expected_status=str(expected_status),
+                    expected_version=expected_version,
+                    current_status=current,
+                    current_version=current_version,
+                )
+            if expected_version is not None and int(expected_version) != current_version:
+                raise TaskTransitionConflictError(
+                    task_id,
+                    requested=status,
+                    expected_status=expected_status if expected_status is None else str(expected_status),
+                    expected_version=expected_version,
+                    current_status=current,
+                    current_version=current_version,
+                )
+
+            # Terminal freeze: winner's reason/output cannot be overwritten.
+            if is_terminal_task_status(current):
+                if status == current and output is None and error is None:
+                    return True
+                raise InvalidTaskTransitionError(task_id, current, status)
+
             if current != status and status not in ALLOWED_TASK_TRANSITIONS.get(current, frozenset()):
                 raise InvalidTaskTransitionError(task_id, current, status)
 
+            next_output = output if output is not None else current_output
+            next_error = error if error is not None else current_error
             updated_at = datetime.now(UTC).isoformat()
             completed_at = updated_at if status in TERMINAL_TASK_STATUSES else None
-            _ = connection.execute(
+            next_version = current_version + 1
+
+            cursor = connection.execute(
                 "UPDATE task_history SET status = ?, output = ?, error = ?, updated_at = ?, completed_at = ?, "
-                + "owner_pid = ? "
-                + "WHERE task_id = ?",
+                + "owner_pid = ?, version = ? "
+                + "WHERE task_id = ? AND status = ? AND version = ?",
                 (
                     status,
-                    output if output is not None else cast(str | None, _row_value(row, "output")),
-                    error if error is not None else cast(str | None, _row_value(row, "error")),
+                    next_output,
+                    next_error,
                     updated_at,
                     completed_at,
                     owner_pid_for_status(status),
+                    next_version,
                     task_id,
+                    cas_status,
+                    cas_version,
                 ),
             )
+            if cursor.rowcount != 1:
+                fresh = _fetchone(
+                    connection.execute(
+                        "SELECT status, version FROM task_history WHERE task_id = ?",
+                        (task_id,),
+                    )
+                )
+                raise TaskTransitionConflictError(
+                    task_id,
+                    requested=status,
+                    expected_status=cas_status,
+                    expected_version=cas_version,
+                    current_status=None if fresh is None else str(_row_value(fresh, "status")),
+                    current_version=None if fresh is None else int(cast(int, _row_value(fresh, "version") or 0)),
+                )
+
+            if record_event:
+                payload = json.dumps(
+                    {
+                        "from_status": current,
+                        "to_status": status,
+                        "from_version": current_version,
+                        "to_version": next_version,
+                        "terminal": status in TERMINAL_TASK_STATUSES,
+                    },
+                    sort_keys=True,
+                )
+                _ = append_execution_event(connection, task_id, "task.status", payload)
+
         return True
 
     def prepare_resume(self, task_id: str, owner_subject: str | None = None) -> bool:
         with self._connection() as connection:
+            _ = connection.execute("BEGIN IMMEDIATE")
             if owner_subject is None:
                 row = _fetchone(
                     connection.execute(
-                        "SELECT status, owner_pid FROM task_history WHERE task_id = ?",
+                        "SELECT status, owner_pid, version FROM task_history WHERE task_id = ?",
                         (task_id,),
                     )
                 )
             else:
                 row = _fetchone(
                     connection.execute(
-                        "SELECT status, owner_pid FROM task_history WHERE task_id = ? AND owner_subject = ?",
+                        "SELECT status, owner_pid, version FROM task_history WHERE task_id = ? AND owner_subject = ?",
                         (task_id, owner_subject),
                     )
                 )
             owner_pid_value = _row_value(row, "owner_pid") if row else None
             owner_pid = None if owner_pid_value is None else int(cast(int, owner_pid_value))
             raw_status = "" if not row else str(_row_value(row, "status"))
+            current_version = 0 if not row else int(cast(int, _row_value(row, "version") or 0))
             if not row or not can_prepare_resume(raw_status, owner_pid):
                 return False
 
             cursor = connection.execute(
                 "UPDATE task_history SET status = ?, error = NULL, updated_at = ?, completed_at = NULL, "
-                + "owner_pid = ? "
-                + "WHERE task_id = ? AND status = ? AND owner_pid IS ?"
+                + "owner_pid = ?, version = ? "
+                + "WHERE task_id = ? AND status = ? AND owner_pid IS ? AND version = ?"
                 + (" AND owner_subject = ?" if owner_subject is not None else ""),
                 (
                     "resuming",
                     datetime.now(UTC).isoformat(),
                     owner_pid_for_status("resuming"),
+                    current_version + 1,
                     task_id,
                     raw_status,
                     owner_pid,
+                    current_version,
                 )
                 + ((owner_subject,) if owner_subject is not None else ()),
             )
@@ -289,7 +383,7 @@ class TaskStateStore:
             if owner_subject is None:
                 rows = _fetchall(
                     connection.execute(
-                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version "
                         + "FROM task_history ORDER BY created_at DESC LIMIT ?",
                         (limit,),
                     )
@@ -297,7 +391,7 @@ class TaskStateStore:
             else:
                 rows = _fetchall(
                     connection.execute(
-                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version "
                         + "FROM task_history WHERE owner_subject = ? ORDER BY created_at DESC LIMIT ?",
                         (owner_subject, limit),
                     )
@@ -364,6 +458,7 @@ class TaskStateStore:
             return list_execution_events(connection, task_id, after_sequence, limit)
 
     def _row_to_task(self, row: sqlite3.Row) -> TaskRecord:
+        version_raw = _row_value(row, "version") if "version" in row.keys() else 0
         return {
             "task_id": str(_row_value(row, "task_id")),
             "prompt": str(_row_value(row, "prompt")),
@@ -373,4 +468,5 @@ class TaskStateStore:
             "created_at": str(_row_value(row, "created_at")),
             "updated_at": str(_row_value(row, "updated_at") or _row_value(row, "created_at")),
             "completed_at": cast(str | None, _row_value(row, "completed_at")),
+            "version": int(cast(int, version_raw or 0)),
         }

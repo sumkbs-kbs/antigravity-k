@@ -18,9 +18,9 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
 | 완료 | 10 |
-| 진행 중 | 0 |
+| 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | CTX-03 DONE — DAT-01 착수 허용 (본 reviewer 미착수) |
+| 현재 작업 | DAT-01 REVIEW — owner `dat_01_persistence` 구현 완료, `dat_01_verify` 대기 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,23 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · DAT-01 task transition CAS · terminal winner (`dat_01_persistence`)
+
+- 상태: **REVIEW** (DONE 아님 — 독립 reviewer APPROVE 전; **가짜 APPROVE 없음**)
+- Branch/worktree: `codex/dat-01-task-cas` / `Ssak-Ai-dat-01`
+- Baseline: CTX-03 tip `5bf638bdf9c239801ab59a2672ab73619b07b872`
+- 변경 요약:
+  - `task_history.version` + CAS `UPDATE ... WHERE status=? AND version=?`
+  - affected 0 → `TaskTransitionConflictError`
+  - terminal freeze (winner reason/output immutable); first-CAS-wins race policy
+  - `resolve_display_terminal_status` + UI `authoritativeStatus` clamp
+  - `task_runner` / `direct_task_execution` lost-race safe handling
+  - ADR: `docs/adr/ADR-DAT-01-task-transition-cas.md`
+- 검증: pytest dat01+store+types **31 passed**; related agent_runtime CAS paths passed; vitest projection **5 passed**; ruff clean
+- Evidence: `.omo/evidence/commercial-ga-100/DAT-01/`
+- **DAT-02 미착수. `dat_01_verify` REVIEW 대기.**
+
 
 ### 2026-09-06 · CTX-03 독립 review r2 APPROVE (`ctx_03_verify`)
 

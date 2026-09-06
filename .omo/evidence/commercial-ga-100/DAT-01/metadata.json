@@ -1,0 +1,21 @@
+{
+  "task_id": "DAT-01",
+  "title": "task transition CAS and terminal winner",
+  "owner": "dat_01_persistence",
+  "reviewer": "dat_01_verify",
+  "status": "REVIEW",
+  "baseline_sha": "5bf638bdf9c239801ab59a2672ab73619b07b872",
+  "branch": "codex/dat-01-task-cas",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-dat-01",
+  "started_at": "2026-09-06T13:04:00+09:00",
+  "environment": {
+    "os": "macOS",
+    "pytest": "31 passed (dat01 + task_state_store + types)",
+    "vitest": "5 passed (taskExecutionProjection)",
+    "ruff": "All checks passed"
+  },
+  "notes": "Owner handoff for independent review. No self-APPROVE. Store CAS + terminal freeze + projection SoT.",
+  "verdict": null,
+  "result_sha_pending": true,
+  "updated_at": "2026-09-06T13:15:00+09:00"
+}

@@ -19,8 +19,18 @@ from antigravity_k.engine.task_state_store import (
     TaskStateStore,
     current_task_execution_context,
 )
+from antigravity_k.engine.task_state_types import InvalidTaskTransitionError, TaskTransitionConflictError
 
 TaskOutcomeRecorder = Callable[[TaskOutcome], TaskOutcome | None]
+
+
+def _safe_task_transition(state_store: object, task_id: str, status: object, **kwargs: object) -> bool:
+    """DAT-01: CAS transition; conflict/terminal freeze → False (lost race)."""
+    transition = getattr(state_store, "transition")
+    try:
+        return bool(transition(task_id, status, **kwargs))
+    except (TaskTransitionConflictError, InvalidTaskTransitionError):
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +146,7 @@ class DirectTaskExecution:
             return engine.run(task_spec, orchestrator=self._orchestrator)
 
         state_store = execution_context.state_store
-        _ = state_store.transition(execution_context.task_id, "running")
+        _ = _safe_task_transition(state_store, execution_context.task_id, "running")
         _ = state_store.append_execution_event(
             execution_context.task_id,
             "max_execution_started",
@@ -146,7 +156,7 @@ class DirectTaskExecution:
             with self._execution_binding(execution_context):
                 result = engine.run(task_spec, orchestrator=self._orchestrator)
         except Exception as exc:  # noqa: BLE001
-            _ = state_store.transition(execution_context.task_id, "failed", error=str(exc))
+            _ = _safe_task_transition(state_store, execution_context.task_id, "failed", error=str(exc))
             _ = state_store.append_execution_event(
                 execution_context.task_id,
                 "max_execution_failed",
@@ -157,7 +167,7 @@ class DirectTaskExecution:
         output = str(getattr(result, "final_output", ""))
         error = getattr(result, "error", None)
         if output:
-            _ = state_store.transition(execution_context.task_id, "done", output=output)
+            _ = _safe_task_transition(state_store, execution_context.task_id, "done", output=output)
             _ = state_store.append_execution_event(
                 execution_context.task_id,
                 "max_execution_completed",
@@ -165,7 +175,7 @@ class DirectTaskExecution:
             )
         else:
             message = str(error or "MAX produced no output")
-            _ = state_store.transition(execution_context.task_id, "failed", error=message)
+            _ = _safe_task_transition(state_store, execution_context.task_id, "failed", error=message)
             _ = state_store.append_execution_event(
                 execution_context.task_id,
                 "max_execution_failed",
@@ -245,7 +255,7 @@ class DirectTaskExecution:
     ) -> Iterator[str]:
         state_store = execution_context.state_store
         started_at = time.monotonic()
-        _ = state_store.transition(execution_context.task_id, "running")
+        _ = _safe_task_transition(state_store, execution_context.task_id, "running")
         _ = state_store.append_execution_event(
             execution_context.task_id,
             f"{execution_type}_started",
@@ -268,7 +278,8 @@ class DirectTaskExecution:
         except Exception as exc:  # noqa: BLE001
             output = "".join(output_parts)
             self._save_resume_checkpoint(execution_context, output)
-            _ = state_store.transition(
+            _ = _safe_task_transition(
+                state_store,
                 execution_context.task_id,
                 "failed",
                 output=output,
@@ -306,7 +317,7 @@ class DirectTaskExecution:
                 final_agent_output = str(getattr(self._orchestrator, "_last_agent_output", "") or "")
                 if final_agent_output and final_agent_output != initial_agent_output:
                     output = final_agent_output
-                _ = state_store.transition(execution_context.task_id, "done", output=output)
+                _ = _safe_task_transition(state_store, execution_context.task_id, "done", output=output)
                 _ = state_store.append_execution_event(
                     execution_context.task_id,
                     f"{execution_type}_completed",
@@ -325,7 +336,7 @@ class DirectTaskExecution:
             record = state_store.get_task(execution_context.task_id)
             if record is not None and record["status"] == "running":
                 output = "".join(output_parts)
-                _ = state_store.transition(execution_context.task_id, "cancelled", output=output)
+                _ = _safe_task_transition(state_store, execution_context.task_id, "cancelled", output=output)
                 _ = state_store.append_execution_event(
                     execution_context.task_id,
                     f"{execution_type}_cancelled",

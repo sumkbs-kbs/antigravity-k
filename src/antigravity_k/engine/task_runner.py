@@ -42,6 +42,7 @@ from antigravity_k.engine.task_state_types import (
     InvalidTaskStatusError,
     InvalidTaskTransitionError,
     TaskStatusName,
+    TaskTransitionConflictError,
     parse_task_status,
 )
 from antigravity_k.engine.task_steering import TaskSteeringQueue, TaskSteeringResult
@@ -729,6 +730,7 @@ class BackgroundTaskRunner:
                 "created_at": record["created_at"],
                 "updated_at": record["updated_at"],
                 "completed_at": record["completed_at"],
+                "version": record["version"],
             }
         return None
 
@@ -755,6 +757,7 @@ class BackgroundTaskRunner:
                         "error": record["error"],
                         "created_at": record["created_at"],
                         "updated_at": record["updated_at"],
+                        "version": record["version"],
                     },
                 )
 
@@ -1002,7 +1005,7 @@ class BackgroundTaskRunner:
         """DB에 태스크 상태를 업데이트합니다."""
         try:
             return self.state_store.transition(task_id, status, output=output, error=error)
-        except (sqlite3.Error, InvalidTaskStatusError, InvalidTaskTransitionError):
+        except (sqlite3.Error, InvalidTaskStatusError, InvalidTaskTransitionError, TaskTransitionConflictError):
             logger.exception("DB status update failed")
             return False
 

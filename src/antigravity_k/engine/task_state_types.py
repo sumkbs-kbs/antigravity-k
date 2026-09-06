@@ -18,6 +18,15 @@ ALLOWED_TASK_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
     "cancelled": frozenset(),
 }
 
+# Terminal race policy (DAT-01): first successful CAS to any terminal wins.
+# cancel / completion / timeout(failed) / crash-recovery do not outrank each other once racing
+# from the same expected status+version; prepare_resume remains the only path out of failed/paused.
+TERMINAL_TRANSITION_PRIORITY: Final[tuple[str, ...]] = (
+    "first_cas_wins",
+    "terminal_fields_immutable",
+    "events_follow_state",
+)
+
 
 class TaskRecord(TypedDict):
     task_id: str
@@ -28,6 +37,7 @@ class TaskRecord(TypedDict):
     created_at: str
     updated_at: str
     completed_at: str | None
+    version: int
 
 
 class CheckpointRecord(TypedDict):
@@ -44,6 +54,32 @@ class InvalidTaskTransitionError(RuntimeError):
         self.current: str = current
         self.requested: str = requested
         super().__init__(f"Task {task_id} cannot transition from {current} to {requested}")
+
+
+class TaskTransitionConflictError(RuntimeError):
+    """Raised when a CAS transition matches 0 rows (lost race / stale expected)."""
+
+    def __init__(
+        self,
+        task_id: str,
+        *,
+        requested: str,
+        expected_status: str | None,
+        expected_version: int | None,
+        current_status: str | None = None,
+        current_version: int | None = None,
+    ) -> None:
+        self.task_id: str = task_id
+        self.requested: str = requested
+        self.expected_status: str | None = expected_status
+        self.expected_version: int | None = expected_version
+        self.current_status: str | None = current_status
+        self.current_version: int | None = current_version
+        super().__init__(
+            f"Task {task_id} transition conflict: requested={requested} "
+            f"expected_status={expected_status!r} expected_version={expected_version!r} "
+            f"current_status={current_status!r} current_version={current_version!r}"
+        )
 
 
 class InvalidTaskStatusError(ValueError):
@@ -70,11 +106,18 @@ def parse_task_status(value: str) -> TaskStatusName:
     raise InvalidTaskStatusError(value)
 
 
+def is_terminal_task_status(status: str) -> bool:
+    return status in TERMINAL_TASK_STATUSES
+
+
 __all__ = [
     "ALLOWED_TASK_TRANSITIONS",
     "CheckpointRecord",
     "InvalidTaskStatusError",
     "InvalidTaskTransitionError",
+    "TaskTransitionConflictError",
+    "TERMINAL_TRANSITION_PRIORITY",
+    "is_terminal_task_status",
     "parse_task_status",
     "TASK_STATUSES",
     "TERMINAL_TASK_STATUSES",

@@ -152,7 +152,35 @@ function agentDepth(agent: AgentAccumulator, agents: ReadonlyMap<AgentId, AgentA
   return depth;
 }
 
-export function projectTaskExecution(taskId: TaskId, sourceEvents: readonly TaskEvent[]): TaskExecutionProjection {
+export type AuthoritativeTaskStatus = ExecutionStatus | 'pending' | 'resuming' | 'paused' | null | undefined;
+
+const TERMINAL_EXECUTION_STATUSES: ReadonlySet<ExecutionStatus> = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
+function mapStoreStatusToExecution(status: string | null | undefined): ExecutionStatus | null {
+  if (status == null) return null;
+  const normalized = status.toLowerCase();
+  if (normalized === 'done' || normalized === 'completed') return 'completed';
+  if (normalized === 'failed') return 'failed';
+  if (normalized === 'cancelled' || normalized === 'canceled') return 'cancelled';
+  if (normalized === 'paused' || normalized === 'waiting') return 'waiting';
+  if (normalized === 'running' || normalized === 'resuming' || normalized === 'pending') return 'running';
+  if (normalized === 'degraded') return 'degraded';
+  return null;
+}
+
+/**
+ * DAT-01: store status is authoritative for terminals. Events must not flip the UI
+ * to a contradictory terminal after a CAS winner is committed.
+ */
+export function projectTaskExecution(
+  taskId: TaskId,
+  sourceEvents: readonly TaskEvent[],
+  authoritativeStatus?: AuthoritativeTaskStatus,
+): TaskExecutionProjection {
   const events = sourceEvents
     .filter((event) => event.task_id === taskId)
     .slice()
@@ -233,6 +261,20 @@ export function projectTaskExecution(taskId: TaskId, sourceEvents: readonly Task
     }
   }
 
+  const authoritative = mapStoreStatusToExecution(
+    typeof authoritativeStatus === 'string' ? authoritativeStatus : null,
+  );
+  const freezeTerminal =
+    authoritative !== null && TERMINAL_EXECUTION_STATUSES.has(authoritative) ? authoritative : null;
+
+  const clampStatus = (status: ExecutionStatus): ExecutionStatus => {
+    if (freezeTerminal === null) return status;
+    if (TERMINAL_EXECUTION_STATUSES.has(status) && status !== freezeTerminal) {
+      return freezeTerminal;
+    }
+    return status;
+  };
+
   return {
     agents: [...agents.values()]
       .sort((left, right) => left.firstSequence - right.firstSequence)
@@ -242,10 +284,15 @@ export function projectTaskExecution(taskId: TaskId, sourceEvents: readonly Task
         label: agent.label,
         role: agent.role,
         depth: agentDepth(agent, agents),
-        status: agent.status,
+        status: clampStatus(agent.status),
         lastSequence: agent.lastSequence,
       })),
-    checklist: [...checklist.values()].sort((left, right) => left.firstSequence - right.firstSequence),
+    checklist: [...checklist.values()]
+      .sort((left, right) => left.firstSequence - right.firstSequence)
+      .map((item) => ({
+        ...item,
+        status: clampStatus(item.status),
+      })),
     terminals: [...terminals.values()]
       .sort((left, right) => left.firstSequence - right.firstSequence)
       .map((terminal) => {
@@ -255,7 +302,7 @@ export function projectTaskExecution(taskId: TaskId, sourceEvents: readonly Task
           toolName: terminal.toolName,
           command: terminal.command,
           output: boundTerminalOutput(fullOutput),
-          status: terminal.status,
+          status: clampStatus(terminal.status),
           firstSequence: terminal.firstSequence,
           lastSequence: terminal.lastSequence,
           truncated: fullOutput.length > TERMINAL_OUTPUT_LIMIT,
