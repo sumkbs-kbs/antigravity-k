@@ -27,7 +27,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | GOV-01 | DONE | gov_01_scope / gov_01_scope_fix | gov_01_verify | codex/gov-01-product-scope | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | `.omo/evidence/commercial-ga-100/GOV-01/` | r2 APPROVE 0.95; prior REJECT closed |
 | ARC-01 | DONE | arc_01_contract | arc_01_verify | codex/arc-01-execution-context / Ssak-Ai-arc-01 | `ede637a11fce67ff43eb32be2aacc1a0396b538c` | `.omo/evidence/commercial-ga-100/ARC-01/` | r2 APPROVE; prior REJECT closed in review.md; escape boundary verified |
 | WS-01 | DONE | ws_01_backend | ws_01_verify | codex/ws-01-project-binding / Ssak-Ai-ws-01 | `11658e046ecb7ce8eec6250401884142bc43fc2d` | `.omo/evidence/commercial-ga-100/WS-01/` | r2 APPROVE; prior REJECT closed in review.md; tools bind before generate |
-| WS-02 | REVIEW | ws_02_tools | ws_02_verify | codex/ws-02-tool-root / Ssak-Ai-ws-02 | `PENDING_COMMIT` | `.omo/evidence/commercial-ga-100/WS-02/` | r1 REJECT preserved; F1/F2 fix + re-review-request |
+| WS-02 | REVIEW | ws_02_tools | ws_02_verify | codex/ws-02-tool-root / Ssak-Ai-ws-02 | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | `.omo/evidence/commercial-ga-100/WS-02/` | r1 REJECT preserved; F1/F2 fix + re-review-request |
 | WS-03 | TODO |  |  |  |  |  | WS-01 |
 | WS-04 | TODO |  |  |  |  |  | ARC-01, WS-01 |
 | CTX-01 | TODO |  |  |  |  |  | ARC-01 |
