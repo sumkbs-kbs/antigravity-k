@@ -1,0 +1,34 @@
+# DAT-03 검증 결과 — 2026-09-06
+
+## 신규 수용 시험 (6개)
+명령: uv run --no-sync pytest tests/test_project_registry_atomic.py -q
+결과: 6 passed, exit 0
+
+- TestMultiProcessDurability::test_two_processes_200_projects_survive
+  → 실제 서브프로세스 2개(python_invocation(project=True))가 각 100개 추가 → 200/200 존재
+- TestTypedSaveFailures::test_disk_full_raises_typed_error      → RegistrySaveError
+- TestTypedSaveFailures::test_permission_error_raises_typed_error → RegistrySaveError
+- TestCorruptionRecovery::test_truncated_primary_recovers_from_backup_and_preserves_corrupt
+  → .bak 복구 + .corrupt-<ts> 격리 보존
+- TestCorruptionRecovery::test_corrupt_without_backup_starts_clean
+- TestRestartConsistency::test_api_response_matches_post_restart_state
+
+## 소비자 회귀
+명령: uv run --no-sync pytest tests/test_ws03_project_lifecycle.py tests/test_project_memory.py tests/test_request_execution_context_contract.py tests/test_agent_runtime.py tests/test_project_registry_atomic.py -q
+결과: 88 passed, 3 failed — 3건 모두 test_agent_runtime (base 8cec36c에서도 동일 실패, WS lane 소유)
+
+## 전체 스위트
+명령: uv run --no-sync pytest tests/ -q -m "not slow and not benchmark"
+결과: 5495 passed / 21 failed / 13 skipped (exit 1 — 기존 실패)
+base 대조: 실패 21건 목록이 /tmp/base-fails.txt (base 8cec36c 측정)와 diff 완전 동일
+→ DAT-03 신규 회귀 0건
+
+## 환경 주의 (worktree 첫 sync)
+- uv sync(기본 extras) 상태에서는 mlx/pytest-asyncio 미설치로
+  test_mlx_command_flags 4건 + test_tdd_engine 1건이 추가 실패했다.
+- uv sync --all-extras 후 재측정 → 위 수치는 all-extras 기준.
+
+## 품질 진단
+- uv run --no-sync ruff check (대상 3파일): All checks passed!
+- uv run --no-sync ruff format (대상 3파일): 적용 완료
+- uv run --no-sync mypy --follow-imports=silent (project_registry.py, filesystem.py): Success

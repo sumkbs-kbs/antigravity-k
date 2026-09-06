@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from antigravity_k.api.path_security import PathSecurityError, resolve_allowed_path
 from antigravity_k.engine.api_cache import TAG_FILESYSTEM, api_cache, cached
+from antigravity_k.engine.project_registry import RegistrySaveError
 from antigravity_k.engine.vault import VaultEngine
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
@@ -305,7 +306,12 @@ async def create_project(req: CreateProjectRequest, request: Request):
             raise HTTPException(status_code=400, detail=f"Invalid directory: {target}")
 
     registry = get_project_registry()
-    project = registry.add_project(name=req.name, path=target, tasks=req.tasks)
+    try:
+        project = registry.add_project(name=req.name, path=target, tasks=req.tasks)
+    except RegistrySaveError as exc:
+        # DAT-03: 저장 실패(disk-full/permission 등)는 5xx로 fail-closed —
+        # 조용한 성공(등록된 것처럼 응답 후 실제 저장 누락)을 금지한다.
+        raise HTTPException(status_code=500, detail=f"Failed to persist project registry: {exc}") from exc
 
     # Browse/UI workspace pointer (not execution authority).
     ws_req = WorkspaceRequest(path=target)
