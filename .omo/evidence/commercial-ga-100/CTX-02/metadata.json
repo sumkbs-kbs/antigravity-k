@@ -19,13 +19,13 @@
   "notes": "Independent r2 APPROVE by ctx_02_verify. Prior r1 REJECT preserved in review.md. F1–F3 closed. CTX-03 not started by reviewer.",
   "verdict": "APPROVE",
   "result_sha_pending": false,
-  "updated_at": "2026-09-06T12:30:00+09:00",
+  "updated_at": "2026-09-06T12:33:00+09:00",
   "result_sha": "16db3b65e74275f433563d9b6c83721d956e3ba2",
   "impl_sha": "16db3b65e74275f433563d9b6c83721d956e3ba2",
   "prior_impl_sha": "d04748cafe8879b9afaf310bdb6aab4f47ffb06a",
   "prior_reject_tip": "15cccd7de34b75db6f7d44535706c8d5ca1d109d",
   "tip_reviewed": "81e5f98a9b9b5e368581e3170179b77a20f04682",
-  "tip_sha": "81e5f98a9b9b5e368581e3170179b77a20f04682",
+  "tip_sha": "43f2f525262c6d355983c8fe9419da2a265e759c",
   "review_r2": ".omo/evidence/commercial-ga-100/CTX-02/review-r2.md",
   "confidence": 0.95
 }
