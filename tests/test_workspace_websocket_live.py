@@ -108,7 +108,9 @@ def test_live_upstream_close_reaches_client(
 
 
 def test_live_unreachable_upstream_closes_1011(
-    live_server: str, registry: WorkspaceServiceRegistry, token_service: TokenService
+    live_server: str,
+    registry: WorkspaceServiceRegistry,
+    token_service: TokenService,
 ) -> None:
     with socket.socket() as reserved:
         reserved.bind(("127.0.0.1", 0))

@@ -145,27 +145,34 @@ def test_extract_bearer_token():
     assert extract_bearer_token("Bearer ") is None
 
 
-def test_authenticate_request_marks_pin_subject(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Legacy X-Access-Pin 헤더 PIN 인증 — 공유 AuthPolicy 경로로 평가된다.
+def test_authenticate_request_rejects_pin_header_without_pbkdf2(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """SEC-02: middleware는 X-Access-Pin 헤더로 PBKDF2를 실행하지 않는다.
 
-    SEC-01: 정책이 credential 소스를 pin_hash_file에서 직접 읽으므로, 테스트는
-    파일에 실제 hash를 쓰고 공유 policy를 그 파일로 재초기화한다 (모듈 전역
-    verify_pin 패치 방식은 정책이 engine.auth의 상수시간 경로를 공유하므로 불가).
+    hash 전용 서버(plaintext PIN 부재)에서 헤더 PIN은 무시된다 — fail-closed로
+    401 거부이며, PBKDF2 비용도 발생하지 않는다 (open_loopback 조건 미충족).
     """
     import antigravity_k.api.auth_policy as auth_policy_mod
     import antigravity_k.api.auth_routes as auth_routes
     from antigravity_k.config import config
 
+    calls: list[tuple[str, str]] = []
+
+    def verify_spy(pin: str, stored: str) -> bool:
+        calls.append((pin, stored))
+        return True
+
     hash_file = tmp_path / "auth_hash"
     hash_file.write_text(hash_pin("pin"), encoding="utf-8")
-    monkeypatch.setattr(config.security, "access_pin", "configured")
+    monkeypatch.setattr(config.security, "access_pin", "")
     original_policy = auth_policy_mod._shared_auth_policy
     auth_policy_mod.init_shared_auth_policy(hash_file)
     try:
         request = Request({"type": "http", "headers": [(b"x-access-pin", b"pin")]})
+        monkeypatch.setattr(auth_routes, "verify_pin", verify_spy)
 
-        assert auth_routes.authenticate_request(request) is True
-        assert cast(str, getattr(request.state, "auth_subject")) == "pin-user"
+        assert auth_routes.authenticate_request(request) is False
+        assert calls == [], "middleware가 raw PIN으로 PBKDF2를 실행했다 — SEC-02 위반"
+        assert not hasattr(request.state, "auth_subject"), "헤더 PIN은 인증되어선 안 된다"
     finally:
         auth_policy_mod._shared_auth_policy = original_policy
 
@@ -282,10 +289,10 @@ def test_health_endpoints_public(auth_client: TestClient):
         assert resp.status_code != 401, f"{path} should be public, got 401"
 
 
-def test_legacy_pin_header_still_works(auth_client: TestClient):
-    """The legacy X-Access-Pin header must still authenticate (migration path)."""
+def test_legacy_pin_header_is_rejected(auth_client: TestClient):
+    """SEC-02: raw PIN 헤더는 보호 경로에서 거절된다 — login route만 PIN을 받는다."""
     resp = auth_client.get("/api/vault/config", headers={"X-Access-Pin": "test-pin-1234"})
-    assert resp.status_code != 401, "Legacy PIN header was rejected"
+    assert resp.status_code == 401, "Legacy PIN header must be rejected (SEC-02)"
 
 
 def test_login_rate_limited(auth_client: TestClient):

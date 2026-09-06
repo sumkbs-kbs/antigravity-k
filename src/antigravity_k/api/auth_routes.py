@@ -176,11 +176,30 @@ class VerifyResponse(BaseModel):
 def login(request: Request, body: LoginRequest) -> TokenResponse:
     """Exchange a PIN for a signed bearer token.
 
-    The PIN is verified against the stored PBKDF2 hash using a constant-time
-    comparison. On success a JWT is issued; on failure a 401 is returned.
-    Rate-limited via slowapi (configured at the application level).
+    SEC-02: PIN은 이 route(rate-limited)에서만 수용한다. 두 겹의 방어:
+      1. slowapi — IP당 요청 레이트 제한 (429)
+      2. credential_gate — 실패 burst/sustained 임계 초과 시 lockout (403).
+         lockout 중에는 PBKDF2 검증을 실행하지 않아 공격이 CPU를 소진하지 못한다.
+    모든 성공/실패/lockout은 credential 없이 audit에 기록된다.
     """
+    from antigravity_k.security.auth_audit import record_auth_event
+    from antigravity_k.security.credential_gate import get_credential_gate
+
+    remote = request.client.host if request.client else "unknown"
+    gate = get_credential_gate()
+    gate_key = f"ip:{remote}"
+
+    # 1단계: credential gate — lockout이면 PBKDF2로 진입하지 않는다.
+    gate_decision = gate.register(gate_key)
+    if not gate_decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Too many failed attempts. Retry after {max(1, int(gate_decision.retry_after_sec))}s.",
+            headers={"Retry-After": str(max(1, int(gate_decision.retry_after_sec)))},
+        )
+
     stored = get_current_pin_hash()
+
     if stored is None:
         # No PIN configured — auth is effectively disabled.
         logger.warning("Login attempted with no PIN hash configured.")
@@ -190,12 +209,23 @@ def login(request: Request, body: LoginRequest) -> TokenResponse:
         )
 
     if not verify_pin(body.pin, stored):
-        logger.info("Failed login attempt from %s", request.client.host if request.client else "unknown")
+        decision = gate.record_failure(gate_key)
+        logger.info("Failed login attempt from %s", remote)
+        record_auth_event("login_failed", remote)
+        if not decision.allowed:
+            record_auth_event("lockout", remote, "failure threshold reached")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Too many failed attempts. Retry after {max(1, int(decision.retry_after_sec))}s.",
+                headers={"Retry-After": str(max(1, int(decision.retry_after_sec)))},
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid PIN.",
         )
 
+    gate.record_success(gate_key)
+    record_auth_event("login_success", remote)
     token = get_token_service().issue_token(subject="user")
     return TokenResponse(access_token=token, expires_in=get_token_service().ttl_seconds)
 
@@ -216,6 +246,20 @@ def token_login(
         표준 OAuth2 token response: ``{"access_token": "...", "token_type": "bearer", "expires_in": ...}``
     """
     _ = request
+    from antigravity_k.security.auth_audit import record_auth_event
+    from antigravity_k.security.credential_gate import get_credential_gate
+
+    remote = request.client.host if request.client else "unknown"
+    gate = get_credential_gate()
+    gate_key = f"ip:{remote}"
+    gate_decision = gate.register(gate_key)
+    if not gate_decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Too many failed attempts. Retry after {max(1, int(gate_decision.retry_after_sec))}s.",
+            headers={"Retry-After": str(max(1, int(gate_decision.retry_after_sec)))},
+        )
+
     stored = get_current_pin_hash()
     if stored is None:
         raise HTTPException(
@@ -224,11 +268,22 @@ def token_login(
         )
 
     if not verify_pin(form_data.username, stored):
+        decision = gate.record_failure(gate_key)
+        record_auth_event("login_failed", remote)
+        if not decision.allowed:
+            record_auth_event("lockout", remote, "failure threshold reached")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Too many failed attempts. Retry after {max(1, int(decision.retry_after_sec))}s.",
+                headers={"Retry-After": str(max(1, int(decision.retry_after_sec)))},
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid PIN.",
         )
 
+    gate.record_success(gate_key)
+    record_auth_event("login_success", remote)
     token = get_token_service().issue_token(subject="user")
     return TokenResponse(
         access_token=token,
@@ -303,16 +358,21 @@ def authenticate_request(request: Request) -> bool:
     """Return True if the request carries valid credentials.
 
     SEC-01 단일 정책: 판정은 공유 :class:`~antigravity_k.api.auth_policy.AuthPolicy`
-    로 위임한다 (HTTP/WS/상태 endpoint가 같은 객체를 사용). 구버전의
+    의 단일 진리표를 따른다 (HTTP/WS/상태 endpoint가 같은 객체를 사용). 구버전의
     "plaintext PIN 부재 시 loopback 익명 허용" 분기는 저장 hash를 무시하는
-    결함이므로 제거되었다 — hash 존재 시 loopback 개발 모드도 보호 상태다.
+    결함이므로 제거되었다.
+
+    SEC-02: **bearer 토큰만 수용한다** — raw PIN(X-Access-Pin 헤더/ag_access_pin
+    쿠키)은 이 경로에서 PBKDF2 검증하지 않는다. PIN은 rate-limited
+    ``/api/auth/login`` (또는 ``/api/auth/token``)에서만 토큰으로 교환된다.
+    임의 보호 URL로 PIN 후보를 보내도 PBKDF2 비용이 발생하지 않는다.
 
     Checks, in order:
       1. A valid bearer token in the ``Authorization`` header.
-      2. (Legacy compatibility) a valid PIN in the ``X-Access-Pin`` header or
-         ``ag_access_pin`` cookie.
-      3. Anonymous access only when the shared policy resolves
+      2. Anonymous access only when the shared policy resolves
          ``open_loopback`` (explicit dev allow + loopback + no credential).
+      3. Everything else fails closed. Raw PIN headers/cookies are ignored
+         here by design (SEC-02 credential surface reduction).
     """
     from antigravity_k.api.auth_policy import get_shared_auth_policy
 
@@ -325,15 +385,12 @@ def authenticate_request(request: Request) -> bool:
             _mark_authenticated(request, subject if isinstance(subject, str) and subject else "bearer")
             return True
 
-    # Legacy PIN compatibility (constant-time via verify_pin).
-    pin = request.headers.get("X-Access-Pin") or request.cookies.get("ag_access_pin")
-
-    decision = policy.evaluate_credential(token_verified=False, pin=pin, host=config.server.host)
+    # SEC-02: raw PIN 헤더/쿠키는 credential 표면에서 제거됐다 — verify_pin
+    # (PBKDF2)은 rate-limited login/token route에서만 실행된다. 익명 허용은
+    # 정책이 open_loopback으로 판정할 때만 가능하다 (SEC-01 fail-closed).
+    decision = policy.resolve(host=config.server.host)
     if decision.level == "open_loopback":
         _mark_authenticated(request, "loopback")
         return True
-    if decision.level == "protected" and decision.reason == "valid-pin":
-        _mark_authenticated(request, "pin-user")
-        return True
-
+    return False
     return False

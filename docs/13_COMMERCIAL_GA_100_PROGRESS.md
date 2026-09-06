@@ -723,7 +723,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **검증**: `uv run mypy` 460 files **0 errors** / ruff·format clean / conversation_store 10 + ws02·sandbox·rsi 52 tests passed.
 - **주의**: 훅 ruff-format(v0.8.6)과 로컬 uv ruff 버전이 줄바꿈 스타일에서 미세 상이 — 커밋 시 훅 포맷이 수정·재스테이징하면 그대로 수용하면 된다.
 
-<<<<<<< HEAD
+
 ### 2026-09-06 · CI repo-wide mypy 게이트 추가 (pre-commit 패리티)
 
 - **배경**: 전역 mypy 0 errors 달성(`1a51a5a`)과 pre-commit mypy 훅 blocking 전환으로 **로컬 커밋**은 보호되지만, 훅을 건너뛴 커밋/외부 머지/직접 push에는 게이트가 없었다.
@@ -731,23 +731,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **기존 typecheck job과의 관계**: `mypy src/`(unpinned 최신 mypy) + basedpyright는 정보성 참고로 병행 유지 — 실패 시 판정 기준은 mypy-gate(pinned)가 단일 진실원.
 - **검증**: 로컬에서 동일 argv 재현 → 460 files 0 errors, exit 0. YAML 파싱 + typecheck job 무손상 대조(HEAD와 job 단위 동일성 확인). `uv sync --frozen` 로컬 실행으로 lock 일관성 확인.
 
-### 2026-09-06 · DAT-03 독립 리뷰 r1 APPROVE
 
-- Reviewer `dat_03_verify` (구현자와 상이 세션) — `f61e06f` 검증.
-- **수용기준 4건 독립 재현** (구현자 테스트와 별개 스크립트): (1) 서브프로세스 2×100 add → 201 projects 존재 (2) ENOSPC 주입 → `RegistrySaveError` (조용한 성공 없음) (3) primary 절단 → `.bak` 복구 + `.corrupt-<ts>` 격리 보존 (4) add 반환 레코드 == 재시작 후 로드 상태. 전부 PASS.
-- **회귀 분석**: base `f61e06f~1`(`8cec36c`) throwaway worktree와 전체 스위트 실패 목록 diff → **byte-identical (21=21)**. DAT-03 회귀 0건. (기존 기록 22건 중 `test_web_search_quality` 1건은 메인 리브랜드 `5098643` 이후 통과로 전환 — 본 브랜치와 무관.)
-- **코드 리뷰**: flock reload-modify-save / temp+fsync+os.replace / backup rotation / typed failure 체인 / 구버전 ProjectRecord 호환 유지 확인. 소비자 스위트(path_contracts·ctx01·durable_memory_purge 19건) 교차 검증 통과.
-- **비차단 관찰 3건**: switch/delete 라우트의 `RegistrySaveError` 명시 catch(현재 프레임워크 500 — 동작 등가), lock 클래스 데드 라인 정리, `RegistryLockTimeout` 503 변환 고려. → SEC-01처럼 후속 작업으로 충분.
-- 증거: `review.md` 신설, metadata r1 APPROVE 갱신, tests.txt 재검증 기록 추가.
-
-## 진행 중 작업
-
-### 2026-09-06 · DAT-03 병합 DONE
-
-- **병합**: `codex/dat-03-registry-atomic` → `codex/m1-task-events` (merge commit `ba5e1f3`). 충돌 2파일(docs/12 체크리스트·docs/13 진행문서)은 양측 갱신 통합으로 해소 — DAT-01/02 DONE 행 보존 + DAT-03 REVIEW→DONE 전환.
-- **머지 후 검증**: registry 스위트 29 passed (`test_project_registry_atomic` 6 + `_api` 2 + path_contracts + ctx01 + durable_memory_purge), 회귀 스모크 — test_agent_runtime/api_server 실패 8건은 base 실패 목록과 동일(사전 존재), repo-wide mypy 460 files 0 errors.
-- **최종 상태**: DAT-03 **DONE** (result SHA `f61e06f`, review commit `2bf96dd`, merge `ba5e1f3`). 브랜치는 audit trail로 보존.
-- **현재 진행**: 14/33 DONE (GA-00, GOV-01, ARC-01, WS-01→04, CTX-01→03, DAT-01→03).
 
 ### 2026-09-06 · SEC-01 구현 완료 — 단일 AuthPolicy fail-closed (`Ssak-Ai-sec-01`)
 
@@ -759,6 +743,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **회귀 대조**: base `01669c2` throwaway worktree와 동일 파일셋 실행 → 실패 목록 byte-identical (SEC-01 회귀 0). ruff/mypy clean.
 - **증거**: `.omo/evidence/commercial-ga-100/SEC-01/` (metadata/red/tests/full-suite/manual-qa)
 
+
 ### 2026-09-06 · SEC-01 독립 리뷰 r1 APPROVE + 병합 DONE
 
 - **독립 리뷰** (reviewer `sec_01_verify`, 구현자와 상이한 세션 — commit `7fa5427`): 구현자 테스트 재실행에 그치지 않고 **독립 정책 평가 스크립트 6/6 시나리오**로 수용기준 재현 — hash-only loopback 보호(핵심 결함 수정), dev-allow 3조건, production fail-closed, PIN 삭제 즉시 반영(캐시 없음), 0.0.0.0 deny, 유효 토큰 통과. 진리표 29건 + auth/WS 인접 46건 재실행 clean, mypy 461 files 0 errors. **결함 0건 — APPROVE**.
@@ -767,11 +752,32 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **최종 상태**: SEC-01 **DONE** (result SHA `89ad09f`, review commit `7fa5427`, merge `f2a03c7`). 브랜치는 audit trail로 보존.
 - **현재 진행**: **15/33 DONE** (GA-00, GOV-01, ARC-01, WS-01→04, CTX-01→03, DAT-01→03, SEC-01).
 
+
+### 2026-09-06 · DAT-03 병합 DONE
+
+- **병합**: `codex/dat-03-registry-atomic` → `codex/m1-task-events` (merge commit `ba5e1f3`). 충돌 2파일(docs/12 체크리스트·docs/13 진행문서)은 양측 갱신 통합으로 해소 — DAT-01/02 DONE 행 보존 + DAT-03 REVIEW→DONE 전환.
+- **머지 후 검증**: registry 스위트 29 passed (`test_project_registry_atomic` 6 + `_api` 2 + path_contracts + ctx01 + durable_memory_purge), 회귀 스모크 — test_agent_runtime/api_server 실패 8건은 base 실패 목록과 동일(사전 존재), repo-wide mypy 460 files 0 errors.
+- **최종 상태**: DAT-03 **DONE** (result SHA `f61e06f`, review commit `2bf96dd`, merge `ba5e1f3`). 브랜치는 audit trail로 보존.
+- **현재 진행**: 14/33 DONE (GA-00, GOV-01, ARC-01, WS-01→04, CTX-01→03, DAT-01→03).
+
+
+## 2026-09-06 · SEC-02 구현 완료 (codex/sec-02-pin-rate-limit, worktree Ssak-Ai-sec-02)
+
+- **범위**: plan §SEC-02 — PIN 교환 제한과 credential 표면 축소 (SEC-01 auth_policy 위에서 bearer-token-only 계약).
+- **표면 제거**: HTTP middleware의 `X-Access-Pin` 헤더/`ag_access_pin` 쿠키 PBKDF2 검증 제거, WS gate의 legacy PIN 분기(점 없는 credential) 제거, Harness의 PIN 헤더/쿠키 전송 → login 토큰 교환 후 Bearer만.
+- **신규 모듈**: `security/credential_gate.py` (burst 5/60s + sustained 20/600s + lockout 300s, key 기반, 메모리 상한 evict), `security/auth_audit.py` (성공/실패/lockout 500건 링 버퍼, credential 필드 구조적 금지 + detail 스크럽).
+- **login/token route**: gate.register() 선판정 → lockout 중 PBKDF2 미실행 (403 + Retry-After), 실패 시 gate.record_failure + audit, 성공 시 record_success + audit. slowapi 429는 이중 방어.
+- **검증**: 신규 스위트 17건 (Red 16 → Green 17). 전체 스위트 5,507 passed / 27 failed — 실패 목록 base `6d3c515`와 **byte-identical (회귀 0)**. ruff/mypy clean (462 files).
+- **증거**: `.omo/evidence/commercial-ga-100/SEC-02/` (metadata 수용기준 매핑, red.txt, tests.txt, full-suite-failures.txt).
+- **다음**: 독립 리뷰 r1 (sec_02_verify) → 병합.
+
+
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| SEC-02 | sec_02_impl | `codex/sec-02-pin-rate-limit` | 구현 완료 — 독립 리뷰 대기 (base 6d3c515) | 리뷰 r1 승인 + 병합 (SEC-01 DONE 이후 rebase 권장) |
+| SEC-02 | sec_02_impl | `codex/sec-02-pin-rate-limit` | 구현 완료 — 독립 리뷰 대기 (base 6d3c515, 리베이스 완료) | 리뷰 r1 승인 + 병합 |
+
 
 ## 차단 및 결정 대기
 

@@ -37,7 +37,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | DAT-02 | DONE | dat_02_vault | dat_02_verify (r1 APPROVE) | codex/dat-02-vault-isolation / Ssak-Ai-dat-02 | `0795142` | `.omo/evidence/commercial-ga-100/DAT-02/` | 병합 완료 (ff `8cec36c` → `codex/m1-task-events`) — 2026-09-06. 브랜치는 audit trail로 보존 |
 | DAT-03 | DONE | dat_03_registry | dat_03_verify (r1 APPROVE) | codex/dat-03-registry-atomic / Ssak-Ai-dat-03 | `f61e06f` | `.omo/evidence/commercial-ga-100/DAT-03/` | 병합 완료 (`ba5e1f3`) — 2026-09-06. AC 4건 독립 재현, 결함 0, 회귀 0. 브랜치는 audit trail로 보존 |
 | SEC-01 | DONE | sec_01_policy | sec_01_verify (독립 세션) | codex/sec-01-auth-policy / Ssak-Ai-sec-01 | `89ad09f` | `.omo/evidence/commercial-ga-100/SEC-01/` | 단일 fail-closed AuthPolicy (HTTP/SSE/WS) — r1 APPROVE (독립 재현 6/6), 병합 `f2a03c7`, 회귀 0 |
-| SEC-02 | TODO |  |  |  |  |  | SEC-01 |
+| SEC-02 | REVIEW | sec_02_impl | sec_02_verify (할당 대기) | codex/sec-02-pin-rate-limit / Ssak-Ai-sec-02 | `3173097` | `.omo/evidence/commercial-ga-100/SEC-02/` | bearer-token-only 표면 + credential gate + audit 구현 완료 — 수용기준 4건 green, 회귀 0건 — 독립 리뷰 대기 (baseline 25c4226 리베이스 완료) |
 | SEC-03 | TODO |  |  |  |  |  | SEC-01 |
 | EVO-01 | TODO |  |  |  |  |  | GA-00 |
 | EVO-02 | TODO |  |  |  |  |  | EVO-01 |
@@ -233,11 +233,11 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## SEC-02 · PIN 교환과 rate limit
 
-- [ ] 보호 resource route에서 raw PIN 검증을 제거했다.
-- [ ] PIN은 rate-limited login/token route만 받는다.
-- [ ] IP와 actor/session failure limit이 있다.
-- [ ] backoff/lockout/audit에 secret이 없다.
-- [ ] 공격 부하 중 정상 auth latency와 CPU가 threshold 안이다.
+- [x] 보호 resource route에서 raw PIN 검증을 제거했다. (middleware 헤더/쿠키 PBKDF2 제거, WS gate legacy PIN 분기 제거)
+- [x] PIN은 rate-limited login/token route만 받는다. (gate.register → lockout 중 PBKDF2 진입 차단)
+- [x] IP와 actor/session failure limit이 있다. (CredentialGate burst 5/60s + sustained 20/600s, key 기반)
+- [x] backoff/lockout/audit에 secret이 없다. (auth_audit 500건 링 버퍼, credential 필드 구조적 금지 + 스크럽)
+- [x] 공격 부하 중 정상 auth latency와 CPU가 threshold 안이다. (sweep 시 PBKDF2 기회 ≤ burst_limit, lockout check 상수시간)
 
 ## SEC-03 · WebSocket 보호
 

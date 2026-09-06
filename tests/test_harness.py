@@ -251,19 +251,26 @@ class TestRequestHeaders:
         monkeypatch.delenv("AGK_HARNESS_ACCESS_PIN", raising=False)
         harness = TestHarness()
         harness.access_pin = ""
+        harness._token = None
         assert _request_headers(harness) == {}
 
-    def test_with_access_pin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_with_token_sends_bearer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SEC-02: PIN 헤더는 사라지고 토큰 교환 후 Bearer만 전송된다."""
         monkeypatch.setenv("AGK_HARNESS_ACCESS_PIN", "test-pin")
         harness = TestHarness()
-        assert _request_headers(harness)["X-Access-Pin"] == "test-pin"
+        harness._token = "jwt-token"
+        headers = _request_headers(harness)
+        assert headers["Authorization"] == "Bearer jwt-token"
+        assert "X-Access-Pin" not in headers, "raw PIN 헤더가 남아 있다 — SEC-02 위반"
 
     def test_with_extra_headers(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("AGK_HARNESS_ACCESS_PIN", "pin123")
         harness = TestHarness()
+        harness._token = "jwt-token"
         headers = _request_headers(harness, {"Content-Type": "application/json"})
         assert headers["Content-Type"] == "application/json"
-        assert headers["X-Access-Pin"] == "pin123"
+        assert headers["Authorization"] == "Bearer jwt-token"
+        assert "X-Access-Pin" not in headers
 
 
 class TestDefaultIntents:
