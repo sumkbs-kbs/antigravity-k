@@ -14,7 +14,7 @@
   "prior_reject_tip": "c2b4adcd609d295ad983d91036d202ac3e756f21",
   "tip_sha_reviewed": "4368d8ead622f8d86a9551c0df3f7e03cfb7da31",
   "reviewed_at": "2026-09-06T13:43:00+09:00",
-  "updated_at": "2026-09-06T13:43:00+09:00",
+  "updated_at": "2026-09-06T13:44:00+09:00",
   "confidence": 0.95,
   "blocking": [],
   "blocking_closed": [
@@ -27,5 +27,5 @@
     "adversarial_r2": "60 race overwrite_failures=0; 20 F2 completed_leaks=0"
   },
   "notes": "r2 APPROVE by dat_01_verify. F1+F2 closed. Prior REJECT preserved in review.md. DAT-02 ready (not started by reviewer).",
-  "tip_sha": "4368d8ead622f8d86a9551c0df3f7e03cfb7da31"
+  "tip_sha": "6c6e54b4afac79dbe8cba7df71575ac7ce62e062"
 }
