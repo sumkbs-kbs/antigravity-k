@@ -110,6 +110,34 @@ jobs:
             src/antigravity_k/engine/sandbox.py \
             src/antigravity_k/tools/search_benchmark.py
 
+  mypy-gate:
+    # 2026-09-06: repo-wide mypy 0 errors (pre-commit 훅, commit 1a51a5a)를
+    # 로컬 커밋 밖에서도 강제한다. pre-commit mypy 훅과 **동일한 pinned argv**
+    # (--ignore-missing-imports --no-strict-optional --exclude "tests/|legacy_|demo/")
+    # 를 uv.lock 고정 환경에서 실행해 로컬/CI 판정이 항상 일치하게 유지한다.
+    # 기존 typecheck job(mypy src/, unpinned 최신 mypy)과 별행 — 참고용 정보성 게이트.
+    name: "Mypy Gate (repo-wide, pre-commit parity)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync locked environment (all extras)
+        run: uv sync --all-extras --frozen
+
+      - name: Mypy (pre-commit pinned argv, repo-wide)
+        run: |
+          uv run --no-sync mypy --ignore-missing-imports --no-strict-optional \
+            --exclude "tests/|legacy_|demo/" src/antigravity_k
+
   test:
     name: "Tests (${{ matrix.os }}, ${{ matrix.deps }})"
     strategy:

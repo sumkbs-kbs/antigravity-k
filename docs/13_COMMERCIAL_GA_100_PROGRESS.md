@@ -714,11 +714,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **검증**: `uv run mypy` 460 files **0 errors** / ruff·format clean / conversation_store 10 + ws02·sandbox·rsi 52 tests passed.
 - **주의**: 훅 ruff-format(v0.8.6)과 로컬 uv ruff 버전이 줄바꿈 스타일에서 미세 상이 — 커밋 시 훅 포맷이 수정·재스테이징하면 그대로 수용하면 된다.
 
+### 2026-09-06 · CI repo-wide mypy 게이트 추가 (pre-commit 패리티)
+
+- **배경**: 전역 mypy 0 errors 달성(`1a51a5a`)과 pre-commit mypy 훅 blocking 전환으로 **로컬 커밋**은 보호되지만, 훅을 건너뛴 커밋/외부 머지/직접 push에는 게이트가 없었다.
+- **추가**: `ci.yml`에 `mypy-gate` job — pre-commit 훅과 **동일한 pinned argv**(`--ignore-missing-imports --no-strict-optional --exclude "tests/|legacy_|demo/" src/antigravity_k`)를 `uv sync --all-extras --frozen`(uv.lock 고정) 환경에서 실행. 로컬 훅과 CI 판정이 항상 일치.
+- **기존 typecheck job과의 관계**: `mypy src/`(unpinned 최신 mypy) + basedpyright는 정보성 참고로 병행 유지 — 실패 시 판정 기준은 mypy-gate(pinned)가 단일 진실원.
+- **검증**: 로컬에서 동일 argv 재현 → 460 files 0 errors, exit 0. YAML 파싱 + typecheck job 무손상 대조(HEAD와 job 단위 동일성 확인). `uv sync --frozen` 로컬 실행으로 lock 일관성 확인.
+
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| (없음 — 다음 착수: DAT-03) | | | | |
+| (없음 — 다음 착수: DAT-03 병합/SEC-01 리뷰) | | | | |
 
 ## 차단 및 결정 대기
 
