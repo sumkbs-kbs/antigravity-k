@@ -15,5 +15,9 @@
   },
   "notes": "Owner implementation complete. No fake APPROVE. Awaiting independent ctx_03_verify.",
   "verdict": null,
-  "result_sha_pending": true
+  "result_sha_pending": false,
+  "impl_sha": "9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0",
+  "result_sha": "9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0",
+  "updated_at": "2026-09-06T12:45+09:00",
+  "tip_sha": "9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0"
 }
