@@ -1,0 +1,24 @@
+SEC-01 전체 스위트 회귀 대조
+=============================
+worktree: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai-sec-01
+base:     /tmp/ssak-sec-base (01669c2, throwaway worktree)
+
+명령: uv run --no-sync pytest tests/ -q -m "not slow and not benchmark" \
+        -p no:cacheprovider --deselect tests/test_tool_sandbox_coverage.py
+      (sandbox 커버리지 테스트는 실커밋 코드만 대상 — 별도 12/12 pass 확인)
+
+HEAD:  5498 passed, 22 failed, 13 skipped
+BASE:  동일 파일셋에서 22 failed — 실패 목록 diff 결과 byte-identical
+
+실패 목록 (base와 동일 — 사전 존재, WS 레인 fixture/환경 문제 계열):
+  tests/test_api_server.py (5), tests/test_workspace_websocket.py (4→구 pin 채널 2건은
+  token 이전 후에도 남는 base 고유 실패), test_workspace_websocket_live.py (3),
+  test_tool_loop.py (3), test_runtime_benchmark_binding.py (3),
+  test_command_execution_boundary.py (3), test_agent_runtime.py (3),
+  test_web_search_quality.py (1), test_task_api.py (1),
+  test_system_api_memory_suite.py (1), test_memory_scope.py (1),
+  test_desktop_context_api.py (1)
+
+  ※ 본 작업의 회귀 7건(workspace_websocket ?pin= 채널)은 테스트를 token 채널로
+    이전하여 해소 — diff /tmp/sec-base-failures.txt /tmp/sec-head-failures2.txt
+    = empty (IDENTICAL-TO-BASE)

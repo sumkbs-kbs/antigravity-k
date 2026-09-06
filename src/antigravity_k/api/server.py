@@ -377,6 +377,7 @@ _PUBLIC_EXACT_PATHS = frozenset(
     {
         "/api/auth/login",
         "/api/auth/token",
+        "/api/auth/status",  # SEC-01: UI 표시용 — 사전인증 상태 조회 (credential 노출 없음)
         "/api/remote/pairing/complete",
         "/api/remote/pairing/relay",
         "/api/remote/pairing/relay/poll",

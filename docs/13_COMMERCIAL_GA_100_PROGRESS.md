@@ -723,6 +723,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **검증**: `uv run mypy` 460 files **0 errors** / ruff·format clean / conversation_store 10 + ws02·sandbox·rsi 52 tests passed.
 - **주의**: 훅 ruff-format(v0.8.6)과 로컬 uv ruff 버전이 줄바꿈 스타일에서 미세 상이 — 커밋 시 훅 포맷이 수정·재스테이징하면 그대로 수용하면 된다.
 
+<<<<<<< HEAD
 ### 2026-09-06 · CI repo-wide mypy 게이트 추가 (pre-commit 패리티)
 
 - **배경**: 전역 mypy 0 errors 달성(`1a51a5a`)과 pre-commit mypy 훅 blocking 전환으로 **로컬 커밋**은 보호되지만, 훅을 건너뛴 커밋/외부 머지/직접 push에는 게이트가 없었다.
@@ -747,6 +748,16 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **머지 후 검증**: registry 스위트 29 passed (`test_project_registry_atomic` 6 + `_api` 2 + path_contracts + ctx01 + durable_memory_purge), 회귀 스모크 — test_agent_runtime/api_server 실패 8건은 base 실패 목록과 동일(사전 존재), repo-wide mypy 460 files 0 errors.
 - **최종 상태**: DAT-03 **DONE** (result SHA `f61e06f`, review commit `2bf96dd`, merge `ba5e1f3`). 브랜치는 audit trail로 보존.
 - **현재 진행**: 14/33 DONE (GA-00, GOV-01, ARC-01, WS-01→04, CTX-01→03, DAT-01→03).
+
+### 2026-09-06 · SEC-01 구현 완료 — 단일 AuthPolicy fail-closed (`Ssak-Ai-sec-01`)
+
+- **착수 배경**: DAT-03 구현 완료(REVIEW 대기) 후 병렬 진행 가능한 다음 태스크. GA-00 선행 충족.
+- **결함 (Red 22건 재현)**: 구버전 `authenticate_request`/`close_unauthorized_ws`는 plaintext PIN 부재 시 저장 hash 존재를 무시하고 loopback 익명을 허용 — startup 검증은 hash를 strong credential로 인정하므로 startup-대비-런타임 불일치(SEC-01 정의 그 자체). WS는 별도로 `?pin=` 평문 credential 경로 존재.
+- **구현**: 신규 `api/auth_policy.py` — 순수 `resolve_auth_decision` 진리표 함수 + `AuthPolicy`(credential 소스 콜백, 매 평가 재판독/캐시 금지) + 공유 싱글톤. HTTP 미들웨어(`authenticate_request`), WS 게이트(`close_unauthorized_ws`), 상태 endpoint(`/api/auth/status` 신설, public allowlist 추가)가 모두 같은 policy 객체로 판정. 익명 허용은 `AGK_SEC_DEV_NO_PIN_ALLOW` 명시 + loopback + credential 전무 3조건, production에선 env 무시.
+- **SEC-02 선행 정합**: `extract_token_from_ws`의 `?pin=` 수집 제거 — PIN은 rate-limited login route로만. workspace WS 테스트 7건을 token 채널로 이전.
+- **테스트**: `tests/test_auth_policy_truth_table.py` 29건(9행 입력 진리표 전수 + 전송면 3종 + 구조 고정) — Red 22 → Green 29. conftest에 세션 autouse fixture로 자격증명 격리 + 명시적 dev-allow(테스트도 production과 같은 명시적 계약 통과).
+- **회귀 대조**: base `01669c2` throwaway worktree와 동일 파일셋 실행 → 실패 목록 byte-identical (SEC-01 회귀 0). ruff/mypy clean.
+- **증거**: `.omo/evidence/commercial-ga-100/SEC-01/` (metadata/red/tests/full-suite/manual-qa)
 
 ## 진행 중 작업
 

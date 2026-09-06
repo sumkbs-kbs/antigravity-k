@@ -118,7 +118,7 @@ def test_unauthorized_workspace_ws_never_reaches_upstream(
 
 
 @pytest.mark.parametrize("suffix", ["", "/nested/socket"])
-@pytest.mark.parametrize("channel", ["token", "pin", "subprotocol"])
+@pytest.mark.parametrize("channel", ["token", "subprotocol"])
 def test_authenticated_workspace_ws_roundtrip_strips_credentials(
     client: TestClient,
     echo: EchoUpstream,
@@ -127,16 +127,19 @@ def test_authenticated_workspace_ws_roundtrip_strips_credentials(
     suffix: str,
     channel: str,
 ) -> None:
+    """SEC-01/02: WS PIN query 인증 제거에 따라 token/subprotocol 채널만 인증된다.
+
+    pin 파라미터(평문+URL인코딩)는 token 채널 쿼리에 장식으로 포함해
+    "credential 전달 차단" 검증을 유지한다 — 인증 수단으로는 쓰이지 않는다.
+    """
     record = registry.register("echo", "main", "qa", echo.port)
     token = token_service.issue_token("qa")
     query = "room=alpha&room=beta&empty=&text=a%2Bb%20c"
     protocols: list[str] = []
     if channel == "subprotocol":
         protocols = [f"bearer.{token}"]
-    elif channel == "pin":
-        query += f"&pin={TEST_PIN}"
     else:
-        query += f"&token={token}&token={token}&p%69n=do-not-forward"
+        query += f"&token={token}&token={token}&p%69n=do-not-forward&pin={TEST_PIN}"
     with client.websocket_connect(
         f"/api/workspace/services/{record.hostname}/ws{suffix}?{query}",
         subprotocols=protocols,
@@ -174,12 +177,14 @@ def test_auth_precedes_service_lookup(client: TestClient, registry: WorkspaceSer
 def test_authenticated_unavailable_service_closes_cleanly(
     client: TestClient,
     registry: WorkspaceServiceRegistry,
+    token_service: TokenService,
     service_state: str,
 ) -> None:
     hostname = "unknown.localhost"
     if service_state == "stopped":
         hostname = registry.register("echo", "main", "qa", 1, status="stopped").hostname
-    with client.websocket_connect(f"/api/workspace/services/{hostname}/ws?pin={TEST_PIN}") as ws:
+    token = token_service.issue_token("qa")
+    with client.websocket_connect(f"/api/workspace/services/{hostname}/ws?token={token}") as ws:
         with pytest.raises(WebSocketDisconnect) as closed:
             _ = ws.receive_text()
         assert closed.value.code == 1008

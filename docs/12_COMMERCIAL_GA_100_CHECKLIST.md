@@ -36,7 +36,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | DAT-01 | DONE | dat_01_persistence | dat_01_verify (r2 APPROVE) | codex/dat-01-task-cas / Ssak-Ai-dat-01 | `5aed1a649ac572fb5789cce8da895576855f7aca` | `.omo/evidence/commercial-ga-100/DAT-01/` | r2 APPROVE (F1/F2 해소, metadata status=DONE와 정합) — r1 REJECT 이력은 review.md 보존 |
 | DAT-02 | DONE | dat_02_vault | dat_02_verify (r1 APPROVE) | codex/dat-02-vault-isolation / Ssak-Ai-dat-02 | `0795142` | `.omo/evidence/commercial-ga-100/DAT-02/` | 병합 완료 (ff `8cec36c` → `codex/m1-task-events`) — 2026-09-06. 브랜치는 audit trail로 보존 |
 | DAT-03 | DONE | dat_03_registry | dat_03_verify (r1 APPROVE) | codex/dat-03-registry-atomic / Ssak-Ai-dat-03 | `f61e06f` | `.omo/evidence/commercial-ga-100/DAT-03/` | 병합 완료 (`ba5e1f3`) — 2026-09-06. AC 4건 독립 재현, 결함 0, 회귀 0. 브랜치는 audit trail로 보존 |
-| SEC-01 | TODO |  |  |  |  |  | GA-00 |
+| SEC-01 | REVIEW | sec_01_policy | dat_03_verify 양식 준수 (리뷰 대기) | codex/sec-01-auth-policy / Ssak-Ai-sec-01 | `906008f` | `.omo/evidence/commercial-ga-100/SEC-01/` | 단일 AuthPolicy 구현 완료, 진리표 29테스트 통과, base 대조 회귀 0 — 독립 리뷰 대기 |
 | SEC-02 | TODO |  |  |  |  |  | SEC-01 |
 | SEC-03 | TODO |  |  |  |  |  | SEC-01 |
 | EVO-01 | TODO |  |  |  |  |  | GA-00 |
@@ -224,12 +224,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## SEC-01 · 단일 인증 정책
 
-- [ ] startup/HTTP/SSE/WS가 같은 policy를 사용한다.
-- [ ] 저장 PIN hash만 있어도 보호 상태가 유지된다.
-- [ ] 무자격 HTTP/SSE/WS가 fail-closed다.
-- [ ] dev no-PIN 허용 조건이 명시적이다.
-- [ ] PIN 변경/삭제/restart 뒤 UI와 실제 상태가 같다.
-- [ ] 전체 auth truth table test가 통과한다.
+- [x] startup/HTTP/SSE/WS가 같은 policy를 사용한다. — `api/auth_policy.py` 공유 AuthPolicy 싱글톤 (startup/HTTP/WS/status 공통)
+- [x] 저장 PIN hash만 있어도 보호 상태가 유지된다. — plaintext PIN 부재여부와 무관하게 hash 존재 시 protected (구버전 loopback 익명 분기 제거)
+- [x] 무자격 HTTP/SSE/WS가 fail-closed다. — 401/401/close 4401 진리표 테스트로 고정
+- [x] dev no-PIN 허용 조건이 명시적이다. — `AGK_SEC_DEV_NO_PIN_ALLOW` 명시 + loopback + credential 전무 3조건, production에선 env 무시
+- [x] PIN 변경/삭제/restart 뒤 UI와 실제 상태가 같다. — `/api/auth/status`가 매 평가 시 credential 재판독 (캐시 없음)
+- [x] 전체 auth truth table test가 통과한다. — `tests/test_auth_policy_truth_table.py` 29 tests
 
 ## SEC-02 · PIN 교환과 rate limit
 
