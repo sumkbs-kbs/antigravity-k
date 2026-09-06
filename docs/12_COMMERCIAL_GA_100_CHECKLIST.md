@@ -28,7 +28,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | ARC-01 | DONE | arc_01_contract | arc_01_verify | codex/arc-01-execution-context / Ssak-Ai-arc-01 | `ede637a11fce67ff43eb32be2aacc1a0396b538c` | `.omo/evidence/commercial-ga-100/ARC-01/` | r2 APPROVE; prior REJECT closed in review.md; escape boundary verified |
 | WS-01 | DONE | ws_01_backend | ws_01_verify | codex/ws-01-project-binding / Ssak-Ai-ws-01 | `11658e046ecb7ce8eec6250401884142bc43fc2d` | `.omo/evidence/commercial-ga-100/WS-01/` | r2 APPROVE; prior REJECT closed in review.md; tools bind before generate |
 | WS-02 | DONE | ws_02_tools | ws_02_verify | codex/ws-02-tool-root / Ssak-Ai-ws-02 | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | `.omo/evidence/commercial-ga-100/WS-02/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1/F2 closed |
-| WS-03 | REVIEW | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `4a03e3770f31b49697e0ff23c29e55227808822d` | `.omo/evidence/commercial-ga-100/WS-03/` | WS-01 |
+| WS-03 | REVIEW | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `4a03e3770f31b49697e0ff23c29e55227808822d` | `.omo/evidence/commercial-ga-100/WS-03/` | r1 REJECT; fix+re-review |
 | WS-04 | TODO |  |  |  |  |  | ARC-01, WS-01 |
 | CTX-01 | TODO |  |  |  |  |  | ARC-01 |
 | CTX-02 | TODO |  |  |  |  |  | CTX-01 |
@@ -131,14 +131,14 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## WS-03 · project scoped 서비스 lifecycle
 
-> Owner 구현 완료 → **REVIEW** 요청 (`ws_03_verify`). APPROVE/DONE은 독립 reviewer만 기록. Self-APPROVE 금지.
+> Independent review r1 **REJECT** (`review.md`). Tip `b3e48344b8fd9ed27d8090ef8f4817285b6a27a2`. Impl `4a03e3770f31b49697e0ff23c29e55227808822d`. Blocking: session DI/chat cwd resume leak (F1/F2); slash registry freezes first agent_runtime (F3); durable/vector hooks global+cwd (F5); RAG overclaim vs shared VaultEngine (F6). **DONE 금지**. **WS-04 이 lane 착수 금지** until fix + re-review APPROVE. Evidence: `.omo/evidence/commercial-ga-100/WS-03/`.
 
-- [x] orchestrator/runtime cache key에 project ID가 있다. *(`ProjectRuntimeRegistry` / `acquire_project_runtime`)*
-- [x] memory/RAG/artifact/context persistence가 project별이다. *(per-project MemoryManager + OrchestratorAgent; artifact/RAG on orch)*
-- [x] model별 compressor cache도 project별이다. *(`context_compressor_for` on project-keyed orchestrator)*
-- [x] A→B→A 전환 후 cross-project 데이터 0건이다. *(`test_memory_persistence_isolated_across_aba_switch`)*
-- [x] restart/eviction 뒤 격리가 유지된다. *(`test_restart_reload_preserves_disk_isolation`, LRU/evict tests)*
-- [x] watcher/DB/process cleanup을 확인했다. *(`OrchestratorAgent.shutdown` + delete_project evict; cleanup-receipt.md)*
+- [x] orchestrator/runtime cache key에 project ID가 있다. *(`ProjectRuntimeRegistry` / `acquire_project_runtime` — orch/MM OK; slash/job/session DI still singleton — F3/F7)*
+- [ ] memory/RAG/artifact/context persistence가 project별이다. *(project memory/artifact/compressor OK; chat session/context FAIL F1/F2; RAG overclaim F6; durable clear global F5)*
+- [x] model별 compressor cache도 project별이다. *(`context_compressor_for` on project-keyed orchestrator; verify PASS)*
+- [ ] A→B→A 전환 후 cross-project 데이터 0건이다. *(project-memory unit PASS; chat session secret leak F2; slash sticky runtime F3)*
+- [x] restart/eviction 뒤 격리가 유지된다. *(`test_restart_reload_preserves_disk_isolation`, LRU/evict; verify PASS for registry path)*
+- [ ] watcher/DB/process cleanup을 확인했다. *(orch shutdown/watchdog OK; durable/project_vector cwd hooks not project-clean — F5)*
 
 ## WS-04 · dashboard 프로젝트 상태
 

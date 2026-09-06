@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 5 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | WS-03 REVIEW (owner ws_03_runtime); awaiting ws_03_verify |
+| 현재 작업 | WS-03 REVIEW — r1 REJECT (`ws_03_verify`); awaiting owner fix |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,16 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-03 독립 review r1 REJECT (`ws_03_verify`)
+
+- tip reviewed: `b3e48344b8fd9ed27d8090ef8f4817285b6a27a2` (HEAD 확인)
+- Impl / Result SHA: `4a03e3770f31b49697e0ff23c29e55227808822d`
+- branch/worktree: `codex/ws-03-project-lifecycle` / `Ssak-Ai-ws-03`
+- Official re-run: **46 passed** (ws03+ws01+project_memory+engine_context_quality) — suite gap, not sufficiency
+- Adversarial: **REJECT** — F1/F2 session DI + chat `start_session(resume=True)` cwd leak; F3 `get_slash_registry` freezes first `agent_runtime`; F5 durable/vector hooks global/`Path.cwd()`; F6 RAG overclaim (shared `VaultEngine`, `_rag_indexer is None`); F7 scheduled_job sticky runtime
+- Evidence: `.omo/evidence/commercial-ga-100/WS-03/review.md`, `adversarial-verify.txt`, `tests-verify-rerun.txt`
+- 상태: `REVIEW` 유지 (DONE 아님). **WS-04 이 lane 착수 금지** until fix + re-review APPROVE.
 
 ### 2026-09-06 · WS-03 project-scoped runtime lifecycle (REVIEW) (`ws_03_runtime`)
 
@@ -46,7 +56,7 @@ tags: [commercialization, progress, evidence, multi-agent]
   - tests: `tests/test_ws03_project_lifecycle.py` **10 passed**; 회귀(ws01+project_memory+engine_context) **46 passed**; ruff clean
 - result SHA: `4a03e3770f31b49697e0ff23c29e55227808822d`
 - Evidence: `.omo/evidence/commercial-ga-100/WS-03/`
-- 상태: `REVIEW` (DONE 아님). 독립 `ws_03_verify` APPROVE 대기.
+- 상태: `REVIEW` (DONE 아님). 독립 r1 **REJECT** — fix 후 re-review.
 
 
 ### 2026-09-06 · WS-02 독립 review r2 APPROVE (`ws_02_verify`)
@@ -342,11 +352,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-03 | REVIEW | ws_03_runtime | `4a03e3770f31…` | 독립 review 대기 |
+| WS-03 | REVIEW | ws_03_runtime | `4a03e3770f31…` | r1 REJECT — fix+re-review |
 
 ## 차단 및 결정 대기
 
-`WS-03` **REVIEW** (owner `ws_03_runtime`, result SHA `4a03e3770f31b49697e0ff23c29e55227808822d`). 독립 `ws_03_verify` 대기 — self-APPROVE 금지. `WS-02` DONE 유지. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`WS-03` **REVIEW** 유지 — 독립 r1 **REJECT** (`ws_03_verify`, tip `b3e48344…`, impl `4a03e377…`). Blocking F1/F2/F3/F5/F6. **DONE 아님. WS-04 이 lane 착수 금지** until fix + re-review APPROVE. `WS-02`/`WS-01` DONE 유지. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 

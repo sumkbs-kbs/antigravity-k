@@ -1,0 +1,21 @@
+# WS-03 independent adversarial probes (ws_03_verify)
+Tip HEAD: b3e48344b8fd9ed27d8090ef8f4817285b6a27a2
+Impl SHA: 4a03e3770f31b49697e0ff23c29e55227808822d
+When: 2026-09-06T10:28+09:00
+
+F1 FAIL: get_session_manager() identical across A→B (process singleton)
+F1b PASS: ProjectRuntime.session_manager distinct per project
+F1c FAIL: chat DI get_session_manager() is NOT ProjectRuntime.session_manager (wiring gap)
+F2 FAIL: A→B chat session resume via cwd leaked A secret
+         (chat.py calls start_session(resume=True) without project_path → os.getcwd())
+F3 FAIL: get_slash_registry singleton still bound to first project agent_runtime after A→B
+F4 PASS: orchestrators distinct by project_id
+F5 FAIL: DurableMemoryProvider.clear hooks (memory_service/wiki/gbrain/project_vector/search_cache)
+         are identical global callables on every project's MemoryManager;
+         project_vector clear/export uses Path.cwd()/".antigravity/vault_data"
+F6 FAIL/OVERCLAIM: OrchestratorAgent._rag_indexer is None after factory;
+         shared get_vault_engine() VectorStore attached to every orchestrator (vault_engine is same object)
+F7 WARN: get_scheduled_job_service() process singleton binds first get_agent_runtime() forever
+
+Official tests re-run: 46 passed (ws03+ws01+project_memory+engine_context_quality)
+Official suite does NOT cover F1–F3/F5–F7.
