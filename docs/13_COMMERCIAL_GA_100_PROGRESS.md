@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 7 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | CTX-01 REVIEW — r1 REJECT (`ctx_01_verify`); awaiting owner fix |
+| 현재 작업 | CTX-01 REVIEW — F1–F4 fix submitted; awaiting `ctx_01_verify` re-review |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -34,6 +34,22 @@ tags: [commercialization, progress, evidence, multi-agent]
 ## 작업 기록
 
 
+
+
+### 2026-09-06 · CTX-01 F1–F4 REJECT fix (`ctx_01_conversation`)
+
+- owner: `ctx_01_conversation` (**APPROVE 자체 작성 금지**)
+- Prior REJECT: `review.md` 보존 (tip `6cf353a` / impl `81c9578`)
+- Fix / Result SHA: `8ba8337dbc953d3ac4788541adcf8294f809e9c6`
+- branch/worktree: `codex/ctx-01-conversation-revision` / `Ssak-Ai-ctx-01`
+- 수정 요약:
+  - F1: slash `_cmd_compact` — CAS/store failure → conflict/error; no session_manager success fallback; sync session only after successful store CAS
+  - F2: assistant persist re-raises stale; SSE `agk_conversation_conflict`; client throws `ConversationRevisionConflictError`
+  - F3: slash CAS `expected_revision=ctx.conversation_revision` (client expected)
+  - F4: gate `auto_restore` when `_uses_conversation_revision_protocol(body)`
+- 검증: pytest related+F1–F4 **66 passed**; vitest related **32 passed** (3 files)
+- Evidence: `re-review-request.md`, `adversarial-notes-fix.md`, `tests-fix-f1f4-pytest.txt`, `vitest-fix.txt`
+- 상태: **REVIEW** (DONE 아님). `ctx_01_verify` re-review 대기. **CTX-02 미착수**.
 
 ### 2026-09-06 · CTX-01 독립 review r1 REJECT (`ctx_01_verify`)
 
@@ -479,11 +495,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| CTX-01 | ctx_01_conversation | codex/ctx-01-conversation-revision | REVIEW | r1 REJECT — fix + ctx_01_verify re-review |
+| CTX-01 | ctx_01_conversation | codex/ctx-01-conversation-revision | REVIEW | F1–F4 fix submitted — awaiting ctx_01_verify re-review |
 
 ## 차단 및 결정 대기
 
-`CTX-01` **REVIEW** (r1 REJECT — `review.md`). Fix + `ctx_01_verify` re-review APPROVE 전 DONE 금지. **CTX-02 착수 금지.** `WS-04` DONE 유지. Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up; WS-04 FileTree click→open epoch gate narrow race. `WS-03`/`WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`CTX-01` **REVIEW** (r1 REJECT preserved in `review.md`; F1–F4 fix + `re-review-request.md`). `ctx_01_verify` re-review APPROVE 전 DONE 금지. **CTX-02 착수 금지.** `WS-04` DONE 유지. Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up; WS-04 FileTree click→open epoch gate narrow race. `WS-03`/`WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 
