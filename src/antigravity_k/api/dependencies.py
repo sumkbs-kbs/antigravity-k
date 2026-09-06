@@ -14,20 +14,17 @@ from pydantic import TypeAdapter, ValidationError
 from antigravity_k.engine.agent_runtime import AgentRuntime
 from antigravity_k.engine.benchmark_harness import BenchmarkHarness
 from antigravity_k.engine.context_shaper import ContextShaper
-from antigravity_k.engine.durable_memory import DurableMemoryProvider
 from antigravity_k.engine.embeddings import EmbeddingEngine
-from antigravity_k.engine.memory_provider import (
-    BuiltinMemoryProvider,
-    EpisodicMemoryProvider,
-    GlobalMemoryProvider,
-    MemoryManager,
-    WorkingMemoryBuffer,
-)
+from antigravity_k.engine.memory_provider import MemoryManager
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.model_registry import ModelRegistry
 from antigravity_k.engine.orchestrator import OrchestratorAgent
-from antigravity_k.engine.project_memory import ProjectMemoryProvider
-from antigravity_k.engine.project_memory_paths import project_memory_dir
+from antigravity_k.engine.project_runtime import (
+    ProjectRuntime,
+    build_project_memory_manager,
+    get_project_runtime_registry,
+    reset_project_runtime_registry,
+)
 from antigravity_k.engine.protocol_translator import ProtocolTranslator
 from antigravity_k.engine.scheduled_job_service import ScheduledJobService
 from antigravity_k.engine.session_manager import SessionManager
@@ -75,7 +72,7 @@ def _widen_graph_record(record: Mapping[str, object]) -> dict[str, object]:
     return widened
 
 
-# Global instances
+# Global instances (process-wide shared infrastructure)
 model_manager: ModelManager | None = None
 protocol_translator: ProtocolTranslator | None = None
 vault_engine: VaultEngine | None = None
@@ -83,14 +80,13 @@ vault_engine: VaultEngine | None = None
 _tool_registry: ToolRegistry | None = None
 _skill_loader: SkillLoader | None = None
 _context_shaper: ContextShaper | None = None
+# Legacy fallbacks when no project identity is available (CLI bootstrap).
 _session_manager: SessionManager | None = None
-_orchestrator: OrchestratorAgent | None = None
-_agent_runtime: AgentRuntime | None = None
 _scheduled_job_service: ScheduledJobService | None = None
 _voice_service: VoiceService | None = None
 _benchmark_harness: BenchmarkHarness | None = None
-_memory_manager: MemoryManager | None = None
 _mode_manager: ModeManager | None = None
+# WS-03: orchestrator / memory / agent_runtime are project-keyed via ProjectRuntimeRegistry.
 
 
 def get_mode_manager() -> ModeManager:
@@ -118,66 +114,143 @@ def _get_session_manager() -> SessionManager:
 get_session_manager = _get_session_manager
 
 
-def get_memory_manager(project_root: str | None = None) -> MemoryManager:
-    """Return MemoryManager scoped to the request project when available.
+def _durable_memory_hooks() -> dict[str, tuple]:
+    return {
+        "memory_service": (
+            _clear_memory_service,
+            _export_memory_service,
+            _redact_memory_service,
+            _retain_memory_service,
+        ),
+        "wiki": (_clear_wiki, _export_wiki, _redact_wiki, _retain_wiki),
+        "gbrain": (_clear_gbrain, _export_gbrain, _redact_gbrain),
+        "project_vector": (
+            _clear_project_vector,
+            _export_project_vector,
+            _redact_project_vector,
+        ),
+        "search_cache": (
+            _clear_search_cache,
+            _export_search_cache,
+            _redact_search_cache,
+            _retain_search_cache,
+        ),
+    }
 
-    WS-01: request-scoped ``RequestExecutionContext.canonical_project_root`` is
-    preferred over process cwd. Concurrent requests must not treat a singleton
-    global root mutation as authority — when a request context is bound we bind
-    to that root for this call only; callers that need hard isolation across
-    projects should pass an explicit ``project_root`` (WS-03 deepens cache keys).
+
+def _resolve_project_runtime_identity(
+    *,
+    project_id: str | None = None,
+    project_root: str | None = None,
+) -> tuple[str, str]:
+    """Resolve ``(project_id, canonical_root)`` for runtime cache keys.
+
+    Preference order:
+    1. Bound request ``RequestExecutionContext`` (ARC-01 / WS-01)
+    2. Explicit ``project_id`` via project registry
+    3. Explicit ``project_root`` matched to a registered project path
+    4. Process cwd / active registry project (CLI bootstrap only)
     """
-    global _memory_manager
-    from antigravity_k.api.project_binding import get_request_project_root
+    from antigravity_k.api.project_binding import get_bound_request_execution_context
+    from antigravity_k.engine.project_registry import get_project_registry
 
-    request_root = get_request_project_root()
-    chosen = project_root or request_root or os.getcwd()
-    root = Path(chosen).resolve()
-    if _memory_manager is None:
-        _memory_manager = MemoryManager(project_root=str(root))
-        _memory_manager.add_provider(BuiltinMemoryProvider(_get_session_manager()))
-        episodic_dir = project_memory_dir(root) / "episodic"
-        _memory_manager.add_provider(EpisodicMemoryProvider(max_episodes=200, persist_dir=str(episodic_dir)))
-        _memory_manager.add_provider(WorkingMemoryBuffer(max_turns=20))
-        _memory_manager.add_provider(GlobalMemoryProvider())
-        _memory_manager.add_provider(ProjectMemoryProvider(root))
-        _memory_manager.add_provider(
-            DurableMemoryProvider(
-                "memory_service",
-                _clear_memory_service,
-                _export_memory_service,
-                _redact_memory_service,
-                _retain_memory_service,
-            ),
-        )
-        _memory_manager.add_provider(
-            DurableMemoryProvider("wiki", _clear_wiki, _export_wiki, _redact_wiki, _retain_wiki),
-        )
-        _memory_manager.add_provider(
-            DurableMemoryProvider("gbrain", _clear_gbrain, _export_gbrain, _redact_gbrain),
-        )
-        _memory_manager.add_provider(
-            DurableMemoryProvider(
-                "project_vector",
-                _clear_project_vector,
-                _export_project_vector,
-                _redact_project_vector,
-            ),
-        )
-        _memory_manager.add_provider(
-            DurableMemoryProvider(
-                "search_cache",
-                _clear_search_cache,
-                _export_search_cache,
-                _redact_search_cache,
-                _retain_search_cache,
-            ),
-        )
-    # Bind to the chosen root for this resolution. Request contexts supply the
-    # root explicitly so switch of registry active project cannot silently
-    # retarget an in-flight request that already bound a different context.
-    _memory_manager.bind_project_root(root)
-    return _memory_manager
+    bound = get_bound_request_execution_context()
+    if bound is not None:
+        return bound.project_id, bound.canonical_project_root
+
+    explicit_id = (project_id or "").strip()
+    if explicit_id:
+        from antigravity_k.engine.request_execution_context import resolve_canonical_project_root
+
+        _record, root = resolve_canonical_project_root(explicit_id)
+        return explicit_id, root
+
+    registry = get_project_registry()
+    if project_root:
+        root = str(Path(project_root).resolve())
+        root_real = os.path.realpath(root)
+        for item in registry.list_projects():
+            path = str(item.get("path") or "")
+            if path and os.path.realpath(path) == root_real:
+                return str(item["id"]), root
+        return f"path:{root_real}", root
+
+    active = registry.get_active_project()
+    return active.id, os.path.abspath(active.path)
+
+
+def _build_project_runtime(project_id: str, project_root: str) -> ProjectRuntime:
+    """Factory: allocate a fresh orchestrator/memory/session for one project."""
+    from antigravity_k.engine.task_runner import get_task_runner
+
+    session_manager = SessionManager()
+    memory_manager = build_project_memory_manager(
+        project_root,
+        session_manager,
+        durable_hooks=_durable_memory_hooks(),
+    )
+    orchestrator = OrchestratorAgent(
+        model_manager=get_model_manager(),
+        vault_engine=get_vault_engine(),
+        project_root=project_root,
+        session_manager=session_manager,
+        memory_manager=memory_manager,
+        project_id=project_id,
+    )
+    task_runner = get_task_runner()
+    benchmark_harness = get_benchmark_harness()
+    agent_runtime = AgentRuntime(
+        orchestrator,
+        task_runner,
+        task_outcome_recorder=benchmark_harness.record_task_outcome,
+    )
+    _ = benchmark_harness.bind_task_runner(task_runner)
+    context_value = vars(orchestrator).get("ctx")
+    if isinstance(context_value, _RuntimeContextLike):
+        context_value.slash_commands.bind_runtime(agent_runtime)
+
+    return ProjectRuntime(
+        project_id=project_id,
+        project_root=project_root,
+        memory_manager=memory_manager,
+        session_manager=session_manager,
+        orchestrator=orchestrator,
+        agent_runtime=agent_runtime,
+    )
+
+
+def acquire_project_runtime(
+    *,
+    project_id: str | None = None,
+    project_root: str | None = None,
+) -> ProjectRuntime:
+    """Acquire (create or reuse) the project-scoped runtime handle."""
+    pid, root = _resolve_project_runtime_identity(project_id=project_id, project_root=project_root)
+    registry = get_project_runtime_registry()
+    return registry.get_or_create(pid, root, factory=_build_project_runtime)
+
+
+def evict_project_runtime(project_id: str) -> bool:
+    """Shutdown and drop one project runtime (watchers/DB/process handles)."""
+    return get_project_runtime_registry().evict(project_id)
+
+
+def reset_runtime_dependencies() -> None:
+    """Test/process helper: clear project runtime caches."""
+    reset_project_runtime_registry()
+
+
+def get_memory_manager(
+    project_root: str | None = None,
+    *,
+    project_id: str | None = None,
+) -> MemoryManager:
+    """Return the MemoryManager for the resolved project (WS-03).
+
+    Never rebinds a shared singleton across projects. Each project_id owns a
+    distinct manager whose persistence directory is under that project's root.
+    """
+    return acquire_project_runtime(project_id=project_id, project_root=project_root).memory_manager
 
 
 def _clear_memory_service() -> int:
@@ -375,6 +448,11 @@ def __get_tool_registry() -> ToolRegistry:
 
 
 def get_tool_registry() -> ToolRegistry:
+    """Prefer the request project's orchestrator registry when a context is bound."""
+    from antigravity_k.api.project_binding import get_bound_request_execution_context
+
+    if get_bound_request_execution_context() is not None:
+        return get_orchestrator().tool_registry
     return __get_tool_registry()
 
 
@@ -383,6 +461,15 @@ def __get_skill_loader() -> SkillLoader:
     if _skill_loader is None:
         _skill_loader = SkillLoader(project_root=os.getcwd())
     return _skill_loader
+
+
+def get_skill_loader() -> SkillLoader:
+    """Prefer the request project's skill loader when a context is bound."""
+    from antigravity_k.api.project_binding import get_bound_request_execution_context
+
+    if get_bound_request_execution_context() is not None:
+        return get_orchestrator().ctx.skill_loader
+    return __get_skill_loader()
 
 
 def _get_context_shaper() -> ContextShaper:
@@ -432,23 +519,17 @@ def get_vault_engine() -> VaultEngine | None:
     return vault_engine
 
 
-def get_orchestrator() -> OrchestratorAgent:
-    """Retrieve orchestrator.
+def get_orchestrator(
+    *,
+    project_id: str | None = None,
+    project_root: str | None = None,
+) -> OrchestratorAgent:
+    """Return the OrchestratorAgent for the resolved project (WS-03).
 
-    Returns:
-        OrchestratorAgent: The orchestratoragent result.
-
+    Cache key is ``project_id``. Project switches reuse or create handles —
+    they never mutate another project's orchestrator fields in place.
     """
-    global _orchestrator
-    if _orchestrator is None:
-        logger.info("Lazy initializing OrchestratorAgent (singleton)...")
-        _orchestrator = OrchestratorAgent(
-            model_manager=get_model_manager(),
-            vault_engine=get_vault_engine(),
-            session_manager=_get_session_manager(),  # 작업 1: 인스턴스 통일
-            memory_manager=get_memory_manager(),
-        )
-    return _orchestrator
+    return acquire_project_runtime(project_id=project_id, project_root=project_root).orchestrator
 
 
 def get_benchmark_harness() -> BenchmarkHarness:
@@ -465,23 +546,16 @@ def get_benchmark_harness() -> BenchmarkHarness:
     return _benchmark_harness
 
 
-def get_agent_runtime() -> AgentRuntime:
-    global _agent_runtime
-    if _agent_runtime is None:
-        from antigravity_k.engine.task_runner import get_task_runner
-
-        task_runner = get_task_runner()
-        benchmark_harness = get_benchmark_harness()
-        _agent_runtime = AgentRuntime(
-            get_orchestrator(),
-            task_runner,
-            task_outcome_recorder=benchmark_harness.record_task_outcome,
-        )
-        context_value = vars(_agent_runtime.orchestrator).get("ctx")
-        if isinstance(context_value, _RuntimeContextLike):
-            ctx = context_value
-            ctx.slash_commands.bind_runtime(_agent_runtime)
-    return _agent_runtime
+def get_agent_runtime(
+    *,
+    project_id: str | None = None,
+    project_root: str | None = None,
+) -> AgentRuntime:
+    """Return the AgentRuntime bound to the resolved project's orchestrator."""
+    runtime = acquire_project_runtime(project_id=project_id, project_root=project_root).agent_runtime
+    if runtime is None:
+        raise RuntimeError("ProjectRuntime missing agent_runtime")
+    return runtime
 
 
 def get_scheduled_job_service() -> ScheduledJobService:

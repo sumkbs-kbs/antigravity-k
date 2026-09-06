@@ -1,0 +1,21 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.12, pytest-9.0.3, pluggy-1.6.0 -- /Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ws-03/../Ssak-Ai/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ws-03
+configfile: pyproject.toml
+plugins: cov-7.1.0, asyncio-1.4.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 10 items
+
+tests/test_ws03_project_lifecycle.py::test_orchestrator_cache_keyed_by_project_id PASSED [ 10%]
+tests/test_ws03_project_lifecycle.py::test_memory_persistence_isolated_across_aba_switch PASSED [ 20%]
+tests/test_ws03_project_lifecycle.py::test_compressor_cache_is_project_keyed PASSED [ 30%]
+tests/test_ws03_project_lifecycle.py::test_artifact_engine_rooted_per_project PASSED [ 40%]
+tests/test_ws03_project_lifecycle.py::test_rag_indexer_attached_per_orchestrator PASSED [ 50%]
+tests/test_ws03_project_lifecycle.py::test_eviction_keeps_other_projects_and_cleans_watchdog PASSED [ 60%]
+tests/test_ws03_project_lifecycle.py::test_init_failure_does_not_damage_other_runtime PASSED [ 70%]
+tests/test_ws03_project_lifecycle.py::test_lru_eviction_shutdowns_victim PASSED [ 80%]
+tests/test_ws03_project_lifecycle.py::test_restart_reload_preserves_disk_isolation PASSED [ 90%]
+tests/test_ws03_project_lifecycle.py::test_acquire_by_explicit_project_id PASSED [100%]
+
+============================== 10 passed in 1.41s ==============================

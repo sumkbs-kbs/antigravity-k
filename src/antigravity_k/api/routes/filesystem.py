@@ -382,12 +382,15 @@ async def switch_project(req: SwitchProjectRequest, request: Request):
 @router.delete("/api/projects/{project_id}")
 async def delete_project(project_id: str):
     """프로젝트 등록을 해제합니다 (실제 파일은 삭제되지 않음)."""
+    from antigravity_k.api.dependencies import evict_project_runtime
     from antigravity_k.engine.project_registry import get_project_registry
 
     registry = get_project_registry()
     success = registry.remove_project(project_id)
     if not success:
         raise HTTPException(status_code=400, detail="Cannot delete the project (not found or last remaining project)")
+    # WS-03: drop project-scoped runtime (watchers / compressor / RAG handles).
+    _ = evict_project_runtime(project_id)
     return {"ok": True, "message": "프로젝트가 목록에서 제거되었습니다."}
 
 

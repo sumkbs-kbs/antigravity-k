@@ -316,20 +316,24 @@ def test_engine_context_rejects_memory_manager_from_another_project(tmp_path: Pa
         )
 
 
-def test_dependency_memory_manager_rejects_workspace_switch(tmp_path: Path, monkeypatch) -> None:
-    # Given: the API singleton has been initialized for project A.
+def test_dependency_memory_manager_isolates_workspace_switch(tmp_path: Path, monkeypatch) -> None:
+    # Given: WS-03 project-keyed runtimes (no shared singleton rebind).
     from antigravity_k.api import dependencies
 
     project_a = tmp_path / "project-a"
     project_b = tmp_path / "project-b"
     project_a.mkdir()
     project_b.mkdir()
-    manager = MemoryManager(project_root=str(project_a))
-    monkeypatch.setattr(dependencies, "_memory_manager", manager)
+    dependencies.reset_runtime_dependencies()
 
-    # When / Then: requesting project B fails instead of returning A's singleton.
-    with pytest.raises(ProjectMemoryBindingError):
-        dependencies.get_memory_manager(str(project_b))
+    # When: managers are acquired for A then B.
+    manager_a = dependencies.get_memory_manager(str(project_a))
+    manager_b = dependencies.get_memory_manager(str(project_b))
+
+    # Then: distinct managers are returned — never a field-patched A singleton.
+    assert manager_a is not manager_b
+    assert Path(manager_a.project_root).resolve() == project_a.resolve()
+    assert Path(manager_b.project_root).resolve() == project_b.resolve()
 
 
 def test_engine_context_recall_isolated_across_project_episodic_stores(tmp_path: Path) -> None:

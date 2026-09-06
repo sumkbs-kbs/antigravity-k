@@ -1,0 +1,21 @@
+{
+  "task_id": "WS-03",
+  "title": "project-scoped runtime/memory/RAG/artifact/compressor lifecycle",
+  "owner": "ws_03_runtime",
+  "reviewer": "ws_03_verify",
+  "status": "REVIEW",
+  "baseline_sha": "24650dbdb7621103d374028b5a2e542f0215b7eb",
+  "branch": "codex/ws-03-project-lifecycle",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ws-03",
+  "started_at": "2026-09-06T10:14:00+09:00",
+  "environment": {
+    "os": "macOS",
+    "python": "3.13",
+    "pytest_ws03": "10 passed",
+    "pytest_regression": "46 passed (ws03+ws01+project_memory+engine_context_quality)",
+    "ruff": "clean on touched files"
+  },
+  "notes": "Owner implementation complete. Independent review required; no self-APPROVE.",
+  "verdict": null,
+  "result_sha_pending": true
+}

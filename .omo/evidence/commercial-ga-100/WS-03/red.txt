@@ -1,0 +1,30 @@
+WS-03 RED (pre-fix baseline on WS-02 tip 24650db):
+
+1. `api/dependencies.get_orchestrator()` was a process-wide singleton
+   (`_orchestrator`). Project A and B shared one OrchestratorAgent whose
+   `project_root`, artifact engine, RAG indexer, and model compressor caches
+   were initialized once (usually cwd) and never keyed by project_id.
+
+2. `get_memory_manager()` used a single `_memory_manager` and called
+   `bind_project_root(root)`. Switching A→B raised `ProjectMemoryBindingError`
+   or — if rebound were allowed — would field-patch providers onto the wrong
+   project. WS-01 notes already flagged that WS-03 must deepen cache keys.
+
+3. Model `ContextCompressor` instances lived on the shared orchestrator
+   (`_context_compressor_by_model`) so compressor persistence under
+   `project_root/data/context_memory` could not be project-isolated across
+   switches.
+
+4. AmbientWatchdog / RAG vector_store handles had no project-scoped shutdown
+   path on switch/remove; delete_project did not evict runtime resources.
+
+5. A→B→A could not guarantee zero cross-project summary / episodic / project
+   memory / RAG / artifact leakage while reusing a field-patched singleton.
+
+GREEN (this tip, pending independent review — no self-APPROVE):
+1. `ProjectRuntimeRegistry` keys orchestrator + memory + session + agent_runtime
+   by `project_id`; switch never mutates another project's fields in place.
+2. Compressor / artifact / RAG attach to the project orchestrator → project-keyed.
+3. Eviction/shutdown stops watchdog, closes RAG vector_store, clears compressor
+   caches; delete_project evicts; LRU eviction isolates failures.
+4. A→B→A + restart (evict+recreate) tests keep disk-backed project memory isolated.

@@ -91,6 +91,7 @@ class OrchestratorAgent:
         tool_registry: ToolRegistry | None = None,
         session_manager: SessionManager | None = None,
         memory_manager: MemoryManager | None = None,
+        project_id: str | None = None,
     ):
         """Initialize the OrchestratorAgent.
 
@@ -100,11 +101,13 @@ class OrchestratorAgent:
             project_root: project root.
             tool_registry: tool registry.
             session_manager: 외부 SessionManager (작업 1: chat.py와 인스턴스 통일).
+            project_id: WS-03 project identity for runtime cache keying.
 
         """
         self.manager = model_manager
         self.vault_engine = vault_engine
         self.project_root = project_root or os.getcwd()
+        self.project_id = (project_id or "").strip() or None
 
         self.ctx = EngineContext(
             model_manager=model_manager,
@@ -818,6 +821,45 @@ class OrchestratorAgent:
                 self._max_engine = None
 
         return self._max_engine
+
+    def shutdown(self) -> None:
+        """Release project-scoped watchers, caches, and closable handles (WS-03).
+
+        Safe to call multiple times. Does not delete on-disk persistence under
+        ``project_root`` — only process-local resources are closed so another
+        project's runtime stays intact.
+        """
+        watchdog = getattr(self, "watchdog", None)
+        if watchdog is not None:
+            stop = getattr(watchdog, "stop", None)
+            if callable(stop):
+                try:
+                    stop()
+                except Exception:
+                    logger.exception("AmbientWatchdog stop failed during orchestrator shutdown")
+            self.watchdog = None
+
+        rag = getattr(self, "_rag_indexer", None)
+        if rag is not None:
+            vector_store = getattr(rag, "vector_store", None)
+            if vector_store is not None:
+                close = getattr(vector_store, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        logger.exception("RAG vector_store close failed during orchestrator shutdown")
+            self._rag_indexer = None
+
+        self._context_compressor_by_model.clear()
+        self._context_compressor_initialized = False
+        self._context_compressor_instance = None
+        self._trajectory_compressor_initialized = False
+        self._trajectory_compressor_instance = None
+        self._prompt_components_cache = {}
+        self._code_tree_indexer = None
+        self._skill_auto_learner_initialized = False
+        self._skill_auto_learner_instance = None
 
     def run_stream(
         self,

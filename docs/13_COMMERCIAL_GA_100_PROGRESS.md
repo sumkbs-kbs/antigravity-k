@@ -18,9 +18,9 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
 | 완료 | 5 |
-| 진행 중 | 0 |
+| 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | WS-02 DONE (r2 APPROVE); next WS-03/WS-04 eligible |
+| 현재 작업 | WS-03 REVIEW (owner ws_03_runtime); awaiting ws_03_verify |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,21 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-03 project-scoped runtime lifecycle (REVIEW) (`ws_03_runtime`)
+
+- owner: `ws_03_runtime` (APPROVE 자체 작성 금지)
+- base SHA: `24650dbdb7621103d374028b5a2e542f0215b7eb` (WS-02 r2 APPROVE tip, includes WS-01+ARC-01)
+- branch/worktree: `codex/ws-03-project-lifecycle` / `Ssak-Ai-ws-03`
+- 구현 요약:
+  - `engine/project_runtime.py`: `ProjectRuntimeRegistry` — orchestrator/memory/session/agent_runtime을 `project_id`로 keying; LRU eviction; init 실패 격리
+  - `api/dependencies.py`: singleton `_orchestrator`/`_memory_manager` 제거 → `acquire_project_runtime`; switch 시 field-patch 금지
+  - `OrchestratorAgent.shutdown()`: watchdog stop, RAG vector_store close, compressor caches clear
+  - `DELETE /api/projects/{id}`: `evict_project_runtime`
+  - tests: `tests/test_ws03_project_lifecycle.py` **10 passed**; 회귀(ws01+project_memory+engine_context) **46 passed**; ruff clean
+- Evidence: `.omo/evidence/commercial-ga-100/WS-03/`
+- 상태: `REVIEW` (DONE 아님). 독립 `ws_03_verify` APPROVE 대기.
+
 
 ### 2026-09-06 · WS-02 독립 review r2 APPROVE (`ws_02_verify`)
 
@@ -326,11 +341,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| — | — | — | — | WS-03 / WS-04 착수 가능 (선행 조건 준수) |
+| WS-03 | REVIEW | ws_03_runtime | _(pending)_ | 독립 review 대기 |
 
 ## 차단 및 결정 대기
 
-`WS-02` **DONE** (r2 APPROVE). WS-03/WS-04 이 lane 착수 허용. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`WS-03` **REVIEW** (owner `ws_03_runtime`, tip pending push). 독립 `ws_03_verify` 대기 — self-APPROVE 금지. `WS-02` DONE 유지. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 

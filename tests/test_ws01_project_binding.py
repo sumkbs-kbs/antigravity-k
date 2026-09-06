@@ -502,7 +502,7 @@ def test_di_get_memory_manager_uses_request_root(
         "antigravity_k.engine.project_registry._global_registry",
         registry,
     )
-    monkeypatch.setattr(deps, "_memory_manager", None)
+    deps.reset_runtime_dependencies()
 
     ctx = resolve_project_execution_context(
         payload={
