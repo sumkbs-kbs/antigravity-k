@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 8 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | CTX-02 REVIEW — r1 **REJECT** (`ctx_02_verify`); fail-open hard gate F1–F3; fix+re-review 대기; CTX-03 금지 |
+| 현재 작업 | CTX-02 REVIEW — F1–F3 fail-closed fix + re-review-request; r1 REJECT 보존; CTX-03 금지 until r2 APPROVE |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -35,6 +35,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 
 
+
+### 2026-09-06 · CTX-02 F1–F3 REJECT fix + re-review request (`ctx_02_budget`)
+
+- owner: `ctx_02_budget` (self-APPROVE 없음)
+- Fix / Result SHA: `RESULT_SHA_PENDING`
+- Prior impl / REJECT: `d04748cafe8879b9afaf310bdb6aab4f47ffb06a` / tip `15cccd7…` (`review.md` preserved)
+- branch/worktree: `codex/ctx-02-prompt-budget` / `Ssak-Ai-ctx-02`
+- Fixes: F1 `_enforce_final_prompt_budget` fail-closed (`PromptBudgetEnforcementError`); F2 outer except always halt before `stream_generate`; F3 fitted system/tools/skills (+ pinned) written back to loop locals
+- 검증: pytest F1–F3+final **14 passed**; related budget/shaper/tool_loop **156 passed** (3 pre-existing unrelated deselected); ruff clean
+- Evidence: `re-review-request.md`, `adversarial-notes-fix.md`, `adversarial-verify-owner-fix.txt`, `tests-fix-f1f3.txt`, `tests-fix-related.txt`, `ruff-fix.txt` (prior `review.md` REJECT intact)
+- 상태: `REVIEW` 유지 (**DONE 아님**). `ctx_02_verify` re-review 대기.
+- **CTX-03 미착수** (CTX-02 APPROVE 전 금지).
 
 ### 2026-09-06 · CTX-02 독립 review r1 REJECT (`ctx_02_verify`)
 

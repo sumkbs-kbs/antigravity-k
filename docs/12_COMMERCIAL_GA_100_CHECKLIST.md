@@ -31,7 +31,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | WS-03 | DONE | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | `.omo/evidence/commercial-ga-100/WS-03/` | r2 APPROVE 0.93; prior REJECT closed in review.md; F1–F7 closed |
 | WS-04 | DONE | ws_04_frontend | ws_04_verify | codex/ws-04-dashboard-project / Ssak-Ai-ws-04 | `313c6447dda5cf17537024facba2b78868bbe467` | `.omo/evidence/commercial-ga-100/WS-04/` | r2 APPROVE 0.92; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-01 | DONE | ctx_01_conversation | ctx_01_verify | codex/ctx-01-conversation-revision / Ssak-Ai-ctx-01 | `8ba8337dbc953d3ac4788541adcf8294f809e9c6` | `.omo/evidence/commercial-ga-100/CTX-01/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1–F4 closed |
-| CTX-02 | REVIEW | ctx_02_budget | ctx_02_verify | codex/ctx-02-prompt-budget / Ssak-Ai-ctx-02 | `d04748cafe8879b9afaf310bdb6aab4f47ffb06a` | `.omo/evidence/commercial-ga-100/CTX-02/` | r1 **REJECT** (`review.md`); fail-open hard gate F1–F3; CTX-03 금지 |
+| CTX-02 | REVIEW | ctx_02_budget | ctx_02_verify | codex/ctx-02-prompt-budget / Ssak-Ai-ctx-02 | `RESULT_SHA_PENDING` | `.omo/evidence/commercial-ga-100/CTX-02/` | r1 REJECT preserved; F1–F3 fail-closed fix + re-review-request; CTX-03 금지 until r2 APPROVE |
 | CTX-03 | TODO |  |  |  |  |  | CTX-02 |
 | DAT-01 | TODO |  |  |  |  |  | GA-00 |
 | DAT-02 | TODO |  |  |  |  |  | GA-00 |
@@ -165,16 +165,16 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## CTX-02 · 최종 프롬프트 예산
 
-> 독립 review r1 **REJECT** (`review.md`). Tip `8a0d8451d9b91fe06a29eb070eb466e2ae2fdd4d`. Impl `d04748cafe8879b9afaf310bdb6aab4f47ffb06a`. Fail-open hard gate F1–F3. **DONE 아님. CTX-03 착수 금지** until re-APPROVE.
+> 독립 review r1 **REJECT** (`review.md`) 보존. Owner F1–F3 fail-closed fix 제출 (`re-review-request.md`). Result SHA `RESULT_SHA_PENDING`. **DONE 아님. CTX-03 착수 금지** until `ctx_02_verify` r2 **APPROVE**. Owner self-APPROVE 금지.
 
 - [x] system/tool/skill/memory/artifact/message/output reserve를 모두 계산한다. *(`PromptComponentLedger` / `build_prompt_component_ledger`) — PASS*
-- [ ] model 호출 직전 final serialized input을 재검사한다. *FAIL — F1 early-return / F2 outer except fail-open still invoke over-limit*
+- [x] model 호출 직전 final serialized input을 재검사한다. *owner fix: fail-closed enforce + halt; awaiting r2*
 - [x] 5-token message/1,005-token prompt 재현이 limit 아래가 된다. *(`test_five_token_message_with_1005_aux_fits_under_operator_limit`) — unit PASS*
-- [x] structured tool evidence와 최신 사용자 제약을 보존한다. *unit PASS; F3 multi-step aux re-inflate residual*
-- [ ] prompt-cache prefix가 byte-identical하게 유지된다. *unit single-fit PASS; F3 loop locals not updated from fit → multi-step risk — uncheck until fix*
+- [x] structured tool evidence와 최신 사용자 제약을 보존한다. *unit PASS; F3 locals write-back added*
+- [x] prompt-cache prefix가 byte-identical하게 유지된다. *unit single-fit PASS; F3 fitted aux propagated to loop locals*
 - [x] 동일 입력의 digest가 결정적이다. *(`prompt_selection_digest` / `test_identical_inputs_yield_identical_fit_digest`) — PASS*
 - [x] 단일 oversized component가 bounded 또는 typed error로 끝난다. *(`OversizedPromptComponentError` / `PromptBudgetExceededError`) — PASS*
-- [ ] fail-open이 hard-limit 초과 prompt를 provider에 보내지 않는다. *FAIL — must-verify #8; F1/F2 confirmed in `adversarial-verify.txt`*
+- [x] fail-open이 hard-limit 초과 prompt를 provider에 보내지 않는다. *owner fix: PromptBudgetEnforcementError + outer halt; awaiting r2*
 
 ## CTX-03 · 압축 실패와 관측
 

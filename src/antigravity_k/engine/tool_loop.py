@@ -772,6 +772,8 @@ class ToolLoopEngine:
         deterministically when over budget, and preserves prompt-cache prefix bytes
         when only the mutable suffix changes.
         """
+        from antigravity_k.engine.context_budget import PromptBudgetEnforcementError
+
         try:
             from antigravity_k.engine.context_budget import (
                 build_prompt_component_ledger,
@@ -784,28 +786,40 @@ class ToolLoopEngine:
                 fit_final_prompt,
             )
             from antigravity_k.engine.tokenizer import TokenEstimator
-        except Exception:
-            logger.debug("final prompt budget imports failed", exc_info=True)
-            return prompt_str, shaped_messages, None
+        except Exception as import_error:
+            # Fail-closed: never hand an unchecked prompt to the provider.
+            raise PromptBudgetEnforcementError(
+                f"final prompt budget imports failed: {import_error}",
+            ) from import_error
 
         config = getattr(self.orch, "config", None)
         if not isinstance(config, dict):
-            return prompt_str, shaped_messages, None
+            raise PromptBudgetEnforcementError(
+                "final prompt budget requires dict orchestrator config (fail-closed)",
+            )
         if not isinstance(prompt_str, str):
-            return prompt_str, shaped_messages, None
+            raise PromptBudgetEnforcementError(
+                "final prompt budget requires string prompt_str (fail-closed)",
+            )
         if not isinstance(shaped_messages, list):
-            return prompt_str, shaped_messages, None
+            raise PromptBudgetEnforcementError(
+                "final prompt budget requires list shaped_messages (fail-closed)",
+            )
 
         try:
             hard_limit = resolve_hard_token_limit(config, self._resolve_model_name(delegate_model))
-        except Exception:
-            logger.debug("hard token limit resolve failed", exc_info=True)
-            return prompt_str, shaped_messages, None
+        except Exception as resolve_error:
+            raise PromptBudgetEnforcementError(
+                f"hard token limit resolve failed: {resolve_error}",
+            ) from resolve_error
         estimate = TokenEstimator.estimate_text
         try:
             serialized_tokens = estimate(prompt_str)
-        except TypeError:
-            return prompt_str, shaped_messages, None
+        except TypeError as estimate_error:
+            raise PromptBudgetEnforcementError(
+                f"final prompt token estimate failed: {estimate_error}",
+                prompt_tokens=None,
+            ) from estimate_error
 
         if direct_response:
             # Direct path has no component split — bound the serialized blob itself.
@@ -894,17 +908,30 @@ class ToolLoopEngine:
             )
             return prompt_str, shaped_messages, fit
 
-        fit = fit_final_prompt(
-            system=system_prompt,
-            tools=tool_prompt,
-            skills=skill_prompts,
-            messages=shaped_messages,
-            memory=pinned,
-            artifacts="",
-            hard_limit=hard_limit,
-            estimate_tokens=estimate,
-            allow_typed_error=True,
+        from antigravity_k.engine.context_budget import (
+            OversizedPromptComponentError,
+            PromptBudgetExceededError,
         )
+
+        try:
+            fit = fit_final_prompt(
+                system=system_prompt,
+                tools=tool_prompt,
+                skills=skill_prompts,
+                messages=shaped_messages,
+                memory=pinned,
+                artifacts="",
+                hard_limit=hard_limit,
+                estimate_tokens=estimate,
+                allow_typed_error=True,
+            )
+        except (OversizedPromptComponentError, PromptBudgetExceededError):
+            raise
+        except Exception as fit_error:
+            raise PromptBudgetEnforcementError(
+                f"fit_final_prompt failed: {fit_error}",
+                prompt_tokens=serialized_tokens,
+            ) from fit_error
         logger.info(
             "[ToolLoop] Final prompt budget: serialized_before=%s input=%s reserve=%s limit=%s "
             "digest=%s strategy=%s compressed=%s",
@@ -1176,6 +1203,23 @@ class ToolLoopEngine:
                     skill_prompts if not direct_response else "",
                     direct_response=direct_response,
                 )
+                # F3: propagate fitted aux components into loop locals so later
+                # _rebuild_prompt / _maybe_compress_context cannot re-inflate them.
+                if _final_fit is not None and not direct_response:
+                    system_prompt = str(getattr(_final_fit, "system", system_prompt) or "")
+                    tool_prompt = str(getattr(_final_fit, "tools", tool_prompt) or "")
+                    skill_prompts = str(getattr(_final_fit, "skills", skill_prompts) or "")
+                    fitted_memory = getattr(_final_fit, "memory", None)
+                    if isinstance(fitted_memory, str):
+                        cached = getattr(self.orch, "_prompt_components_cache", None)
+                        if isinstance(cached, dict):
+                            cached["pinned_context"] = fitted_memory
+                        else:
+                            setattr(
+                                self.orch,
+                                "_prompt_components_cache",
+                                {"pinned_context": fitted_memory},
+                            )
                 _fit_compressed = bool(getattr(_final_fit, "compressed", False)) if _final_fit is not None else False
                 if _final_fit is not None and _fit_compressed:
                     self._refresh_checkpoint_context(shaped_messages)
@@ -1187,11 +1231,22 @@ class ToolLoopEngine:
             except Exception as budget_error:
                 from antigravity_k.engine.context_budget import (
                     OversizedPromptComponentError,
+                    PromptBudgetEnforcementError,
                     PromptBudgetExceededError,
                 )
 
-                if isinstance(budget_error, (OversizedPromptComponentError, PromptBudgetExceededError)):
+                # Fail-closed: typed budget errors AND any unexpected enforce failure
+                # must halt before stream_generate (never send unchecked / over-limit prompts).
+                if isinstance(
+                    budget_error,
+                    (OversizedPromptComponentError, PromptBudgetExceededError, PromptBudgetEnforcementError),
+                ):
                     yield f"\n\n⚠️ **[Prompt Budget]** 최종 프롬프트가 한도를 초과해 모델 호출을 중단합니다: {budget_error}\n"
+                    outcome = (
+                        "prompt_budget_enforcement_failed"
+                        if isinstance(budget_error, PromptBudgetEnforcementError)
+                        else "prompt_budget_exceeded"
+                    )
                     self._record_task_outcome(
                         task_id,
                         delegate_model,
@@ -1200,12 +1255,22 @@ class ToolLoopEngine:
                         retry_count,
                         started_at,
                         False,
-                        "prompt_budget_exceeded",
+                        outcome,
                     )
                     return
-                # Mocked orchestrator configs in unit tests may lack real prompt parts;
-                # never fail the loop on non-budget errors here (CTX-03 will harden telemetry).
-                logger.debug("final prompt budget skipped: %s", budget_error, exc_info=True)
+                logger.error("final prompt budget enforce failed (fail-closed): %s", budget_error, exc_info=True)
+                yield f"\n\n⚠️ **[Prompt Budget]** 최종 예산 검사 실패로 모델 호출을 중단합니다: {budget_error}\n"
+                self._record_task_outcome(
+                    task_id,
+                    delegate_model,
+                    expected_tools,
+                    used_tools,
+                    retry_count,
+                    started_at,
+                    False,
+                    "prompt_budget_enforcement_failed",
+                )
+                return
 
             stream_kwargs: dict[str, ToolGenerationValue] = {
                 "prompt": prompt_str,

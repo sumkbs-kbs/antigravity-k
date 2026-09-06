@@ -188,6 +188,18 @@ class OversizedPromptComponentError(ValueError):
         self.budget = budget
 
 
+class PromptBudgetEnforcementError(RuntimeError):
+    """Final prompt budget gate could not be enforced; provider invoke must halt.
+
+    Fail-closed: import/config/resolve/estimate failures must not fall through to
+    the provider with an unchecked (possibly over-limit) serialized prompt.
+    """
+
+    def __init__(self, message: str, *, prompt_tokens: int | None = None) -> None:
+        super().__init__(message)
+        self.prompt_tokens = prompt_tokens
+
+
 def output_reserve_tokens(context_length: int | None = None) -> int:
     """Conservative completion reserve used in the final hard-limit check."""
     if context_length is None or context_length <= 0:
