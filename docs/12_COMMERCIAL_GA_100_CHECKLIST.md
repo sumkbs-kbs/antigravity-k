@@ -35,7 +35,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | CTX-03 | DONE | ctx_03_observability | ctx_03_verify | codex/ctx-03-compress-observability / Ssak-Ai-ctx-03 | `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3` | `.omo/evidence/commercial-ga-100/CTX-03/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1 closed; DAT-01 ready |
 | DAT-01 | DONE | dat_01_persistence | dat_01_verify (r2 APPROVE) | codex/dat-01-task-cas / Ssak-Ai-dat-01 | `5aed1a649ac572fb5789cce8da895576855f7aca` | `.omo/evidence/commercial-ga-100/DAT-01/` | r2 APPROVE (F1/F2 해소, metadata status=DONE와 정합) — r1 REJECT 이력은 review.md 보존 |
 | DAT-02 | DONE | dat_02_vault | dat_02_verify (r1 APPROVE) | codex/dat-02-vault-isolation / Ssak-Ai-dat-02 | `0795142` | `.omo/evidence/commercial-ga-100/DAT-02/` | 병합 완료 (ff `8cec36c` → `codex/m1-task-events`) — 2026-09-06. 브랜치는 audit trail로 보존 |
-| DAT-03 | TODO |  |  |  |  |  | GA-00 |
+| DAT-03 | REVIEW | dat_03_registry | dat_03_verify (r1 APPROVE) | codex/dat-03-registry-atomic / Ssak-Ai-dat-03 | `f61e06f` | `.omo/evidence/commercial-ga-100/DAT-03/` | r1 APPROVE — AC 4건 독립 재현 확인, 결함 0, base 대조 회귀 0. DONE 확정은 병합 후 |
 | SEC-01 | TODO |  |  |  |  |  | GA-00 |
 | SEC-02 | TODO |  |  |  |  |  | SEC-01 |
 | SEC-03 | TODO |  |  |  |  |  | SEC-01 |

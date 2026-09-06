@@ -123,6 +123,7 @@ dashboard/.omo/
 demo_fastapi_project/
 sessions/
 data/audits/
+data/*.lock
 data/benchmarks/*
 !data/benchmarks/held_out_v1.jsonl
 !data/benchmarks/held_out_v1.freeze.json

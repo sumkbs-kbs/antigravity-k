@@ -1,0 +1,26 @@
+# DAT-03 Red Baseline — 2026-09-06
+
+구현 전 `tests/test_project_registry_atomic.py` 첫 실행 결과 (구현 코드에
+RegistrySaveError가 존재하지 않아 import 수정 후):
+
+```
+FAILED tests/test_project_registry_atomic.py::TestMultiProcessDurability::test_two_processes_200_projects_survive
+FAILED tests/test_project_registry_atomic.py::TestTypedSaveFailures::test_disk_full_raises_typed_error
+FAILED tests/test_project_registry_atomic.py::TestTypedSaveFailures::test_permission_error_raises_typed_error
+FAILED tests/test_project_registry_atomic.py::TestCorruptionRecovery::test_truncated_primary_recovers_from_backup_and_preserves_corrupt
+4 failed, 2 passed in 0.21s
+```
+
+재현 근거 (구코드 `src/antigravity_k/engine/project_registry.py`):
+
+- `_save()` — `except Exception: logger.warning(...)` 로 저장 실패를 조용히 흡수
+  → disk-full/permission이 성공처럼 반환됨 (수용기준 2 위반)
+- `open(self.storage_path, "w")` 직접 기록 — temp/replace 없음
+  → interrupted write가 primary를 절단 (수용기준 3 위반)
+- lock/reload 없음 — process 간 last-writer-wins
+  → 2×100 프로젝트 시 나중 process가 앞 process 100개를 덮어쓴 실측
+    (테스트 서브프로세스 alpha/beta 실행에서 beta만 존재)
+- backup 파일 자체가 없음 — 손상 복구 경로 없음 (수용기준 3 위반)
+
+BR-03 감사 원문: "multi-process 200/200 보존과 atomic recovery"
+(docs/11_COMMERCIAL_GA_100_PLAN.md §6.x 수용 브릿지 표)

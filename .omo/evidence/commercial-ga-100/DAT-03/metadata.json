@@ -1,0 +1,63 @@
+{
+ "task_id": "DAT-03",
+ "title": "ProjectRegistry 원자성·내구성 — process lock + atomic save + corruption recovery (BR-03)",
+ "baseline_sha": "8cec36c (codex/m1-task-events — DAT-02 병합 직후)",
+ "base_branch": "codex/m1-task-events",
+ "branch": "codex/dat-03-registry-atomic",
+ "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-dat-03",
+ "owner": "dat_03_registry",
+ "reviewer": "dat_03_verify (할당 대기 — 구현자와 상이)",
+ "started_at": "2026-09-06",
+ "status": "REVIEW_R1_APPROVE",
+ "findings_addressed": [
+  "BR-03"
+ ],
+ "changed_files": [
+  "src/antigravity_k/engine/project_registry.py (재작성: flock + atomic save + backup/recovery)",
+  "src/antigravity_k/api/routes/filesystem.py (RegistrySaveError → 500 fail-closed)",
+  "tests/test_project_registry_atomic.py (new, 6 tests)"
+ ],
+ "contract_summary": {
+  "locking": "ProjectRegistry 변경 연산(add/switch/remove/active-save)은 <storage>.lock 파일의 flock(LOCK_EX) 아래 reload-modify-save로 수행 — multi-process last-writer-wins 손실 제거. 타임아웃 30s, 초과 시 RegistryLockTimeout.",
+  "atomic_save": "temp file(<name>.tmp-<pid>)에 기록 + fsync(file) + fsync(parent dir) + os.replace — interrupted write가 primary를 손상시키지 않는다.",
+  "typed_failure": "저장 실패(ENOSPC/EACCES/기타 OSError)는 RegistrySaveError로 반환 — 조용한 성공 금지. API create_project는 500 fail-closed로 변환.",
+  "backup_recovery": "정상 저장마다 직전 primary를 <storage>.bak로 회전. 로드 시 primary 손상 → .bak에서 복구 + 손상본 <storage>.corrupt-<ts> 격리 보존. backup도 손상이면 default 프로젝트로 클린 부트.",
+  "compat": "ProjectRecord는 구버전 dataclass 시그니처(위치 인자) + to_dict/from_dict 유지 — filesystem.py 등 소비자 무변경 동작."
+ },
+ "verification": {
+  "red": "4 failed (multi-process 200/200 손실, disk-full silent, permission silent, recovery 부재) — tests/test_project_registry_atomic.py 첫 실행",
+  "green": "6 passed — 수용기준 4건 전부 커버 (2×100=200 보존, typed failure 2종, truncated 복구+corrupt 보존, restart 일치)",
+  "regression": "전체 스위트 5495 passed / 21 failed — 21건은 base(8cec36c) 실패 목록과 diff로 완전 동일 (WS lane fixture 소유) → DAT-03 신규 회귀 0건",
+  "env_note": "worktree 첫 uv sync는 기본 extras만 설치해 mlx/pytest-asyncio가 빠졌다(4+1 오분류 실패). uv sync --all-extras 후 재측정 — 위 수치는 all-extras 기준.",
+  "quality": "ruff clean, ruff-format 적용, mypy clean (follow-imports=silent; 전체 mypy의 기존 10건은 타 lane 소유)"
+ },
+ "mutations_killed": [
+  "save 실패 무시로 퇴행 → test_disk_full_raises_typed_error / test_permission_error_raises_typed_error FAILED",
+  "lock 제거(직접 저장)로 퇴행 → test_two_processes_200_projects_survive FAILED (실제 서브프로세스 2개 재현)",
+  "corrupt 격리 제거 → test_truncated_primary_recovers_from_backup_and_preserves_corrupt FAILED"
+ ],
+ "artifacts": [
+  ".omo/evidence/commercial-ga-100/DAT-03/metadata.json",
+  ".omo/evidence/commercial-ga-100/DAT-03/red.txt",
+  ".omo/evidence/commercial-ga-100/DAT-03/tests.txt",
+  ".omo/evidence/commercial-ga-100/DAT-03/manual-qa.md"
+ ],
+ "handover_notes": [
+  "단일 .bak 회전 특성: 마지막 1회 저장분은 손상 시 손실 가능 — 다중 세대 backup이 필요하면 후속 페이즈",
+  "list/get 읽기 연산은 lock 없이 메모리 스냅샷 반환 (lock은 변경 연산만) — read 경합 최소화",
+  "SQLite 이관 옵션은 plan §DAT-03의 대안 — 현재 JSON+flock으로 수용기준 충족"
+ ],
+ "review": {
+  "verdict": "APPROVE",
+  "reviewer": "dat_03_verify (독립 세션 — Freebuff/Claude)",
+  "date": "2026-09-06",
+  "defects_found": 0,
+  "method": "AC 4건 독립 스크립트 재현 + 증거 테스트 재실행 + base 대조 회귀 분석 (byte-identical)",
+  "non_blocking_observations": [
+   "switch/delete route의 RegistrySaveError 명시적 catch (현재 프레임워크 500 — 동작 등가)",
+   "_RegistryFileLock 데드 코드 라인 정리",
+   "RegistryLockTimeout의 503 변환 고려"
+  ],
+  "record": ".omo/evidence/commercial-ga-100/DAT-03/review.md"
+ }
+}
