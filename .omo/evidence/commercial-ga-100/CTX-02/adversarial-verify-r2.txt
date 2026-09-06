@@ -1,0 +1,12 @@
+over_tokens 2008
+F1_config_not_dict RAISE PromptBudgetEnforcementError OVER_NOT_RETURNED True
+F5_resolve_boom RAISE
+F1_estimate_TypeError RAISE match=True
+F1_non_list_messages RAISE
+F2_stream_generate_calls 0 halted True
+F2_enforce_wraps_fit_error RAISE True
+F3_fit_compressed True system_shrunk True serialized_le_1000 True tools_kept True skills_kept True
+F3_multistep fitted_seen_in_rebuild True original_in_later_rebuilds False rebuild_count 2 stream_calls 2
+HAPPY_under_budget stream_calls 1
+SUCCESS_under_budget_fit_not_none True
+VERDICT_REVIEWER: fail-closed PASS for F1/F2/F3/F5

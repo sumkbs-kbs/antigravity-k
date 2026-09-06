@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 8 |
-| 진행 중 | 1 |
+| 완료 | 9 |
+| 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | CTX-02 REVIEW — F1–F3 fail-closed fix + re-review-request; r1 REJECT 보존; CTX-03 금지 until r2 APPROVE |
+| 현재 작업 | CTX-02 DONE (r2 APPROVE). CTX-03 착수 가능 (본 turn 미착수) |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -33,8 +33,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+### 2026-09-06 · CTX-02 독립 review r2 APPROVE (`ctx_02_verify`)
 
-
+- reviewer: `ctx_02_verify` (구현 커밋 없음)
+- tip reviewed: `81e5f98a9b9b5e368581e3170179b77a20f04682` (HEAD 확인)
+- Fix / Result SHA: `16db3b65e74275f433563d9b6c83721d956e3ba2`
+- branch/worktree: `codex/ctx-02-prompt-budget` / `Ssak-Ai-ctx-02`
+- Reviewer re-run: pytest final+reject **14 passed**; related budget/shaper/tool_loop **156 passed** (3 pre-existing unrelated deselected); ruff clean — `tests-verify-r2-*.txt`, `ruff-verify-r2.txt`
+- Adversarial: **APPROVE** — F1 non-dict/resolve/estimate/non-list → `PromptBudgetEnforcementError` (no 2008 return); F2 fit RuntimeError → `stream_generate` 0; F3 fitted system write-back + multi-step rebuild no re-inflate — `adversarial-verify-r2.txt`
+- Prior keep: ledger+reserve, 5+1005 unit fit, digest, TOOL_EVIDENCE/latest-user, cache prefix, typed exceed
+- Evidence: `.omo/evidence/commercial-ga-100/CTX-02/review-r2.md` (prior `review.md` REJECT intact)
+- 상태: **DONE**. Confidence 0.95.
+- **CTX-03 미착수** (본 reviewer turn; coordinator handoff 후 착수 가능).
 
 ### 2026-09-06 · CTX-02 F1–F3 REJECT fix + re-review request (`ctx_02_budget`)
 
@@ -546,16 +556,19 @@ tags: [commercialization, progress, evidence, multi-agent]
 | WS-01 | APPROVE | `11658e046ecb7ce8eec6250401884142bc43fc2d` | ws_01_verify | r2 tools bind before generate; 13+43 + 6 probes; prior REJECT closed | 2026-09-06 |
 | WS-02 | APPROVE | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | ws_02_verify | r2 F1/F2 closed; 12+101 + adversarial; prior REJECT closed | 2026-09-06 |
 | WS-03 | APPROVE | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | ws_03_verify | r2 F1–F7 closed; 15+51 + 9 probes; prior REJECT closed | 2026-09-06 |
+| WS-04 | APPROVE | `313c6447dda5cf17537024facba2b78868bbe467` | ws_04_verify | r2 F1–F4 closed; prior REJECT closed | 2026-09-06 |
+| CTX-01 | APPROVE | `8ba8337dbc953d3ac4788541adcf8294f809e9c6` | ctx_01_verify | r2 F1–F4 closed; prior REJECT closed | 2026-09-06 |
+| CTX-02 | APPROVE | `16db3b65e74275f433563d9b6c83721d956e3ba2` | ctx_02_verify | r2 F1–F3 closed; 14+156 + adversarial; prior REJECT closed | 2026-09-06 |
 
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| CTX-01 | ctx_01_conversation | codex/ctx-01-conversation-revision | REVIEW | F1–F4 fix submitted — awaiting ctx_01_verify re-review |
+| — | — | — | — | 없음 (CTX-02 DONE; CTX-03 착수 가능) |
 
 ## 차단 및 결정 대기
 
-`CTX-01` **REVIEW** (r1 REJECT preserved in `review.md`; F1–F4 fix + `re-review-request.md`). `ctx_01_verify` re-review APPROVE 전 DONE 금지. **CTX-02 착수 금지.** `WS-04` DONE 유지. Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up; WS-04 FileTree click→open epoch gate narrow race. `WS-03`/`WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`CTX-02` **DONE** (r2 APPROVE `review-r2.md`; r1 REJECT preserved in `review.md`; F1–F3 closed). Fix SHA `16db3b65e74275f433563d9b6c83721d956e3ba2`. **CTX-03 착수 가능** (본 turn 미착수). `CTX-01`/`WS-04`/`WS-03`/`WS-02`/`WS-01` DONE 유지. Residual: legacy `_maybe_compress_context` catch-all → CTX-03; process `get_vault_engine` non-blocking; shell token-policy SEC follow-up; WS-04 FileTree click→open epoch gate narrow race. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 
