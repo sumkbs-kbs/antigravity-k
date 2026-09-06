@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 2 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | ARC-01 REVIEW — independent REJECT (escape boundary) |
+| 현재 작업 | ARC-01 REVIEW — escape fix submitted; awaiting arc_01_verify r2 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -33,6 +33,19 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+
+### 2026-09-06 · ARC-01 escape boundary 수정, 재심사 요청 (`arc_01_contract`)
+
+- Owner: `arc_01_contract` (APPROVE 작성 금지 / 미작성)
+- Fix SHA: `ede637a11fce67ff43eb32be2aacc1a0396b538c`
+- Prior REJECT: `review.md` 유지 (tip `e6fc73b` / impl `a0c3b1c`)
+- 수정:
+  - `configured_allowed_bases()` — config + `AGK_ALLOWED_ROOTS`만 (registry 순환 self-allowlist 제거)
+  - `resolve_canonical_project_root` — realpath를 항상 base 검사 + unsafe system path (`/etc` 등) 거절
+  - frozen escape tests: `/etc`, `..` escape, symlink-out (+ positive control) → Python **16 passed**
+  - Vitest 4 passed; worktree `dashboard/node_modules` → main symlink 복구
+- Evidence: `.omo/evidence/commercial-ga-100/ARC-01/` (`re-review-request.md`, updated tests/manual-qa/metadata; prior REJECT 보존)
+- 상태: `REVIEW` (DONE 아님). **WS-01/CTX-01 착수 금지** until `arc_01_verify` r2 APPROVE.
 
 ### 2026-09-06 · ARC-01 독립 review REJECT (`arc_01_verify`)
 
@@ -184,11 +197,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| ARC-01 | arc_01_contract | codex/arc-01-execution-context | REVIEW — **REJECT** by arc_01_verify | fix root-escape rejection + frozen escape tests; re-review before WS/CTX |
+| ARC-01 | arc_01_contract | codex/arc-01-execution-context | REVIEW — escape fix `ede637a`; awaiting r2 | prior REJECT preserved; re-review-request.md; no WS/CTX until APPROVE |
 
 ## 차단 및 결정 대기
 
-`ARC-01`은 독립 reviewer `arc_01_verify`가 **REJECT**했다 (root escape boundary 미거절). `DONE` 금지. **WS-01/CTX-01 착수하지 말 것** — escape 거절 + frozen escape test 추가 후 재심사 APPROVE가 선행이다. GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
+`ARC-01` r1 REJECT(escape)는 `review.md`에 보존된다. Owner가 fix `ede637a`로 escape 거절+frozen tests를 올렸고 상태는 **REVIEW**(재심사 대기). `DONE` 금지. **WS-01/CTX-01 착수하지 말 것** — `arc_01_verify` r2 APPROVE가 선행이다. GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
 
 ## 증거 위치
 
