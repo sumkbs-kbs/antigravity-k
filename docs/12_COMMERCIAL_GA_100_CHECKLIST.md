@@ -26,7 +26,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | GA-00 | DONE | ga_00_baseline | ga_00_verify | codex/ga-00-baseline-gate | `7677bc391888ad13aa8413e32634f95912613d49` | `.omo/evidence/commercial-ga-100/GA-00/` | 독립 검증 APPROVE 0.99 |
 | GOV-01 | DONE | gov_01_scope / gov_01_scope_fix | gov_01_verify | codex/gov-01-product-scope | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | `.omo/evidence/commercial-ga-100/GOV-01/` | r2 APPROVE 0.95; prior REJECT closed |
 | ARC-01 | DONE | arc_01_contract | arc_01_verify | codex/arc-01-execution-context / Ssak-Ai-arc-01 | `ede637a11fce67ff43eb32be2aacc1a0396b538c` | `.omo/evidence/commercial-ga-100/ARC-01/` | r2 APPROVE; prior REJECT closed in review.md; escape boundary verified |
-| WS-01 | REVIEW | ws_01_backend | ws_01_verify | codex/ws-01-project-binding / Ssak-Ai-ws-01 | _(pending tip after fix commit)_ | `.omo/evidence/commercial-ga-100/WS-01/` | r1 REJECT preserved; fix+re-review-request; ARC-01 |
+| WS-01 | REVIEW | ws_01_backend | ws_01_verify | codex/ws-01-project-binding / Ssak-Ai-ws-01 | `11658e046ecb7ce8eec6250401884142bc43fc2d` | `.omo/evidence/commercial-ga-100/WS-01/` | r1 REJECT preserved; fix+re-review-request; ARC-01 |
 | WS-02 | TODO |  |  |  |  |  | WS-01 |
 | WS-03 | TODO |  |  |  |  |  | WS-01 |
 | WS-04 | TODO |  |  |  |  |  | ARC-01, WS-01 |
@@ -109,7 +109,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## WS-01 · backend 프로젝트 바인딩
 
-> 독립 review r1 **REJECT** (`review.md` 보존). Fix tip _(pending)_ · prior REJECT tip `588dc2ae9b5e1a6266672b240c650c4250ed9ac4`. Implementer `ws_01_backend`가 F1/F2 수정 후 `re-review-request.md` 제출. **DONE 아님 / 구현자 APPROVE 금지.** WS-02/03/04·CTX 착수 금지 until `ws_01_verify` re-review APPROVE.
+> 독립 review r1 **REJECT** (`review.md` 보존). Fix tip `11658e046ecb7ce8eec6250401884142bc43fc2d` · prior REJECT tip `588dc2ae9b5e1a6266672b240c650c4250ed9ac4`. Implementer `ws_01_backend`가 F1/F2 수정 후 `re-review-request.md` 제출. **DONE 아님 / 구현자 APPROVE 금지.** WS-02/03/04·CTX 착수 금지 until `ws_01_verify` re-review APPROVE.
 
 - [x] chat request가 project ID를 요구 또는 명시적 session binding으로 해석한다. *(fix tip: tools 분기에서도 resolve→request.state bind 후 passthrough; 회귀: tools+missing→400, generate==0)*
 - [x] task 생성이 불변 project context를 저장한다.

@@ -44,7 +44,7 @@ tags: [commercialization, progress, evidence, multi-agent]
   4. openai tool bridge endpoint fixtures bind temp project
 - 검증: WS-01 **13 passed**; registry/ARC-01/openai_tool_bridge **43 passed**; ruff clean
 - Evidence: `.omo/evidence/commercial-ga-100/WS-01/` (`re-review-request.md`, updated red/tests/manual-qa/adversarial/metadata; prior REJECT 보존)
-- Fix tip SHA: _(pending after commit)_
+- Fix tip SHA: `11658e046ecb7ce8eec6250401884142bc43fc2d`
 - 상태: `REVIEW` (DONE 아님). **WS-02/WS-03/WS-04/CTX 착수 금지** until `ws_01_verify` re-review APPROVE.
 
 ### 2026-09-06 · WS-01 독립 review REJECT (`ws_01_verify`)
