@@ -9,7 +9,11 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
 import { getFileIcon } from '../../utils/fileIcons';
-import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+import {
+  createProjectIdentityHeaders,
+  withProjectIdentityPayload,
+  withProjectIdentitySearchParams,
+} from '../../api/projectIdentity';
 
 /* ─── Types ───────────────────────────────────────────────── */
 
@@ -69,8 +73,8 @@ function parseSearchResponse(value: unknown): SearchResponse {
 }
 
 async function readFileContent(filePath: string): Promise<string> {
-  const response = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`, {
-    headers: createAccessPinHeaders(),
+  const response = await fetch(withProjectIdentitySearchParams(`/api/fs/read?file=${encodeURIComponent(filePath)}`), {
+    headers: createProjectIdentityHeaders(),
   });
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
@@ -92,8 +96,8 @@ async function readFileContent(filePath: string): Promise<string> {
 async function writeFileContent(filePath: string, content: string): Promise<void> {
   const response = await fetch('/api/fs/write', {
     method: 'POST',
-    headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ path: filePath, content }),
+    headers: createProjectIdentityHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(withProjectIdentityPayload({ path: filePath, content })),
   });
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
@@ -317,13 +321,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
     try {
       const res = await fetch('/api/fs/search', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        headers: createProjectIdentityHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(withProjectIdentityPayload({
           query: trimmed,
           max_results: 200,
           regex: useR,
           case_sensitive: useCS,
-        }),
+        })),
       });
       if (!res.ok) throw new Error(`Search failed (${res.status})`);
       const data = parseSearchResponse(await res.json());

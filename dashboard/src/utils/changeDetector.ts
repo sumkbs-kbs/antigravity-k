@@ -12,7 +12,10 @@
  */
 
 import { useChangeStore } from '../stores/changeStore';
-import { createAccessPinHeaders } from './accessPinCredential';
+import {
+  createProjectIdentityHeaders,
+  withProjectIdentitySearchParams,
+} from '../api/projectIdentity';
 
 /* ─── Types ───────────────────────────────────────────────── */
 
@@ -43,8 +46,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 async function fetchFileContent(filePath: string): Promise<string | null | undefined> {
   try {
-    const res = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`, {
-      headers: createAccessPinHeaders(),
+    const res = await fetch(withProjectIdentitySearchParams(`/api/fs/read?file=${encodeURIComponent(filePath)}`), {
+      headers: createProjectIdentityHeaders(),
     });
     if (!res.ok) return res.status === 404 ? null : undefined;
     const data: unknown = await res.json();
@@ -202,7 +205,7 @@ export async function registerFileModification(filePath: string, fileName: strin
     let previousContent: string | null = null;
     try {
       const gitRes = await fetch(`/api/git/file-content?path=.&file=${encodeURIComponent(filePath)}&ref=HEAD`, {
-        headers: createAccessPinHeaders(),
+        headers: createProjectIdentityHeaders(),
       });
       if (gitRes.ok) {
         const gitData: unknown = await gitRes.json();

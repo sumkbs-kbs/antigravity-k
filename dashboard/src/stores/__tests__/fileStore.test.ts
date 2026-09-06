@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useFileStore } from '../fileStore';
+import { useProjectStore } from '../projectStore';
 
 beforeEach(() => {
   useFileStore.setState({
@@ -13,6 +14,17 @@ beforeEach(() => {
     isLoading: false,
     workspacePath: '/',
     expandedPaths: new Set(),
+  });
+  useProjectStore.setState({
+    projects: [],
+    activeProjectId: null,
+    activeProjectName: 'Ssak-Ai',
+    activeProjectPath: '/',
+    projectRevision: null,
+    switchEpoch: 0,
+    isSwitching: false,
+    lastSwitchError: null,
+    hydrated: false,
   });
 });
 
@@ -255,6 +267,82 @@ describe('useFileStore', () => {
 
     const items = await useFileStore.getState().loadDirectory('.');
     expect(items).toEqual([]);
+
+    vi.restoreAllMocks();
+  });
+  /* ─── WS-04 F1: epoch isolation ───────────────────────── */
+
+  it('does not merge stale B tree after switch to C', async () => {
+    useProjectStore.getState().applyActiveProject({
+      id: 'proj_b', name: 'B', path: '/tmp/b', is_active: true, tasks: [],
+    }, 1);
+
+    let resolveB: (value: unknown) => void = () => {};
+    const bResponse = new Promise((resolve) => { resolveB = resolve; });
+
+    global.fetch = vi.fn().mockImplementation(() => bResponse);
+
+    const refreshPromise = useFileStore.getState().refreshTree();
+
+    // Switch to C while B list is in-flight
+    useProjectStore.getState().applyActiveProject({
+      id: 'proj_c', name: 'C', path: '/tmp/c', is_active: true, tasks: [],
+    }, 2);
+
+    // Stale B resolves after switch
+    resolveB({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        items: [{ name: 'from-b.ts', path: 'from-b.ts', is_dir: false }],
+      }),
+    });
+
+    await refreshPromise;
+
+    const tree = useFileStore.getState().treeData;
+    expect(tree.find((i) => i.name === 'from-b.ts')).toBeUndefined();
+    // clearForProjectSwitch / event listener emptied tree; stale must not refill
+    expect(tree).toEqual([]);
+
+    vi.restoreAllMocks();
+  });
+
+  it('clearForProjectSwitch resets tree and expanded paths', () => {
+    useFileStore.setState({
+      treeData: [{ name: 'a', path: 'a', is_dir: false }],
+      expandedPaths: new Set(['a']),
+      isLoading: true,
+    });
+    useFileStore.getState().clearForProjectSwitch();
+    const s = useFileStore.getState();
+    expect(s.treeData).toEqual([]);
+    expect(s.expandedPaths.size).toBe(0);
+    expect(s.isLoading).toBe(false);
+  });
+
+  it('getWorkspace does not apply stale workspacePath after switch', async () => {
+    useProjectStore.getState().applyActiveProject({
+      id: 'proj_b', name: 'B', path: '/tmp/b', is_active: true, tasks: [],
+    }, 1);
+
+    let resolveB: (value: unknown) => void = () => {};
+    const bResponse = new Promise((resolve) => { resolveB = resolve; });
+    global.fetch = vi.fn().mockImplementation(() => bResponse);
+
+    const wsPromise = useFileStore.getState().getWorkspace();
+
+    useProjectStore.getState().applyActiveProject({
+      id: 'proj_c', name: 'C', path: '/tmp/c', is_active: true, tasks: [],
+    }, 2);
+
+    resolveB({
+      ok: true,
+      json: async () => ({ ok: true, workspace: '/tmp/stale-b' }),
+    });
+
+    await wsPromise;
+    expect(useFileStore.getState().workspacePath).not.toBe('/tmp/stale-b');
 
     vi.restoreAllMocks();
   });

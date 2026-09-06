@@ -7,7 +7,10 @@
 import { create } from 'zustand';
 import type { OnMount } from '@monaco-editor/react';
 import { firePluginHook } from '../plugin/pluginRegistry';
-import { createAccessPinHeaders } from '../utils/accessPinCredential';
+import {
+  createProjectIdentityHeaders,
+  withProjectIdentityPayload,
+} from '../api/projectIdentity';
 
 type MonacoEditor = Parameters<OnMount>[0];
 
@@ -43,6 +46,7 @@ export interface EditorState {
 
   // Actions (continued)
   saveFile: (path: string) => Promise<boolean>;
+  clearForProjectSwitch: () => void;
 
   // Preview
   showPreview: (path: string, title: string, content: string) => void;
@@ -144,8 +148,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       const res = await fetch('/api/fs/write', {
         method: 'POST',
-        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ path: file.path, content: file.content }),
+        headers: createProjectIdentityHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(withProjectIdentityPayload({ path: file.path, content: file.content })),
       });
       if (!res.ok) return false;
       const data: unknown = await res.json();
@@ -157,6 +161,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } catch {
       return false;
     }
+  },
+
+  clearForProjectSwitch: () => {
+    set({
+      openFiles: [],
+      activeFilePath: null,
+      previewVisible: false,
+      previewPath: null,
+      previewTitle: '',
+      previewContent: '',
+    });
   },
 
   showPreview: (path, title, content) => {

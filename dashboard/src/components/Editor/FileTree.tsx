@@ -10,7 +10,10 @@ import { useFileStore } from '../../stores/fileStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
 import { getFileIcon } from '../../utils/fileIcons';
-import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+import {
+  createProjectIdentityHeaders,
+  withProjectIdentitySearchParams,
+} from '../../api/projectIdentity';
 
 interface FileTreeNodeProps {
   name: string;
@@ -78,8 +81,8 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = React.memo(({ name, path, isDi
       }
     } else {
       try {
-        const res = await fetch(`/api/fs/read?file=${encodeURIComponent(path)}`, {
-          headers: createAccessPinHeaders(),
+        const res = await fetch(withProjectIdentitySearchParams(`/api/fs/read?file=${encodeURIComponent(path)}`), {
+          headers: createProjectIdentityHeaders(),
         });
         if (!res.ok) {
           let detail = `HTTP ${res.status}`;

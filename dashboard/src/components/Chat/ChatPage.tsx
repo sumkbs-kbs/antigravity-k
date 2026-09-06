@@ -20,6 +20,7 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useUiStore } from '../../stores/uiStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useChangeStore } from '../../stores/changeStore';
+import { useFileStore } from '../../stores/fileStore';
 import {
   streamChatCompletion,
   fetchModels,
@@ -55,6 +56,7 @@ import { useActivityStore } from '../../stores/activityStore';
 import {
   createProjectIdentityHeaders,
   isIdentityCurrent,
+  withProjectIdentitySearchParams,
 } from '../../api/projectIdentity';
 
 export const ChatPage: React.FC = () => {
@@ -73,8 +75,8 @@ export const ChatPage: React.FC = () => {
   const switchEpoch = useProjectStore((s) => s.switchEpoch);
   const hydrateProjects = useProjectStore((s) => s.hydrateFromServer);
   const projectSwitchEpochRef = useRef(switchEpoch);
-  const { previewVisible, openFile } = useEditorStore();
-  const { setPanelVisible: setChangePanelVisible } = useChangeStore();
+  const { previewVisible, openFile, clearForProjectSwitch: clearEditorForProjectSwitch } = useEditorStore();
+  const { setPanelVisible: setChangePanelVisible, clearChanges } = useChangeStore();
   const pendingChangeCount = useChangeStore((s) => s.changes.filter((c) => c.status === 'pending').length);
 
   /* ─── States ─────────────────────────────────────────────── */
@@ -276,9 +278,13 @@ export const ChatPage: React.FC = () => {
       if (filePath) {
         useActivityStore.getState().recordFileRead(filePath);
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
-        fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
+        const capturedEpoch = useProjectStore.getState().switchEpoch;
+        fetch(withProjectIdentitySearchParams(`/api/fs/read?file=${encodeURIComponent(filePath)}`), {
+          headers: createProjectIdentityHeaders(),
+        })
           .then(r => r.ok ? r.json() : null)
           .then(d => {
+            if (!isIdentityCurrent(capturedEpoch)) return;
             if (d?.content !== undefined) {
               openFile(filePath, fileName, d.content);
               setEnvPanelOpen(true);
@@ -293,9 +299,13 @@ export const ChatPage: React.FC = () => {
       if (filePath) {
         useActivityStore.getState().recordFileEdit(filePath);
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
-        fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
+        const capturedEpoch = useProjectStore.getState().switchEpoch;
+        fetch(withProjectIdentitySearchParams(`/api/fs/read?file=${encodeURIComponent(filePath)}`), {
+          headers: createProjectIdentityHeaders(),
+        })
           .then(r => r.ok ? r.json() : null)
           .then(d => {
+            if (!isIdentityCurrent(capturedEpoch)) return;
             if (d?.content !== undefined) {
               openFile(filePath, fileName, d.content);
             }
@@ -303,6 +313,7 @@ export const ChatPage: React.FC = () => {
           .catch(() => {});
         registerFileModification(filePath, fileName)
           .then((registered) => {
+            if (!isIdentityCurrent(capturedEpoch)) return;
             if (registered) addToast(`📋 변경 감지: ${fileName}`, 'info');
           })
           .catch(() => {});
@@ -350,6 +361,10 @@ export const ChatPage: React.FC = () => {
     useActivityStore.getState().clear();
     useActivityStore.getState().setSessionEnded();
 
+    clearEditorForProjectSwitch();
+    clearChanges();
+    useFileStore.getState().clearForProjectSwitch();
+
     clearForProjectSwitch();
     loadFromStorage();
     if (useChatStore.getState().sessions.length === 0) {
@@ -364,6 +379,8 @@ export const ChatPage: React.FC = () => {
   }, [
     switchEpoch,
     clearForProjectSwitch,
+    clearEditorForProjectSwitch,
+    clearChanges,
     loadFromStorage,
     setStreaming,
     setCurrentAssistantContent,

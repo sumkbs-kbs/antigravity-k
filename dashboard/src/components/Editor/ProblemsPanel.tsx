@@ -11,7 +11,10 @@ import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import { useProblemsStore, getFilteredProblems, ProblemSeverity, Problem } from '../../stores/problemsStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
-import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+import {
+  createProjectIdentityHeaders,
+  withProjectIdentitySearchParams,
+} from '../../api/projectIdentity';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -117,8 +120,8 @@ const ProblemsPanel: React.FC = () => {
 
   const handleProblemClick = useCallback(async (problem: Problem) => {
     try {
-      const res = await fetch(`/api/fs/read?file=${encodeURIComponent(problem.filePath)}`, {
-        headers: createAccessPinHeaders(),
+      const res = await fetch(withProjectIdentitySearchParams(`/api/fs/read?file=${encodeURIComponent(problem.filePath)}`), {
+        headers: createProjectIdentityHeaders(),
       });
       if (!res.ok) {
         let detail = `HTTP ${res.status}`;

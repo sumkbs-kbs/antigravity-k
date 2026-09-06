@@ -130,31 +130,70 @@ test.describe('WS-04 project switch identity', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     const projects = {
       ok: true,
-      workspace: '/tmp/mobile',
+      workspace: '/tmp/mobile-b',
       current_project: {
-        id: 'proj_mobile',
-        name: 'Mobile',
-        path: '/tmp/mobile',
+        id: 'proj_mobile_b',
+        name: 'MobileB',
+        path: '/tmp/mobile-b',
         is_active: true,
         tasks: [],
       },
       projects: [
-        { id: 'proj_mobile', name: 'Mobile', path: '/tmp/mobile', is_active: true, tasks: [] },
+        { id: 'proj_mobile_b', name: 'MobileB', path: '/tmp/mobile-b', is_active: true, tasks: [] },
+        { id: 'proj_mobile_c', name: 'MobileC', path: '/tmp/mobile-c', is_active: false, tasks: [] },
       ],
     };
 
     await page.route('**/api/projects', async (route) => {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projects) });
+      if (route.request().method() === 'GET') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projects) });
+        return;
+      }
+      await route.continue();
     });
-    await page.route('**/api/workspace/context', async (route) => {
+
+    await page.route('**/api/projects/switch', async (route) => {
+      const body = route.request().postDataJSON() as { project_id?: string };
+      expect(body.project_id).toBe('proj_mobile_c');
+      projects.current_project = {
+        id: 'proj_mobile_c',
+        name: 'MobileC',
+        path: '/tmp/mobile-c',
+        is_active: true,
+        tasks: [],
+      };
+      projects.projects = projects.projects.map((p) => ({
+        ...p,
+        is_active: p.id === 'proj_mobile_c',
+      }));
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          project_name: 'Mobile',
-          workspace_path: '/tmp/mobile',
+          ok: true,
+          project: projects.current_project,
+          workspace: '/tmp/mobile-c',
+          session_active_project: {
+            session_id: 'e2e-mobile',
+            project_id: 'proj_mobile_c',
+            revision: 7,
+            bound_at: new Date().toISOString(),
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/workspace/context', async (route) => {
+      const active = projects.current_project;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          project_name: active.name,
+          workspace_path: active.path,
           target: '로컬',
           branch: 'main',
+          projects: projects.projects,
         }),
       });
     });
@@ -168,6 +207,7 @@ test.describe('WS-04 project switch identity', () => {
         body: 'data: {"choices":[{"delta":{"content":"m"}}]}\n\ndata: [DONE]\n\n',
       });
     });
+
     await page.route('**/api/**', async (route) => {
       if (route.request().url().includes('/api/projects')) return route.fallback();
       if (route.request().url().includes('/api/workspace/context')) return route.fallback();
@@ -175,35 +215,24 @@ test.describe('WS-04 project switch identity', () => {
     });
 
     await page.goto('/chat');
-    // Seed store identity for mobile when sidebar interaction is cramped
-    await page.evaluate(() => {
-      // @ts-expect-error store on window not typed
-      const mod = (window as unknown as { __WS04?: unknown }).__WS04;
-      void mod;
-    });
-    await page.waitForTimeout(500);
-    // Ensure store has identity via hydrate mock
-    await expect(page.getByTestId('active-project-label')).toContainText(/Mobile|Ssak-Ai|Beta|Gamma/, {
-      timeout: 15_000,
-    });
+    await expect(page.getByTestId('active-project-label')).toBeVisible({ timeout: 15_000 });
 
-    // Force apply through localStorage + custom event if hydrate already set Mobile
-    await page.evaluate(() => {
-      localStorage.setItem('agk_active_project', '/tmp/mobile');
-      localStorage.setItem('agk_active_project_id', 'proj_mobile');
-    });
+    // Real hydrate/switch path (same as desktop): B → C via sidebar row
+    await page.getByTitle('MobileC (/tmp/mobile-c)').click();
+    await expect(page.getByTestId('active-project-label')).toHaveText('MobileC', { timeout: 10_000 });
+    await expect(page.getByTestId('active-project-label')).toHaveAttribute('data-project-id', 'proj_mobile_c');
 
     const textarea = page.locator('textarea#chat-input');
     await textarea.fill('mobile ping');
     await textarea.press('Enter');
-    await expect.poll(() => chatPayload !== null).toBeTruthy();
-    // When hydrated, payload must carry project_id
-    if (chatPayload?.project_id) {
-      expect(chatPayload.project_id).toBe('proj_mobile');
-      await expect(page.getByTestId('active-project-label')).toHaveAttribute(
-        'data-project-id',
-        'proj_mobile',
-      );
-    }
+
+    // Hard-fail: project_id must be present and match label
+    await expect.poll(() => chatPayload?.project_id ?? null).toBe('proj_mobile_c');
+    expect(chatPayload?.project_id).toBe('proj_mobile_c');
+    expect(chatPayload?.project_revision).toBe(7);
+    const label = page.getByTestId('active-project-label');
+    await expect(label).toHaveText('MobileC');
+    await expect(label).toHaveAttribute('data-project-id', String(chatPayload?.project_id));
   });
+
 });
