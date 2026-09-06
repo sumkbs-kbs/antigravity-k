@@ -23,13 +23,16 @@ def test_harness_reads_urls_from_environment(monkeypatch):
     assert harness.ws_url == "wss://qa.example.test:9443/ws/terminal"
 
 
-def test_harness_uses_access_pin_for_protected_api_calls(monkeypatch):
+def test_harness_uses_token_for_protected_api_calls(monkeypatch):
+    """SEC-02: PIN 헤더는 제거 — 토큰 교환 후 Bearer 헤더만 보낸다."""
     monkeypatch.setenv("AGK_HARNESS_ACCESS_PIN", "test-pin")
 
     harness = Harness()
+    harness._token = "jwt-token"
 
-    assert harness._request_headers() == {"X-Access-Pin": "test-pin"}
+    assert harness._request_headers() == {"Authorization": "Bearer jwt-token"}
     assert harness._request_headers({"Content-Type": "application/json"}) == {
         "Content-Type": "application/json",
-        "X-Access-Pin": "test-pin",
+        "Authorization": "Bearer jwt-token",
     }
+    assert "X-Access-Pin" not in harness._request_headers()

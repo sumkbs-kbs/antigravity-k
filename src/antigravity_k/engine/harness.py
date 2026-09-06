@@ -279,7 +279,10 @@ class TestHarness:
             dashboard_url or os.environ.get("AGK_HARNESS_DASHBOARD_URL") or "http://localhost:5173"
         ).rstrip("/")
         self.ws_url: str = ws_url or os.environ.get("AGK_HARNESS_WS_URL") or self._derive_ws_url(self.base_url)
+        # SEC-02: raw PIN 전송 채널(헤더/쿠키)은 제거됐다 — PIN은 login에서 토큰으로
+        # 교환해 Authorization 헤더로만 사용한다.
         self.access_pin: str | None = os.environ.get("AGK_HARNESS_ACCESS_PIN") or (config.security.access_pin)
+        self._token: str | None = None
         self.healing_loop: HealingLoop = HealingLoop(max_attempts=3)
         self.feedback: FeedbackCollector = FeedbackCollector()
         self.intents: list[TestIntent] = list(self.DEFAULT_INTENTS)
@@ -295,9 +298,36 @@ class TestHarness:
 
     def _request_headers(self, extra: Mapping[str, str] | None = None) -> dict[str, str]:
         headers = dict(extra or {})
-        if self.access_pin:
-            headers["X-Access-Pin"] = self.access_pin
+        token = self._ensure_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
+
+    def _ensure_token(self) -> str | None:
+        """PIN을 /api/auth/login으로 교환해 bearer 토큰을 확보한다 (1회 캐시).
+
+        SEC-02: PIN 자체는 전송 채널에 노출되지 않는다 — rate-limited login route
+        1회 호출 후 토큰만 재사용한다. 로그인 실패 시 None (익명 실행)."""
+        if self._token is not None:
+            return self._token
+        if not self.access_pin:
+            return None
+        try:
+            import httpx
+
+            response = httpx.post(
+                f"{self.base_url}/api/auth/login",
+                json={"pin": self.access_pin},
+                timeout=10.0,
+                trust_env=False,
+            )
+            if response.status_code == 200:
+                self._token = str(response.json().get("access_token", "")) or None
+                return self._token
+        except Exception:  # noqa: BLE001 — 인증 실패는 익명 실행으로 폴백
+            pass
+        logger.warning("Harness token exchange failed; running unauthenticated")
+        return None
 
     async def run_all(self, use_browser: bool = True) -> HarnessReport:
         """모든 테스트 인텐트를 실행합니다."""
@@ -484,18 +514,11 @@ class TestHarness:
             browser = await p.chromium.launch(headless=True)
             try:
                 page = await browser.new_page()
-                if self.access_pin:
-                    _ = await page.context.add_cookies(
-                        [
-                            {
-                                "name": "ag_access_pin",
-                                "value": self.access_pin,
-                                "url": self.dashboard_url,
-                            },
-                        ],
-                    )
+                # SEC-02: PIN 쿠키/localStorage 주입 제거 — 브라우저 실행도 token 기반.
+                token = self._ensure_token()
+                if token:
                     _ = await page.add_init_script(
-                        f"localStorage.setItem('ag_access_pin', {json.dumps(self.access_pin)});",
+                        f"sessionStorage.setItem('ag_access_token', {json.dumps(token)});",
                     )
 
                 for intent in intents:

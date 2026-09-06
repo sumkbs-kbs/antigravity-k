@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from antigravity_k.api.startup_security import is_loopback_host
-from antigravity_k.engine.auth import verify_pin
 
 AuthLevel = Literal["protected", "open_loopback", "deny"]
 
@@ -169,21 +168,19 @@ class AuthPolicy:
             return AuthDecision("deny", "production-forbids-anonymous")
         return decision
 
-    def evaluate_credential(self, *, token_verified: bool, pin: str | None, host: str | None = None) -> AuthDecision:
+    def evaluate_credential(self, *, token_verified: bool, host: str | None = None) -> AuthDecision:
         """제시된 credential 평가 — open_loopback 결정 시에만 무자격 허용.
 
         token_verified: JWT 검증 성공 여부 (호출자가 미리 수행).
-        pin: 제시된 plaintext PIN (검증은 여기서 수행 — 상수시간 verify_pin).
+        SEC-02: PIN credential 파라미터는 제거되었다 — PBKDF2 검증은
+        rate-limited login/token route에서만 실행되며, 정책 객체는 임의 요청에서
+        실행 가능한 PBKDF2 표면을 갖지 않는다 (credential 표면 축소).
         """
         decision = self.resolve(host)
         if decision.level == "open_loopback":
             return decision
         if token_verified:
             return AuthDecision("protected", "valid-token")
-        if pin:
-            stored = self._stored_pin_hash()
-            if stored and verify_pin(pin, stored):
-                return AuthDecision("protected", "valid-pin")
         return AuthDecision("deny", "invalid-or-missing-credential")
 
     def status(self) -> dict[str, object]:

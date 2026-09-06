@@ -83,9 +83,9 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
             subject = claims.get("sub")
             token_subject = subject if isinstance(subject, str) and subject else "bearer"
 
+    # SEC-02: evaluate_credential은 PIN credential을 받지 않는다 (query ?pin= 제거).
     decision = get_shared_auth_policy().evaluate_credential(
         token_verified=token_verified,
-        pin=None,  # WS에서 PIN credential을 받지 않는다 (query ?pin= 제거).
         host=config.server.host,
     )
     if decision.level == "open_loopback":
@@ -95,6 +95,10 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
         websocket.state.auth_subject = token_subject
         return False
 
+    # SEC-02: WS는 bearer token만 수용한다 — 과거 "점이 없으면 legacy PIN으로
+    # 간주해 PBKDF2 검증" 분기는 query로 PIN 후보를 반복 전송해 PBKDF2 CPU 비용을
+    # 유발하는 공격 표면이었으므로 제거되었다. evaluate_credential에 pin=None을
+    # 전달하므로 이 경로에서 PBKDF2가 실행될 수 없다.
     # No valid credential — deny (4401, plan 규정 equivalent).
     await websocket.close(code=4401, reason="Unauthorized")
     return True
