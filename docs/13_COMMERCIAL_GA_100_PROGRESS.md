@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 4 |
-| 진행 중 | 1 |
+| 완료 | 5 |
+| 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | WS-02 REVIEW — F1/F2 fix submitted; `re-review-request` → `ws_02_verify` |
+| 현재 작업 | WS-02 DONE (r2 APPROVE); next WS-03/WS-04 eligible |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,19 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-02 독립 review r2 APPROVE (`ws_02_verify`)
+
+- tip reviewed: `70f4cf2b1114228bda59067d0ec846d426f187ee` (HEAD 확인)
+- Fix SHA: `4cca8733bfa27f6c2f3042a15b3471ba298c48dd`
+- prior REJECT: `review.md` 보존; 본 기록 `review-r2.md`
+- Reviewer re-run: WS-02 **12 passed**; regression bundle **101 passed**; `test_diff_engine` **19 passed**
+- Must-verify #1/#2/#4 + F1: **PASS** — apply_patch `../`/abs/Update/Delete/mixed-sep/symlink-out DENY; multi-file escape atomic DENY; in-root write under B; audit correlated
+- F2 focus: `cat /absolute/outside` **DENY**, SECRET 미유출 (`../`, unquoted, `~/` 포함)
+- Residual (non-blocking): glued `cat </abs>` + `cat "$ENV"` token-policy gaps → SEC/sandbox follow-up (full FS isolation 비주장)
+- AdversarialVerify: confirmed · Confidence 0.94
+- Evidence: `.omo/evidence/commercial-ga-100/WS-02/review-r2.md`
+- 상태: **DONE**. WS-03/WS-04 이 lane 착수 허용 (각 선행 조건 준수).
 
 ### 2026-09-06 · WS-02 F1/F2 fix + re-review request (`ws_02_tools`)
 
@@ -307,16 +320,17 @@ tags: [commercialization, progress, evidence, multi-agent]
 | GOV-01 | APPROVE | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | gov_01_verify | r2 APPROVE 0.95; prior REJECT closed | 2026-09-06 |
 | ARC-01 | APPROVE | `ede637a11fce67ff43eb32be2aacc1a0396b538c` | arc_01_verify | r2 escape boundary; 16+4+10 probes; prior REJECT closed | 2026-09-06 |
 | WS-01 | APPROVE | `11658e046ecb7ce8eec6250401884142bc43fc2d` | ws_01_verify | r2 tools bind before generate; 13+43 + 6 probes; prior REJECT closed | 2026-09-06 |
+| WS-02 | APPROVE | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | ws_02_verify | r2 F1/F2 closed; 12+101 + adversarial; prior REJECT closed | 2026-09-06 |
 
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-02 | REVIEW (fix pending r2) | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | ws_02_verify | F1/F2 fixed; re-review-request; prior REJECT 보존 |
+| — | — | — | — | WS-03 / WS-04 착수 가능 (선행 조건 준수) |
 
 ## 차단 및 결정 대기
 
-`WS-02` **REVIEW** — r1 REJECT 보존; F1/F2 fix + `re-review-request.md` 제출. DONE/WS-03·WS-04 이 lane 착수 금지 until `ws_02_verify` re-review APPROVE. `WS-01` r2 APPROVE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`WS-02` **DONE** (r2 APPROVE). WS-03/WS-04 이 lane 착수 허용. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 
