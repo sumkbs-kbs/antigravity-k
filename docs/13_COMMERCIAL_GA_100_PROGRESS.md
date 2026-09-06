@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 9 |
 | 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | CTX-03 REVIEW (`ctx_03_observability`) — 독립 review 대기 |
+| 현재 작업 | CTX-03 REJECT (`ctx_03_verify` r1) — owner F1 fix + re-review 대기; DAT-01 금지 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,17 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · CTX-03 독립 review r1 REJECT (`ctx_03_verify`)
+
+- reviewer: `ctx_03_verify` (구현 커밋 없음)
+- tip reviewed: `711be5926f1193153855ba71d05840fa65c5d65b` (HEAD 확인)
+- impl/result SHA: `9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0`
+- 판정: **REJECT** (confidence 0.93)
+- Blocking **F1**: `taskExecutionProjection.statusFor` maps `context.compress.succeeded` → `unknown` (JS `includes('success')` does not match `succeeded`). Degrade/halt OK. Must-verify #4 FAIL.
+- Pass: `_maybe_compress_context` fail-open 제거; degrade/halt + provider halt; telemetry fields; docs/09 alerts 5%/15%; pytest 27 passed; ruff clean
+- Evidence: `.omo/evidence/commercial-ga-100/CTX-03/review.md`, `adversarial-verify.txt`, `tests-verify.txt`, `ruff-verify.txt`
+- **DONE 금지. DAT-01 미착수. Context lane 미완료.**
 
 ### 2026-09-06 · CTX-03 압축 실패 정책·관측성 (`ctx_03_observability`)
 
@@ -580,11 +591,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| CTX-03 | ctx_03_observability | codex/ctx-03-compress-observability | REVIEW | 독립 `ctx_03_verify` APPROVE |
+| CTX-03 | ctx_03_observability | codex/ctx-03-compress-observability | REJECT | F1 UI succeeded→completed fix + `ctx_03_verify` re-APPROVE |
 
 ## 차단 및 결정 대기
 
-`CTX-03` **REVIEW** (owner `ctx_03_observability`; 독립 review 대기). `CTX-02` DONE 유지. `CTX-01`/`WS-04`/`WS-03`/`WS-02`/`WS-01` DONE 유지. Residual: legacy `_maybe_compress_context` catch-all → CTX-03; process `get_vault_engine` non-blocking; shell token-policy SEC follow-up; WS-04 FileTree click→open epoch gate narrow race. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`CTX-03` **REJECT** (`ctx_03_verify` r1; F1 UI `succeeded`→`unknown`). Owner fix 후 re-review. **DAT-01 착수 금지.** `CTX-02` DONE 유지. Residual: UI success mapping F1; `decide_post_compress_policy` unwired (non-blocking); process `get_vault_engine` non-blocking; shell token-policy SEC follow-up; WS-04 FileTree click→open epoch gate narrow race. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 

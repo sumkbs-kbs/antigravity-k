@@ -1,0 +1,82 @@
+adaptive_compress failed (policy=degrade-or-halt)
+Traceback (most recent call last):
+  File "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-03/src/antigravity_k/engine/tool_loop.py", line 836, in _maybe_compress_context
+    compressed = compressor.adaptive_compress(shaped_messages, task_type=task_type.upper())
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1169, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1173, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1228, in _execute_mock_call
+    raise effect
+RuntimeError: boom
+Context compressor lookup failed
+Traceback (most recent call last):
+  File "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-03/src/antigravity_k/engine/tool_loop.py", line 756, in _maybe_compress_context
+    compressor = self.orch.context_compressor_for(delegate_model)
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1169, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1173, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1228, in _execute_mock_call
+    raise effect
+RuntimeError: lookup
+needs_compression failed
+Traceback (most recent call last):
+  File "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-03/src/antigravity_k/engine/tool_loop.py", line 788, in _maybe_compress_context
+    needs = compressor.needs_compression(shaped_messages)
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1169, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1173, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1228, in _execute_mock_call
+    raise effect
+ValueError: needs
+adaptive_compress failed (policy=degrade-or-halt)
+Traceback (most recent call last):
+  File "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-03/src/antigravity_k/engine/tool_loop.py", line 836, in _maybe_compress_context
+    compressed = compressor.adaptive_compress(shaped_messages, task_type=task_type.upper())
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1169, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1173, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1228, in _execute_mock_call
+    raise effect
+  File "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-03/src/antigravity_k/engine/tool_loop.py", line 836, in _maybe_compress_context
+    compressed = compressor.adaptive_compress(shaped_messages, task_type=task_type.upper())
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1169, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1173, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/mr.k/miniforge3/lib/python3.13/unittest/mock.py", line 1228, in _execute_mock_call
+    raise effect
+RuntimeError: boom
+P1 OK: _maybe_compress_context returns ContextCompressAttempt only
+P2 OK: adaptive_compress exception → failed=True, original prompt retained
+P3 OK: compressor lookup exception → failed
+P4 OK: needs_compression exception → failed
+P5 OK: decide_post_compress_policy
+P6 OK: telemetry fields + UI halt line
+P7 OK: compress fail marked; halt gate is separate enforce (covered by pytest call_count=0)
+P8 OK: stream_pre no silent non-critical swallow
+P9 INFO: decide_post_compress_policy wired in prod=False
+P10 OK: rebuild unavailable → failed, original prompt
+Traceback (most recent call last):
+  File "<stdin>", line 132, in <module>
+AssertionError
+=== F1 UI mapping reproduce ===
+context.compress.succeeded: got=unknown want=completed PASS=False | substring success-in-succeeded=False
+context.compress.degraded: got=degraded want=degraded PASS=True | substring success-in-succeeded=False
+context.compress.halted: got=failed want=failed PASS=True | substring success-in-succeeded=False
+F1 BLOCKER CONFIRMED
+Note: JS String.includes("success") is false for "succeeded" (succee≠success)
+NODE context.compress.succeeded -> unknown expected completed
