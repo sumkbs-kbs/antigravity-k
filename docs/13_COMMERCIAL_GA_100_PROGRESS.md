@@ -47,6 +47,7 @@ tags: [commercialization, progress, evidence, multi-agent]
   - `POST /api/execution-context/resolve` probe로 route→runtime capture 검증
 - 검증: `tests/test_ws01_project_binding.py` 10 pass; registry/ARC-01 회귀 18 pass
 - Evidence: `.omo/evidence/commercial-ga-100/WS-01/`
+- result SHA: `2023dd52c324b0ee62b39798382bc61a96964e5f`
 - 상태: `REVIEW` (구현자 APPROVE 자체 작성 금지). 독립 reviewer 할당 대기.
 
 

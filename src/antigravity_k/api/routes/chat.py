@@ -8,6 +8,8 @@ from typing import Annotated, Any, Callable, TypeAlias, cast
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from antigravity_k.api.contracts.execution_context import RequestExecutionContext
+
 # 이 함수들은 server.py의 의존성 주입 함수들을 참조합니다.
 # 순환 참조를 피하기 위해 내부 임포트를 사용하거나 server.py에서 공유 모듈로 분리하는 것이 좋습니다.
 # 여기서는 router.dependencies를 사용하지 않고 직접 가져옵니다.
@@ -261,7 +263,7 @@ def _validate_chat_request_body(body: object) -> JsonMap:
     return body_map
 
 
-def _resolve_chat_execution_context(request: Request, body: JsonMap, target_model: str) -> object:
+def _resolve_chat_execution_context(request: Request, body: JsonMap, target_model: str) -> RequestExecutionContext:
     """Resolve ARC-01 RequestExecutionContext before chat side effects (WS-01)."""
     from antigravity_k.api.error_handler import correlation_id_var
     from antigravity_k.api.project_binding import (
@@ -271,7 +273,7 @@ def _resolve_chat_execution_context(request: Request, body: JsonMap, target_mode
 
     actor = getattr(request.state, "auth_subject", None)
     actor_subject = actor.strip() if isinstance(actor, str) and actor.strip() else "anonymous"
-    return resolve_project_execution_context(
+    ctx: RequestExecutionContext = resolve_project_execution_context(
         payload=body,
         header_session_id=request.headers.get(SESSION_ID_HEADER),
         actor_subject=actor_subject,
@@ -280,6 +282,7 @@ def _resolve_chat_execution_context(request: Request, body: JsonMap, target_mode
         require_existing_conversation=False,
         bind=True,
     )
+    return ctx
 
 
 @router.get("/v1/chat/completions/reconnect")
