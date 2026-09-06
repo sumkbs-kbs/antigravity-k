@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 9 |
 | 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | CTX-03 REJECT (`ctx_03_verify` r1) — owner F1 fix + re-review 대기; DAT-01 금지 |
+| 현재 작업 | CTX-03 REVIEW (`ctx_03_observability` F1 fix) — `ctx_03_verify` re-review 대기; DAT-01 금지 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,21 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · CTX-03 F1 REJECT fix + re-review request (`ctx_03_observability`)
+
+- owner: `ctx_03_observability` (**APPROVE 자체 작성 금지**; prior `review.md` REJECT 보존)
+- Branch/worktree: `codex/ctx-03-compress-observability` / `Ssak-Ai-ctx-03`
+- Fix / Result SHA: `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3`
+- Prior impl / REJECT tip: `9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0` / `711be5926f1193153855ba71d05840fa65c5d65b`
+- F1 fix: `statusFor` exact-map `context.compress.succeeded|degraded|halted` + heuristic `includes('succeed')` (was `success`)
+- Vitest: `taskExecutionProjection.test.ts` 4 passed (`ui-vitest-fix.txt`); assert succeeded≠unknown
+- pytest related: 27 passed (`tests-fix-f1.txt`); ruff clean (`ruff-fix.txt`)
+- Adversarial owner probe: `adversarial-verify-f1-fix.txt` / `adversarial-notes-fix.md`
+- Evidence: `re-review-request.md` (updated); prior `review.md` REJECT intact
+- 상태: **REVIEW** 유지 (**DONE 아님**). `ctx_03_verify` re-review 대기.
+- **DAT-01 미착수**.
+
 
 ### 2026-09-06 · CTX-03 독립 review r1 REJECT (`ctx_03_verify`)
 

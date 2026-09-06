@@ -32,7 +32,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | WS-04 | DONE | ws_04_frontend | ws_04_verify | codex/ws-04-dashboard-project / Ssak-Ai-ws-04 | `313c6447dda5cf17537024facba2b78868bbe467` | `.omo/evidence/commercial-ga-100/WS-04/` | r2 APPROVE 0.92; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-01 | DONE | ctx_01_conversation | ctx_01_verify | codex/ctx-01-conversation-revision / Ssak-Ai-ctx-01 | `8ba8337dbc953d3ac4788541adcf8294f809e9c6` | `.omo/evidence/commercial-ga-100/CTX-01/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-02 | DONE | ctx_02_budget | ctx_02_verify | codex/ctx-02-prompt-budget / Ssak-Ai-ctx-02 | `16db3b65e74275f433563d9b6c83721d956e3ba2` | `.omo/evidence/commercial-ga-100/CTX-02/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1–F3 closed |
-| CTX-03 | REJECT | ctx_03_observability | ctx_03_verify | codex/ctx-03-compress-observability / Ssak-Ai-ctx-03 | `9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0` | `.omo/evidence/commercial-ga-100/CTX-03/` | r1 REJECT (F1 UI succeeded→unknown); DONE/DAT-01 금지 |
+| CTX-03 | REVIEW | ctx_03_observability | ctx_03_verify | codex/ctx-03-compress-observability / Ssak-Ai-ctx-03 | `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3` | `.omo/evidence/commercial-ga-100/CTX-03/` | F1 fix submitted; prior REJECT in review.md; re-review 대기; DAT-01 금지 |
 | DAT-01 | TODO |  |  |  |  |  | GA-00 |
 | DAT-02 | TODO |  |  |  |  |  | GA-00 |
 | DAT-03 | TODO |  |  |  |  |  | GA-00 |
@@ -178,13 +178,13 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## CTX-03 · 압축 실패와 관측
 
-> 독립 review r1 **REJECT** (`review.md`). Owner `ctx_03_observability` 재수정 후 `ctx_03_verify` re-review 대기. **DONE 금지. DAT-01 착수 금지.** Tip reviewed `711be5926f1193153855ba71d05840fa65c5d65b`. Impl `9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0`.
+> 독립 review r1 **REJECT** (`review.md` 보존). Owner F1 fix 후 **REVIEW** — `ctx_03_verify` re-review 대기. **DONE 금지. DAT-01 착수 금지.** Prior tip `711be5926f1193153855ba71d05840fa65c5d65b` / prior impl `9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0`. Fix Result SHA `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3`.
 
 - [x] catch-all fail-open이 hard-limit 초과를 통과시키지 않는다. *(`_maybe_compress_context` returns failed attempt; stream-pre degrade; final gate halt)*
 - [x] 압축 실패 시 provider 호출 여부가 정책대로다. * (degrade under limit OK; halt when fit/enforce fails; stream_generate=0)*
 - [x] component별 before/after token ledger가 있다. *(`CompressTelemetryRecord.tokens_before/after`)*
 - [x] strategy, digest, elapsed, failure code가 기록된다. * (execution events + LoopTelemetry counters)*
-- [ ] UI 상태가 server 결과와 일치한다. * (F1 BLOCKER: `context.compress.succeeded` → `unknown` not `completed`; degrad/halt OK)*
+- [x] UI 상태가 server 결과와 일치한다. * (F1 fix: exact `context.compress.succeeded`→`completed` + `includes('succeed')`; vitest 4 passed — pending independent re-review)*
 - [x] headroom/실패율 alert threshold가 있다. * (docs/09 + ALERT_* constants 5% / 15%)*
 
 ## DAT-01 · task transition 원자성

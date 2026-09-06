@@ -3,7 +3,7 @@
   "title": "compression failure policy and observability",
   "owner": "ctx_03_observability",
   "reviewer": "ctx_03_verify",
-  "status": "REJECT",
+  "status": "REVIEW",
   "baseline_sha": "6c4aeffbba499982381bc45528509558cb96ffca",
   "branch": "codex/ctx-03-compress-observability",
   "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-03",
@@ -11,13 +11,14 @@
   "environment": {
     "os": "macOS",
     "pytest_owner": "27 passed (ctx03+ctx02+final_budget+tool_loop compress)",
+    "vitest": "4 passed (taskExecutionProjection)",
     "ruff": "All checks passed"
   },
-  "notes": "Independent ctx_03_verify r1 REJECT. F1: UI statusFor maps context.compress.succeeded→unknown. DONE/DAT-01 blocked.",
-  "verdict": "REJECT",
+  "notes": "F1 fix: succeeded→completed. Prior r1 REJECT preserved in review.md. Awaiting ctx_03_verify re-review. DONE/DAT-01 blocked.",
+  "verdict": null,
   "result_sha_pending": false,
   "impl_sha": "9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0",
-  "result_sha": "9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0",
-  "updated_at": "2026-09-06T12:51+09:00",
-  "tip_sha": "dfdc7de92c52e1475e70ff5fea089b8a341cdf77"
+  "result_sha": "6066e487f0f4ca7c386c75c4e0e15ca3f35330e3",
+  "prior_reject_tip": "711be5926f1193153855ba71d05840fa65c5d65b",
+  "updated_at": "2026-09-06T12:57+09:00"
 }
