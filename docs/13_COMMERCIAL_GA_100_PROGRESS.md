@@ -38,6 +38,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 상태: **REVIEW** (DONE 아님 — 독립 reviewer APPROVE 전; **가짜 APPROVE 없음**)
 - Branch/worktree: `codex/dat-01-task-cas` / `Ssak-Ai-dat-01`
 - Baseline: CTX-03 tip `5bf638bdf9c239801ab59a2672ab73619b07b872`
+- Result / impl SHA: `a44e44bfc9f0375c7db439fe50f8a940cedee3ae`
 - 변경 요약:
   - `task_history.version` + CAS `UPDATE ... WHERE status=? AND version=?`
   - affected 0 → `TaskTransitionConflictError`

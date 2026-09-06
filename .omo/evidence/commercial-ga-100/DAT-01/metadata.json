@@ -16,6 +16,9 @@
   },
   "notes": "Owner handoff for independent review. No self-APPROVE. Store CAS + terminal freeze + projection SoT.",
   "verdict": null,
-  "result_sha_pending": true,
-  "updated_at": "2026-09-06T13:15:00+09:00"
+  "result_sha_pending": false,
+  "updated_at": "2026-09-06T13:20:00+09:00",
+  "impl_sha": "a44e44bfc9f0375c7db439fe50f8a940cedee3ae",
+  "result_sha": "a44e44bfc9f0375c7db439fe50f8a940cedee3ae",
+  "tip_sha": "a44e44bfc9f0375c7db439fe50f8a940cedee3ae"
 }
