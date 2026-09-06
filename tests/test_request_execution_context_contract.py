@@ -67,9 +67,14 @@ def test_wire_example_parses_and_forbids_extra_fields(fixture_doc: dict) -> None
         RequestExecutionContextWire.model_validate({**fixture_doc["wire_example"], "path": "/evil"})
 
 
-def test_resolved_context_is_immutable(fixture_doc: dict, tmp_path: Path) -> None:
+def test_resolved_context_is_immutable(fixture_doc: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "alpha"
     root.mkdir()
+    monkeypatch.setattr(
+        "antigravity_k.config.config.paths.project_root",
+        tmp_path.resolve(),
+    )
+    monkeypatch.delenv("AGK_ALLOWED_ROOTS", raising=False)
     registry = ProjectRegistry(storage_path=tmp_path / "projects.json")
     # replace default with known id
     record = registry.add_project(name="ARC-01 Alpha", path=str(root))
@@ -214,3 +219,88 @@ def test_error_factory_matches_http_map(fixture_doc: dict) -> None:
         err = execution_context_error_from_code(code)
         assert err.error_code == code
         assert err.status_code == status
+
+
+def _inject_registry_root(registry: ProjectRegistry, project_id: str, root_path: str) -> None:
+    """Poison/inject a registry record without going through add_project allowlisting."""
+    registry._projects[project_id] = registry.get_active_project().__class__(
+        id=project_id,
+        name=f"Injected-{project_id}",
+        path=root_path,
+        is_active=False,
+    )
+
+
+def test_registry_root_etc_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Frozen escape #1: unsafe system path `/etc` must not become canonical root."""
+    monkeypatch.setattr(
+        "antigravity_k.config.config.paths.project_root",
+        tmp_path.resolve(),
+    )
+    monkeypatch.delenv("AGK_ALLOWED_ROOTS", raising=False)
+    registry = ProjectRegistry(storage_path=tmp_path / "projects.json")
+    _inject_registry_root(registry, "proj_etc", "/etc")
+    with pytest.raises(ProjectRootInvalidError) as excinfo:
+        resolve_canonical_project_root("proj_etc", registry=registry)
+    assert excinfo.value.status_code == 403
+    assert excinfo.value.error_code == "project_root_invalid"
+
+
+def test_registry_root_dotdot_escape_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Frozen escape #2: `..` normalization that exits the trusted base is rejected."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.setattr(
+        "antigravity_k.config.config.paths.project_root",
+        workspace.resolve(),
+    )
+    monkeypatch.delenv("AGK_ALLOWED_ROOTS", raising=False)
+    registry = ProjectRegistry(storage_path=tmp_path / "projects.json")
+    # Lexical path under workspace but resolves to sibling outside/
+    escaped = str(workspace / "alpha" / ".." / ".." / "outside")
+    _inject_registry_root(registry, "proj_dotdot", escaped)
+    with pytest.raises(ProjectRootInvalidError) as excinfo:
+        resolve_canonical_project_root("proj_dotdot", registry=registry)
+    assert excinfo.value.status_code == 403
+    assert excinfo.value.error_code == "project_root_invalid"
+    assert "escape" in excinfo.value.detail.lower() or "unsafe" in excinfo.value.detail.lower()
+
+
+def test_registry_root_symlink_out_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Frozen escape #3: symlink project root whose target leaves the base is rejected."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = workspace / "evil_link"
+    link.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(
+        "antigravity_k.config.config.paths.project_root",
+        workspace.resolve(),
+    )
+    monkeypatch.delenv("AGK_ALLOWED_ROOTS", raising=False)
+    registry = ProjectRegistry(storage_path=tmp_path / "projects.json")
+    _inject_registry_root(registry, "proj_symlink", str(link))
+    with pytest.raises(ProjectRootInvalidError) as excinfo:
+        resolve_canonical_project_root("proj_symlink", registry=registry)
+    assert excinfo.value.status_code == 403
+    assert excinfo.value.error_code == "project_root_invalid"
+
+
+def test_canonical_root_under_configured_base_still_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Positive control: a real directory under configured project_root remains valid."""
+    workspace = tmp_path / "workspace"
+    project = workspace / "alpha"
+    project.mkdir(parents=True)
+    monkeypatch.setattr(
+        "antigravity_k.config.config.paths.project_root",
+        workspace.resolve(),
+    )
+    monkeypatch.delenv("AGK_ALLOWED_ROOTS", raising=False)
+    registry = ProjectRegistry(storage_path=tmp_path / "projects.json")
+    rec = registry.add_project(name="Alpha", path=str(project))
+    record, canonical = resolve_canonical_project_root(rec.id, registry=registry)
+    assert record.id == rec.id
+    assert Path(canonical) == project.resolve()

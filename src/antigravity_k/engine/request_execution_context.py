@@ -24,7 +24,7 @@ from antigravity_k.api.contracts.execution_context import (
     RequestExecutionContext,
     RequestExecutionContextWire,
 )
-from antigravity_k.api.path_security import PathSecurityError, resolve_allowed_path
+from antigravity_k.api.path_security import configured_allowed_bases
 from antigravity_k.engine.project_registry import ProjectRecord, ProjectRegistry, get_project_registry
 
 
@@ -80,6 +80,50 @@ class InMemoryConversationRevisionStore:
         return True
 
 
+# Protected system prefixes must never become canonical execution roots
+# (aligned with PermissionGate.PROTECTED_PATHS / sandbox denials).
+_UNSAFE_PROJECT_ROOT_PREFIXES: tuple[str, ...] = (
+    "/etc",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/boot",
+    "/sys",
+    "/proc",
+    "/dev",
+    "/var/root",
+    "/System",
+    "/Library",
+    "/private/etc",
+    "/private/var/root",
+)
+
+
+def _is_unsafe_system_project_root(canonical: str) -> bool:
+    """Return True when ``canonical`` is the filesystem root or a protected system path."""
+    normalized = os.path.realpath(canonical)
+    if normalized in {"/", os.path.sep}:
+        return True
+    for prefix in _UNSAFE_PROJECT_ROOT_PREFIXES:
+        prefix_real = os.path.realpath(prefix) if os.path.lexists(prefix) else os.path.abspath(prefix)
+        if normalized == prefix_real or normalized.startswith(prefix_real.rstrip(os.sep) + os.sep):
+            return True
+        if normalized == prefix or normalized.startswith(prefix.rstrip(os.sep) + os.sep):
+            return True
+    return False
+
+
+def _path_within_bases(canonical: str, bases: tuple[Path, ...]) -> bool:
+    candidate = Path(canonical)
+    for base in bases:
+        try:
+            _ = candidate.relative_to(base)
+        except ValueError:
+            continue
+        return True
+    return False
+
+
 def resolve_canonical_project_root(
     project_id: str,
     *,
@@ -88,7 +132,8 @@ def resolve_canonical_project_root(
     """Map project_id → (record, absolute canonical root).
 
     Raises typed ARC-01 errors when the project is missing or the root is not a
-    usable directory under the allowlist.
+    usable directory under the configured allowlist. Escape via ``..``,
+    symlink-out, or unsafe system paths is rejected at this boundary.
     """
     if not project_id or not str(project_id).strip():
         raise MissingExecutionContextError(
@@ -104,11 +149,13 @@ def resolve_canonical_project_root(
             context={"project_id": project_id},
         )
 
-    # The registry record is authority for project_id → root. Resolve + realpath
-    # it; never accept a different client-supplied path. If realpath diverges
-    # from the registered path (symlink escape), require allowlist membership.
+    # Registry record is authority for project_id → root identity, but the
+    # resolved realpath must still remain under configured trusted bases and
+    # must not be an unsafe system path. Registry paths are intentionally
+    # excluded from the base set so a poisoned entry cannot self-allowlist.
     raw_path = record.path
-    candidate = Path(raw_path).expanduser().resolve()
+    raw_expanded = Path(raw_path).expanduser()
+    candidate = raw_expanded.resolve()
     if not candidate.is_dir():
         raise ProjectRootInvalidError(
             detail="Project canonical root is not an existing directory",
@@ -122,20 +169,30 @@ def resolve_canonical_project_root(
             context={"project_id": project_id, "canonical_project_root": canonical},
         )
 
-    registered = os.path.realpath(Path(raw_path).expanduser())
-    if canonical != registered:
-        try:
-            _ = resolve_allowed_path(canonical)
-        except PathSecurityError as exc:
-            raise ProjectRootInvalidError(
-                detail="Project root escapes configured workspace roots",
-                context={
-                    "project_id": project_id,
-                    "path": raw_path,
-                    "canonical_project_root": canonical,
-                },
-            ) from exc
+    if _is_unsafe_system_project_root(canonical):
+        raise ProjectRootInvalidError(
+            detail="Project root resolves to an unsafe system path",
+            context={
+                "project_id": project_id,
+                "path": raw_path,
+                "canonical_project_root": canonical,
+            },
+        )
 
+    bases = configured_allowed_bases()
+    if not _path_within_bases(canonical, bases):
+        raise ProjectRootInvalidError(
+            detail="Project root escapes configured workspace roots",
+            context={
+                "project_id": project_id,
+                "path": raw_path,
+                "canonical_project_root": canonical,
+            },
+        )
+
+    # Symlink-out and ``..`` normalization are covered by realpath + bases check:
+    # a registry path that lexically looks local but realpaths outside configured
+    # bases (or onto an unsafe system path) is rejected above.
     return record, canonical
 
 

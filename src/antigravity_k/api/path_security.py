@@ -10,11 +10,24 @@ class PathSecurityError(ValueError):
     """Raised when an API path is outside the configured workspace roots."""
 
 
-def allowed_roots() -> tuple[Path, ...]:
-    """Return the configured project root plus explicitly allowlisted roots and registered projects."""
+def configured_allowed_bases() -> tuple[Path, ...]:
+    """Return trusted bases from config + ``AGK_ALLOWED_ROOTS`` only.
+
+    Unlike ``allowed_roots()``, this intentionally excludes project-registry
+    paths so a poisoned registry entry cannot self-allowlist as a canonical
+    execution root (ARC-01 boundary).
+    """
     from antigravity_k.config import config
 
     roots = [config.paths.project_root.expanduser().resolve()]
+    configured = os.environ.get("AGK_ALLOWED_ROOTS", "")
+    roots.extend(Path(item).expanduser().resolve() for item in configured.split(os.pathsep) if item.strip())
+    return tuple(dict.fromkeys(roots))
+
+
+def allowed_roots() -> tuple[Path, ...]:
+    """Return the configured project root plus explicitly allowlisted roots and registered projects."""
+    roots = list(configured_allowed_bases())
     try:
         from antigravity_k.engine.project_registry import get_project_registry
 
@@ -24,8 +37,6 @@ def allowed_roots() -> tuple[Path, ...]:
                 roots.append(Path(p["path"]).expanduser().resolve())
     except Exception:
         pass
-    configured = os.environ.get("AGK_ALLOWED_ROOTS", "")
-    roots.extend(Path(item).expanduser().resolve() for item in configured.split(os.pathsep) if item.strip())
     return tuple(dict.fromkeys(roots))
 
 
