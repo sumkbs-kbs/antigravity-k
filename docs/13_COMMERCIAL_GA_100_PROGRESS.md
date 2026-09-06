@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 4 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | WS-02 REVIEW (ws_02_tools); awaiting ws_02_verify |
+| 현재 작업 | WS-02 REVIEW — r1 REJECT (`ws_02_verify`); fix + re-review 대기 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -33,7 +33,19 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
-### 2026-09-06 · WS-02 도구 canonical root 적용 (REVIEW)
+### 2026-09-06 · WS-02 독립 review REJECT (r1) (`ws_02_verify`)
+
+- tip reviewed: `0422ab756607f18e43e0c57b84c24060f5b9f453` (HEAD 확인)
+- Impl SHA: `cada44afb90de8e8216cecc167eb669afc73e280`
+- reviewer: `ws_02_verify` (Owner≠Reviewer)
+- 판정: **REJECT**, `AdversarialVerify=needs-fix`, confidence 0.96
+- 재실행: `test_ws02_tool_root` 8 passed; 회귀 묶음 97 passed
+- Blocking F1: `ApplyPatchTool`이 `patch` 본문 경로만 사용 → PermissionGate/rewrite 미적용. cwd=A·project=B에서 `../outside/...` 및 absolute outside 경로로 **ALLOW + 프로젝트 밖 파일 생성** 재현.
+- Secondary: shell absolute `cat` outside는 cwd 바인딩과 별개로 데이터 유출 가능 (F2).
+- Evidence: `.omo/evidence/commercial-ga-100/WS-02/review.md`
+- 상태: `REVIEW` 유지 (DONE 아님). **WS-03/WS-04 이 lane에서 착수 금지** until fix + re-review APPROVE.
+
+### 2026-09-06 · WS-02 도구 canonical root 적용 (REVIEW → r1 REJECT)
 
 - owner: `ws_02_tools` (APPROVE 자체 작성 금지)
 - base SHA: `7b0b49cf58892522e789b8b2453c88f9284b3560` (WS-01 APPROVE tip, includes ARC-01)
@@ -46,9 +58,9 @@ tags: [commercialization, progress, evidence, multi-agent]
   - Git/search default `path="."` → canonical root
 - 검증: `tests/test_ws02_tool_root.py` **8 passed**; WS-01/ARC-01/tool_executor/path_security/sandbox 회귀 **97 passed** (WS-02 포함 묶음)
 - result SHA (impl): `cada44afb90de8e8216cecc167eb669afc73e280`
-- tip SHA: `9170cb9c7ac6f66a013f1e6a041b62d44874a83a`
+- tip SHA (pre-review): `0422ab756607f18e43e0c57b84c24060f5b9f453`
 - Evidence: `.omo/evidence/commercial-ga-100/WS-02/`
-- 상태: `REVIEW` (DONE 아님). **APPROVE 대기 (`ws_02_verify`)**.
+- 상태: owner REVIEW 제출 후 **독립 review r1 REJECT** (위 항목).
 
 
 ### 2026-09-06 · WS-01 독립 re-review APPROVE (r2) (`ws_01_verify`)
@@ -288,11 +300,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-02 | REVIEW | `cada44afb90de8e8216cecc167eb669afc73e280` | ws_02_tools | tools bind canonical root; awaiting verify |
+| WS-02 | REVIEW (r1 REJECT) | `cada44afb90de8e8216cecc167eb669afc73e280` | ws_02_verify | apply_patch escape; fix + re-review 대기 |
 
 ## 차단 및 결정 대기
 
-`WS-02` **REVIEW** (owner≠reviewer). `WS-01` r2 **APPROVE** (`review-r2.md`); prior REJECT는 `review.md`에 보존. Fix SHA `11658e0`. ARC-01 DONE (`ede637a`). GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다. 다음 lane: WS-02 / WS-03 / WS-04 / CTX (각 선행 조건).
+`WS-02` **REVIEW** — 독립 review r1 **REJECT** (`review.md`, tip `0422ab7`). Blocking: `apply_patch` canonical root escape. DONE/WS-03·WS-04 이 lane 착수 금지 until fix + re-review APPROVE. `WS-01` r2 APPROVE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 
