@@ -8,13 +8,21 @@ anthropic_tool_bridge (Phase 5)와 동일 단일 파서를 재사용한다.
 from __future__ import annotations
 
 import json
-from typing import Any
+from pathlib import Path
+from typing import Any, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 
 from antigravity_k.api import dependencies as api_dependencies
+from antigravity_k.api.project_binding import (
+    DEFAULT_SESSION_ID,
+    bind_session_active_project,
+    get_session_project_bindings,
+    reset_bound_request_execution_context,
+)
 from antigravity_k.api.server import app
+from antigravity_k.config import config
 from antigravity_k.engine.openai_tool_bridge import (
     build_openai_response,
     build_tool_prompt,
@@ -26,6 +34,7 @@ from antigravity_k.engine.openai_tool_bridge import (
     tool_blocks_to_tool_calls,
     validate_openai_tools,
 )
+from antigravity_k.engine.project_registry import ProjectRegistry
 
 
 class _FakeManager:
@@ -40,22 +49,57 @@ class _FakeManager:
         return self.response
 
 
+def _bind_default_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Register a temp project and bind DEFAULT_SESSION so chat tools path can proceed."""
+    import antigravity_k.engine.project_registry as preg
+
+    storage = tmp_path / "projects.json"
+    monkeypatch.setattr(preg, "_DEFAULT_STORAGE_PATH", storage)
+    monkeypatch.setattr(preg, "_global_registry", None)
+    allow_root = tmp_path.resolve()
+    monkeypatch.setattr(config.paths, "project_root", allow_root)
+    monkeypatch.delenv("AGK_ALLOWED_ROOTS", raising=False)
+
+    proj_dir = tmp_path / "tool_bridge_proj"
+    proj_dir.mkdir()
+    registry = ProjectRegistry(storage_path=storage)
+    record = registry.add_project(name="ToolBridge", path=str(proj_dir))
+    monkeypatch.setattr(preg, "_global_registry", registry)
+
+    get_session_project_bindings().reset_all()
+    reset_bound_request_execution_context()
+    bind_session_active_project(DEFAULT_SESSION_ID, record.id)
+    return record.id
+
+
 @pytest.fixture()
-def client() -> Any:
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    _ = _bind_default_project(tmp_path, monkeypatch)
     fake = _FakeManager()
     app.dependency_overrides[api_dependencies.get_model_manager] = lambda: fake
-    yield TestClient(app), fake
+    headers = {"X-Access-Pin": config.security.access_pin}
+    with TestClient(app) as test_client:
+        test_client.headers.update(headers)
+        yield test_client, fake
     app.dependency_overrides.pop(api_dependencies.get_model_manager, None)
+    get_session_project_bindings().reset_all()
+    reset_bound_request_execution_context()
 
 
 @pytest.fixture()
-def tool_calling_client() -> Any:
+def tool_calling_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    _ = _bind_default_project(tmp_path, monkeypatch)
     fake = _FakeManager(
         response='<tool_call>\n{"name": "shell", "arguments": {"command": ["ls"]}}\n</tool_call>',
     )
     app.dependency_overrides[api_dependencies.get_model_manager] = lambda: fake
-    yield TestClient(app), fake
+    headers = {"X-Access-Pin": config.security.access_pin}
+    with TestClient(app) as test_client:
+        test_client.headers.update(headers)
+        yield test_client, fake
     app.dependency_overrides.pop(api_dependencies.get_model_manager, None)
+    get_session_project_bindings().reset_all()
+    reset_bound_request_execution_context()
 
 
 def _openai_tool(name: str = "shell") -> dict[str, Any]:

@@ -283,7 +283,7 @@ async def list_projects():
 
 
 @router.post("/api/projects")
-async def create_project(req: CreateProjectRequest):
+async def create_project(req: CreateProjectRequest, request: Request):
     """새 프로젝트를 등록하고 해당 작업공간으로 전환합니다."""
     from antigravity_k.engine.project_registry import get_project_registry
 
@@ -311,9 +311,20 @@ async def create_project(req: CreateProjectRequest):
     ws_req = WorkspaceRequest(path=target)
     _ = await set_workspace(ws_req)
 
-    from antigravity_k.api.project_binding import DEFAULT_SESSION_ID, bind_session_active_project
+    from antigravity_k.api.project_binding import (
+        DEFAULT_SESSION_ID,
+        SESSION_ID_HEADER,
+        bind_session_active_project,
+        extract_session_id_from_payload,
+    )
 
-    session_binding = bind_session_active_project(DEFAULT_SESSION_ID, project.id)
+    # Align with switch_project: honor X-AGK-Session-Id when present.
+    header_session = request.headers.get(SESSION_ID_HEADER)
+    session_id = extract_session_id_from_payload(
+        {},
+        header_session_id=header_session or DEFAULT_SESSION_ID,
+    )
+    session_binding = bind_session_active_project(session_id, project.id)
 
     return {
         "ok": True,

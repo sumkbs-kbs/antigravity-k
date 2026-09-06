@@ -406,9 +406,17 @@ async def chat_completions(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-    # Phase 35: body에 tools가 있으면 OpenAI function-calling passthrough 위임
-    # (기존 오케스트레이터 경로는 tools를 소비하지 않음)
-    if body.get("tools") is not None:
+    # Phase 35: tools 분기는 오케스트레이터를 우회하지만, WS-01 binding은
+    # generate side effect 전에 반드시 선행한다 (tools early-return 포함).
+    has_tools = body.get("tools") is not None
+    if has_tools:
+        target_model = _string_value(body.get("model"))
+        if not target_model:
+            raise HTTPException(status_code=400, detail="Model is required")
+        execution_context = _resolve_chat_execution_context(request, body, target_model)
+        request.state.execution_context = execution_context
+        request.state.project_id = execution_context.project_id
+        request.state.canonical_project_root = execution_context.canonical_project_root
         return await _openai_tools_passthrough(body, manager)
 
     source_format = translator.detect_format(body)

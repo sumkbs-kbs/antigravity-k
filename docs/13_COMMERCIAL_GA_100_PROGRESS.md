@@ -19,8 +19,8 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 전체 작업 | 33 |
 | 완료 | 3 |
 | 진행 중 | 0 |
-| 차단 | 1 (WS-01 REJECT) |
-| 현재 작업 | WS-01 REVIEW **REJECT** (tools chat binding bypass); fix+re-review 필요; CTX/WS-02+ 착수 금지 |
+| 차단 | 1 (WS-01 re-review 대기) |
+| 현재 작업 | WS-01 REVIEW (r1 REJECT 보존; F1/F2 fix + re-review-request); CTX/WS-02+ 착수 금지 until APPROVE |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,20 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-01 REJECT fix + re-review request (`ws_01_backend`)
+
+- owner: `ws_01_backend` (APPROVE 자체 작성 금지)
+- prior REJECT: `review.md` 보존 (tip `588dc2a` / impl `2023dd5`)
+- Fix:
+  1. `chat_completions`: `_resolve_chat_execution_context` + `request.state` bind **before** `_openai_tools_passthrough` / generate
+  2. 회귀: tools + missing binding → 400 `missing_execution_context`, generate==0; positive with `project_id`
+  3. `create_project` honors `X-AGK-Session-Id` (F2)
+  4. openai tool bridge endpoint fixtures bind temp project
+- 검증: WS-01 **13 passed**; registry/ARC-01/openai_tool_bridge **43 passed**; ruff clean
+- Evidence: `.omo/evidence/commercial-ga-100/WS-01/` (`re-review-request.md`, updated red/tests/manual-qa/adversarial/metadata; prior REJECT 보존)
+- Fix tip SHA: _(pending after commit)_
+- 상태: `REVIEW` (DONE 아님). **WS-02/WS-03/WS-04/CTX 착수 금지** until `ws_01_verify` re-review APPROVE.
 
 ### 2026-09-06 · WS-01 독립 review REJECT (`ws_01_verify`)
 

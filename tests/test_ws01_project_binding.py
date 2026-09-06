@@ -369,6 +369,126 @@ def test_chat_rejects_missing_project_before_side_effects(client: TestClient, mo
     assert started["count"] == 0
 
 
+def test_tools_chat_rejects_missing_project_before_generate(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WS-01 REJECT fix: tools passthrough must bind before ModelManager.generate."""
+    get_session_project_bindings().reset_all()
+    generate_calls = {"count": 0}
+
+    class _CountingManager:
+        def generate(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            generate_calls["count"] += 1
+            return "should-not-run"
+
+        def stream_generate(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            generate_calls["count"] += 1
+            if False:
+                yield ""
+
+    monkeypatch.setattr(
+        "antigravity_k.api.dependencies.get_model_manager",
+        lambda: _CountingManager(),
+    )
+    # Also override FastAPI dependency used by chat route
+    from antigravity_k.api import dependencies as deps
+    from antigravity_k.api.server import app
+
+    app.dependency_overrides[deps.get_model_manager] = lambda: _CountingManager()
+    try:
+        res = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "dummy",
+                "messages": [{"role": "user", "content": "list files"}],
+                "stream": False,
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "shell",
+                            "description": "Run a shell command.",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(deps.get_model_manager, None)
+
+    assert res.status_code == 400, res.text
+    assert res.json().get("error") == "missing_execution_context"
+    assert generate_calls["count"] == 0
+
+
+def test_tools_chat_binds_with_explicit_project_id(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Positive control: tools path proceeds when project_id is supplied."""
+    alpha = _register_project(client, "AlphaTools", tmp_path / "alpha_tools")
+    generate_calls = {"count": 0}
+    captured_root: dict[str, object] = {}
+
+    class _FakeManager:
+        def generate(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            generate_calls["count"] += 1
+            from antigravity_k.api.project_binding import get_request_project_root
+
+            captured_root["root"] = get_request_project_root()
+            return "ok-no-tools"
+
+    from antigravity_k.api import dependencies as deps
+    from antigravity_k.api.server import app
+
+    app.dependency_overrides[deps.get_model_manager] = lambda: _FakeManager()
+    try:
+        res = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "dummy",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+                "project_id": alpha["id"],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "shell",
+                            "description": "Run a shell command.",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(deps.get_model_manager, None)
+
+    assert res.status_code == 200, res.text
+    assert generate_calls["count"] == 1
+    assert Path(str(captured_root["root"])) == (tmp_path / "alpha_tools").resolve()
+
+
+def test_create_project_honors_session_header(client: TestClient, tmp_path: Path) -> None:
+    """F2: create_project binds X-AGK-Session-Id like switch_project."""
+    path = tmp_path / "sess_create"
+    path.mkdir()
+    res = client.post(
+        "/api/projects",
+        json={"name": "SessCreate", "path": str(path)},
+        headers={"X-AGK-Session-Id": "sess_create_explicit"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    binding = body["session_active_project"]
+    assert binding["session_id"] == "sess_create_explicit"
+    assert binding["project_id"] == body["project"]["id"]
+    assert get_session_project_bindings().get("sess_create_explicit") is not None
+    assert get_session_project_bindings().get("sess_create_explicit").project_id == body["project"]["id"]
+
+
 def test_di_get_memory_manager_uses_request_root(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
