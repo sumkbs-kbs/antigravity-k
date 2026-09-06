@@ -15,11 +15,14 @@
     "vitest_related": "59 passed (incl chat/file/client)",
     "tsc": "clean"
   },
-  "notes": "Owner REVIEW submit. APPROVE forbidden for owner. Evidence under .omo/evidence/commercial-ga-100/WS-04/",
-  "verdict": null,
+  "notes": "Independent ws_04_verify REJECT. DONE forbidden. See review.md F1–F4.",
+  "verdict": "REJECT",
   "result_sha_pending": false,
   "result_sha": "1ca4ae6d37e98dd4f9a1eb884e69fa83ed64a920",
   "dashboard_dist_sha": "88ad512da3f7efc6bc71c8c460293df7c7ff8db1",
   "tip_sha": "88ad512da3f7efc6bc71c8c460293df7c7ff8db1",
-  "ended_at": "2026-09-06T11:05:00+09:00"
+  "ended_at": "2026-09-06T11:05:00+09:00",
+  "review_tip_sha": "7bac16dddec026c7b5329715c0424637fa512cac",
+  "review_impl_sha": "1ca4ae6d37e98dd4f9a1eb884e69fa83ed64a920",
+  "reviewed_at": "2026-09-06T11:03:00+09:00"
 }
