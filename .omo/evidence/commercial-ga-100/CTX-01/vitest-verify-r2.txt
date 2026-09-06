@@ -1,0 +1,5 @@
+RUN  v4.1.10
+Test Files  3 passed (3)
+Tests  32 passed (32)
+EXIT:0
+Files: client.test.ts chatStore.revision.test.ts arc01ExecutionContext.contract.test.ts

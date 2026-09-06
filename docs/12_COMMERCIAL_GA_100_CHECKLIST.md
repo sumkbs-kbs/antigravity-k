@@ -30,7 +30,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | WS-02 | DONE | ws_02_tools | ws_02_verify | codex/ws-02-tool-root / Ssak-Ai-ws-02 | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | `.omo/evidence/commercial-ga-100/WS-02/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1/F2 closed |
 | WS-03 | DONE | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | `.omo/evidence/commercial-ga-100/WS-03/` | r2 APPROVE 0.93; prior REJECT closed in review.md; F1–F7 closed |
 | WS-04 | DONE | ws_04_frontend | ws_04_verify | codex/ws-04-dashboard-project / Ssak-Ai-ws-04 | `313c6447dda5cf17537024facba2b78868bbe467` | `.omo/evidence/commercial-ga-100/WS-04/` | r2 APPROVE 0.92; prior REJECT closed in review.md; F1–F4 closed |
-| CTX-01 | REVIEW | ctx_01_conversation | ctx_01_verify | codex/ctx-01-conversation-revision / Ssak-Ai-ctx-01 | `8ba8337dbc953d3ac4788541adcf8294f809e9c6` | `.omo/evidence/commercial-ga-100/CTX-01/` | r1 REJECT preserved; F1–F4 fix submitted (`re-review-request.md`); DONE 금지 until ctx_01_verify re-review; CTX-02 착수 금지 |
+| CTX-01 | DONE | ctx_01_conversation | ctx_01_verify | codex/ctx-01-conversation-revision / Ssak-Ai-ctx-01 | `8ba8337dbc953d3ac4788541adcf8294f809e9c6` | `.omo/evidence/commercial-ga-100/CTX-01/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-02 | TODO |  |  |  |  |  | CTX-01 |
 | CTX-03 | TODO |  |  |  |  |  | CTX-02 |
 | DAT-01 | TODO |  |  |  |  |  | GA-00 |
@@ -153,14 +153,14 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## CTX-01 · conversation revision
 
-> 독립 review r1 **REJECT** (`review.md`) 보존. Owner F1–F4 fix submitted — `re-review-request.md`. Result SHA `8ba8337dbc953d3ac4788541adcf8294f809e9c6`. **DONE 금지** until `ctx_01_verify` re-review **APPROVE**. **CTX-02 착수 금지.**
+> 독립 review r2 **APPROVE** (`review-r2.md`). r1 **REJECT**는 `review.md`에 보존. Fix SHA `8ba8337dbc953d3ac4788541adcf8294f809e9c6`. Tip reviewed `b92622e9fdc752f6e1a162d14a5a64e97acb7c33`. CTX-02 착수 허용 (선행: CTX-01 DONE). Residual: session_manager.add_turn before assistant CAS; non-agent stream persist; tools early-return (DONE gate 외).
 
-- [ ] server conversation store가 authoritative다. *fix pending re-review: slash CAS fail no longer mutates session_manager*
+- [x] server conversation store가 authoritative다. *(HTTP/store + slash bound CAS-only; PASS)*
 - [x] client는 새 turn과 expected revision을 보낸다. *(ChatPage `new_turn` + revision; PASS)*
-- [ ] append/compact가 revision CAS를 사용한다. *fix pending re-review: slash uses client expected_revision; HTTP/store PASS*
+- [x] append/compact가 revision CAS를 사용한다. *(HTTP/store + slash client expected; PASS)*
 - [x] `/compact` 응답에 summary/retained IDs/new revision이 있다. *(HTTP PASS)*
-- [ ] 다음 request token이 실제 감소한다. *fix pending re-review: auto_restore gated when protocol on*
-- [ ] 두 탭 경쟁에서 overwrite 없이 conflict가 반환된다. *fix pending re-review: assistant stale → SSE conflict; slash loser conflict*
+- [x] 다음 request token이 실제 감소한다. *(store/API `<`; auto_restore gated; PASS)*
+- [x] 두 탭 경쟁에서 overwrite 없이 conflict가 반환된다. *(slash concurrent; assistant SSE conflict; PASS)*
 - [x] refresh/reconnect/fork 후 revision이 일치한다. *(PASS)*
 
 ## CTX-02 · 최종 프롬프트 예산

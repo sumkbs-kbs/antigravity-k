@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 7 |
-| 진행 중 | 1 |
+| 완료 | 8 |
+| 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | CTX-01 REVIEW — F1–F4 fix submitted; awaiting `ctx_01_verify` re-review |
+| 현재 작업 | CTX-01 DONE — r2 APPROVE; CTX-02 착수 가능 (본 verify turn 미착수) |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -35,6 +35,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 
 
+
+### 2026-09-06 · CTX-01 독립 re-review r2 APPROVE (`ctx_01_verify`)
+
+- reviewer: `ctx_01_verify` (구현 커밋 없음)
+- prior REJECT: `review.md` 보존; 본 기록 `review-r2.md`
+- Tip reviewed: `b92622e9fdc752f6e1a162d14a5a64e97acb7c33`
+- Fix / Result SHA: `8ba8337dbc953d3ac4788541adcf8294f809e9c6`
+- branch/worktree: `codex/ctx-01-conversation-revision` / `Ssak-Ai-ctx-01`
+- Adversarial: **APPROVE** — F1 slash CAS-only (no legacy mutate); F2 assistant stale → SSE conflict; F3 client expected_revision; F4 auto_restore gated
+- Independent re-run: pytest **66 passed**; vitest **32 passed**; dual-SoT/mid-stream probes ALL PASS
+- Evidence: `.omo/evidence/commercial-ga-100/CTX-01/review-r2.md`, `adversarial-verify-r2.txt`, `tests-verify-r2-pytest.txt`, `vitest-verify-r2.txt`
+- 상태: **DONE**. CTX-02 착수 허용. **본 turn에서 CTX-02 미착수**.
 
 ### 2026-09-06 · CTX-01 F1–F4 REJECT fix (`ctx_01_conversation`)
 
