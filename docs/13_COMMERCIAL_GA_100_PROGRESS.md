@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 6 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | WS-04 REVIEW — r1 REJECT (`ws_04_verify`); awaiting owner fix |
+| 현재 작업 | WS-04 REVIEW — owner F1–F4 fix submitted; awaiting `ws_04_verify` re-review |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -33,6 +33,23 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+
+
+### 2026-09-06 · WS-04 REJECT-fix + re-review request (`ws_04_frontend`)
+
+- owner: `ws_04_frontend` (**APPROVE 자체 작성 금지**; prior `review.md` REJECT 보존)
+- Fix / Result SHA: `313c6447dda5cf17537024facba2b78868bbe467`
+- dashboard_dist tip: `0b0dad26481389cfede074a22ccd62719eaa3286`
+- prior REJECT tip / impl: `dd373291…` / `1ca4ae6d…`
+- branch/worktree: `codex/ws-04-dashboard-project` / `Ssak-Ai-ws-04`
+- F1: `fileStore` switchEpoch gate + AbortController; abort on `agk:project-switched`
+- F2: ChatPage switch clears editor tabs + `changeStore` + file tree; `editorStore.clearForProjectSwitch`
+- F3: `saveFile` + ChatPage/`/api/fs/*` surfaces carry project identity (+ epoch gate on WS reads)
+- F4: mobile e2e hard-fails if `project_id` missing; real B→C switch path
+- 검증: vitest related **86 passed** (6 files); `vite build` clean
+- Evidence: `re-review-request.md`, `tests.txt`, `adversarial-verify-owner.txt` (prior `review.md` intact)
+- 상태: `REVIEW` 유지 (**DONE 아님**). `ws_04_verify` re-review 대기.
+- CTX-01: **본 turn 미착수**.
 
 ### 2026-09-06 · WS-04 독립 review r1 REJECT (`ws_04_verify`)
 
@@ -418,11 +435,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-04 | ws_04_frontend | codex/ws-04-dashboard-project | REVIEW | r1 REJECT — fix + ws_04_verify re-review |
+| WS-04 | ws_04_frontend | codex/ws-04-dashboard-project | REVIEW | owner F1–F4 fix submitted — awaiting ws_04_verify r2 |
 
 ## 차단 및 결정 대기
 
-`WS-04` **REVIEW** (r1 REJECT). `WS-03` DONE 유지. Fix + re-review APPROVE 전 DONE 금지. CTX-01 선행 ARC-01 DONE (본 turn 미착수). Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`WS-04` **REVIEW** (r1 REJECT preserved; owner fix `313c644` + re-review-request). `WS-03` DONE 유지. r2 APPROVE 전 DONE 금지. CTX-01 본 turn 미착수. Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 

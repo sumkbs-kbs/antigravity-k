@@ -1,6 +1,9 @@
-WS-04 vitest (owner run)
-========================
-Command: vitest run src/stores/__tests__/projectStore.test.ts src/api/projectIdentity.test.ts src/stores/__tests__/chatStore.test.ts src/stores/__tests__/fileStore.test.ts src/api/client.test.ts
-Result: Test Files 5 passed; Tests 59 passed
-tsc -b: clean
+WS-04 vitest (owner re-run after F1–F4 fix)
+===========================================
+Command: vitest run src/stores/__tests__/projectStore.test.ts src/api/projectIdentity.test.ts src/stores/__tests__/chatStore.test.ts src/stores/__tests__/fileStore.test.ts src/stores/__tests__/editorStore.test.ts src/api/client.test.ts
+Result: Test Files 6 passed; Tests 86 passed (was 59; expanded editorStore + F1–F3 regressions)
+F1: fileStore stale B tree does not merge after switch to C
+F2: editorStore.clearForProjectSwitch closes tabs/preview
+F3: saveFile attaches X-AGK-Project-Id / project_id payload
+vite build: dashboard_dist rebuilt (tip 0b0dad2)
 Date: 2026-09-06 (KST)

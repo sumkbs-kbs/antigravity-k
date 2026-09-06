@@ -10,19 +10,23 @@
   "started_at": "2026-09-06T10:48:00+09:00",
   "environment": {
     "os": "macOS",
-    "node": "dashboard vitest/tsc",
-    "vitest_ws04": "7 passed (projectStore+identity)",
-    "vitest_related": "59 passed (incl chat/file/client)",
-    "tsc": "clean"
+    "node": "dashboard vitest/vite",
+    "vitest_related": "86 passed (6 files; was 59)",
+    "vite_build": "clean"
   },
-  "notes": "Independent ws_04_verify REJECT. DONE forbidden. See review.md F1–F4.",
+  "notes": "Owner F1–F4 fix submitted. Prior REJECT preserved in review.md. Awaiting ws_04_verify re-review. DONE/APPROVE forbidden by owner.",
   "verdict": "REJECT",
+  "prior_reject_preserved": true,
   "result_sha_pending": false,
-  "result_sha": "1ca4ae6d37e98dd4f9a1eb884e69fa83ed64a920",
-  "dashboard_dist_sha": "88ad512da3f7efc6bc71c8c460293df7c7ff8db1",
-  "tip_sha": "88ad512da3f7efc6bc71c8c460293df7c7ff8db1",
-  "ended_at": "2026-09-06T11:05:00+09:00",
+  "result_sha": "313c6447dda5cf17537024facba2b78868bbe467",
+  "fix_sha": "313c6447dda5cf17537024facba2b78868bbe467",
+  "dashboard_dist_sha": "0b0dad26481389cfede074a22ccd62719eaa3286",
+  "tip_sha": "0b0dad26481389cfede074a22ccd62719eaa3286",
+  "prior_impl_sha": "1ca4ae6d37e98dd4f9a1eb884e69fa83ed64a920",
+  "prior_reject_tip_sha": "dd37329165294c1cd6198fd875a530b6f9f52ae6",
   "review_tip_sha": "7bac16dddec026c7b5329715c0424637fa512cac",
   "review_impl_sha": "1ca4ae6d37e98dd4f9a1eb884e69fa83ed64a920",
-  "reviewed_at": "2026-09-06T11:03:00+09:00"
+  "reviewed_at": "2026-09-06T11:03:00+09:00",
+  "re_review_requested_at": "2026-09-06T11:15:00+09:00",
+  "ended_at": "2026-09-06T11:15:00+09:00"
 }
