@@ -45,6 +45,7 @@ tags: [commercialization, progress, evidence, multi-agent]
   - `RunBashCommand`/`SandboxRunner`/`run_persistent_command`: 명시적 project `cwd` (process cwd 미사용)
   - Git/search default `path="."` → canonical root
 - 검증: `tests/test_ws02_tool_root.py` **8 passed**; WS-01/ARC-01/tool_executor/path_security/sandbox 회귀 **97 passed** (WS-02 포함 묶음)
+- result SHA: `cada44afb90de8e8216cecc167eb669afc73e280`
 - Evidence: `.omo/evidence/commercial-ga-100/WS-02/`
 - 상태: `REVIEW` (DONE 아님). **APPROVE 대기 (`ws_02_verify`)**.
 
@@ -286,7 +287,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-02 | REVIEW | _(pending)_ | ws_02_tools | tools bind canonical root; awaiting verify |
+| WS-02 | REVIEW | `cada44afb90de8e8216cecc167eb669afc73e280` | ws_02_tools | tools bind canonical root; awaiting verify |
 
 ## 차단 및 결정 대기
 
