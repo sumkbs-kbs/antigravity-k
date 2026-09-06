@@ -30,6 +30,23 @@
 - `test_auth.py` + `test_workspace_websocket.py` + `test_workspace_websocket_live.py`: **46 passed**
 - 합계 75 passed, 0 failed
 
+## 재검증 (r1 재확인 — DAT-02식 독립 재실행, 2026-09-06)
+
+증거 팩 무결성 확인 후 구현자와 무관한 세션에서 전 결과를 재실행했다:
+
+1. **독립 재현 스크립트 재실행**: `reviewer-acceptance-check.py` → **6/6 PASS**
+2. **진리표 스위트 재실행**: `test_auth_policy_truth_table.py` → **29 passed**
+3. **인접 스위트 재실행**: `test_auth.py` + `test_workspace_websocket.py` + `test_workspace_websocket_live.py` → **46 passed**
+4. **회귀 분석 (merge-base 정정)**: metadata 초판은 회귀 대조 base를 `01669c2`로 기록했으나, 브랜치 리베이스 후 실제 merge-base는 `6d3c515` (DAT-03 DONE tip)이다. 정정 후 전체 스위트를 양측에서 재실행:
+
+| 대상 | 결과 |
+|---|---|
+| base `6d3c515` (throwaway worktree) | 38 failed, 8 errors, 5465 passed (환경 의존: e2e_smoke 서버 부팅, CLI smoke, mlx flags 등) |
+| branch `7fa5427` | **21 failed, 5510 passed** |
+| 실패 목록 diff | **신규 회귀 0건** — branch 21건은 전부 base 실패의 부분집합. base에만 있는 32건은 환경 의존 실패가 branch에서 통과한 것 |
+
+**재검증 결론: 기존 r1 APPROVE 유지** — 결함 0건, 신규 회귀 0건.
+
 ## 관찰 (non-blocking)
 
 1. `AuthDecision`에 `allowed` 헬퍼 property가 없어 호출부가 `level` 문자열 비교를 한다 — 가독성 개선 여지.
