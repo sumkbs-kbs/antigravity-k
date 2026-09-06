@@ -1,0 +1,26 @@
+WS-04 adversarial verify (owner probes after F1–F4 fix) — NOT a substitute for ws_04_verify
+==========================================================================================
+Fix SHA: 313c6447dda5cf17537024facba2b78868bbe467
+Dist tip: 0b0dad26481389cfede074a22ccd62719eaa3286
+
+F1 PASS (owner) — fileStore epoch + AbortController
+  - refreshTree/getWorkspace capture switchEpoch; set() gated by isIdentityCurrent
+  - inflight list/workspace AbortController aborted on agk:project-switched
+  - vitest: start slow B list → applyActiveProject(C) → resolve B → treeData not B
+
+F2 PASS (owner) — editor/change/tree cleared on switch
+  - editorStore.clearForProjectSwitch closes openFiles/active/preview
+  - ChatPage switchEpoch effect: clearEditor + clearChanges + fileStore.clearForProjectSwitch
+  - vitest: B tabs gone after clearForProjectSwitch
+
+F3 PASS (owner) — file read/write identity
+  - editorStore.saveFile: createProjectIdentityHeaders + withProjectIdentityPayload
+  - ChatPage onFileOpened/onFileModified: identity headers/query + isIdentityCurrent gate
+  - FileTree/SearchPanel/ProblemsPanel/ArtifactPreview/changeDetector fs/read also identity-aware
+  - vitest: saveFile asserts PROJECT_ID_HEADER + body.project_id
+
+F4 PASS (owner) — mobile e2e hard-fail
+  - removed soft if (chatPayload?.project_id); always assert payload project_id
+  - mobile uses real B→C sidebar switch path like desktop (proj_mobile_b → proj_mobile_c)
+
+Prior REJECT preserved in review.md. Owner did NOT write APPROVE.
