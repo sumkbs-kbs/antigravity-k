@@ -35,6 +35,13 @@ repos:
           - "pydantic>=2.10.0"
           - "types-PyYAML>=6.0.2"
           - "types-croniter>=6.0.0"
+          # 런타임이 py.typed를 제공하는 베이스 클래스 패키지 — 훅 격리 env에
+          # 없으면 @override가 "no base method" 오탐을 냈다 (tui/compose,
+          # httpcore 백엔드, starlette StaticFiles). 2026-09-06.
+          - "textual>=8.2,<9"
+          - "httpcore>=1.0,<2"
+          - "starlette>=0.40,<2"
+          - "fastapi>=0.115,<1"  # server.py가 fastapi.staticfiles.StaticFiles를 상속
         args: [--ignore-missing-imports, --no-strict-optional]
         # Only check files that have type annotations at module level
         # Exclude tests and generated/legacy files
@@ -44,10 +51,9 @@ repos:
             src/antigravity_k/engine/legacy_.*|
             src/antigravity_k/demo/.*
           )$
-        # Mypy is advisory (matches CI's continue-on-error). It surfaces type
-        # issues on staged files but does not block commits, since the legacy
-        # codebase still has pre-existing errors that are being worked down.
+        # 2026-09-06: repo-wide mypy 0 errors 달성 (460 files) — 더 이상 report-only
+        # 탈출구(|| true)가 필요 없다. 훅이 실제로 차단한다. 회귀 시 커밋이 막히며,
+        # 예외적으로 커밋해야 한다면 `pre-commit run mypy` 결과를 문서로 남길 것.
         verbose: true
-        # Report-only: exit zero even if type errors are found.
         pass_filenames: false
-        entry: bash -c 'mypy --ignore-missing-imports --no-strict-optional --exclude "tests/|legacy_|demo/" src/antigravity_k || true'
+        entry: bash -c 'mypy --ignore-missing-imports --no-strict-optional --exclude "tests/|legacy_|demo/" src/antigravity_k'

@@ -165,7 +165,7 @@ class PermissionGate:
             raw_patch = args.get("patch")
             patch_text = raw_patch if isinstance(raw_patch, str) else ""
             for patch_path in extract_apply_patch_paths(patch_text):
-                path_decision = self._check_path(patch_path, tool_name)
+                path_decision: Permission | None = self._check_path(patch_path, tool_name)
                 if path_decision == Permission.DENY:
                     return PermissionDecision(
                         spec=invocation.spec,

@@ -375,7 +375,7 @@ class WebSearchEngine:
                         title=title,
                         url=url,
                         snippet=_json_text(item_data.get("content")),
-                        source="Antigravity Search",
+                        source="Ssak-Ai Search",
                         timestamp=datetime.now(UTC).isoformat(),
                         relevance_score=max(0.0, min(1.0, relevance_score)),
                     ),

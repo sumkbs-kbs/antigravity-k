@@ -493,9 +493,9 @@ class ConversationStore:
             )
             snap = record.snapshot()
 
-        record = self.get(project_id=project_id, conversation_id=conversation_id)
-        assert record is not None
-        return record.prompt_messages(), snap
+        current = self.get(project_id=project_id, conversation_id=conversation_id)
+        assert current is not None
+        return current.prompt_messages(), snap
 
     # ── Persistence ─────────────────────────────────────────────────────
 

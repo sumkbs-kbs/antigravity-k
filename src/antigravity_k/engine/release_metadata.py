@@ -6,9 +6,11 @@ import tarfile
 import zipfile
 from dataclasses import dataclass
 from email import policy
+from email.message import Message
 from email.parser import BytesParser
+from email.policy import Policy
 from pathlib import Path
-from typing import Annotated, Never, override
+from typing import Annotated, Never, cast, override
 
 import typer
 
@@ -129,7 +131,10 @@ def _read_metadata(archive: Path) -> _ArchiveMetadata:
         metadata_bytes = _read_wheel_metadata(archive)
     else:
         metadata_bytes = _read_sdist_metadata(archive)
-    headers = BytesParser(policy=policy.default).parsebytes(metadata_bytes)
+    # policy.default(EmailPolicy[EmailMessage])는 typeshed 기본 BytesParser
+    # 오버로드(Policy[Message[str, str]])와 타입이 어긋난다 — 런타임 동작은
+    # 동일하므로 cast로 오버로드만 정렬한다 (mypy 1.14+, 2026-09-06).
+    headers = BytesParser(policy=cast("Policy[Message[str, str]]", policy.default)).parsebytes(metadata_bytes)
     names = tuple(headers.get_all("Name") or ())
     versions = tuple(headers.get_all("Version") or ())
     if len(names) != 1 or len(versions) != 1 or not names[0] or not versions[0]:
