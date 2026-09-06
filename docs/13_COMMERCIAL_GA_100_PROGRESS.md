@@ -44,6 +44,7 @@ tags: [commercialization, progress, evidence, multi-agent]
   - `OrchestratorAgent.shutdown()`: watchdog stop, RAG vector_store close, compressor caches clear
   - `DELETE /api/projects/{id}`: `evict_project_runtime`
   - tests: `tests/test_ws03_project_lifecycle.py` **10 passed**; 회귀(ws01+project_memory+engine_context) **46 passed**; ruff clean
+- result SHA: `4a03e3770f31b49697e0ff23c29e55227808822d`
 - Evidence: `.omo/evidence/commercial-ga-100/WS-03/`
 - 상태: `REVIEW` (DONE 아님). 독립 `ws_03_verify` APPROVE 대기.
 
@@ -341,11 +342,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-03 | REVIEW | ws_03_runtime | _(pending)_ | 독립 review 대기 |
+| WS-03 | REVIEW | ws_03_runtime | `4a03e3770f31…` | 독립 review 대기 |
 
 ## 차단 및 결정 대기
 
-`WS-03` **REVIEW** (owner `ws_03_runtime`, tip pending push). 독립 `ws_03_verify` 대기 — self-APPROVE 금지. `WS-02` DONE 유지. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`WS-03` **REVIEW** (owner `ws_03_runtime`, result SHA `4a03e3770f31b49697e0ff23c29e55227808822d`). 독립 `ws_03_verify` 대기 — self-APPROVE 금지. `WS-02` DONE 유지. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 

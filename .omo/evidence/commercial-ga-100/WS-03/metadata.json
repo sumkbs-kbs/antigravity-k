@@ -17,5 +17,7 @@
   },
   "notes": "Owner implementation complete. Independent review required; no self-APPROVE.",
   "verdict": null,
-  "result_sha_pending": true
+  "result_sha_pending": false,
+  "result_sha": "4a03e3770f31b49697e0ff23c29e55227808822d",
+  "ended_at": "2026-09-06T10:25:00+09:00"
 }
