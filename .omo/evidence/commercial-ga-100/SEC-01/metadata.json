@@ -5,7 +5,7 @@
   "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §SEC-01",
   "branch": "codex/sec-01-auth-policy",
   "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-sec-01",
-  "base": "01669c2 (dat-02 병합 + mypy gate 이후 main tip)",
+  "base": "6d3c515 (DAT-03 DONE 이후 main tip — 브랜치 리베이스 후 실제 merge-base; 초판 01669c2 표기는 리베이스 전 기준으로 정정)",
   "owner": "sec_01_policy",
   "status": "REVIEW_R1_APPROVE",
   "acceptance_criteria": {
@@ -54,7 +54,7 @@
     "new_tests": "29 passed (test_auth_policy_truth_table.py)",
     "adjacent_suites": "71 passed (auth/startup/events/headers/policy)",
     "workspace_ws": "26 passed (?pin=→token 이전 후)",
-    "full_suite": "5498 passed, 22 failed — 22 failures는 base 01669c2와 byte-identical (사전 존재, SEC-01 회귀 0)",
+    "full_suite": "5510 passed, 21 failed — 21 failures는 merge-base 6d3c515 실패의 부분집합 (신규 회귀 0; 초판 01669c2 대조는 리베이스 전 기준)",
     "lint": "ruff check + format All clean",
     "types": "mypy 5 files no issues"
   },
@@ -66,5 +66,15 @@
     "method": "독립 재현 스크립트 6/6 + 진리표 29건 재실행 + auth/WS 인접 46건 재실행 + ruff/mypy",
     "review_doc": ".omo/evidence/commercial-ga-100/SEC-01/review.md",
     "reviewer_script": ".omo/evidence/commercial-ga-100/SEC-01/reviewer-acceptance-check.py"
+  },
+  "reverification": {
+    "date": "2026-09-06",
+    "by": "sec_01_verify 재확인 세션 (구현자와 상이)",
+    "evidence_pack_integrity": "8 files intact (review.md, metadata.json, reviewer-acceptance-check.py, red.txt, tests.txt, full-suite.txt, manual-qa.md)",
+    "script_rerun": "6/6 PASS",
+    "truth_table_rerun": "29 passed",
+    "adjacent_suites_rerun": "46 passed (test_auth + test_workspace_websocket + test_workspace_websocket_live)",
+    "regression_diff_vs_6d3c515": "base 38 failed/8 errors vs branch 21 failed — 신규 회귀 0건 (branch 실패는 base 부분집합)",
+    "verdict": "r1 APPROVE 유지"
   }
 }
