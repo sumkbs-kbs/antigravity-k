@@ -18,7 +18,7 @@
 | Item | Value |
 |---|---|
 | Branch / worktree | `codex/ws-03-project-lifecycle` / `Ssak-Ai-ws-03` |
-| Fix SHA (result) | *(filled after commit)* |
+| Fix SHA (result) | `bf00b1e2ef153a2c02205d920e327d3519f22e23` |
 | Prior impl SHA | `4a03e3770f31b49697e0ff23c29e55227808822d` |
 | Prior REJECT tip | `b3e48344b8fd9ed27d8090ef8f4817285b6a27a2` |
 

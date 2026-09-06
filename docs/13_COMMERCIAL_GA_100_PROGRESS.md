@@ -37,6 +37,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 - owner: `ws_03_runtime` (APPROVE 자체 작성 금지)
 - prior REJECT: `review.md` 보존 (tip `b3e48344…`, impl `4a03e377…`)
+- Fix / Result SHA: `bf00b1e2ef153a2c02205d920e327d3519f22e23`
 - Fix 요약:
   - F1/F2: `get_session_manager` → `ProjectRuntime.session_manager`; chat/session `start_session(project_path=canonical_root)`
   - F3/F7: `get_slash_registry` / `get_scheduled_job_service` project-scoped on `ProjectRuntime`
@@ -366,7 +367,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-03 | REVIEW | ws_03_runtime | *(fix SHA pending)* | r1 REJECT preserved; owner fix → re-review |
+| WS-03 | REVIEW | ws_03_runtime | `bf00b1e2ef15…` | r1 REJECT preserved; owner fix → re-review |
 
 ## 차단 및 결정 대기
 
