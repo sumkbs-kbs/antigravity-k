@@ -690,11 +690,19 @@ tags: [commercialization, progress, evidence, multi-agent]
 | CTX-02 | APPROVE | `16db3b65e74275f433563d9b6c83721d956e3ba2` | ctx_02_verify | r2 F1–F3 closed; 14+156 + adversarial; prior REJECT closed | 2026-09-06 |
 | CTX-03 | APPROVE | `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3` | ctx_03_verify | r2 F1 closed; 27+4 + adversarial; prior REJECT closed | 2026-09-06 |
 
+### 2026-09-06 · DAT-02 독립 리뷰 r1 APPROVE
+
+- Reviewer `dat_02_verify` (구현자와 상이 세션) — `5766a4d` 검증.
+- **베이스 대조 회귀 분석**: base `5688332` 실패 21건(WS lane fixture)과 DAT-02 worktree 실패 목록이 diff로 완전 동일 → 신규 회귀 0건.
+- **F1 해소**: merge-back git 파이프라인 `subprocess.run` ALLOWLIST 등록(`INTERNAL_FIXED`) → sandbox-coverage 테스트 복구.
+- **F2 해소**: 수용기준 4(runbook+rehearsal) — `docs/runbooks/worktree_orphan_recovery.md` 신설, `WorktreeManager.sweep_orphan_worktrees()`(dry-run 기본·dirty 보존), 리허설 테스트 10건(실 git repo end-to-end).
+- 최종: 5466 passed / 21 failed(base 동일) · ruff/mypy clean · 증거 `review.md` 포함 7 artifacts.
+
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| DAT-02 | dat_02_vault | `codex/dat-02-vault-isolation` | 구현 완료, 리뷰 대기 (REVIEW) | `dat_02_verify` 독립 리뷰 → result SHA 확정 → DONE |
+| DAT-02 | dat_02_vault | `codex/dat-02-vault-isolation` | r1 APPROVE (독립 리뷰 완료) — 병합 대기 | result SHA 확정 → DONE (병합은 coordinator 승인 후) |
 
 ## 차단 및 결정 대기
 

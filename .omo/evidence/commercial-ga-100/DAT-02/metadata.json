@@ -7,9 +7,10 @@
   "branch": "codex/dat-02-vault-isolation",
   "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-dat-02",
   "owner": "dat_02_vault",
-  "reviewer": "dat_02_verify (할당 대기 — 구현자와 상이)",
+  "reviewer": "dat_02_verify (독립 세션 — r1 APPROVE)",
+  "review_verdict": "APPROVE (r1, 2026-09-06) — F1 ALLOWLIST 등록, F2 orphan runbook+rehearsal로 모두 해소; review.md 참조",
   "started_at": "2026-09-06",
-  "status": "IMPLEMENTATION_COMPLETE_AWAITING_REVIEW",
+  "status": "REVIEW_R1_APPROVE",
   "findings_addressed": ["BR-01"],
   "changed_files": [
     "src/antigravity_k/engine/vault.py",
@@ -40,7 +41,10 @@
     ".omo/evidence/commercial-ga-100/DAT-02/red.txt",
     ".omo/evidence/commercial-ga-100/DAT-02/tests.txt",
     ".omo/evidence/commercial-ga-100/DAT-02/manual-qa.md",
-    ".omo/evidence/commercial-ga-100/DAT-02/metadata.json"
+    ".omo/evidence/commercial-ga-100/DAT-02/metadata.json",
+    ".omo/evidence/commercial-ga-100/DAT-02/review.md",
+    "docs/runbooks/worktree_orphan_recovery.md",
+    "tests/test_worktree_orphan_sweep.py"
   ],
   "handover_notes": [
     "vault_writes 추적은 runner 명시 기록 지점만 커버 — tool 임의 쓰기 연결은 후속 페이즈 권장",

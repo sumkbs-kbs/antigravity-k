@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,104 @@ class WorktreeManager:
                     "[Worktree] Force deleted directory %s due to git failure.",
                     worktree_path,
                 )
+
+    def list_worktrees(self) -> list[dict[str, str]]:
+        """git worktree list --porcelain 결과를 구조화해 반환합니다.
+
+        Returns:
+            각 worktree의 ``path``/``branch``(없으면 빈 문자열)/``head``/``bare`` 키를 가진 dict 목록.
+
+        """
+        try:
+            result = subprocess.run(
+                ["git", "-C", self.base_repo_path, "worktree", "list", "--porcelain"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            logger.error("[Worktree] worktree list failed: %s", _stderr_text(e))
+            return []
+
+        entries: list[dict[str, str]] = []
+        current: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                if current:
+                    entries.append(current)
+                    current = {}
+                continue
+            if line == "bare":
+                current["bare"] = "true"
+                continue
+            key, _, value = line.partition(" ")
+            if key == "worktree":
+                key = "path"  # porcelain 키명 → 구조화 키 정규화
+            current[key] = value
+        if current:
+            entries.append(current)
+        return entries
+
+    def sweep_orphan_worktrees(self, older_than_days: float = 7.0, dry_run: bool = True) -> list[str]:
+        """크래시로 고아가 된 task worktree를 정리합니다 (runbook rehearsal 본체).
+
+        고아 정의: ``worktrees_dir`` 하위에 있고, ``path``가 존재하지만 디렉터리가 비어
+        있거나 mtime이 ``older_than_days``보다 오래된 작업 트리. 브랜치가 남아있는
+        worktree는 데이터 손실 방지를 위해 대상에서 제외한다 (runbook의 수동 단계로 유도).
+
+        Args:
+            older_than_days: 이 일수보다 오래된 mtime만 대상으로 삼는다.
+            dry_run: True(기본)면 아무것도 지우지 않고 대상 경로만 반환한다.
+
+        Returns:
+            정리 대상(또는 dry-run에서는 대상 예정) worktree 경로 목록.
+
+        """
+        cutoff = time.time() - older_than_days * 86_400
+        targets: list[str] = []
+        for entry in self.list_worktrees():
+            path = entry.get("path", "")
+            if not path or entry.get("bare") == "true":
+                continue
+            if path == self.base_repo_path or not path.startswith(self.worktrees_dir):
+                continue
+            if not os.path.isdir(path):
+                continue
+            # 보존 원칙: 커밋되지 않은 변경이 있으면 절대 정리 대상에 넣지 않는다.
+            try:
+                status = subprocess.run(
+                    ["git", "-C", path, "status", "--porcelain"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                dirty = bool(status.stdout.strip())
+            except subprocess.CalledProcessError:
+                dirty = True  # 판단 불가 = 보존
+            if dirty:
+                continue
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                continue
+            if mtime > cutoff:
+                continue
+            targets.append(path)
+
+        if dry_run:
+            for t in targets:
+                logger.info("[Worktree] Orphan sweep (dry-run) target: %s", t)
+            return targets
+
+        removed: list[str] = []
+        for path in targets:
+            try:
+                self.remove_worktree(path, force=True)
+                removed.append(path)
+                logger.info("[Worktree] Orphan swept: %s", path)
+            except OSError as e:
+                logger.error("[Worktree] Orphan sweep failed for %s: %s", path, e)
+        return removed
 
     def get_worktree_path(self, branch_name: str) -> str | None:
         """주어진 branch_name에 해당하는 worktree 경로를 반환합니다.

@@ -151,6 +151,10 @@ ALLOWLIST: dict[str, Rule] = {
     "engine/sandbox.py": Rule(INFRA_RUNNER, "샌드박스 러너 본체(seatbelt/docker 실행 주체)"),
     "engine/limited_process_runner.py": Rule(INFRA_RUNNER, "자원 제한 저수준 러너 — 상위 계층이 게이트 담당"),
     "engine/task_process_supervisor.py": Rule(INFRA_RUNNER, "장기 태스크 프로세스 감독기 자체"),
+    "engine/task_runner.py": Rule(
+        INTERNAL_FIXED,
+        "worktree merge-back git 파이프라인(status/add/commit/merge-tree/merge) — 고정 argv, 모델 입력 없음 (DAT-02)",
+    ),
     "engine/workspace_service_runtime.py": Rule(
         INFRA_RUNNER,
         "인증된 작업공간 서비스의 argv-only subprocess 수명주기 경계; shell 없이 프로세스 상태 전이",
