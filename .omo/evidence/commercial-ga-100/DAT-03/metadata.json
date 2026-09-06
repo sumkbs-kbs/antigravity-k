@@ -8,7 +8,7 @@
  "owner": "dat_03_registry",
  "reviewer": "dat_03_verify (할당 대기 — 구현자와 상이)",
  "started_at": "2026-09-06",
- "status": "REVIEW_R1_APPROVE",
+ "status": "DONE",
  "findings_addressed": [
   "BR-03"
  ],
@@ -58,6 +58,15 @@
    "_RegistryFileLock 데드 코드 라인 정리",
    "RegistryLockTimeout의 503 변환 고려"
   ],
-  "record": ".omo/evidence/commercial-ga-100/DAT-03/review.md"
+  "record": ".omo/evidence/commercial-ga-100/DAT-03/review.md",
+  "final_status": "DONE — merged ba5e1f3"
+ },
+ "result_sha": "f61e06f",
+ "merge": {
+  "merged_at": "2026-09-06",
+  "merge_commit": "ba5e1f3",
+  "into": "codex/m1-task-events",
+  "conflicts": "docs/12 checklist / docs/13 progress (양측 문서 갱신 통합 해소)",
+  "post_merge_check": "registry 스위트 29 passed + 회귀 스모크 (8 failures = base와 동일) + mypy 460 files 0 errors"
  }
 }

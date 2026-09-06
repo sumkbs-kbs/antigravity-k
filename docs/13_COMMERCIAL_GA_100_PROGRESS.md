@@ -741,9 +741,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 진행 중 작업
 
+### 2026-09-06 · DAT-03 병합 DONE
+
+- **병합**: `codex/dat-03-registry-atomic` → `codex/m1-task-events` (merge commit `ba5e1f3`). 충돌 2파일(docs/12 체크리스트·docs/13 진행문서)은 양측 갱신 통합으로 해소 — DAT-01/02 DONE 행 보존 + DAT-03 REVIEW→DONE 전환.
+- **머지 후 검증**: registry 스위트 29 passed (`test_project_registry_atomic` 6 + `_api` 2 + path_contracts + ctx01 + durable_memory_purge), 회귀 스모크 — test_agent_runtime/api_server 실패 8건은 base 실패 목록과 동일(사전 존재), repo-wide mypy 460 files 0 errors.
+- **최종 상태**: DAT-03 **DONE** (result SHA `f61e06f`, review commit `2bf96dd`, merge `ba5e1f3`). 브랜치는 audit trail로 보존.
+- **현재 진행**: 14/33 DONE (GA-00, GOV-01, ARC-01, WS-01→04, CTX-01→03, DAT-01→03).
+
+## 진행 중 작업
+
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| DAT-03 | dat_03_registry | `codex/dat-03-registry-atomic` | r1 APPROVE (독립 리뷰 완료) — 병합 대기 | 병합 → DONE 마킹 |
+| SEC-01 | sec_01_policy | `codex/sec-01-auth-policy` | 구현 완료 — 독립 리뷰 대기 | 리뷰 r1 승인 + 병합 |
 
 ## 차단 및 결정 대기
 
