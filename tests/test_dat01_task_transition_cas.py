@@ -328,3 +328,138 @@ def test_legacy_db_migrates_version_column(tmp_path: Path) -> None:
     after = store.get_task("legacy-task")
     assert after is not None
     assert after["version"] == 1
+
+
+def test_direct_execution_skips_completed_event_when_cancel_wins_cas(tmp_path: Path) -> None:
+    """F2: cancel CAS winner → completion path must not append *_completed."""
+    from collections.abc import Iterator
+    from contextlib import contextmanager
+    from contextvars import ContextVar
+    from types import SimpleNamespace
+
+    from antigravity_k.engine.direct_task_execution import DirectTaskExecution
+    from antigravity_k.engine.task_state_store import TaskExecutionContext
+
+    class CancelBeforeDoneStore:
+        """Real store; cancel wins immediately before a done transition (TOCTOU)."""
+
+        def __init__(self, db_path: str) -> None:
+            self._inner = TaskStateStore(db_path)
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._inner, name)
+
+        def transition(self, task_id: str, status: object, **kwargs: object) -> bool:
+            if status == "done":
+                current = self._inner.get_task(task_id)
+                if current is not None and current["status"] == "running":
+                    assert (
+                        self._inner.transition(
+                            task_id,
+                            "cancelled",
+                            error="cancel-won",
+                            record_event=True,
+                        )
+                        is True
+                    )
+            return self._inner.transition(task_id, status, **kwargs)
+
+    class BoundOrchestrator:
+        def __init__(self) -> None:
+            self._execution_context: ContextVar[TaskExecutionContext | None] = ContextVar(
+                "dat01_f2_execution_context",
+                default=None,
+            )
+
+        @property
+        def task_execution_context(self) -> TaskExecutionContext | None:
+            return self._execution_context.get()
+
+        @contextmanager
+        def bind_task_execution(self, task_id: str, state_store: object):
+            token = self._execution_context.set(TaskExecutionContext(task_id, state_store))  # type: ignore[arg-type]
+            try:
+                yield
+            finally:
+                self._execution_context.reset(token)
+
+        def run_stream(
+            self,
+            messages: list[dict[str, str]],
+            target_model: str,
+            max_steps: int = 15,
+            ephemeral_message: str | None = None,
+        ) -> Iterator[str]:
+            _ = (messages, target_model, max_steps, ephemeral_message)
+            assert self.task_execution_context is not None
+            yield "late-complete-chunk"
+
+    store = CancelBeforeDoneStore(str(tmp_path / "tasks.db"))
+    execution = DirectTaskExecution(BoundOrchestrator(), SimpleNamespace(state_store=store))
+    tracked = execution.start_stream(
+        [{"role": "user", "content": "hello"}],
+        target_model="test-model",
+        max_steps=5,
+        ephemeral_message=None,
+    )
+    assert tracked.task_id is not None
+    assert list(tracked.chunks) == ["late-complete-chunk"]
+    record = store.get_task(tracked.task_id)
+    assert record is not None
+    assert record["status"] == "cancelled"
+    assert record["error"] == "cancel-won"
+    event_types = [event["event_type"] for event in store.list_execution_events(tracked.task_id)]
+    assert "interactive_completed" not in event_types
+    assert "direct_completed" not in event_types
+    # Winner-aligned observation may appear (status already cancelled at end) — never opposite.
+    assert all(not event_type.endswith("_completed") for event_type in event_types)
+
+
+def test_run_max_skips_completed_event_when_cancel_wins_cas(tmp_path: Path) -> None:
+    """F2: run_max success path must not append max_execution_completed after CAS lose."""
+    from types import SimpleNamespace
+
+    from antigravity_k.engine.direct_task_execution import DirectTaskExecution
+
+    class CancelBeforeDoneStore:
+        def __init__(self, db_path: str) -> None:
+            self._inner = TaskStateStore(db_path)
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._inner, name)
+
+        def transition(self, task_id: str, status: object, **kwargs: object) -> bool:
+            if status == "done":
+                current = self._inner.get_task(task_id)
+                if current is not None and current["status"] == "running":
+                    assert self._inner.transition(task_id, "cancelled", error="cancel-won") is True
+            return self._inner.transition(task_id, status, **kwargs)
+
+    class FakeEngine:
+        def run(self, task_spec: dict[str, object], orchestrator: object = None) -> SimpleNamespace:
+            _ = (task_spec, orchestrator)
+            return SimpleNamespace(final_output="max-output", error=None)
+
+    class BareOrchestrator:
+        def run_stream(self, *args: object, **kwargs: object):
+            _ = (args, kwargs)
+            if False:  # pragma: no cover
+                yield ""
+
+    store = CancelBeforeDoneStore(str(tmp_path / "max.db"))
+    execution = DirectTaskExecution(BareOrchestrator(), SimpleNamespace(state_store=store))
+    result = execution.run_max(FakeEngine(), {"prompt": "do max"})
+    assert result.final_output == "max-output"
+    # Find the created direct_* task
+    # list via sqlite: use events
+    # Store only has one task
+    import sqlite3
+
+    with sqlite3.connect(str(tmp_path / "max.db")) as connection:
+        row = connection.execute("SELECT task_id, status, error FROM task_history").fetchone()
+    assert row is not None
+    task_id, status, error = row
+    assert status == "cancelled"
+    assert error == "cancel-won"
+    event_types = [event["event_type"] for event in store.list_execution_events(task_id)]
+    assert "max_execution_completed" not in event_types

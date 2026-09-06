@@ -26,5 +26,8 @@ UI event projection could then show contradictory terminals.
 
 ## Consequences
 - Callers treat conflict / terminal freeze as lost race (false / catch).
-- Domain completion events remain caller-owned; DAT-01 does not rewrite every
-  event stream by default (`record_event=False`).
+- Competing terminal **domain** events (`*_completed` / `*_failed` / `*_cancelled`
+  from `direct_task_execution`) append **only when the CAS transition succeeds**.
+  On CAS lose, skip the opposite-terminal append (UI `TaskExecutionView` also
+  passes store `authoritativeStatus` into `projectTaskExecution`).
+- Optional `task.status` ledger events remain opt-in via `record_event=True`.

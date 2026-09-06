@@ -117,4 +117,75 @@ describe('TaskExecutionView', () => {
       expect(within(leadNode).getByText('QA agent')).toBeInTheDocument();
     }
   });
+
+  it('DAT-01 F1: wires store cancelled status so late direct_completed stays cancelled', () => {
+    const cancelledTask = TaskSummarySchema.parse({
+      task_id: 'task-live',
+      prompt: 'Cancel vs late complete',
+      status: 'cancelled',
+      output: '',
+      error: 'user-cancel',
+      created_at: '2026-08-20T09:00:00Z',
+      updated_at: '2026-08-20T09:00:03Z',
+      completed_at: '2026-08-20T09:00:03Z',
+    });
+    const cancelEvent = TaskEventSchema.parse({
+      sequence: 1,
+      schema_version: 2,
+      task_id: 'task-live',
+      step_id: 'run',
+      agent_id: 'lead-agent',
+      parent_id: null,
+      tool_call_id: null,
+      approval_id: null,
+      resource_job_id: null,
+      correlation_id: 'run-live',
+      event_type: 'task.status',
+      payload: { from_status: 'running', to_status: 'cancelled', terminal: true },
+      created_at: '2026-08-20T09:00:02Z',
+    });
+    const lateComplete = TaskEventSchema.parse({
+      sequence: 2,
+      schema_version: 2,
+      task_id: 'task-live',
+      step_id: 'run',
+      agent_id: 'lead-agent',
+      parent_id: null,
+      tool_call_id: null,
+      approval_id: null,
+      resource_job_id: null,
+      correlation_id: 'run-live',
+      event_type: 'direct_completed',
+      payload: { output_length: 12 },
+      created_at: '2026-08-20T09:00:03Z',
+    });
+
+    render(
+      <TaskExecutionView
+        tasks={[cancelledTask]}
+        selectedTaskId={taskId}
+        events={[cancelEvent, lateComplete]}
+        connectionState="connected"
+        error={null}
+        pendingAction={null}
+        approvals={[]}
+        pendingApprovalId={null}
+        approvalError={null}
+        onSelectTask={vi.fn()}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onFork={vi.fn()}
+        onResolveApproval={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    // Queue panel uses store status; execution blocks must also stay cancelled (not completed).
+    expect(screen.getByRole('button', { name: 'Cancel vs late complete, 상태 cancelled' })).toBeInTheDocument();
+    expect(screen.getAllByText('취소됨').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('완료')).not.toBeInTheDocument();
+    expect(document.querySelector('.task-execution-status-completed')).toBeNull();
+  });
+
 });

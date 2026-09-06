@@ -33,6 +33,21 @@ def _safe_task_transition(state_store: object, task_id: str, status: object, **k
         return False
 
 
+def _append_terminal_domain_event(
+    state_store: object,
+    task_id: str,
+    event_type: str,
+    payload_json: str,
+    *,
+    cas_won: bool,
+) -> None:
+    """DAT-01 F2: append competing terminal domain events only when CAS transition succeeded."""
+    if not cas_won:
+        return
+    append = getattr(state_store, "append_execution_event")
+    _ = append(task_id, event_type, payload_json)
+
+
 @dataclass(frozen=True, slots=True)
 class TrackedStream:
     task_id: str | None
@@ -156,30 +171,36 @@ class DirectTaskExecution:
             with self._execution_binding(execution_context):
                 result = engine.run(task_spec, orchestrator=self._orchestrator)
         except Exception as exc:  # noqa: BLE001
-            _ = _safe_task_transition(state_store, execution_context.task_id, "failed", error=str(exc))
-            _ = state_store.append_execution_event(
+            cas_won = _safe_task_transition(state_store, execution_context.task_id, "failed", error=str(exc))
+            _append_terminal_domain_event(
+                state_store,
                 execution_context.task_id,
                 "max_execution_failed",
                 json.dumps({"error": str(exc)}, sort_keys=True),
+                cas_won=cas_won,
             )
             raise
 
         output = str(getattr(result, "final_output", ""))
         error = getattr(result, "error", None)
         if output:
-            _ = _safe_task_transition(state_store, execution_context.task_id, "done", output=output)
-            _ = state_store.append_execution_event(
+            cas_won = _safe_task_transition(state_store, execution_context.task_id, "done", output=output)
+            _append_terminal_domain_event(
+                state_store,
                 execution_context.task_id,
                 "max_execution_completed",
                 json.dumps({"output_length": len(output)}, sort_keys=True),
+                cas_won=cas_won,
             )
         else:
             message = str(error or "MAX produced no output")
-            _ = _safe_task_transition(state_store, execution_context.task_id, "failed", error=message)
-            _ = state_store.append_execution_event(
+            cas_won = _safe_task_transition(state_store, execution_context.task_id, "failed", error=message)
+            _append_terminal_domain_event(
+                state_store,
                 execution_context.task_id,
                 "max_execution_failed",
                 json.dumps({"error": message}, sort_keys=True),
+                cas_won=cas_won,
             )
         return result
 
@@ -278,28 +299,31 @@ class DirectTaskExecution:
         except Exception as exc:  # noqa: BLE001
             output = "".join(output_parts)
             self._save_resume_checkpoint(execution_context, output)
-            _ = _safe_task_transition(
+            cas_won = _safe_task_transition(
                 state_store,
                 execution_context.task_id,
                 "failed",
                 output=output,
                 error=str(exc),
             )
-            _ = state_store.append_execution_event(
+            _append_terminal_domain_event(
+                state_store,
                 execution_context.task_id,
                 f"{execution_type}_failed",
                 json.dumps({"error": str(exc)}, sort_keys=True),
+                cas_won=cas_won,
             )
-            self._record_task_outcome(
-                execution_context.task_id,
-                target_model,
-                self._latest_user_text(messages),
-                output,
-                started_at,
-                success=False,
-                completion_reason="failed",
-                error=str(exc),
-            )
+            if cas_won:
+                self._record_task_outcome(
+                    execution_context.task_id,
+                    target_model,
+                    self._latest_user_text(messages),
+                    output,
+                    started_at,
+                    success=False,
+                    completion_reason="failed",
+                    error=str(exc),
+                )
             raise
         else:
             output = "".join(output_parts)
@@ -317,40 +341,46 @@ class DirectTaskExecution:
                 final_agent_output = str(getattr(self._orchestrator, "_last_agent_output", "") or "")
                 if final_agent_output and final_agent_output != initial_agent_output:
                     output = final_agent_output
-                _ = _safe_task_transition(state_store, execution_context.task_id, "done", output=output)
-                _ = state_store.append_execution_event(
+                cas_won = _safe_task_transition(state_store, execution_context.task_id, "done", output=output)
+                _append_terminal_domain_event(
+                    state_store,
                     execution_context.task_id,
                     f"{execution_type}_completed",
                     json.dumps({"output_length": len(output)}, sort_keys=True),
+                    cas_won=cas_won,
                 )
-                self._record_task_outcome(
-                    execution_context.task_id,
-                    target_model,
-                    self._latest_user_text(messages),
-                    output,
-                    started_at,
-                    success=True,
-                    completion_reason="done",
-                )
+                if cas_won:
+                    self._record_task_outcome(
+                        execution_context.task_id,
+                        target_model,
+                        self._latest_user_text(messages),
+                        output,
+                        started_at,
+                        success=True,
+                        completion_reason="done",
+                    )
         finally:
             record = state_store.get_task(execution_context.task_id)
             if record is not None and record["status"] == "running":
                 output = "".join(output_parts)
-                _ = _safe_task_transition(state_store, execution_context.task_id, "cancelled", output=output)
-                _ = state_store.append_execution_event(
+                cas_won = _safe_task_transition(state_store, execution_context.task_id, "cancelled", output=output)
+                _append_terminal_domain_event(
+                    state_store,
                     execution_context.task_id,
                     f"{execution_type}_cancelled",
                     json.dumps({"output_length": len(output)}, sort_keys=True),
+                    cas_won=cas_won,
                 )
-                self._record_task_outcome(
-                    execution_context.task_id,
-                    target_model,
-                    self._latest_user_text(messages),
-                    output,
-                    started_at,
-                    success=False,
-                    completion_reason="cancelled",
-                )
+                if cas_won:
+                    self._record_task_outcome(
+                        execution_context.task_id,
+                        target_model,
+                        self._latest_user_text(messages),
+                        output,
+                        started_at,
+                        success=False,
+                        completion_reason="cancelled",
+                    )
 
     @staticmethod
     def _save_resume_checkpoint(execution_context: TaskExecutionContext, output: str) -> None:

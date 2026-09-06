@@ -52,7 +52,13 @@ export function TaskExecutionView({
   onResolveApproval,
   onRetry,
 }: TaskExecutionViewProps) {
-  const projection = selectedTaskId === null ? null : projectTaskExecution(selectedTaskId, events);
+  const selectedTask =
+    selectedTaskId === null ? null : (tasks.find((task) => task.task_id === selectedTaskId) ?? null);
+  // DAT-01: store status is SoT — clamp contradictory late domain terminals (e.g. cancel + direct_completed).
+  const projection =
+    selectedTaskId === null
+      ? null
+      : projectTaskExecution(selectedTaskId, events, selectedTask?.status);
 
   return (
     <section className="task-execution-shell glass-panel" aria-labelledby="task-execution-title" aria-busy={connectionState === 'loading'}>
