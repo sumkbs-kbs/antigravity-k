@@ -27,6 +27,7 @@ from antigravity_k.engine.capability_policy import (
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .permission_gate import PermissionGate
 from .tool_contracts import Permission, PermissionDecision, ToolInvocation, ToolSpec
+from .tool_path import ToolPathError, effective_project_root, rewrite_tool_args
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +259,10 @@ class ToolRegistry:
     ) -> tuple[Permission, str]:
         """권한 검증 후 도구를 실행합니다 (Claw Code PermissionPolicy 패턴).
 
+        WS-02: path args are rewritten to absolute paths under the request
+        canonical root *before* PermissionGate inspects them, so inspected and
+        executed paths are identical.
+
         Returns:
             (permission, result) 튜플:
             - Permission.ALLOW + 실행 결과
@@ -265,7 +270,27 @@ class ToolRegistry:
             - Permission.DENY + 차단 사유
 
         """
-        decision = self.authorize(tool_name, args, objective=objective)
+        root = effective_project_root(self._permission_gate.project_root)
+        try:
+            rewritten_args, resolutions = rewrite_tool_args(tool_name, args, root)
+        except ToolPathError as exc:
+            return (
+                Permission.DENY,
+                f"[DENIED] Tool path escapes project root: {exc.raw_path or exc}",
+            )
+
+        decision = self.authorize(tool_name, rewritten_args, objective=objective)
+        if resolutions and decision.inspected_path is None:
+            # Attach first resolved path for callers/audit correlation.
+            primary = resolutions[0]
+            decision = PermissionDecision(
+                spec=decision.spec,
+                permission=decision.permission,
+                source=decision.source,
+                reason=decision.reason,
+                inspected_path=primary.inspected_path,
+                executed_path=primary.executed_path,
+            )
         if not decision.allows_execution:
             label = "APPROVAL REQUIRED" if decision.requires_approval else "DENIED"
             return decision.permission, f"[{label}] {decision.reason}"
@@ -273,9 +298,10 @@ class ToolRegistry:
         tool = self.get(tool_name)
         if tool is None:
             return Permission.DENY, f"Error: Tool '{tool_name}' not found."
+        exec_args: dict[str, object] = dict(rewritten_args)
         if tool_name == "run_bash_command":
-            args = {**args, "_execution_permit": getattr(tool, "_execution_permit", None)}
-        result = tool(**args)
+            exec_args["_execution_permit"] = getattr(tool, "_execution_permit", None)
+        result = tool(**exec_args)
         return Permission.ALLOW, result
 
     def authorize(

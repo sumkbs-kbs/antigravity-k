@@ -18,9 +18,9 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
 | 완료 | 4 |
-| 진행 중 | 0 |
+| 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | WS-01 DONE (r2 APPROVE); next: WS-02 / WS-03 / WS-04 / CTX per prerequisites |
+| 현재 작업 | WS-02 REVIEW (ws_02_tools); awaiting ws_02_verify |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,22 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-02 도구 canonical root 적용 (REVIEW)
+
+- owner: `ws_02_tools` (APPROVE 자체 작성 금지)
+- base SHA: `7b0b49cf58892522e789b8b2453c88f9284b3560` (WS-01 APPROVE tip, includes ARC-01)
+- branch/worktree: `codex/ws-02-tool-root` / `Ssak-Ai-ws-02`
+- 구현 요약:
+  - `tools/tool_path.py`: request-scoped canonical root 기준 path resolve + rewrite; `..`/symlink/mixed-separator escape 거절; inspected==executed audit (`ToolPathAudit`)
+  - `ToolRegistry.execute_with_permission`: gate 검사 전 path rewrite → PermissionGate와 tool open/subprocess가 동일 절대 경로 사용
+  - `PermissionGate`: request root 우선; file/search는 root 밖 DENY; `inspected_path`/`executed_path` 기록
+  - `RunBashCommand`/`SandboxRunner`/`run_persistent_command`: 명시적 project `cwd` (process cwd 미사용)
+  - Git/search default `path="."` → canonical root
+- 검증: `tests/test_ws02_tool_root.py` **8 passed**; WS-01/ARC-01/tool_executor/path_security/sandbox 회귀 **97 passed** (WS-02 포함 묶음)
+- Evidence: `.omo/evidence/commercial-ga-100/WS-02/`
+- 상태: `REVIEW` (DONE 아님). **APPROVE 대기 (`ws_02_verify`)**.
+
 
 ### 2026-09-06 · WS-01 독립 re-review APPROVE (r2) (`ws_01_verify`)
 
@@ -270,11 +286,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| _(none)_ |  |  |  | WS-01 DONE; pick WS-02 / WS-03 / WS-04 / CTX per prerequisites |
+| WS-02 | REVIEW | _(pending)_ | ws_02_tools | tools bind canonical root; awaiting verify |
 
 ## 차단 및 결정 대기
 
-없음. `WS-01` r2 **APPROVE** (`review-r2.md`); prior REJECT는 `review.md`에 보존. Fix SHA `11658e0`. ARC-01 DONE (`ede637a`). GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다. 다음 lane: WS-02 / WS-03 / WS-04 / CTX (각 선행 조건).
+`WS-02` **REVIEW** (owner≠reviewer). `WS-01` r2 **APPROVE** (`review-r2.md`); prior REJECT는 `review.md`에 보존. Fix SHA `11658e0`. ARC-01 DONE (`ede637a`). GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다. 다음 lane: WS-02 / WS-03 / WS-04 / CTX (각 선행 조건).
 
 ## 증거 위치
 

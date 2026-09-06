@@ -42,6 +42,9 @@ class PermissionDecision:
     permission: Permission
     source: str
     reason: str
+    # WS-02: path inspected by the gate (same absolute path tools must open).
+    inspected_path: str | None = None
+    executed_path: str | None = None
 
     @property
     def allows_execution(self) -> bool:
@@ -54,3 +57,9 @@ class PermissionDecision:
     @property
     def is_denied(self) -> bool:
         return self.permission is Permission.DENY
+
+    @property
+    def path_correlated(self) -> bool:
+        if self.inspected_path is None or self.executed_path is None:
+            return self.inspected_path is None and self.executed_path is None
+        return self.inspected_path == self.executed_path

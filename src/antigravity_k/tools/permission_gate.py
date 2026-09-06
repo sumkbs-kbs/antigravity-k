@@ -19,6 +19,7 @@ import re
 from collections.abc import Mapping
 
 from .tool_contracts import Permission, PermissionDecision, ToolArgument, ToolInvocation, ToolSpec
+from .tool_path import ToolPathError, effective_project_root, resolve_tool_path
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ class PermissionGate:
 
         # 2. 위험 명령 차단 (Bash/Shell 도구)
         if tool_name in ("run_bash_command", "bash"):
-            raw_command = args.get("command", "")
+            raw_command = args.get("command")
             command = raw_command if isinstance(raw_command, str) else ""
             if self._is_dangerous_command(command):
                 logger.warning("DENIED dangerous command: %s", command[:100])
@@ -141,9 +142,12 @@ class PermissionGate:
                     reason="The command matches a blocked dangerous-command policy.",
                 )
 
-        # 3. 경로 기반 샌드박싱 (파일 쓰기 도구)
+        # 3. 경로 기반 샌드박싱 (파일 도구) — inspected path == executed path (WS-02)
         path_decision = None
-        raw_file_path = args.get("file_path") or args.get("path") or args.get("target")
+        resolved_path: str | None = None
+        raw_file_path = (
+            args.get("file_path") or args.get("path") or args.get("target") or args.get("cwd") or args.get("dir_path")
+        )
         file_path = raw_file_path if isinstance(raw_file_path, str) else None
         if file_path is not None:
             path_decision = self._check_path(file_path, tool_name)
@@ -153,7 +157,14 @@ class PermissionGate:
                     permission=Permission.DENY,
                     source="permission_gate",
                     reason="The requested path is outside the permitted project boundary or protected.",
+                    inspected_path=None,
+                    executed_path=None,
                 )
+            if tool_name != "set_workspace":
+                try:
+                    resolved_path = self.resolve_for_tool(file_path)
+                except ToolPathError:
+                    resolved_path = None
 
         # 4. risk_level 기반 결정
         risk_map = {
@@ -183,6 +194,8 @@ class PermissionGate:
                 permission=Permission.ALLOW,
                 source="approval_cache",
                 reason="A matching approved tool action is cached for this session.",
+                inspected_path=resolved_path,
+                executed_path=resolved_path,
             )
 
         return PermissionDecision(
@@ -190,6 +203,8 @@ class PermissionGate:
             permission=decision,
             source="permission_gate",
             reason="The tool risk and path policy determine this permission.",
+            inspected_path=resolved_path,
+            executed_path=resolved_path,
         )
 
     def record_approval(self, tool_name: str, risk_level: str = "safe") -> None:
@@ -204,8 +219,16 @@ class PermissionGate:
                 return True
         return False
 
+    def effective_root(self) -> str:
+        """Request-scoped canonical root when bound; else this gate's project_root."""
+        return effective_project_root(self.project_root)
+
+    def resolve_for_tool(self, file_path: str) -> str:
+        """Resolve a tool path under the effective project root (WS-02)."""
+        return resolve_tool_path(file_path, self.effective_root())
+
     def _check_path(self, file_path: str, tool_name: str) -> Permission:
-        """경로 기반 권한 검사."""
+        """경로 기반 권한 검사 — 검사 경로는 실제 open 경로와 동일해야 한다 (WS-02)."""
         raw_path = str(file_path)
         raw_norm = os.path.normcase(raw_path).replace("/", "\\")
         for protected in self.PROTECTED_PATHS:
@@ -214,9 +237,30 @@ class PermissionGate:
                 logger.warning("DENIED access to protected path: %s", raw_path)
                 return Permission.DENY
 
-        abs_path = os.path.realpath(os.path.abspath(file_path))
+        # Workspace switch is not a project-scoped file tool; still block protected roots.
+        if tool_name == "set_workspace":
+            try:
+                abs_path = os.path.realpath(os.path.abspath(file_path))
+            except OSError:
+                return Permission.DENY
+            for protected in self.PROTECTED_PATHS:
+                protected_path = os.path.realpath(os.path.abspath(protected))
+                try:
+                    inside_protected = os.path.commonpath([abs_path, protected_path]) == protected_path
+                except ValueError:
+                    inside_protected = False
+                if inside_protected:
+                    logger.warning("DENIED access to protected path: %s", abs_path)
+                    return Permission.DENY
+            return Permission.ALLOW
 
-        # 보호 경로 차단
+        # All other file/search tools: must resolve under canonical project root.
+        try:
+            abs_path = self.resolve_for_tool(file_path)
+        except ToolPathError as exc:
+            logger.warning("DENIED escaping tool path: %s (%s)", raw_path, exc)
+            return Permission.DENY
+
         for protected in self.PROTECTED_PATHS:
             protected_path = os.path.realpath(os.path.abspath(protected))
             try:
@@ -227,28 +271,10 @@ class PermissionGate:
                 logger.warning("DENIED access to protected path: %s", abs_path)
                 return Permission.DENY
 
-        # 읽기 전용 도구 및 워크스페이스 전환 도구는 안전 도구로 분류되어 경로 밖 조회도 자동 허용합니다.
-        if tool_name in ("read_file", "grep_search", "glob_search", "set_workspace"):
+        # Inside project — mode decides write prompting; reads are allow.
+        if tool_name in ("read_file", "grep_search", "glob_search", "list_directory"):
             return Permission.ALLOW
 
-        # 프로젝트 외부 파일 접근
-        project_root = os.path.realpath(self.project_root)
-        try:
-            inside_project = os.path.commonpath([abs_path, project_root]) == project_root
-        except ValueError:
-            inside_project = False
-        if not inside_project:
-            if self.mode == "strict":
-                return Permission.DENY
-            elif self.mode == "auto-pilot":
-                logger.warning(
-                    "Auto-pilot denied external write path outside project_root: %s",
-                    abs_path,
-                )
-                return Permission.DENY
-            return Permission.PROMPT
-
-        # 프로젝트 내부 쓰기 = 모드에 따라
         if self.mode in ("permissive", "auto-pilot"):
             return Permission.ALLOW
         return Permission.PROMPT

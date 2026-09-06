@@ -27,7 +27,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | GOV-01 | DONE | gov_01_scope / gov_01_scope_fix | gov_01_verify | codex/gov-01-product-scope | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | `.omo/evidence/commercial-ga-100/GOV-01/` | r2 APPROVE 0.95; prior REJECT closed |
 | ARC-01 | DONE | arc_01_contract | arc_01_verify | codex/arc-01-execution-context / Ssak-Ai-arc-01 | `ede637a11fce67ff43eb32be2aacc1a0396b538c` | `.omo/evidence/commercial-ga-100/ARC-01/` | r2 APPROVE; prior REJECT closed in review.md; escape boundary verified |
 | WS-01 | DONE | ws_01_backend | ws_01_verify | codex/ws-01-project-binding / Ssak-Ai-ws-01 | `11658e046ecb7ce8eec6250401884142bc43fc2d` | `.omo/evidence/commercial-ga-100/WS-01/` | r2 APPROVE; prior REJECT closed in review.md; tools bind before generate |
-| WS-02 | TODO |  |  |  |  |  | WS-01 |
+| WS-02 | REVIEW | ws_02_tools | ws_02_verify | codex/ws-02-tool-root / Ssak-Ai-ws-02 | _(pending commit)_ | `.omo/evidence/commercial-ga-100/WS-02/` | ARC-01, WS-01 |
 | WS-03 | TODO |  |  |  |  |  | WS-01 |
 | WS-04 | TODO |  |  |  |  |  | ARC-01, WS-01 |
 | CTX-01 | TODO |  |  |  |  |  | ARC-01 |
@@ -120,12 +120,14 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## WS-02 · 실제 도구 실행 root
 
-- [ ] PermissionGate의 resolved path가 실제 tool 실행 path와 같다.
-- [ ] file read/write/search가 canonical root를 사용한다.
-- [ ] shell/Git/subprocess가 명시적 project cwd를 사용한다.
-- [ ] `..`, symlink, mixed separator escape test가 통과한다.
-- [ ] server cwd=A/project=B 재현이 B 결과를 반환한다.
-- [ ] 검사·실행 path를 correlation된 audit event로 확인했다.
+> Owner `ws_02_tools` 구현 완료 → **REVIEW** (APPROVE 자체 작성 금지). Evidence: `.omo/evidence/commercial-ga-100/WS-02/`.
+
+- [x] PermissionGate의 resolved path가 실제 tool 실행 path와 같다.
+- [x] file read/write/search가 canonical root를 사용한다.
+- [x] shell/Git/subprocess가 명시적 project cwd를 사용한다.
+- [x] `..`, symlink, mixed separator escape test가 통과한다.
+- [x] server cwd=A/project=B 재현이 B 결과를 반환한다.
+- [x] 검사·실행 path를 correlation된 audit event로 확인했다.
 
 ## WS-03 · project scoped 서비스 lifecycle
 

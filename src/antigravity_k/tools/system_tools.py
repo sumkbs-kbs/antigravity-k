@@ -288,6 +288,10 @@ class RunBashCommandTool(BaseTool):
                     "type": "string",
                     "description": "The shell command to execute.",
                 },
+                "cwd": {
+                    "type": "string",
+                    "description": "Absolute project working directory (injected by tool runtime).",
+                },
             },
             "required": ["command"],
         }
@@ -352,8 +356,14 @@ class RunBashCommandTool(BaseTool):
             env_vars = os.environ.copy()
             env_vars.update(pm.get_provider_env())
 
+            # WS-02: explicit project cwd (rewritten by ToolRegistry); never ambient process cwd.
+            from .tool_path import effective_project_root
+
+            raw_cwd = kwargs.get("cwd")
+            cwd = str(raw_cwd) if isinstance(raw_cwd, str) and raw_cwd.strip() else effective_project_root()
+
             # P2-1: 샌드박스 적용 — config의 sandbox_enabled가 true면 OS 수준 격리
-            sandbox_result = self._run_with_sandbox(command, env_vars)
+            sandbox_result = self._run_with_sandbox(command, env_vars, cwd=cwd)
             if sandbox_result is not None:
                 return sandbox_result
 
@@ -363,7 +373,7 @@ class RunBashCommandTool(BaseTool):
                 shell=True,
                 timeout=60,
                 env=env_vars,
-                cwd=os.getcwd(),
+                cwd=cwd,
             )
             output = result.stdout
             if result.stderr:
@@ -379,7 +389,13 @@ class RunBashCommandTool(BaseTool):
             logger.exception("Unhandled exception")
             return f"Error executing command: {e}"
 
-    def _run_with_sandbox(self, command: str, env_vars: dict[str, str]) -> str | None:
+    def _run_with_sandbox(
+        self,
+        command: str,
+        env_vars: dict[str, str],
+        *,
+        cwd: str | None = None,
+    ) -> str | None:
         """샌드박스가 활성화된 경우 SandboxRunner로 실행 (P2-1).
 
         Returns:
@@ -388,18 +404,20 @@ class RunBashCommandTool(BaseTool):
         try:
             from ..config import config as app_config
             from ..engine.sandbox import SandboxRunner
+            from .tool_path import effective_project_root
 
             sandbox_enabled = getattr(app_config.security, "sandbox_enabled", False)
             if not sandbox_enabled:
                 return None  # 샌드박스 비활성 — 폴백
 
+            project_cwd = cwd or effective_project_root(str(app_config.paths.project_root))
             runner = SandboxRunner(
-                project_root=str(app_config.paths.project_root),
+                project_root=project_cwd,
                 enabled=True,
                 network=getattr(app_config.security, "sandbox_network", "none"),
                 timeout=60,
             )
-            result = runner.execute(command, env=env_vars)
+            result = runner.execute(command, env=env_vars, cwd=project_cwd)
             output = result.stdout
             if result.stderr:
                 output += f"\nSTDERR:\n{result.stderr}"

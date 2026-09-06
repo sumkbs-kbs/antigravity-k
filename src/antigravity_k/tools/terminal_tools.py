@@ -242,8 +242,10 @@ class RunPersistentCommandTool(BaseTool):
 
     @override
     def execute(self, **kwargs: object) -> str:
+        from .tool_path import effective_project_root
+
         command = _string_arg(kwargs, "command")
-        cwd = _string_arg(kwargs, "cwd", ".")
+        cwd = _string_arg(kwargs, "cwd", "") or effective_project_root()
 
         manager = PersistentTerminalManager()
         try:
@@ -266,7 +268,9 @@ class CheckCommandStatusTool(BaseTool):
     def __init__(self):
         super().__init__()
         self._name: str = "check_command_status"
-        self._description: str = "Check the recent standard output and error of a persistent terminal by its Terminal ID."
+        self._description: str = (
+            "Check the recent standard output and error of a persistent terminal by its Terminal ID."
+        )
         self._schema: dict[str, JsonValue] = {
             "type": "object",
             "properties": {

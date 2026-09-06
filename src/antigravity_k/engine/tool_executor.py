@@ -27,6 +27,7 @@ from antigravity_k.engine.task_state_store import current_task_execution_context
 from antigravity_k.tools.base_tool import RiskLevel
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.tool_contracts import Permission
+from antigravity_k.tools.tool_path import effective_project_root
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -524,7 +525,8 @@ class ToolExecutor:
         # 조용히 잘못된 디렉터리 트리를 만들었다. 실제 쓰기 도구가 필요 시 생성한다.
         file_path = args.get("file_path") or args.get("path") or args.get("target")
         if isinstance(file_path, str) and file_path:
-            abs_path = file_path if os.path.isabs(file_path) else os.path.join(self.project_root, file_path)
+            root = effective_project_root(str(self.project_root))
+            abs_path = file_path if os.path.isabs(file_path) else os.path.join(root, file_path)
             if name in ("write_file", "write_to_file", "edit_file", "replace_file_content"):
                 parent_dir = os.path.dirname(abs_path)
                 if parent_dir and not os.path.exists(parent_dir):
@@ -599,7 +601,8 @@ class ToolExecutor:
         file_path = args.get("file_path") or args.get("path")
         if not isinstance(file_path, str) or not file_path:
             return
-        abs_path = file_path if os.path.isabs(file_path) else os.path.join(self.project_root, file_path)
+        root = effective_project_root(str(self.project_root))
+        abs_path = file_path if os.path.isabs(file_path) else os.path.join(root, file_path)
         if not os.path.exists(abs_path):
             return
         try:
