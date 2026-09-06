@@ -31,7 +31,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | WS-03 | DONE | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | `.omo/evidence/commercial-ga-100/WS-03/` | r2 APPROVE 0.93; prior REJECT closed in review.md; F1–F7 closed |
 | WS-04 | DONE | ws_04_frontend | ws_04_verify | codex/ws-04-dashboard-project / Ssak-Ai-ws-04 | `313c6447dda5cf17537024facba2b78868bbe467` | `.omo/evidence/commercial-ga-100/WS-04/` | r2 APPROVE 0.92; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-01 | DONE | ctx_01_conversation | ctx_01_verify | codex/ctx-01-conversation-revision / Ssak-Ai-ctx-01 | `8ba8337dbc953d3ac4788541adcf8294f809e9c6` | `.omo/evidence/commercial-ga-100/CTX-01/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1–F4 closed |
-| CTX-02 | REVIEW | ctx_02_budget | ctx_02_verify | codex/ctx-02-prompt-budget / Ssak-Ai-ctx-02 | `RESULT_SHA_PENDING` | `.omo/evidence/commercial-ga-100/CTX-02/` | r1 REJECT preserved; F1–F3 fail-closed fix + re-review-request; CTX-03 금지 until r2 APPROVE |
+| CTX-02 | REVIEW | ctx_02_budget | ctx_02_verify | codex/ctx-02-prompt-budget / Ssak-Ai-ctx-02 | `16db3b65e74275f433563d9b6c83721d956e3ba2` | `.omo/evidence/commercial-ga-100/CTX-02/` | r1 REJECT preserved; F1–F3 fail-closed fix + re-review-request; CTX-03 금지 until r2 APPROVE |
 | CTX-03 | TODO |  |  |  |  |  | CTX-02 |
 | DAT-01 | TODO |  |  |  |  |  | GA-00 |
 | DAT-02 | TODO |  |  |  |  |  | GA-00 |
@@ -165,7 +165,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## CTX-02 · 최종 프롬프트 예산
 
-> 독립 review r1 **REJECT** (`review.md`) 보존. Owner F1–F3 fail-closed fix 제출 (`re-review-request.md`). Result SHA `RESULT_SHA_PENDING`. **DONE 아님. CTX-03 착수 금지** until `ctx_02_verify` r2 **APPROVE**. Owner self-APPROVE 금지.
+> 독립 review r1 **REJECT** (`review.md`) 보존. Owner F1–F3 fail-closed fix 제출 (`re-review-request.md`). Result SHA `16db3b65e74275f433563d9b6c83721d956e3ba2`. **DONE 아님. CTX-03 착수 금지** until `ctx_02_verify` r2 **APPROVE**. Owner self-APPROVE 금지.
 
 - [x] system/tool/skill/memory/artifact/message/output reserve를 모두 계산한다. *(`PromptComponentLedger` / `build_prompt_component_ledger`) — PASS*
 - [x] model 호출 직전 final serialized input을 재검사한다. *owner fix: fail-closed enforce + halt; awaiting r2*

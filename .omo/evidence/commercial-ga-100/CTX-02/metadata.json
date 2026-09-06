@@ -10,16 +10,18 @@
   "started_at": "2026-09-06T12:00:00+09:00",
   "environment": {
     "os": "macOS",
-    "pytest_final_prompt_budget_verify": "8 passed",
-    "pytest_related_budget_verify": "67 passed",
-    "ruff_verify": "All checks passed",
-    "adversarial": "F1/F2/F5 fail-open over-limit confirmed"
+    "pytest_fix_f1f3": "14 passed",
+    "pytest_fix_related": "156 passed (3 pre-existing unrelated deselected)",
+    "ruff_fix": "All checks passed",
+    "adversarial_owner_fix": "F1/F2/F3/F5 fail-closed PASS"
   },
-  "notes": "ctx_02_verify REJECT: fail-open final budget gate (F1 early-return, F2 outer except, F3 aux re-inflate). DONE/CTX-03 forbidden until re-APPROVE.",
-  "verdict": "REJECT",
+  "notes": "Owner F1\u2013F3 fail-closed fix + re-review-request. Prior r1 REJECT preserved in review.md. DONE/CTX-03 forbidden until ctx_02_verify r2 APPROVE. No self-APPROVE.",
+  "verdict": "REJECT_FIX_SUBMITTED",
   "result_sha_pending": false,
-  "updated_at": "2026-09-06T12:20:00+09:00",
-  "result_sha": "d04748cafe8879b9afaf310bdb6aab4f47ffb06a",
-  "impl_sha": "d04748cafe8879b9afaf310bdb6aab4f47ffb06a",
-  "tip_sha": "8a0d8451d9b91fe06a29eb070eb466e2ae2fdd4d"
+  "updated_at": "2026-09-06T12:40:00+09:00",
+  "result_sha": "16db3b65e74275f433563d9b6c83721d956e3ba2",
+  "impl_sha": "16db3b65e74275f433563d9b6c83721d956e3ba2",
+  "prior_impl_sha": "d04748cafe8879b9afaf310bdb6aab4f47ffb06a",
+  "prior_reject_tip": "15cccd7de34b75db6f7d44535706c8d5ca1d109d",
+  "tip_sha": "16db3b65e74275f433563d9b6c83721d956e3ba2"
 }

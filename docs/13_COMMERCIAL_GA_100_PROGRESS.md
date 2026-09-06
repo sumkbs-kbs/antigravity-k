@@ -39,7 +39,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 ### 2026-09-06 · CTX-02 F1–F3 REJECT fix + re-review request (`ctx_02_budget`)
 
 - owner: `ctx_02_budget` (self-APPROVE 없음)
-- Fix / Result SHA: `RESULT_SHA_PENDING`
+- Fix / Result SHA: `16db3b65e74275f433563d9b6c83721d956e3ba2`
 - Prior impl / REJECT: `d04748cafe8879b9afaf310bdb6aab4f47ffb06a` / tip `15cccd7…` (`review.md` preserved)
 - branch/worktree: `codex/ctx-02-prompt-budget` / `Ssak-Ai-ctx-02`
 - Fixes: F1 `_enforce_final_prompt_budget` fail-closed (`PromptBudgetEnforcementError`); F2 outer except always halt before `stream_generate`; F3 fitted system/tools/skills (+ pinned) written back to loop locals
