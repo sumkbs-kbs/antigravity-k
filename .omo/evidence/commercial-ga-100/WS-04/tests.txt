@@ -1,0 +1,6 @@
+WS-04 vitest (owner run)
+========================
+Command: vitest run src/stores/__tests__/projectStore.test.ts src/api/projectIdentity.test.ts src/stores/__tests__/chatStore.test.ts src/stores/__tests__/fileStore.test.ts src/api/client.test.ts
+Result: Test Files 5 passed; Tests 59 passed
+tsc -b: clean
+Date: 2026-09-06 (KST)

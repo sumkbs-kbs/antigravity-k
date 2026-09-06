@@ -27,20 +27,24 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUiStore } from '../../stores/uiStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useFileStore } from '../../stores/fileStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { useGitStore } from '../../stores/gitStore';
-import { createAccessPinHeaders } from '../../utils/accessPinCredential';
-import { ProjectListResponseSchema, type ProjectRecord } from '../../api/clientSchema';
+import { type ProjectRecord } from '../../api/clientSchema';
 
 export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
   const { setCommandPaletteVisible, setFolderBrowserVisible, addToast } = useUiStore();
   const { sessions, activeSessionId, createNewSession, switchSession, deleteSession, updateSessionTitle } = useChatStore();
   const { setWorkspacePath, refreshTree } = useFileStore();
+  const projects = useProjectStore((s) => s.projects);
+  const activeProjectId = useProjectStore((s) => s.activeProjectId);
+  const hydrateFromServer = useProjectStore((s) => s.hydrateFromServer);
+  const switchToProject = useProjectStore((s) => s.switchToProject);
+  const removeProject = useProjectStore((s) => s.removeProject);
   const gitStatus = useGitStore(s => s.status);
   const fetchGitStatus = useGitStore(s => s.fetchStatus);
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editTitleText, setEditTitleText] = useState('');
 
@@ -48,45 +52,22 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
     fetchGitStatus();
   }, [fetchGitStatus]);
 
-  const fetchProjects = useCallback(() => {
-    fetch('/api/projects', { headers: createAccessPinHeaders() })
-      .then(r => r.ok ? r.json() : null)
-      .then(raw => {
-        if (raw) {
-          const parsed = ProjectListResponseSchema.safeParse(raw);
-          if (parsed.success && parsed.data.projects.length > 0) {
-            setProjects(parsed.data.projects);
-          }
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   useEffect(() => {
-    fetchProjects();
-    const handleProjectsChanged = () => fetchProjects();
+    void hydrateFromServer();
+    const handleProjectsChanged = () => { void hydrateFromServer(); };
     window.addEventListener('agk:projects-changed', handleProjectsChanged);
     return () => window.removeEventListener('agk:projects-changed', handleProjectsChanged);
-  }, [fetchProjects]);
+  }, [hydrateFromServer]);
 
   const handleSwitchProject = async (proj: ProjectRecord) => {
-    try {
-      const res = await fetch('/api/projects/switch', {
-        method: 'POST',
-        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ project_id: proj.id }),
-      });
-      if (res.ok) {
-        setWorkspacePath(proj.path);
-        localStorage.setItem('agk_active_project', proj.path);
-        addToast(`📂 '${proj.name}' 프로젝트로 전환되었습니다.`, 'success');
-        refreshTree();
-        fetchProjects();
-      } else {
-        addToast('프로젝트 전환에 실패했습니다.', 'error');
-      }
-    } catch (err) {
-      addToast(`프로젝트 전환 오류: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    if (proj.id === activeProjectId) return;
+    const result = await switchToProject(proj);
+    if (result.ok) {
+      setWorkspacePath(result.project?.path || proj.path);
+      addToast(`📂 '${proj.name}' 프로젝트로 전환되었습니다.`, 'success');
+      refreshTree();
+    } else {
+      addToast(result.detail ? `프로젝트 전환 실패: ${result.detail}` : '프로젝트 전환에 실패했습니다.', 'error');
     }
   };
 
@@ -95,32 +76,16 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
     if (!window.confirm(`'${proj.name}' 프로젝트를 목록에서 제외하시겠습니까?\n(실제 로컬 파일은 삭제되지 않습니다)`)) {
       return;
     }
-    try {
-      const res = await fetch(`/api/projects/${proj.id}`, {
-        method: 'DELETE',
-        headers: createAccessPinHeaders(),
-      });
-      if (res.ok) {
-        addToast(`'${proj.name}' 프로젝트가 목록에서 제외되었습니다.`, 'info');
-        const updatedRes = await fetch('/api/projects', { headers: createAccessPinHeaders() });
-        if (updatedRes.ok) {
-          const raw = await updatedRes.json();
-          const parsed = ProjectListResponseSchema.safeParse(raw);
-          if (parsed.success && parsed.data.projects.length > 0) {
-            setProjects(parsed.data.projects);
-            const newActive = parsed.data.projects.find(p => p.is_active) || parsed.data.projects[0];
-            if (newActive && proj.is_active) {
-              setWorkspacePath(newActive.path);
-              localStorage.setItem('agk_active_project', newActive.path);
-              refreshTree();
-            }
-          }
-        }
-      } else {
-        addToast('프로젝트 제거에 실패했습니다.', 'error');
+    const result = await removeProject(proj);
+    if (result.ok) {
+      addToast(`'${proj.name}' 프로젝트가 목록에서 제외되었습니다.`, 'info');
+      const next = useProjectStore.getState();
+      if (next.activeProjectPath) {
+        setWorkspacePath(next.activeProjectPath);
+        refreshTree();
       }
-    } catch {
-      addToast('프로젝트 제거 중 오류가 발생했습니다.', 'error');
+    } else {
+      addToast(result.detail ? `프로젝트 제거 실패: ${result.detail}` : '프로젝트 제거에 실패했습니다.', 'error');
     }
   };
 
@@ -270,14 +235,14 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
               projects.map((proj) => (
                 <div
                   key={proj.id}
-                  className={`project-folder-box ${proj.is_active ? 'active-highlight selected' : ''}`}
+                  className={`project-folder-box ${(activeProjectId ? proj.id === activeProjectId : proj.is_active) ? 'active-highlight selected' : ''}`}
                   onClick={() => handleSwitchProject(proj)}
                   title={`${proj.name} (${proj.path})`}
                 >
                   <div className="folder-name-line">
                     <span className="folder-icon">📁</span>
-                    <span className={`folder-text ${proj.is_active ? 'bold' : ''}`}>{proj.name}</span>
-                    {proj.is_active && (
+                    <span className={`folder-text ${(activeProjectId ? proj.id === activeProjectId : proj.is_active) ? 'bold' : ''}`}>{proj.name}</span>
+                    {(activeProjectId ? proj.id === activeProjectId : proj.is_active) && (
                       <span
                         className="project-git-pill"
                         style={{
@@ -315,7 +280,7 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
                   <div className="folder-sub-preview">
                     {proj.path}
                   </div>
-                  {proj.is_active && (
+                  {(activeProjectId ? proj.id === activeProjectId : proj.is_active) && (
                     <div className="folder-task-list" onClick={(e) => e.stopPropagation()}>
                       <div
                         style={{

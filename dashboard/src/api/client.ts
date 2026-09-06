@@ -6,6 +6,10 @@
 
 import { createAccessPinHeaders } from '../utils/accessPinCredential';
 import {
+  createProjectIdentityHeaders,
+  withProjectIdentityPayload,
+} from './projectIdentity';
+import {
   CacheStatsResponseSchema,
   ChatCompletionChunkSchema,
   DebugModeResponseSchema,
@@ -114,7 +118,7 @@ async function requestJson(
 ): Promise<unknown> {
   const { suppressLog = false, skipPinModal = false, ...fetchOptions } = options;
 
-  const headers = createAccessPinHeaders(fetchOptions.headers);
+  const headers = createProjectIdentityHeaders(fetchOptions.headers);
   if (!headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
@@ -220,12 +224,17 @@ export async function streamChatCompletion(
   signal?: AbortSignal
 ): Promise<void> {
   try {
-    const headers = createAccessPinHeaders({ 'Content-Type': 'application/json' });
+    const headers = createProjectIdentityHeaders({ 'Content-Type': 'application/json' });
+    const body = withProjectIdentityPayload(
+      (payload && typeof payload === 'object')
+        ? { ...(payload as Record<string, unknown>) }
+        : {},
+    );
 
     const response = await fetch('/v1/chat/completions', {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
       signal,
     });
 

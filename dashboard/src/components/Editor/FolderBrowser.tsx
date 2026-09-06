@@ -8,8 +8,10 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useFileStore } from '../../stores/fileStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { useUiStore } from '../../stores/uiStore';
 import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+import { createProjectIdentityHeaders } from '../../api/projectIdentity';
 
 interface BrowseItem {
   name: string;
@@ -54,7 +56,7 @@ const FolderBrowser: React.FC = () => {
   // Load existing registered projects for quick jumping
   useEffect(() => {
     if (!folderBrowserVisible) return;
-    fetch('/api/projects', { headers: createAccessPinHeaders() })
+    fetch('/api/projects', { headers: createProjectIdentityHeaders() })
       .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (data?.projects && Array.isArray(data.projects)) {
@@ -149,34 +151,27 @@ const FolderBrowser: React.FC = () => {
     [handleNavigate]
   );
 
-  // Confirm project addition and workspace switch
+  const registerAndSwitch = useProjectStore((s) => s.registerAndSwitch);
+
+  // Confirm project addition and workspace switch via projectStore (WS-04)
   const handleSelectFolder = useCallback(async () => {
     const target = selectedPath || currentPath;
     if (!target) return;
     try {
       const name = projectName.trim() || target.split(/[/\\]/).filter(Boolean).pop() || 'Project';
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ path: target, name }),
-      });
-      if (!res.ok) throw new Error(`Workspace update failed (${res.status})`);
-      const data = await res.json();
-      if (data.ok) {
-        const ws = data.workspace || target;
-        setWorkspacePath(ws);
-        localStorage.setItem('agk_active_project', ws);
-        addToast(`📂 프로젝트 전환: ${data.project?.name || name}`, 'success');
+      const result = await registerAndSwitch(target, name);
+      if (result.ok && result.project) {
+        setWorkspacePath(result.project.path || target);
+        addToast(`📂 프로젝트 전환: ${result.project.name || name}`, 'success');
         refreshTree();
-        window.dispatchEvent(new CustomEvent('agk:projects-changed'));
         setFolderBrowserVisible(false);
       } else {
-        addToast(`워크스페이스 설정 실패: ${data.detail}`, 'error');
+        addToast(`워크스페이스 설정 실패: ${result.detail || 'unknown'}`, 'error');
       }
     } catch (err: unknown) {
       addToast(`오류: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
-  }, [selectedPath, currentPath, projectName, setWorkspacePath, refreshTree, setFolderBrowserVisible, addToast]);
+  }, [selectedPath, currentPath, projectName, setWorkspacePath, refreshTree, setFolderBrowserVisible, addToast, registerAndSwitch]);
 
   // Breadcrumbs parsing
   const breadcrumbSegments = useMemo(() => {

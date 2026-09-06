@@ -16,6 +16,7 @@
 
 import React, { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import { useChatStore } from '../../stores/chatStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { useUiStore } from '../../stores/uiStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useChangeStore } from '../../stores/changeStore';
@@ -51,18 +52,27 @@ import {
   QueuedMessagesCard,
 } from './ChatActivity';
 import { useActivityStore } from '../../stores/activityStore';
-import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+import {
+  createProjectIdentityHeaders,
+  isIdentityCurrent,
+} from '../../api/projectIdentity';
 
 export const ChatPage: React.FC = () => {
   const {
     messages, isStreaming, selectedModel, isPlanMode, isTddMode,
     activeSession, activeSessionId, updateSessionTitle,
     addMessage, updateLastAssistantMessage, saveToStorage,
-    setStreaming, appendToCurrentAssistantContent,
-    loadFromStorage, setSelectedModel,
+    setStreaming, appendToCurrentAssistantContent, setCurrentAssistantContent,
+    loadFromStorage, setSelectedModel, clearForProjectSwitch,
   } = useChatStore();
 
   const { addToast, setCommandPaletteVisible } = useUiStore();
+  const activeProjectId = useProjectStore((s) => s.activeProjectId);
+  const activeProjectName = useProjectStore((s) => s.activeProjectName);
+  const activeProjectPath = useProjectStore((s) => s.activeProjectPath);
+  const switchEpoch = useProjectStore((s) => s.switchEpoch);
+  const hydrateProjects = useProjectStore((s) => s.hydrateFromServer);
+  const projectSwitchEpochRef = useRef(switchEpoch);
   const { previewVisible, openFile } = useEditorStore();
   const { setPanelVisible: setChangePanelVisible } = useChangeStore();
   const pendingChangeCount = useChangeStore((s) => s.changes.filter((c) => c.status === 'pending').length);
@@ -162,16 +172,25 @@ export const ChatPage: React.FC = () => {
       .catch(() => {});
   }, [loadFromStorage, loadLocalModels]);
 
-  useEffect(() => {
-    fetch('/api/workspace/context', { headers: createAccessPinHeaders() })
+  const reloadWorkspaceContext = useCallback(() => {
+    const store = useProjectStore.getState();
+    const capturedEpoch = store.switchEpoch;
+    setWorkspaceContext((prev) => ({
+      ...prev,
+      project_name: store.activeProjectName || prev.project_name,
+      workspace_path: store.activeProjectPath || prev.workspace_path,
+    }));
+    fetch('/api/workspace/context', { headers: createProjectIdentityHeaders() })
       .then(r => r.ok ? r.json() : null)
       .then(raw => {
+        if (!isIdentityCurrent(capturedEpoch)) return;
         if (raw) {
           const parsed = WorkspaceContextSchema.safeParse(raw);
           if (parsed.success) {
+            const latest = useProjectStore.getState();
             setWorkspaceContext({
-              project_name: parsed.data.project_name,
-              workspace_path: parsed.data.workspace_path || '.',
+              project_name: latest.activeProjectName || parsed.data.project_name,
+              workspace_path: latest.activeProjectPath || parsed.data.workspace_path || '.',
               target: parsed.data.target,
               branch: parsed.data.branch,
             });
@@ -179,8 +198,16 @@ export const ChatPage: React.FC = () => {
         }
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    void hydrateProjects();
+  }, [hydrateProjects]);
+
+  useEffect(() => {
+    reloadWorkspaceContext();
     // 실행 권한 모드 초기값 동기화 (읽기 전용이면 칩이 즉시 반영됨)
-    fetch('/api/system/access-mode', { headers: createAccessPinHeaders() })
+    fetch('/api/system/access-mode', { headers: createProjectIdentityHeaders() })
       .then(r => r.ok ? r.json() : null)
       .then(raw => {
         if (raw) {
@@ -192,7 +219,7 @@ export const ChatPage: React.FC = () => {
       })
       .catch(() => {});
     // 구성된 MCP 서버 실목록 (환경 레일 "소스"와 동일한 소스)
-    fetch('/api/mcp/servers', { headers: createAccessPinHeaders() })
+    fetch('/api/mcp/servers', { headers: createProjectIdentityHeaders() })
       .then(r => r.ok ? r.json() : null)
       .then(raw => {
         if (raw) {
@@ -206,7 +233,7 @@ export const ChatPage: React.FC = () => {
         setSelectedMcp([]);
       })
       .catch(() => setSelectedMcp([]));
-  }, []);
+  }, [reloadWorkspaceContext]);
 
   useEffect(() => {
     if (feedRef.current) {
@@ -218,7 +245,7 @@ export const ChatPage: React.FC = () => {
     try {
       await fetch('/api/system/access-mode', {
         method: 'POST',
-        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
+        headers: createProjectIdentityHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ mode }),
       });
       setAccessMode(mode);
@@ -301,6 +328,50 @@ export const ChatPage: React.FC = () => {
 
   useEffect(() => () => stopElapsedTimer(), [stopElapsedTimer]);
 
+  /* ─── WS-04: project switch → cancel pending + reload context ─ */
+  useEffect(() => {
+    const prevEpoch = projectSwitchEpochRef.current;
+    if (switchEpoch === prevEpoch) return;
+    projectSwitchEpochRef.current = switchEpoch;
+
+    const hadPending = Boolean(abortRef.current)
+      || useChatStore.getState().isStreaming
+      || queueRef.current.length > 0;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    queueRef.current = [];
+    setQueuedMessages([]);
+    setStreaming(false);
+    setCurrentAssistantContent('');
+    setStreamError(null);
+    stopElapsedTimer();
+    useActivityStore.getState().clear();
+    useActivityStore.getState().setSessionEnded();
+
+    clearForProjectSwitch();
+    loadFromStorage();
+    if (useChatStore.getState().sessions.length === 0) {
+      useChatStore.getState().createNewSession();
+    }
+
+    reloadWorkspaceContext();
+
+    if (hadPending) {
+      addToast('프로젝트 전환: 이전 요청을 취소하고 컨텍스트를 다시 불러왔습니다.', 'info');
+    }
+  }, [
+    switchEpoch,
+    clearForProjectSwitch,
+    loadFromStorage,
+    setStreaming,
+    setCurrentAssistantContent,
+    reloadWorkspaceContext,
+    addToast,
+    stopElapsedTimer,
+  ]);
+
   /* ─── MCP allowlist (구성된 서버 기준 선택 집합) ─────────────── */
   const mcpAllowlist = useMemo(
     () => selectedMcp ?? [],
@@ -312,6 +383,8 @@ export const ChatPage: React.FC = () => {
     const model = selectedModelRef.current;
     const planMode = isPlanModeRef.current;
     const tddMode = isTddModeRef.current;
+    const requestEpoch = useProjectStore.getState().switchEpoch;
+    const requestProjectId = useProjectStore.getState().activeProjectId;
 
     firePluginHook('chat:send', { text, model, planMode, tddMode });
     useActivityStore.getState().clear();
@@ -342,9 +415,12 @@ export const ChatPage: React.FC = () => {
         web_search: webSearch,
         code_mode: codeMode,
         mcp_servers: mcpAllowlist,
+        // project_id / project_revision also injected by client.streamChatCompletion
+        project_id: requestProjectId ?? undefined,
       },
       {
         onChunk: (chunk: string) => {
+          if (!isIdentityCurrent(requestEpoch)) return;
           assistantContent += chunk;
           appendToCurrentAssistantContent(chunk);
         },
@@ -357,6 +433,14 @@ export const ChatPage: React.FC = () => {
       },
       abortController.signal,
     );
+
+    // Stale responses from a previous project must not merge into the new UI/store.
+    if (!isIdentityCurrent(requestEpoch)) {
+      if (abortRef.current === abortController) {
+        abortRef.current = null;
+      }
+      return;
+    }
 
     updateLastAssistantMessage(assistantContent);
     saveToStorage();
@@ -937,7 +1021,9 @@ export const ChatPage: React.FC = () => {
       <div className="agk-main-column">
         <header className="agk-topbar">
           <div className="agk-breadcrumb">
-            <span className="crumb-project">{workspaceContext?.project_name || 'Ssak-Ai'}</span>
+            <span className="crumb-project" data-testid="active-project-label" data-project-id={activeProjectId ?? ''}>
+              {activeProjectName || workspaceContext?.project_name || 'Ssak-Ai'}
+            </span>
             <span className="crumb-sep">/</span>
             {isEditingTitle ? (
               <input

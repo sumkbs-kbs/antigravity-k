@@ -29,7 +29,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | WS-01 | DONE | ws_01_backend | ws_01_verify | codex/ws-01-project-binding / Ssak-Ai-ws-01 | `11658e046ecb7ce8eec6250401884142bc43fc2d` | `.omo/evidence/commercial-ga-100/WS-01/` | r2 APPROVE; prior REJECT closed in review.md; tools bind before generate |
 | WS-02 | DONE | ws_02_tools | ws_02_verify | codex/ws-02-tool-root / Ssak-Ai-ws-02 | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | `.omo/evidence/commercial-ga-100/WS-02/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1/F2 closed |
 | WS-03 | DONE | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | `.omo/evidence/commercial-ga-100/WS-03/` | r2 APPROVE 0.93; prior REJECT closed in review.md; F1–F7 closed |
-| WS-04 | TODO |  |  |  |  |  | ARC-01, WS-01 |
+| WS-04 | REVIEW | ws_04_frontend | ws_04_verify | codex/ws-04-dashboard-project / Ssak-Ai-ws-04 | _(pending commit)_ | `.omo/evidence/commercial-ga-100/WS-04/` | ARC-01, WS-01 |
 | CTX-01 | TODO |  |  |  |  |  | ARC-01 |
 | CTX-02 | TODO |  |  |  |  |  | CTX-01 |
 | CTX-03 | TODO |  |  |  |  |  | CTX-02 |
@@ -142,12 +142,14 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## WS-04 · dashboard 프로젝트 상태
 
-- [ ] project store가 단일 source다.
-- [ ] ChatPage가 project change 후 context를 재조회한다.
-- [ ] chat/task/file request에 project identity가 있다.
-- [ ] switch 시 pending 이전 request를 취소 또는 격리한다.
-- [ ] stale response가 새 project store에 반영되지 않는다.
-- [ ] desktop/mobile browser에서 label과 payload가 일치한다.
+- [x] project store가 단일 source다. *(`useProjectStore`; Sidebar/FolderBrowser 경유)*
+- [x] ChatPage가 project change 후 context를 재조회한다. *(`switchEpoch` subscribe + reloadWorkspaceContext)*
+- [x] chat/task/file request에 project identity가 있다. *(`createProjectIdentityHeaders` / `withProjectIdentityPayload`)*
+- [x] switch 시 pending 이전 request를 취소 또는 격리한다. *(AbortController + queue clear)*
+- [x] stale response가 새 project store에 반영되지 않는다. *(`isIdentityCurrent` gate)*
+- [x] desktop/mobile browser에서 label과 payload가 일치한다. *(vitest identity + e2e spec; owner QA)*
+
+> Owner `ws_04_frontend` REVIEW 제출. 독립 `ws_04_verify` 대기. APPROVE 자체 작성 금지.
 
 ## CTX-01 · conversation revision
 

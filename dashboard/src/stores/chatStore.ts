@@ -5,6 +5,7 @@
  */
 
 import { create } from 'zustand';
+import { useProjectStore } from './projectStore';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -75,6 +76,7 @@ export interface ChatState {
   setTddMode: (val: boolean) => void;
   loadFromStorage: () => void;
   saveToStorage: () => void;
+  clearForProjectSwitch: () => void;
 }
 
 const STORAGE_KEY_PREFIX = 'antigravity_chat_';
@@ -217,8 +219,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadFromStorage: () => {
     try {
-      const workspacePath = localStorage.getItem('agk_active_project') || '/';
-      const saved = localStorage.getItem(STORAGE_KEY_PREFIX + workspacePath);
+      const project = useProjectStore.getState();
+      const storageKey = project.activeProjectId
+        || project.activeProjectPath
+        || localStorage.getItem('agk_active_project')
+        || '/';
+      const saved = localStorage.getItem(STORAGE_KEY_PREFIX + storageKey);
       if (!saved) return;
 
       const parsed = JSON.parse(saved);
@@ -238,12 +244,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  clearForProjectSwitch: () => {
+    set({
+      sessions: [],
+      activeSessionId: null,
+      activeSession: null,
+      messages: [],
+      isStreaming: false,
+      currentAssistantContent: '',
+    });
+  },
+
   saveToStorage: () => {
     try {
-      const workspacePath = localStorage.getItem('agk_active_project') || '/';
+      const project = useProjectStore.getState();
+      const storageKey = project.activeProjectId
+        || project.activeProjectPath
+        || localStorage.getItem('agk_active_project')
+        || '/';
       const { sessions, activeSessionId } = get();
       const payload = { sessions, activeSessionId };
-      localStorage.setItem(STORAGE_KEY_PREFIX + workspacePath, JSON.stringify(payload));
+      localStorage.setItem(STORAGE_KEY_PREFIX + storageKey, JSON.stringify(payload));
     } catch (e) {
       console.error('[ChatStore] Failed to save to storage:', e);
     }

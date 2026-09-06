@@ -18,6 +18,7 @@ import { useActivityStore, type ActivityItem } from '../../stores/activityStore'
 import { useChatStore } from '../../stores/chatStore';
 
 import { type McpServerItem } from '../../api/clientSchema';
+import { useProjectStore } from '../../stores/projectStore';
 
 export type EnvPanelTab = 'env' | 'code' | 'changes';
 
@@ -37,6 +38,8 @@ interface Props {
 
 function getEffectiveWorkspacePath(propPath?: string): string {
   if (propPath && propPath !== '/') return propPath;
+  const fromStore = useProjectStore.getState().activeProjectPath;
+  if (fromStore && fromStore !== '/') return fromStore;
   const stored = localStorage.getItem('agk_active_project');
   if (stored && stored !== '/') return stored;
   return '.';

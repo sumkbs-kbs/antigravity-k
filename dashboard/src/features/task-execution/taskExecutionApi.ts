@@ -1,6 +1,10 @@
 import ky from 'ky';
 
 import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+import {
+  createProjectIdentityHeaders,
+  withProjectIdentityPayload,
+} from '../../api/projectIdentity';
 
 import {
   TaskEventSchema,
@@ -46,7 +50,7 @@ export class TaskEventStreamError extends Error {
 }
 
 function accessHeaders(accept = 'application/json'): Headers {
-  return createAccessPinHeaders({ Accept: accept });
+  return createProjectIdentityHeaders({ Accept: accept });
 }
 
 export function parseSseChunk(input: string): ParsedSseChunk {
@@ -88,7 +92,7 @@ export async function fetchTaskList(signal: AbortSignal): Promise<readonly TaskS
 export async function submitTask(prompt: string): Promise<TaskId> {
   const raw: unknown = await ky.post('/api/tasks/submit', {
     headers: accessHeaders(),
-    json: { prompt },
+    json: withProjectIdentityPayload({ prompt }),
     retry: 0,
     timeout: 10_000,
   }).json();

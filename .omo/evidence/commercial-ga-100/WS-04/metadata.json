@@ -1,0 +1,21 @@
+{
+  "task_id": "WS-04",
+  "title": "dashboard project switch and request identity sync",
+  "owner": "ws_04_frontend",
+  "reviewer": "ws_04_verify",
+  "status": "REVIEW",
+  "baseline_sha": "ad217621b6a31a3e071d828543e6e57213e127c4",
+  "branch": "codex/ws-04-dashboard-project",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ws-04",
+  "started_at": "2026-09-06T10:48:00+09:00",
+  "environment": {
+    "os": "macOS",
+    "node": "dashboard vitest/tsc",
+    "vitest_ws04": "7 passed (projectStore+identity)",
+    "vitest_related": "59 passed (incl chat/file/client)",
+    "tsc": "clean"
+  },
+  "notes": "Owner REVIEW submit. APPROVE forbidden for owner. Evidence under .omo/evidence/commercial-ga-100/WS-04/",
+  "verdict": null,
+  "result_sha_pending": true
+}

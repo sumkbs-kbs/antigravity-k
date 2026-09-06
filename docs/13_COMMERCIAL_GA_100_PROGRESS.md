@@ -18,9 +18,9 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
 | 완료 | 6 |
-| 진행 중 | 0 |
+| 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | WS-03 DONE (r2 APPROVE); next WS-04 eligible |
+| 현재 작업 | WS-04 REVIEW (owner submit); awaiting ws_04_verify |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,24 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+
+### 2026-09-06 · WS-04 dashboard project switch + request identity sync (REVIEW) (`ws_04_frontend`)
+
+- owner: `ws_04_frontend` (APPROVE 자체 작성 금지)
+- base SHA: `ad217621b6a31a3e071d828543e6e57213e127c4` (WS-03 r2 APPROVE tip, includes WS-01/02/03 + ARC-01)
+- branch/worktree: `codex/ws-04-dashboard-project` / `Ssak-Ai-ws-04`
+- 구현 요약:
+  - `dashboard/src/stores/projectStore.ts`: 단일 source (id/name/path/projectRevision/switchEpoch)
+  - `dashboard/src/api/projectIdentity.ts` + `clientSession.ts`: headers/body/query에 project_id·revision·X-AGK-Session-Id
+  - `client.ts` / `fileStore.ts` / `taskExecutionApi.ts`: identity 부착
+  - `ChatPage.tsx`: project switch 구독 → pending abort, chat clear/reload, stale epoch gate
+  - `Sidebar.tsx` / `FolderBrowser.tsx`: store 경유 switch/register
+  - tests: projectStore + identity vitest; e2e `ws-04-project-switch.spec.ts`
+- 검증: vitest related **59 passed** (WS-04 core 7); `tsc -b` clean
+- Evidence: `.omo/evidence/commercial-ga-100/WS-04/`
+- 상태: `REVIEW` (DONE 아님). 독립 review 대기.
+
 
 ### 2026-09-06 · WS-03 독립 review r2 APPROVE (`ws_03_verify`)
 
@@ -385,11 +403,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| — | — | — | — | WS-04 착수 가능 (선행: ARC-01, WS-01) |
+| WS-04 | ws_04_frontend | codex/ws-04-dashboard-project | REVIEW | 독립 ws_04_verify APPROVE |
 
 ## 차단 및 결정 대기
 
-`WS-03` **DONE** (r2 APPROVE). WS-04 이 lane 착수 허용. Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`WS-04` **REVIEW** (owner submit). `WS-03` DONE 유지. 독립 verify 전 DONE 금지. Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 
