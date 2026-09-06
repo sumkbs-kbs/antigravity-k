@@ -42,7 +42,7 @@ tags: [commercialization, progress, evidence, multi-agent]
   - F2 shell: absolute/`~/`/`..` 토큰을 canonical root로 resolve; escape → DENY (`cat` outside SECRET 미유출)
   - 회귀: `tests/test_ws02_tool_root.py` **12 passed**; 묶음 **101 passed**; ruff clean
 - Evidence: `.omo/evidence/commercial-ga-100/WS-02/` (`re-review-request.md`, updated red/tests/manual-qa/adversarial/metadata; prior REJECT 보존)
-- result SHA: `PENDING_COMMIT` (commit 후 갱신)
+- result SHA: `PENDING_COMMIT`
 - 상태: `REVIEW` 유지 (DONE 아님). **WS-03/WS-04 이 lane 착수 금지** until re-review APPROVE.
 
 ### 2026-09-06 · WS-02 독립 review REJECT (r1) (`ws_02_verify`)
