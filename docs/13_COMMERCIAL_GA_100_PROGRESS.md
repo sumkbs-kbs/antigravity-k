@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 7 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | CTX-01 REVIEW (owner impl); awaiting ctx_01_verify |
+| 현재 작업 | CTX-01 REVIEW — r1 REJECT (`ctx_01_verify`); awaiting owner fix |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -33,6 +33,19 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+
+
+### 2026-09-06 · CTX-01 독립 review r1 REJECT (`ctx_01_verify`)
+
+- tip reviewed: `54fc8f088ae64d8bb736eb8b7b6afaf652a84395` (HEAD 확인)
+- Impl / Result SHA: `81c957805ab92599ff842b39e1ac124bf842ae43`
+- branch/worktree: `codex/ctx-01-conversation-revision` / `Ssak-Ai-ctx-01`
+- Reviewer re-run: pytest CTX+ARC/WS related **39 passed**; vitest related **14 passed** — `tests-verify-rerun*.txt`
+- Adversarial: **REJECT** — F1 slash `_cmd_compact` bare-except → session_manager mutate on CAS fail; F2 assistant persist soft-swallows mid-stream compact race (assistant lost); F3 slash uses `before.revision` not client expected; F4 chat `auto_restore` ≤4 re-inflate after compact
+- Keep: ConversationStore/HTTP CAS + 409; ChatPage `new_turn`+revision; compact summary/retained/revision; store race+token tests; refresh/fork
+- Evidence: `.omo/evidence/commercial-ga-100/CTX-01/review.md`, `adversarial-verify.txt`, `tests-verify-rerun.txt`, `tests-verify-rerun-pytest.txt`
+- 상태: `REVIEW` 유지 (**DONE 아님**). Fix + re-review APPROVE 전 DONE 금지.
+- **CTX-02 미착수** (CTX-01 APPROVE 전 금지).
 
 
 ### 2026-09-06 · CTX-01 authoritative conversation store + revision CAS (`ctx_01_conversation`)
@@ -466,11 +479,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-04 | ws_04_frontend | codex/ws-04-dashboard-project | REVIEW | owner F1–F4 fix submitted — awaiting ws_04_verify r2 |
+| CTX-01 | ctx_01_conversation | codex/ctx-01-conversation-revision | REVIEW | r1 REJECT — fix + ctx_01_verify re-review |
 
 ## 차단 및 결정 대기
 
-`WS-04` **REVIEW** (r1 REJECT preserved; owner fix `313c644` + re-review-request). `WS-03` DONE 유지. r2 APPROVE 전 DONE 금지. CTX-01 REVIEW (owner impl; verify pending). Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`CTX-01` **REVIEW** (r1 REJECT — `review.md`). Fix + `ctx_01_verify` re-review APPROVE 전 DONE 금지. **CTX-02 착수 금지.** `WS-04` DONE 유지. Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up; WS-04 FileTree click→open epoch gate narrow race. `WS-03`/`WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 
