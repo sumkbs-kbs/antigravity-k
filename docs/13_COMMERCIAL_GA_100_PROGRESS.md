@@ -707,11 +707,20 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **F2 해소**: 수용기준 4(runbook+rehearsal) — `docs/runbooks/worktree_orphan_recovery.md` 신설, `WorktreeManager.sweep_orphan_worktrees()`(dry-run 기본·dirty 보존), 리허설 테스트 10건(실 git repo end-to-end).
 - 최종: 5466 passed / 21 failed(base 동일) · ruff/mypy clean · 증거 `review.md` 포함 7 artifacts.
 
+### 2026-09-06 · DAT-03 독립 리뷰 r1 APPROVE
+
+- Reviewer `dat_03_verify` (구현자와 상이 세션) — `f61e06f` 검증.
+- **수용기준 4건 독립 재현** (구현자 테스트와 별개 스크립트): (1) 서브프로세스 2×100 add → 201 projects 존재 (2) ENOSPC 주입 → `RegistrySaveError` (조용한 성공 없음) (3) primary 절단 → `.bak` 복구 + `.corrupt-<ts>` 격리 보존 (4) add 반환 레코드 == 재시작 후 로드 상태. 전부 PASS.
+- **회귀 분석**: base `f61e06f~1`(`8cec36c`) throwaway worktree와 전체 스위트 실패 목록 diff → **byte-identical (21=21)**. DAT-03 회귀 0건. (기존 기록 22건 중 `test_web_search_quality` 1건은 메인 리브랜드 `5098643` 이후 통과로 전환 — 본 브랜치와 무관.)
+- **코드 리뷰**: flock reload-modify-save / temp+fsync+os.replace / backup rotation / typed failure 체인 / 구버전 ProjectRecord 호환 유지 확인. 소비자 스위트(path_contracts·ctx01·durable_memory_purge 19건) 교차 검증 통과.
+- **비차단 관찰 3건**: switch/delete 라우트의 `RegistrySaveError` 명시 catch(현재 프레임워크 500 — 동작 등가), lock 클래스 데드 라인 정리, `RegistryLockTimeout` 503 변환 고려. → SEC-01처럼 후속 작업으로 충분.
+- 증거: `review.md` 신설, metadata r1 APPROVE 갱신, tests.txt 재검증 기록 추가.
+
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| DAT-03 | dat_03_registry | `codex/dat-03-registry-atomic` | 구현 완료 (REVIEW) — `f61e06f` | `dat_03_verify` 독립 리뷰 → result SHA 확정 → DONE |
+| DAT-03 | dat_03_registry | `codex/dat-03-registry-atomic` | r1 APPROVE (독립 리뷰 완료) — 병합 대기 | 병합 → DONE 마킹 |
 
 ## 차단 및 결정 대기
 

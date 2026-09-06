@@ -32,3 +32,12 @@ base 대조: 실패 21건 목록이 /tmp/base-fails.txt (base 8cec36c 측정)와
 - uv run --no-sync ruff check (대상 3파일): All checks passed!
 - uv run --no-sync ruff format (대상 3파일): 적용 완료
 - uv run --no-sync mypy --follow-imports=silent (project_registry.py, filesystem.py): Success
+
+## 독립 리뷰 재검증 (dat_03_verify, 2026-09-06)
+- test_project_registry_atomic.py (6) + test_project_registry_api.py (2) 재실행: 8 passed
+- registry 소비자 스위트 (path_contracts/ctx01/durable_memory_purge): 19 passed
+- AC#1 독립 재현: 서브프로세스 2×100 add → 201 projects (PASS)
+- AC#2 독립 재현: ENOSPC 주입 → RegistrySaveError (PASS)
+- AC#3 독립 재현: primary 절단 → .bak 복구 + .corrupt-<ts> 보존 (PASS)
+- 회귀: base(f61e06f~1) 대조 전체 스위트 실패 목록 byte-identical — DAT-03 회귀 0
+- ruff/mypy (구현 2파일): clean
