@@ -33,8 +33,8 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | CTX-01 | DONE | ctx_01_conversation | ctx_01_verify | codex/ctx-01-conversation-revision / Ssak-Ai-ctx-01 | `8ba8337dbc953d3ac4788541adcf8294f809e9c6` | `.omo/evidence/commercial-ga-100/CTX-01/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-02 | DONE | ctx_02_budget | ctx_02_verify | codex/ctx-02-prompt-budget / Ssak-Ai-ctx-02 | `16db3b65e74275f433563d9b6c83721d956e3ba2` | `.omo/evidence/commercial-ga-100/CTX-02/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1–F3 closed |
 | CTX-03 | DONE | ctx_03_observability | ctx_03_verify | codex/ctx-03-compress-observability / Ssak-Ai-ctx-03 | `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3` | `.omo/evidence/commercial-ga-100/CTX-03/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1 closed; DAT-01 ready |
-| DAT-01 | REVIEW | dat_01_persistence | dat_01_verify | codex/dat-01-task-cas / Ssak-Ai-dat-01 | `5aed1a649ac572fb5789cce8da895576855f7aca` | `.omo/evidence/commercial-ga-100/DAT-01/` | r1 REJECT preserved; F1/F2 fix SHA submitted; re-review 대기; DONE 금지; DAT-02 금지 |
-| DAT-02 | REVIEW | dat_02_vault | dat_02_verify (r1 APPROVE) | codex/dat-02-vault-isolation / Ssak-Ai-dat-02 | `0795142` | `.omo/evidence/commercial-ga-100/DAT-02/` | r1 APPROVE — F1 ALLOWLIST 등록·F2 orphan runbook/rehearsal 해소, 회귀 0건 (base 대조 diff). DONE 확정은 병합 후 |
+| DAT-01 | DONE | dat_01_persistence | dat_01_verify (r2 APPROVE) | codex/dat-01-task-cas / Ssak-Ai-dat-01 | `5aed1a649ac572fb5789cce8da895576855f7aca` | `.omo/evidence/commercial-ga-100/DAT-01/` | r2 APPROVE (F1/F2 해소, metadata status=DONE와 정합) — r1 REJECT 이력은 review.md 보존 |
+| DAT-02 | DONE | dat_02_vault | dat_02_verify (r1 APPROVE) | codex/dat-02-vault-isolation / Ssak-Ai-dat-02 | `0795142` | `.omo/evidence/commercial-ga-100/DAT-02/` | 병합 완료 (ff `8cec36c` → `codex/m1-task-events`) — 2026-09-06. 브랜치는 audit trail로 보존 |
 | DAT-03 | TODO |  |  |  |  |  | GA-00 |
 | SEC-01 | TODO |  |  |  |  |  | GA-00 |
 | SEC-02 | TODO |  |  |  |  |  | SEC-01 |

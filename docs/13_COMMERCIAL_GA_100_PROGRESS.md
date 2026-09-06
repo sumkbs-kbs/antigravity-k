@@ -690,6 +690,13 @@ tags: [commercialization, progress, evidence, multi-agent]
 | CTX-02 | APPROVE | `16db3b65e74275f433563d9b6c83721d956e3ba2` | ctx_02_verify | r2 F1–F3 closed; 14+156 + adversarial; prior REJECT closed | 2026-09-06 |
 | CTX-03 | APPROVE | `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3` | ctx_03_verify | r2 F1 closed; 27+4 + adversarial; prior REJECT closed | 2026-09-06 |
 
+### 2026-09-06 · DAT-02 병합 DONE + DAT-03 착수 준비
+
+- `codex/dat-02-vault-isolation` (`8cec36c`) → `codex/m1-task-events` **fast-forward 병합 완료** — 누적 88커밋(모든 lane 검증 작업 + DAT-02 3커밋)이 기준선에 반영. 충돌 0.
+- 병합 전 안전 절차: 미추적 GA 문서 백업(`.tmp/ga100-backup/`) + 리브랜드 8파일 stash→pop 재적용 확인.
+- 병합 후 검증: DAT-02 스위트 43 passed (isolation/orphan_sweep/outcome/sandbox_coverage).
+- 체크리스트 DAT-02 → **DONE** (12/20 task 완료). 다음: **DAT-03** (ProjectRegistry 원자성·내구성, BR-03).
+
 ### 2026-09-06 · DAT-02 독립 리뷰 r1 APPROVE
 
 - Reviewer `dat_02_verify` (구현자와 상이 세션) — `5766a4d` 검증.
@@ -698,11 +705,20 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **F2 해소**: 수용기준 4(runbook+rehearsal) — `docs/runbooks/worktree_orphan_recovery.md` 신설, `WorktreeManager.sweep_orphan_worktrees()`(dry-run 기본·dirty 보존), 리허설 테스트 10건(실 git repo end-to-end).
 - 최종: 5466 passed / 21 failed(base 동일) · ruff/mypy clean · 증거 `review.md` 포함 7 artifacts.
 
+### 2026-09-06 · 전역 mypy 0 errors 달성 + pre-commit mypy 훅 blocking 전환 (`1a51a5a`)
+
+- **배경**: 전 커밋이 `--no-verify`를 강요하던 원인 2종 — (1) repo-wide mypy 10 errors, (2) 훅 격리 env에 py.typed 런타임 부재로 @override 오탐.
+- **해소**: 훅 `additional_dependencies`에 textual/httpcore/starlette/fastapi 추가 → 훅 env 자체가 green. 잔여 코드 에러 2건 수정 — `conversation_store.assemble_history_for_request` 변수 재할당 충돌(`record`→`current`), `permission_gate` apply_patch 루프 `path_decision: Permission | None` 명시, `release_metadata` BytesParser 정책 cast (모두 런타임 동작 불변).
+- **blocking 전환**: report-only 탈출구(`entry: bash -c 'mypy ... || true'`) 제거 — 이제 mypy 훅이 실제로 커밋을 차단한다.
+- **증명**: `git commit` 12/12 hooks Passed, `--no-verify` 미사용 (`1a51a5a`).
+- **검증**: `uv run mypy` 460 files **0 errors** / ruff·format clean / conversation_store 10 + ws02·sandbox·rsi 52 tests passed.
+- **주의**: 훅 ruff-format(v0.8.6)과 로컬 uv ruff 버전이 줄바꿈 스타일에서 미세 상이 — 커밋 시 훅 포맷이 수정·재스테이징하면 그대로 수용하면 된다.
+
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| DAT-02 | dat_02_vault | `codex/dat-02-vault-isolation` | r1 APPROVE (독립 리뷰 완료) — 병합 대기 | result SHA 확정 → DONE (병합은 coordinator 승인 후) |
+| (없음 — 다음 착수: DAT-03) | | | | |
 
 ## 차단 및 결정 대기
 
