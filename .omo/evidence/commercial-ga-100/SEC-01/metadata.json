@@ -7,7 +7,7 @@
   "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-sec-01",
   "base": "01669c2 (dat-02 병합 + mypy gate 이후 main tip)",
   "owner": "sec_01_policy",
-  "status": "REVIEW_R1_APPROVE",
+  "status": "DONE",
   "acceptance_criteria": {
     "single_policy_all_surfaces": {
       "pass": true,
@@ -66,5 +66,12 @@
     "method": "독립 재현 스크립트 6/6 + 진리표 29건 재실행 + auth/WS 인접 46건 재실행 + ruff/mypy",
     "review_doc": ".omo/evidence/commercial-ga-100/SEC-01/review.md",
     "reviewer_script": ".omo/evidence/commercial-ga-100/SEC-01/reviewer-acceptance-check.py"
+  },
+  "merge": {
+    "merge_commit": "f2a03c7",
+    "into": "codex/m1-task-events",
+    "date": "2026-09-06",
+    "post_merge_checks": "auth suites 71 passed; full suite 5519 passed / 20 failed with 0 new failures vs base; ruff/mypy clean",
+    "conflicts": "none"
   }
 }

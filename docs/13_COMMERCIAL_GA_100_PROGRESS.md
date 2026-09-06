@@ -759,11 +759,19 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **회귀 대조**: base `01669c2` throwaway worktree와 동일 파일셋 실행 → 실패 목록 byte-identical (SEC-01 회귀 0). ruff/mypy clean.
 - **증거**: `.omo/evidence/commercial-ga-100/SEC-01/` (metadata/red/tests/full-suite/manual-qa)
 
+### 2026-09-06 · SEC-01 독립 리뷰 r1 APPROVE + 병합 DONE
+
+- **독립 리뷰** (reviewer `sec_01_verify`, 구현자와 상이한 세션 — commit `7fa5427`): 구현자 테스트 재실행에 그치지 않고 **독립 정책 평가 스크립트 6/6 시나리오**로 수용기준 재현 — hash-only loopback 보호(핵심 결함 수정), dev-allow 3조건, production fail-closed, PIN 삭제 즉시 반영(캐시 없음), 0.0.0.0 deny, 유효 토큰 통과. 진리표 29건 + auth/WS 인접 46건 재실행 clean, mypy 461 files 0 errors. **결함 0건 — APPROVE**.
+- **병합**: `codex/sec-01-auth-policy` → `codex/m1-task-events` (merge commit `f2a03c7`, `--no-ff`).
+- **머지 후 검증**: auth 스위트 71 passed (진리표 29 + auth 20 + WS 22). 전체 스위트 5,519 passed / 20 failed — 실패 목록은 base 대비 **신규 추가 0건** (base의 6건이 환경 개선으로 소멸: mlx flags/desktop_context/tdd — SEC-01 무관). ruff/mypy clean.
+- **최종 상태**: SEC-01 **DONE** (result SHA `89ad09f`, review commit `7fa5427`, merge `f2a03c7`). 브랜치는 audit trail로 보존.
+- **현재 진행**: **15/33 DONE** (GA-00, GOV-01, ARC-01, WS-01→04, CTX-01→03, DAT-01→03, SEC-01).
+
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| SEC-01 | sec_01_policy | `codex/sec-01-auth-policy` | 구현 완료 — 독립 리뷰 대기 | 리뷰 r1 승인 + 병합 |
+| SEC-02 | sec_02_impl | `codex/sec-02-pin-rate-limit` | 구현 완료 — 독립 리뷰 대기 (base 6d3c515) | 리뷰 r1 승인 + 병합 (SEC-01 DONE 이후 rebase 권장) |
 
 ## 차단 및 결정 대기
 

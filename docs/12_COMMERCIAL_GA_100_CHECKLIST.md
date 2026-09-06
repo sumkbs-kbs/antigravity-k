@@ -36,7 +36,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | DAT-01 | DONE | dat_01_persistence | dat_01_verify (r2 APPROVE) | codex/dat-01-task-cas / Ssak-Ai-dat-01 | `5aed1a649ac572fb5789cce8da895576855f7aca` | `.omo/evidence/commercial-ga-100/DAT-01/` | r2 APPROVE (F1/F2 해소, metadata status=DONE와 정합) — r1 REJECT 이력은 review.md 보존 |
 | DAT-02 | DONE | dat_02_vault | dat_02_verify (r1 APPROVE) | codex/dat-02-vault-isolation / Ssak-Ai-dat-02 | `0795142` | `.omo/evidence/commercial-ga-100/DAT-02/` | 병합 완료 (ff `8cec36c` → `codex/m1-task-events`) — 2026-09-06. 브랜치는 audit trail로 보존 |
 | DAT-03 | DONE | dat_03_registry | dat_03_verify (r1 APPROVE) | codex/dat-03-registry-atomic / Ssak-Ai-dat-03 | `f61e06f` | `.omo/evidence/commercial-ga-100/DAT-03/` | 병합 완료 (`ba5e1f3`) — 2026-09-06. AC 4건 독립 재현, 결함 0, 회귀 0. 브랜치는 audit trail로 보존 |
-| SEC-01 | REVIEW | sec_01_policy | dat_03_verify 양식 준수 (리뷰 대기) | codex/sec-01-auth-policy / Ssak-Ai-sec-01 | `906008f` | `.omo/evidence/commercial-ga-100/SEC-01/` | 단일 AuthPolicy 구현 완료, 진리표 29테스트 통과, base 대조 회귀 0 — 독립 리뷰 대기 |
+| SEC-01 | DONE | sec_01_policy | sec_01_verify (독립 세션) | codex/sec-01-auth-policy / Ssak-Ai-sec-01 | `89ad09f` | `.omo/evidence/commercial-ga-100/SEC-01/` | 단일 fail-closed AuthPolicy (HTTP/SSE/WS) — r1 APPROVE (독립 재현 6/6), 병합 `f2a03c7`, 회귀 0 |
 | SEC-02 | TODO |  |  |  |  |  | SEC-01 |
 | SEC-03 | TODO |  |  |  |  |  | SEC-01 |
 | EVO-01 | TODO |  |  |  |  |  | GA-00 |
