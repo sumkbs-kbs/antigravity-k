@@ -366,7 +366,7 @@ def _conversation_revision_sse(snapshot: object | None) -> str:
         return ""
     try:
         if hasattr(snapshot, "model_dump"):
-            payload = cast(JsonMap, snapshot.model_dump(mode="json"))  # type: ignore[union-attr]
+            payload = cast(JsonMap, getattr(snapshot, "model_dump")(mode="json"))
         elif isinstance(snapshot, Mapping):
             payload = cast(JsonMap, dict(cast(Mapping[str, object], snapshot)))
         else:

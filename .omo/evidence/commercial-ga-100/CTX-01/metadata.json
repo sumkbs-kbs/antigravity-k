@@ -16,6 +16,8 @@
   },
   "notes": "Owner implementation complete. Status REVIEW \u2014 independent ctx_01_verify must APPROVE. No self-APPROVE.",
   "verdict": null,
-  "result_sha_pending": true,
-  "updated_at": "2026-09-06T11:33:06+09:00"
+  "result_sha_pending": false,
+  "updated_at": "2026-09-06T11:33:06+09:00",
+  "result_sha": "81c957805ab92599ff842b39e1ac124bf842ae43",
+  "impl_sha": "81c957805ab92599ff842b39e1ac124bf842ae43"
 }

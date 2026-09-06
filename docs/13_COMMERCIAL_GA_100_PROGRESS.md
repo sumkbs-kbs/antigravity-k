@@ -39,6 +39,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 - owner: `ctx_01_conversation` (**APPROVE 자체 작성 금지**)
 - baseline tip: `d0186f595b1f93362bc8baf12c5c4515f4c544e2` (WS-04 DONE)
+- Result / Impl SHA: `81c957805ab92599ff842b39e1ac124bf842ae43`
 - branch/worktree: `codex/ctx-01-conversation-revision` / `Ssak-Ai-ctx-01`
 - 구현 요약:
   - `engine/conversation_store.py`: authoritative history + append/compact/fork revision CAS (thread-safe, disk-backed)

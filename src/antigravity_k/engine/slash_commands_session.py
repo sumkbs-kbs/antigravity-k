@@ -307,7 +307,7 @@ class SlashCommandSessionMixin:
                     "✅ 컨텍스트 압축 완료! (authoritative store CAS)\n"
                     f"  conversation: `{snap.conversation_id}`\n"
                     f"  revision: {ctx.conversation_revision} → {snap.revision}\n"
-                    f"  messages: {before.message_count if before else 0} → {snap.message_count}\n"
+                    f"  messages: {(len(before.messages) if before else 0)} → {snap.message_count}\n"
                     f"  tokens: {tokens_before} → {tokens_after} (−{max(0, tokens_before - tokens_after)})\n"
                     f"  retained IDs: {retained}\n"
                     f"  summary: {summary_preview}"
