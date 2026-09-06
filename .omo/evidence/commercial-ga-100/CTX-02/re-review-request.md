@@ -15,7 +15,7 @@
 | Item | Value |
 |---|---|
 | Branch / worktree | `codex/ctx-02-prompt-budget` / `Ssak-Ai-ctx-02` |
-| Fix SHA (result) | _(filled after commit; see metadata.json `result_sha`)_ |
+| Fix SHA (result) | `16db3b65e74275f433563d9b6c83721d956e3ba2` |
 | Prior impl SHA | `d04748cafe8879b9afaf310bdb6aab4f47ffb06a` |
 | Prior REJECT tip | `15cccd7de34b75db6f7d44535706c8d5ca1d109d` (review.md tip was `8a0d845…`) |
 
