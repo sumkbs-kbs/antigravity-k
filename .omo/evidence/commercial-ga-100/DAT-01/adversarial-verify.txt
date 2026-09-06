@@ -1,0 +1,4 @@
+rounds=60 wins={'done': 46, 'cancelled': 14} overwrite_failures=0 projection_store_ok_failures=0
+TaskExecutionView call: projectTaskExecution(selectedTaskId, events)
+authoritativeStatus wired in view: False
+direct_task_execution done→append_completed without gating on success (approx windows): 2

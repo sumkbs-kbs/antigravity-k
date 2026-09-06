@@ -33,7 +33,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | CTX-01 | DONE | ctx_01_conversation | ctx_01_verify | codex/ctx-01-conversation-revision / Ssak-Ai-ctx-01 | `8ba8337dbc953d3ac4788541adcf8294f809e9c6` | `.omo/evidence/commercial-ga-100/CTX-01/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-02 | DONE | ctx_02_budget | ctx_02_verify | codex/ctx-02-prompt-budget / Ssak-Ai-ctx-02 | `16db3b65e74275f433563d9b6c83721d956e3ba2` | `.omo/evidence/commercial-ga-100/CTX-02/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1–F3 closed |
 | CTX-03 | DONE | ctx_03_observability | ctx_03_verify | codex/ctx-03-compress-observability / Ssak-Ai-ctx-03 | `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3` | `.omo/evidence/commercial-ga-100/CTX-03/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1 closed; DAT-01 ready |
-| DAT-01 | REVIEW | dat_01_persistence | dat_01_verify | codex/dat-01-task-cas / Ssak-Ai-dat-01 | `a44e44bfc9f0375c7db439fe50f8a940cedee3ae` | `.omo/evidence/commercial-ga-100/DAT-01/` | GA-00; CTX-03 DONE tip `5bf638b` |
+| DAT-01 | REVIEW | dat_01_persistence | dat_01_verify | codex/dat-01-task-cas / Ssak-Ai-dat-01 | `a44e44bfc9f0375c7db439fe50f8a940cedee3ae` | `.omo/evidence/commercial-ga-100/DAT-01/` | r1 REJECT 0.94; F1/F2 open; DONE 금지; DAT-02 금지 |
 | DAT-02 | TODO |  |  |  |  |  | GA-00 |
 | DAT-03 | TODO |  |  |  |  |  | GA-00 |
 | SEC-01 | TODO |  |  |  |  |  | GA-00 |
@@ -194,9 +194,9 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 - [x] cancel/completion 경쟁의 winner가 한 명이다.
 - [x] terminal 이유와 output이 loser에 의해 바뀌지 않는다.
 - [x] thread/process stress가 반복 통과한다.
-- [x] state/event projection 순서를 UI에서 검증했다.
+- [ ] state/event projection 순서를 UI에서 검증했다. *(r1 REJECT F1: TaskExecutionView does not pass authoritativeStatus)*
 
-> Owner `dat_01_persistence` 구현 완료 → **REVIEW** (독립 `dat_01_verify` APPROVE 전 **DONE 금지**). Evidence: `.omo/evidence/commercial-ga-100/DAT-01/`. ADR: `docs/adr/ADR-DAT-01-task-transition-cas.md`.
+> 독립 review r1 **REJECT** (`review.md`). Tip reviewed `c2b4adcd609d295ad983d91036d202ac3e756f21`. Impl `a44e44bfc9f0375c7db439fe50f8a940cedee3ae`. **DONE 금지. DAT-02 착수 금지.** Blocking F1 (UI authoritativeStatus 미배선) + F2 (lost-race `*_completed` append). Store CAS PASS. Evidence: `.omo/evidence/commercial-ga-100/DAT-01/`.
 
 ## DAT-02 · vault task 격리
 

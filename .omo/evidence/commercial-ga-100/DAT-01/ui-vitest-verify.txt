@@ -1,0 +1,8 @@
+
+ RUN  v4.1.10 /Users/mr.k/program/coding/ssak_comp/Ssak-Ai-dat-01/dashboard
+
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  13:19:58
+   Duration  507ms (transform 154ms, setup 32ms, import 197ms, tests 5ms, environment 219ms)

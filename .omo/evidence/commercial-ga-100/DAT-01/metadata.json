@@ -4,21 +4,18 @@
   "owner": "dat_01_persistence",
   "reviewer": "dat_01_verify",
   "status": "REVIEW",
+  "verdict": "REJECT",
   "baseline_sha": "5bf638bdf9c239801ab59a2672ab73619b07b872",
   "branch": "codex/dat-01-task-cas",
   "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-dat-01",
-  "started_at": "2026-09-06T13:04:00+09:00",
-  "environment": {
-    "os": "macOS",
-    "pytest": "31 passed (dat01 + task_state_store + types)",
-    "vitest": "5 passed (taskExecutionProjection)",
-    "ruff": "All checks passed"
-  },
-  "notes": "Owner handoff for independent review. No self-APPROVE. Store CAS + terminal freeze + projection SoT.",
-  "verdict": null,
-  "result_sha_pending": false,
-  "updated_at": "2026-09-06T13:21:00+09:00",
   "impl_sha": "a44e44bfc9f0375c7db439fe50f8a940cedee3ae",
   "result_sha": "a44e44bfc9f0375c7db439fe50f8a940cedee3ae",
-  "tip_sha": "00bae8779f19d9ce127f96ec00c0df1765297e52"
+  "tip_sha_reviewed": "c2b4adcd609d295ad983d91036d202ac3e756f21",
+  "reviewed_at": "2026-09-06T13:20:00+09:00",
+  "confidence": 0.94,
+  "blocking": [
+    "F1_ui_authoritativeStatus_unwired",
+    "F2_lost_race_appends_completed_events"
+  ],
+  "notes": "REJECT. DONE forbidden. DAT-02 must not start. Store CAS PASS; UI/observation FAIL."
 }

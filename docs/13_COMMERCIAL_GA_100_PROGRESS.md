@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 10 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | DAT-01 REVIEW — owner `dat_01_persistence` 구현 완료, `dat_01_verify` 대기 |
+| 현재 작업 | DAT-01 r1 REJECT — F1/F2 fix 후 `dat_01_verify` re-review 대기 (DAT-02 금지) |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,19 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · DAT-01 독립 review r1 REJECT (`dat_01_verify`)
+
+- reviewer: `dat_01_verify` (구현 커밋 없음)
+- tip reviewed: `c2b4adcd609d295ad983d91036d202ac3e756f21` (HEAD 확인)
+- impl/result SHA: `a44e44bfc9f0375c7db439fe50f8a940cedee3ae`
+- 판정: **REJECT** (confidence 0.94)
+- Blocking **F1**: `TaskExecutionView`가 `projectTaskExecution(taskId, events)`만 호출 — `authoritativeStatus` 미전달. Owner vitest가 without-store 경로에서 cancel+`direct_completed` → `completed`를 증명. must-verify #5 FAIL.
+- Blocking **F2**: `direct_task_execution`이 CAS lose(`_safe_task_transition` False) 후에도 `*_completed` domain event append → UI contradictory terminal 공급.
+- Pass: store CAS/version, typed conflict, terminal freeze, thread/process stress, python projection SoT; pytest **31 passed**; vitest **5 passed**; adversarial 60× cancel+complete overwrite 0.
+- Evidence: `.omo/evidence/commercial-ga-100/DAT-01/review.md`, `adversarial-verify.txt`, `tests-verify.txt`, `ui-vitest-verify.txt`
+- **DONE 금지. DAT-02 착수 금지. Data lane 미완료.**
+
 
 ### 2026-09-06 · DAT-01 task transition CAS · terminal winner (`dat_01_persistence`)
 
