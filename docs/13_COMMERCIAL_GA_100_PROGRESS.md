@@ -40,6 +40,8 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 - owner: `ctx_02_budget` (**APPROVE 자체 작성 금지**)
 - baseline tip: `3d6f045a8a8628801c53e5750bf6257f935dd680` (CTX-01 DONE)
+- Result / Impl SHA: `d04748cafe8879b9afaf310bdb6aab4f47ffb06a`
+- tip: `4ed3889d2acba6ebe748ecd5f6d7dd3ea98093c3`
 - branch/worktree: `codex/ctx-02-prompt-budget` / `Ssak-Ai-ctx-02`
 - 구현 요약:
   - `PromptComponentLedger` + `resolve_hard_token_limit` + `prompt_selection_digest` (`context_budget.py`)
