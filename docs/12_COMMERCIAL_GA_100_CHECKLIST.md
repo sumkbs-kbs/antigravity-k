@@ -35,7 +35,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | CTX-03 | DONE | ctx_03_observability | ctx_03_verify | codex/ctx-03-compress-observability / Ssak-Ai-ctx-03 | `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3` | `.omo/evidence/commercial-ga-100/CTX-03/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1 closed; DAT-01 ready |
 | DAT-01 | REVIEW | dat_01_persistence | dat_01_verify | codex/dat-01-task-cas / Ssak-Ai-dat-01 | `5aed1a649ac572fb5789cce8da895576855f7aca` | `.omo/evidence/commercial-ga-100/DAT-01/` | r1 REJECT preserved; F1/F2 fix SHA submitted; re-review 대기; DONE 금지; DAT-02 금지 |
 | DAT-02 | REVIEW | dat_02_vault | dat_02_verify (r1 APPROVE) | codex/dat-02-vault-isolation / Ssak-Ai-dat-02 | `0795142` | `.omo/evidence/commercial-ga-100/DAT-02/` | r1 APPROVE — F1 ALLOWLIST 등록·F2 orphan runbook/rehearsal 해소, 회귀 0건 (base 대조 diff). DONE 확정은 병합 후 |
-| DAT-03 | TODO |  |  |  |  |  | GA-00 |
+| DAT-03 | REVIEW | dat_03_registry | dat_03_verify (할당 대기) | codex/dat-03-registry-atomic / Ssak-Ai-dat-03 | `f61e06f` | `.omo/evidence/commercial-ga-100/DAT-03/` | BR-03 구현 완료 (flock+atomic save+backup recovery, 수용기준 4건 green, 회귀 0건) — 독립 리뷰 대기 |
 | SEC-01 | TODO |  |  |  |  |  | GA-00 |
 | SEC-02 | TODO |  |  |  |  |  | SEC-01 |
 | SEC-03 | TODO |  |  |  |  |  | SEC-01 |

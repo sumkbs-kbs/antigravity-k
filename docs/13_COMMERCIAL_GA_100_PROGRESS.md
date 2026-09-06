@@ -33,6 +33,15 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+### 2026-09-06 · DAT-03 구현 완료 (BR-03) (`dat_03_registry`)
+
+- 브랜치 `codex/dat-03-registry-atomic` @ `f61e06f` (base `8cec36c` — DAT-02 병합 후 기준선).
+- **구현**: `ProjectRegistry` 재작성 — 변경 연산 flock lock + reload-modify-save, temp+fsync+os.replace 원자 저장, `.bak` 회전, corrupt 격리 복구(`.corrupt-<ts>`), `RegistrySaveError` typed failure; `/api/projects` create 500 fail-closed. 구버전 ProjectRecord 시그니처/`to_dict` 호환 유지.
+- **red→green**: 신규 6테스트 — red 4 (200/200 손실·disk-full·permission·recovery 부재) → green 6 (수용기준 4건 전부).
+- **회귀**: 전체 5495 passed / 21 failed — base `8cec36c` 실패 목록과 diff 완전 동일 → 신규 회귀 0건.
+- **환경 함정 기록**: worktree 첫 `uv sync`는 기본 extras만 설치 → mlx/pytest-asyncio 누락 5건 오탐. `uv sync --all-extras` 필요.
+- 증거: `.omo/evidence/commercial-ga-100/DAT-03/` (metadata/red/tests/manual-qa). 독립 리뷰 대기.
+
 ### 2026-09-06 · DAT-02 구현 완료, 독립 검증 대기 (`dat_02_vault`)
 
 - 상태: **REVIEW** (DONE 아님 — `dat_02_verify` 독립 리뷰 전)
@@ -702,7 +711,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| DAT-02 | dat_02_vault | `codex/dat-02-vault-isolation` | r1 APPROVE (독립 리뷰 완료) — 병합 대기 | result SHA 확정 → DONE (병합은 coordinator 승인 후) |
+| DAT-03 | dat_03_registry | `codex/dat-03-registry-atomic` | 구현 완료 (REVIEW) — `f61e06f` | `dat_03_verify` 독립 리뷰 → result SHA 확정 → DONE |
 
 ## 차단 및 결정 대기
 
