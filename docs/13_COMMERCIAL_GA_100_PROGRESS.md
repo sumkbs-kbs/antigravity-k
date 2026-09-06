@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 8 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | CTX-02 REVIEW — final prompt budget/deterministic compression (`ctx_02_budget`); `ctx_02_verify` 대기 |
+| 현재 작업 | CTX-02 REVIEW — r1 **REJECT** (`ctx_02_verify`); fail-open hard gate F1–F3; fix+re-review 대기; CTX-03 금지 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -35,6 +35,19 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 
 
+
+### 2026-09-06 · CTX-02 독립 review r1 REJECT (`ctx_02_verify`)
+
+- reviewer: `ctx_02_verify` (구현 커밋 없음)
+- tip reviewed: `8a0d8451d9b91fe06a29eb070eb466e2ae2fdd4d` (HEAD 확인)
+- Impl / Result SHA: `d04748cafe8879b9afaf310bdb6aab4f47ffb06a`
+- branch/worktree: `codex/ctx-02-prompt-budget` / `Ssak-Ai-ctx-02`
+- Reviewer re-run: pytest final **8 passed**; related budget/shaper/tool_loop **67 passed**; ruff clean — `tests-verify-*.txt`, `ruff-verify.txt`
+- Adversarial: **REJECT** — F1 `_enforce_final_prompt_budget` early-return (non-dict config / resolve boom) returns over-limit prompt unchanged; F2 outer `except Exception` continues to `stream_generate` on non-typed errors; F3 fitted system/tools/skills not written back to loop locals (multi-step re-inflate)
+- Keep: ledger+reserve, 5+1005 unit fit, digest determinism, TOOL_EVIDENCE/latest-user unit, single-fit cache prefix, typed exceed halt on happy path, aux_token_overhead shaping
+- Evidence: `.omo/evidence/commercial-ga-100/CTX-02/review.md`, `adversarial-verify.txt`
+- 상태: `REVIEW` 유지 (**DONE 아님**). Fix + re-review APPROVE 전 DONE 금지.
+- **CTX-03 미착수** (CTX-02 APPROVE 전 금지).
 
 ### 2026-09-06 · CTX-02 final prompt budget + deterministic compression (`ctx_02_budget`)
 

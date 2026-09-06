@@ -1,0 +1,6 @@
+[GBrain] chromadb 비활성화 (ModuleNotFoundError). 벡터 검색 없이 그래프 메모리만 동작합니다.
+over_tokens 2008
+F1_config_not_dict 2008 OVER True unchanged True fit None
+F5_resolve_boom 2008 OVER True fit None
+F2_propagates_RuntimeError_then_outer_except_failopens_to_stream_generate
+VERDICT_INPUT: fail-open paths return/send over-limit prompts
