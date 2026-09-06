@@ -19,11 +19,11 @@
   "result_sha_pending": false,
   "result_sha": "8ba8337dbc953d3ac4788541adcf8294f809e9c6",
   "impl_sha": "8ba8337dbc953d3ac4788541adcf8294f809e9c6",
-  "updated_at": "2026-09-06T11:58:00+09:00",
+  "updated_at": "2026-09-06T11:59:00+09:00",
   "fix_sha": "8ba8337dbc953d3ac4788541adcf8294f809e9c6",
   "prior_impl_sha": "81c957805ab92599ff842b39e1ac124bf842ae43",
   "prior_reject_tip": "6cf353a7f730eeb3f917ce08b19cc2ef5435c5cd",
-  "tip_sha": "b92622e9fdc752f6e1a162d14a5a64e97acb7c33",
+  "tip_sha": "a23282aab48a2892e4d05c517bae052d41d84041",
   "reviewed_at": "2026-09-06T11:58:00+09:00",
   "confidence": 0.94
 }
