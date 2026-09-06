@@ -9,13 +9,16 @@
   "branch": "codex/dat-01-task-cas",
   "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-dat-01",
   "impl_sha": "a44e44bfc9f0375c7db439fe50f8a940cedee3ae",
-  "result_sha": "a44e44bfc9f0375c7db439fe50f8a940cedee3ae",
+  "result_sha": "5aed1a649ac572fb5789cce8da895576855f7aca",
   "tip_sha_reviewed": "c2b4adcd609d295ad983d91036d202ac3e756f21",
   "reviewed_at": "2026-09-06T13:20:00+09:00",
   "confidence": 0.94,
-  "blocking": [
+  "blocking": [],
+  "notes": "F1/F2 fix submitted for re-review. Prior review.md REJECT intact. DONE forbidden. DAT-02 must not start. Owner did not self-APPROVE.",
+  "fix_sha": "5aed1a649ac572fb5789cce8da895576855f7aca",
+  "blocking_closed_pending_rereview": [
     "F1_ui_authoritativeStatus_unwired",
     "F2_lost_race_appends_completed_events"
   ],
-  "notes": "REJECT. DONE forbidden. DAT-02 must not start. Store CAS PASS; UI/observation FAIL."
+  "re_review_requested_at": "2026-09-06T13:36:00+09:00"
 }

@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 10 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | DAT-01 r1 REJECT — F1/F2 fix 후 `dat_01_verify` re-review 대기 (DAT-02 금지) |
+| 현재 작업 | DAT-01 F1/F2 fix 제출 — `dat_01_verify` re-review 대기 (DAT-02 금지; DONE 금지) |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,22 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · DAT-01 F1/F2 REJECT fix + re-review request (`dat_01_persistence`)
+
+- 상태: **REVIEW** (DONE 아님 — 독립 reviewer re-review APPROVE 전; **가짜 APPROVE 없음**)
+- Branch/worktree: `codex/dat-01-task-cas` / `Ssak-Ai-dat-01`
+- Prior REJECT: `review.md` intact (tip reviewed `c2b4adc` / review commit `ea4cfd5`)
+- Fix / Result SHA: `5aed1a649ac572fb5789cce8da895576855f7aca`
+- 변경 요약:
+  - **F1:** `TaskExecutionView` → `projectTaskExecution(..., selectedTask?.status)`
+  - **F1 test:** cancel store + late `direct_completed` stays `취소됨`
+  - **F2:** `_append_terminal_domain_event` only when CAS wins (stream + `run_max`)
+  - **F2 test:** TOCTOU cancel-before-done → no `*_completed`
+- 검증: pytest dat01+store+types **33 passed**; vitest projection+view **8 passed**; ruff clean
+- Evidence: `re-review-request.md`, `tests-fix-f1f2.txt`, `ui-vitest-fix.txt`, `ruff-fix.txt`, `adversarial-notes-fix.md` (prior `review.md` REJECT 보존)
+- **DAT-02 미착수. `dat_01_verify` re-review 대기.**
+
 
 ### 2026-09-06 · DAT-01 독립 review r1 REJECT (`dat_01_verify`)
 
