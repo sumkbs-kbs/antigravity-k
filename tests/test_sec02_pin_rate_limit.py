@@ -95,6 +95,11 @@ class TestRawPinSurfaceRemoved:
             def query_params(self) -> dict[str, str]:
                 return {"pin": "guessed-pin"}
 
+            @property
+            def headers(self) -> dict[str, str]:
+                # SEC-01 subprotocol 채널 — 이 테스트는 제공하지 않는다.
+                return {}
+
         ws = _FakeWebSocket()
         closed = asyncio_run(session_state.close_unauthorized_ws(ws))
         assert closed is True, "PIN credential로 WS가 통과됐다 — SEC-02 위반"

@@ -83,9 +83,9 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
             subject = claims.get("sub")
             token_subject = subject if isinstance(subject, str) and subject else "bearer"
 
+    # SEC-02: evaluate_credential은 PIN credential을 받지 않는다 (query ?pin= 제거).
     decision = get_shared_auth_policy().evaluate_credential(
         token_verified=token_verified,
-        pin=None,  # WS에서 PIN credential을 받지 않는다 (query ?pin= 제거).
         host=config.server.host,
     )
     if decision.level == "open_loopback":
