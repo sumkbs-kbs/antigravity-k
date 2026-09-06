@@ -19,8 +19,8 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 전체 작업 | 33 |
 | 완료 | 3 |
 | 진행 중 | 0 |
-| 차단 | 0 |
-| 현재 작업 | WS-01 REVIEW (독립 검증 대기); CTX-01 eligible |
+| 차단 | 1 (WS-01 REJECT) |
+| 현재 작업 | WS-01 REVIEW **REJECT** (tools chat binding bypass); fix+re-review 필요; CTX/WS-02+ 착수 금지 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-01 독립 review REJECT (`ws_01_verify`)
+
+- Reviewer: `ws_01_verify` (구현 미참여; Owner≠Reviewer)
+- Tip reviewed: `588dc2ae9b5e1a6266672b240c650c4250ed9ac4` / impl `2023dd52c324b0ee62b39798382bc61a96964e5f`
+- ARC-01 consume confirmed: `ede637a` / tip `6f89927`
+- 재실행: WS-01 **10 passed**; registry/ARC-01 회귀 **18 passed**
+- Adversarial probe: `POST /v1/chat/completions` + `tools`, no `project_id`, session binding cleared → **HTTP 200** + `generate` 1회 (must-verify #1 FAIL)
+- 비차단 PASS: RequestExecutionContext DI; switch가 PermissionGate/config singleton 미변경; in-flight ContextVar root 고정; invalid/deleted resolve 거절; route→runtime capture; A/B ContextVar 격리 증거
+- **Verdict: REJECT** — precise fix: tools passthrough 전에 `_resolve_chat_execution_context`; 회귀 테스트( generate 미호출 ); `create_project`도 session header 존중
+- Evidence: `.omo/evidence/commercial-ga-100/WS-01/review.md`
+- 상태: `REVIEW` 유지 (DONE 아님). **WS-02/WS-03/WS-04/CTX 착수 금지** until fix + re-review APPROVE.
 
 ### 2026-09-06 · WS-01 backend request-scoped project binding (REVIEW)
 
@@ -228,11 +240,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-01 | ws_01_backend | `codex/ws-01-project-binding` | REVIEW | 독립 reviewer가 result SHA 검증; APPROVE 시 DONE |
+| WS-01 | ws_01_backend | `codex/ws-01-project-binding` | REVIEW (REJECT) | tools chat binding bypass fix + `ws_01_verify` re-review APPROVE |
 
 ## 차단 및 결정 대기
 
-`ARC-01` r2 **APPROVE** (`review-r2.md`). r1 REJECT는 `review.md`에 역사 기록으로 보존. 상태 **DONE**. **WS-01/CTX-01 착수 허용** (result SHA `ede637a`). GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
+`WS-01` r1 **REJECT** (`review.md`): `/v1/chat/completions` tools passthrough가 project binding 없이 `generate` side effect. 상태 **REVIEW** (DONE 아님). **WS-02/WS-03/WS-04/CTX 착수 금지** until fix + re-review APPROVE. ARC-01는 DONE (`ede637a`). GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
 
 ## 증거 위치
 
