@@ -1,0 +1,2 @@
+Residual from CTX-02: legacy _maybe_compress_context catch-all fail-open;
+stream-pre compress silent non-critical; missing compress telemetry/UI.

@@ -256,6 +256,26 @@ def _extract_learned_preferences(orch: _OrchestratorLike) -> dict[str, object] |
         return None
 
 
+def _persist_stream_compress_event(orch: object, record: object) -> None:
+    """Best-effort persist of stream-pre compress telemetry (CTX-03)."""
+    from antigravity_k.engine.context_compress_observability import CompressTelemetryRecord
+    from antigravity_k.engine.task_execution_context import TaskExecutionContext
+
+    if not isinstance(record, CompressTelemetryRecord):
+        return
+    execution_context = getattr(orch, "task_execution_context", None)
+    if not isinstance(execution_context, TaskExecutionContext):
+        return
+    try:
+        _ = execution_context.state_store.append_execution_event(
+            execution_context.task_id,
+            record.event_type(),
+            record.payload_json(),
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("stream compress telemetry persist failed", exc_info=True)
+
+
 def run_stream(
     orch: object,
     messages: list[dict[str, str]],
@@ -391,8 +411,21 @@ def run_stream(
     except (AttributeError, RuntimeError, ValueError, TypeError) as e:
         logger.warning("Memory prefetch error (non-critical): %s", e, exc_info=True)
 
-    # ─── Trajectory Compressor: 대화 궤적 압축 체크포인트 ───
+    # ─── Trajectory / Context compress (CTX-03: no silent fail-open) ───
+    # Compress failures here mark limited degrade; ToolLoop final hard-limit gate
+    # still halts provider/mutation when the serialized prompt remains over budget.
+    from antigravity_k.engine.context_compress_observability import (
+        ComponentTokenSnapshot,
+        CompressFailureCode,
+        CompressTelemetryRecord,
+        ElapsedTimer,
+        ui_status_line,
+    )
+
     context_compacted = False
+    compress_degraded = False
+    timer = ElapsedTimer()
+    traj_strategy = "trajectory"
     try:
         trajectory_compressor = orch.trajectory_compressor_for(target_model)
         if trajectory_compressor and trajectory_compressor.should_compress(messages):
@@ -402,30 +435,87 @@ def run_stream(
             if result.user_message:
                 yield f"\n{result.user_message}\n\n"
                 logger.info("[Orchestrator] %s", result.user_message)
-    except (AttributeError, RuntimeError) as e:
-        logger.warning("Trajectory compression error (non-critical): %s", e, exc_info=True)
+    except (AttributeError, RuntimeError, TypeError, ValueError) as e:
+        compress_degraded = True
+        logger.warning(
+            "Trajectory compression failed (limited degrade; hard-limit gated later): %s",
+            e,
+            exc_info=True,
+        )
+        record = CompressTelemetryRecord(
+            outcome="degraded",
+            trigger="stream_pre",
+            strategy=traj_strategy,
+            digest=None,
+            elapsed_ms=timer.elapsed_ms(),
+            failure_code=CompressFailureCode.COMPRESS_EXCEPTION.value,
+            message=str(e),
+        )
+        yield ui_status_line(record)
+        _persist_stream_compress_event(orch, record)
 
-    # ─── Context Compressor: 토큰 예산 기반 적응형 압축 (TrajectoryCompressor 보완) ───
-    # TrajectoryCompressor(메시지 수 기반)가 동작하지 않은 상태에서 토큰이 한계를
-    # 초과하면 task_type별 전략으로 더 정밀하게 압축합니다.
+    timer = ElapsedTimer()
     try:
         ctx_compressor = orch.context_compressor_for(target_model)
         if ctx_compressor and ctx_compressor.needs_compression(messages):
-            before_tokens = ctx_compressor.usage_percent(messages)
+            strategy = None
+            suggest = getattr(ctx_compressor, "suggest_strategy", None)
+            if callable(suggest):
+                try:
+                    strategy = suggest(messages)
+                except Exception:  # noqa: BLE001
+                    strategy = None
+            strategy = str(strategy) if strategy else "adaptive:GENERAL"
+            before_tokens = float(ctx_compressor.usage_percent(messages))
+            tokens_before = ComponentTokenSnapshot(
+                messages=sum(len(str(m.get("content", ""))) // 4 for m in messages),
+            )
             compressed_messages = ctx_compressor.adaptive_compress(messages, task_type="GENERAL")
             context_compacted = context_compacted or compressed_messages != messages
             messages = compressed_messages
-            after_tokens = ctx_compressor.usage_percent(messages)
-            yield f"\n📦 **[Context Compressor]** 토큰 사용량 {before_tokens:.0f}% → {after_tokens:.0f}% 압축\n\n"
+            after_tokens = float(ctx_compressor.usage_percent(messages))
+            record = CompressTelemetryRecord(
+                outcome="success",
+                trigger="stream_pre",
+                strategy=strategy,
+                digest=None,
+                elapsed_ms=timer.elapsed_ms(),
+                usage_before_pct=before_tokens,
+                usage_after_pct=after_tokens,
+                tokens_before=tokens_before,
+                tokens_after=ComponentTokenSnapshot(
+                    messages=sum(len(str(m.get("content", ""))) // 4 for m in messages),
+                ),
+            )
+            yield ui_status_line(record)
+            _persist_stream_compress_event(orch, record)
             logger.info(
-                "[Orchestrator] Context compressed: %.0f%% → %.0f%%",
+                "[Orchestrator] Context compressed: %.0f%% → %.0f%% strategy=%s",
                 before_tokens,
                 after_tokens,
+                strategy,
             )
     except (AttributeError, RuntimeError, TypeError, ValueError) as e:
-        # ValueError 포함: adaptive_compress가 던지는 PromptCachePrefixError가
-        # 여기서 잡히지 않으면 사용자 턴 전체가 크래시된다 (압축은 부가 기능).
-        logger.warning("Context compression error (non-critical): %s", e, exc_info=True)
+        # Limited degrade for read/continue path; ToolLoop hard-limit still halt-closes.
+        compress_degraded = True
+        logger.warning(
+            "Context compression failed (limited degrade; hard-limit gated later): %s",
+            e,
+            exc_info=True,
+        )
+        record = CompressTelemetryRecord(
+            outcome="degraded",
+            trigger="stream_pre",
+            strategy="adaptive:GENERAL",
+            digest=None,
+            elapsed_ms=timer.elapsed_ms(),
+            failure_code=CompressFailureCode.ADAPTIVE_COMPRESS_ERROR.value,
+            message=str(e),
+        )
+        yield ui_status_line(record)
+        _persist_stream_compress_event(orch, record)
+
+    _ = compress_degraded  # surfaced via events; tool_loop re-checks hard limit
 
     execution_context = orch.task_execution_context
     if context_compacted and isinstance(execution_context, TaskExecutionContext):

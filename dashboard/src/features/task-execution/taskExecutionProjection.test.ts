@@ -105,3 +105,62 @@ describe('projectTaskExecution', () => {
     );
   });
 });
+
+describe('CTX-03 compress outcome status mapping', () => {
+  it('maps compress success/degrade/halt to completed/degraded/failed', () => {
+    const events = [
+      TaskEventSchema.parse({
+        sequence: 1,
+        schema_version: 2,
+        task_id: 'task-a',
+        step_id: 'compress-ok',
+        agent_id: null,
+        parent_id: null,
+        tool_call_id: null,
+        approval_id: null,
+        resource_job_id: null,
+        correlation_id: null,
+        event_type: 'context.compress.succeeded',
+        payload: { outcome: 'success', strategy: 'summarize', digest: 'abc' },
+        created_at: '2026-09-06T00:00:00Z',
+      }),
+      TaskEventSchema.parse({
+        sequence: 2,
+        schema_version: 2,
+        task_id: 'task-a',
+        step_id: 'compress-degrade',
+        agent_id: null,
+        parent_id: null,
+        tool_call_id: null,
+        approval_id: null,
+        resource_job_id: null,
+        correlation_id: null,
+        event_type: 'context.compress.degraded',
+        payload: { outcome: 'degraded', failure_code: 'adaptive_compress_error' },
+        created_at: '2026-09-06T00:00:01Z',
+      }),
+      TaskEventSchema.parse({
+        sequence: 3,
+        schema_version: 2,
+        task_id: 'task-a',
+        step_id: 'compress-halt',
+        agent_id: null,
+        parent_id: null,
+        tool_call_id: null,
+        approval_id: null,
+        resource_job_id: null,
+        correlation_id: null,
+        event_type: 'context.compress.halted',
+        payload: { outcome: 'halted', failure_code: 'still_over_limit' },
+        created_at: '2026-09-06T00:00:02Z',
+      }),
+    ];
+
+    const projection = projectTaskExecution(taskA, events);
+    expect(projection.checklist.map((item) => item.status)).toEqual([
+      'completed',
+      'degraded',
+      'failed',
+    ]);
+  });
+});

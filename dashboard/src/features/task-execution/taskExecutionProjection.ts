@@ -1,6 +1,6 @@
 import type { AgentId, JsonValue, StepId, TaskEvent, TaskId } from './taskExecutionSchema';
 
-export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting' | 'unknown';
+export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting' | 'degraded' | 'unknown';
 
 export type AgentProjection = Readonly<{
   id: AgentId;
@@ -101,6 +101,9 @@ function payloadText(payload: JsonValue, keys: readonly string[]): string | null
 
 function statusFor(eventType: string): ExecutionStatus {
   const normalized = eventType.toLowerCase();
+  // CTX-03: compress outcomes must map to distinct UI states matching server policy.
+  if (normalized.includes('compress') && normalized.includes('halt')) return 'failed';
+  if (normalized.includes('degrad')) return 'degraded';
   if (normalized.includes('fail') || normalized.includes('error')) return 'failed';
   if (normalized.includes('cancel')) return 'cancelled';
   if (normalized.includes('complete') || normalized.includes('finish') || normalized.includes('success')) {

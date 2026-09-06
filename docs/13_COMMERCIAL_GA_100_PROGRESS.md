@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 9 |
 | 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | CTX-02 DONE (r2 APPROVE). CTX-03 착수 가능 (본 turn 미착수) |
+| 현재 작업 | CTX-03 REVIEW (`ctx_03_observability`) — 독립 review 대기 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,22 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · CTX-03 압축 실패 정책·관측성 (`ctx_03_observability`)
+
+- 상태: **REVIEW** (DONE 아님 — 독립 reviewer APPROVE 전)
+- Branch/worktree: `codex/ctx-03-compress-observability` / `Ssak-Ai-ctx-03`
+- Baseline: CTX-02 tip `6c4aeffbba499982381bc45528509558cb96ffca`
+- 변경 요약:
+  - `_maybe_compress_context` catch-all fail-open 제거 → `ContextCompressAttempt(failed, failure_code, …)`
+  - stream-pre compress도 silent non-critical 제거 → limited degrade + telemetry
+  - 정책: compress 실패 + hard-limit 미만 = degrade; fit/enforce 실패 = halt (provider/mutation 차단)
+  - `CompressTelemetryRecord`: component tokens before/after, strategy, digest, elapsed_ms, failure_code
+  - UI: `ExecutionStatus.degraded` + `context.compress.succeeded|degraded|halted` 매핑
+  - ops: 실패율 5% / headroom 15% threshold (`docs/09_OPERATION_GUIDE.md`)
+- 검증: `tests/test_ctx03_compress_observability.py` + CTX-02 reject/final budget + tool_loop compress → 27 passed; ruff clean
+- Evidence: `.omo/evidence/commercial-ga-100/CTX-03/`
+- **가짜 APPROVE 없음** — `ctx_03_verify` 대기
 
 ### 2026-09-06 · CTX-02 독립 review r2 APPROVE (`ctx_02_verify`)
 
@@ -564,11 +580,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| — | — | — | — | 없음 (CTX-02 DONE; CTX-03 착수 가능) |
+| CTX-03 | ctx_03_observability | codex/ctx-03-compress-observability | REVIEW | 독립 `ctx_03_verify` APPROVE |
 
 ## 차단 및 결정 대기
 
-`CTX-02` **DONE** (r2 APPROVE `review-r2.md`; r1 REJECT preserved in `review.md`; F1–F3 closed). Fix SHA `16db3b65e74275f433563d9b6c83721d956e3ba2`. **CTX-03 착수 가능** (본 turn 미착수). `CTX-01`/`WS-04`/`WS-03`/`WS-02`/`WS-01` DONE 유지. Residual: legacy `_maybe_compress_context` catch-all → CTX-03; process `get_vault_engine` non-blocking; shell token-policy SEC follow-up; WS-04 FileTree click→open epoch gate narrow race. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`CTX-03` **REVIEW** (owner `ctx_03_observability`; 독립 review 대기). `CTX-02` DONE 유지. `CTX-01`/`WS-04`/`WS-03`/`WS-02`/`WS-01` DONE 유지. Residual: legacy `_maybe_compress_context` catch-all → CTX-03; process `get_vault_engine` non-blocking; shell token-policy SEC follow-up; WS-04 FileTree click→open epoch gate narrow race. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 

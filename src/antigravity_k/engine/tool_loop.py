@@ -18,6 +18,7 @@ from antigravity_k.engine.capacity_flow import CapacityDecision
 from antigravity_k.engine.cognitive_loop import ReflectionResult
 from antigravity_k.engine.context_artifact_recall import ContextArtifactRecall
 from antigravity_k.engine.context_artifact_store import ContextArtifactStore
+from antigravity_k.engine.context_compress_observability import ContextCompressAttempt
 from antigravity_k.engine.context_shaper import ContextShaper
 from antigravity_k.engine.error_classifier import classify_api_error
 from antigravity_k.engine.language_normalizer import normalize_foreign_technical_terms
@@ -153,6 +154,9 @@ class LoopTelemetry:
     repaired_tool_calls: int = 0
     format_nudges: int = 0
     context_compressions: int = 0
+    compress_degraded: int = 0
+    compress_halted: int = 0
+    compress_failures: int = 0
     blocked_rounds: int = 0
     tool_exceptions: int = 0
     deduped_calls: int = 0
@@ -161,6 +165,8 @@ class LoopTelemetry:
         return (
             f"parse_errors={self.parse_errors} repaired={self.repaired_tool_calls} "
             f"nudges={self.format_nudges} compressions={self.context_compressions} "
+            f"compress_degraded={self.compress_degraded} compress_halted={self.compress_halted} "
+            f"compress_failures={self.compress_failures} "
             f"blocked_rounds={self.blocked_rounds} exceptions={self.tool_exceptions} "
             f"deduped={self.deduped_calls}"
         )
@@ -714,46 +720,215 @@ class ToolLoopEngine:
         tool_prompt: str,
         skill_prompts: str,
         focus_terms: tuple[str, ...] = (),
-    ) -> tuple[list[dict[str, str]], str, float | None, float | None]:
-        """ContextCompressor 자동 트리거 — 토큰 예산 초과 시 루프 내 메시지를 압축합니다.
+    ) -> ContextCompressAttempt:
+        """ContextCompressor 자동 트리거 — 실패 시 fail-open 하지 않고 결과를 기록한다.
 
-        Returns:
-            (압축된 shaped_messages, 재구성된 prompt_str, 압축 전 사용률, 압축 후 사용률)
-            압축이 발생하지 않으면 (원본, 원본, None, None)을 반환합니다.
+        CTX-03: catch-all 예외로 원문 prompt를 조용히 통과시키지 않는다. 실패는
+        ``failed=True`` + failure_code 로 반환하고, 호출측이 hard-limit 검사 후
+        degrade(한도 미만) vs halt(한도 초과/모델 호출)를 결정한다.
         """
+        from antigravity_k.engine.context_budget import prompt_selection_digest
+        from antigravity_k.engine.context_compress_observability import (
+            ComponentTokenSnapshot,
+            CompressFailureCode,
+            ElapsedTimer,
+        )
+
+        timer = ElapsedTimer()
+
+        def _message_tokens(messages: list[dict[str, str]]) -> ComponentTokenSnapshot:
+            total = sum(TokenEstimator.estimate_text(str(m.get("content", ""))) for m in messages)
+            return ComponentTokenSnapshot(messages=total, input_total=total, total_with_reserve=total)
+
+        if not hasattr(self.orch, "context_compressor_for"):
+            return ContextCompressAttempt(
+                messages=shaped_messages,
+                prompt=prompt_str,
+                usage_before=None,
+                usage_after=None,
+                attempted=False,
+                failed=False,
+                failure_code=None,
+                strategy=None,
+                elapsed_ms=timer.elapsed_ms(),
+            )
         try:
-            if not hasattr(self.orch, "context_compressor_for"):
-                return shaped_messages, prompt_str, None, None
             compressor = self.orch.context_compressor_for(delegate_model)
-            if compressor is None:
-                return shaped_messages, prompt_str, None, None
+        except Exception:  # noqa: BLE001 — typed failure for policy layer
+            logger.warning("Context compressor lookup failed", exc_info=True)
+            return ContextCompressAttempt(
+                messages=shaped_messages,
+                prompt=prompt_str,
+                usage_before=None,
+                usage_after=None,
+                attempted=True,
+                failed=True,
+                failure_code=CompressFailureCode.COMPRESS_EXCEPTION.value,
+                strategy=None,
+                elapsed_ms=timer.elapsed_ms(),
+                tokens_before=_message_tokens(shaped_messages),
+                digest=prompt_selection_digest(messages=shaped_messages, strategy="compress_lookup_failed"),
+                # message field not on attempt; failure recorded via code
+            )
+
+        if compressor is None:
+            return ContextCompressAttempt(
+                messages=shaped_messages,
+                prompt=prompt_str,
+                usage_before=None,
+                usage_after=None,
+                attempted=False,
+                failed=False,
+                failure_code=None,
+                strategy=None,
+                elapsed_ms=timer.elapsed_ms(),
+            )
+
+        try:
             needs = compressor.needs_compression(shaped_messages)
-            # mock 대응: needs_compression이 bool이 아니면 (예: MagicMock) 압축 생략
-            if needs is not True:
-                return shaped_messages, prompt_str, None, None
+        except Exception:  # noqa: BLE001
+            logger.warning("needs_compression failed", exc_info=True)
+            return ContextCompressAttempt(
+                messages=shaped_messages,
+                prompt=prompt_str,
+                usage_before=None,
+                usage_after=None,
+                attempted=True,
+                failed=True,
+                failure_code=CompressFailureCode.COMPRESS_EXCEPTION.value,
+                strategy=None,
+                elapsed_ms=timer.elapsed_ms(),
+                tokens_before=_message_tokens(shaped_messages),
+            )
+
+        # mock 대응: needs_compression이 bool이 아니면 (예: MagicMock) 압축 생략
+        if needs is not True:
+            return ContextCompressAttempt(
+                messages=shaped_messages,
+                prompt=prompt_str,
+                usage_before=None,
+                usage_after=None,
+                attempted=False,
+                failed=False,
+                failure_code=None,
+                strategy=None,
+                elapsed_ms=timer.elapsed_ms(),
+            )
+
+        tokens_before = _message_tokens(shaped_messages)
+        strategy: str | None = None
+        suggest = getattr(compressor, "suggest_strategy", None)
+        if callable(suggest):
+            try:
+                suggested = suggest(shaped_messages)
+                strategy = str(suggested) if suggested is not None else None
+            except Exception:  # noqa: BLE001
+                strategy = None
+        if strategy is None:
+            strategy = f"adaptive:{task_type.upper()}"
+
+        try:
             usage_before = float(compressor.usage_percent(shaped_messages))
-            task_key = task_type.upper()
-            compressed = compressor.adaptive_compress(shaped_messages, task_type=task_key)
-            if compressed == shaped_messages:
-                return shaped_messages, prompt_str, None, None
+        except Exception:  # noqa: BLE001
+            usage_before = None
+
+        try:
+            compressed = compressor.adaptive_compress(shaped_messages, task_type=task_type.upper())
+        except Exception:  # noqa: BLE001
+            logger.warning("adaptive_compress failed (policy=degrade-or-halt)", exc_info=True)
+            return ContextCompressAttempt(
+                messages=shaped_messages,
+                prompt=prompt_str,
+                usage_before=usage_before,
+                usage_after=None,
+                attempted=True,
+                failed=True,
+                failure_code=CompressFailureCode.ADAPTIVE_COMPRESS_ERROR.value,
+                strategy=strategy,
+                elapsed_ms=timer.elapsed_ms(),
+                tokens_before=tokens_before,
+                digest=prompt_selection_digest(messages=shaped_messages, strategy=strategy),
+            )
+
+        if compressed == shaped_messages:
+            return ContextCompressAttempt(
+                messages=shaped_messages,
+                prompt=prompt_str,
+                usage_before=usage_before,
+                usage_after=usage_before,
+                attempted=True,
+                failed=False,
+                failure_code=None,
+                strategy=strategy,
+                elapsed_ms=timer.elapsed_ms(),
+                tokens_before=tokens_before,
+                tokens_after=tokens_before,
+                digest=prompt_selection_digest(messages=shaped_messages, strategy=strategy or "noop"),
+            )
+
+        try:
             usage_after = float(compressor.usage_percent(compressed))
-            rebuild_prompt = getattr(self.orch, "_rebuild_prompt", None)
-            if not isinstance(rebuild_prompt, _PromptRebuilderLike):
-                return shaped_messages, prompt_str, None, None
+        except Exception:  # noqa: BLE001
+            usage_after = None
+
+        rebuild_prompt = getattr(self.orch, "_rebuild_prompt", None)
+        if not isinstance(rebuild_prompt, _PromptRebuilderLike):
+            return ContextCompressAttempt(
+                messages=shaped_messages,
+                prompt=prompt_str,
+                usage_before=usage_before,
+                usage_after=usage_after,
+                attempted=True,
+                failed=True,
+                failure_code=CompressFailureCode.REBUILD_UNAVAILABLE.value,
+                strategy=strategy,
+                elapsed_ms=timer.elapsed_ms(),
+                tokens_before=tokens_before,
+                tokens_after=_message_tokens(compressed),
+                digest=prompt_selection_digest(messages=compressed, strategy=strategy or "rebuild_unavailable"),
+            )
+
+        try:
             rebuilt = rebuild_prompt(system_prompt, tool_prompt, skill_prompts, compressed)
             rebuilt = self._insert_working_context(rebuilt, self._cached_pinned_context())
             recalled = self._recall_context_artifacts(shaped_messages, focus_terms)
             if recalled:
-                # Assistant: 큐 앞에 삽입한다 — 큐 뒤에 붙이면 복원 컨텍스트가
-                # 모델 생성 슬롯을 침범해 모델 자신의 출력 접두사로 오인된다.
                 if rebuilt.endswith("Assistant: "):
                     rebuilt = rebuilt[: -len("Assistant: ")] + f"\n{recalled}\nAssistant: "
                 else:
                     rebuilt = f"{rebuilt}\n{recalled}"
-            return compressed, rebuilt, usage_before, usage_after
-        except Exception:
-            logger.warning("Context compression error (non-critical)", exc_info=True)
-            return shaped_messages, prompt_str, None, None
+        except Exception:  # noqa: BLE001
+            logger.warning("compress rebuild failed (policy=degrade-or-halt)", exc_info=True)
+            return ContextCompressAttempt(
+                messages=shaped_messages,
+                prompt=prompt_str,
+                usage_before=usage_before,
+                usage_after=usage_after,
+                attempted=True,
+                failed=True,
+                failure_code=CompressFailureCode.COMPRESS_EXCEPTION.value,
+                strategy=strategy,
+                elapsed_ms=timer.elapsed_ms(),
+                tokens_before=tokens_before,
+                tokens_after=_message_tokens(compressed),
+            )
+
+        tokens_after = _message_tokens(compressed)
+        digest = prompt_selection_digest(messages=compressed, strategy=strategy or "adaptive")
+        return ContextCompressAttempt(
+            messages=compressed,
+            prompt=rebuilt,
+            usage_before=usage_before,
+            usage_after=usage_after,
+            attempted=True,
+            failed=False,
+            failure_code=None,
+            strategy=strategy,
+            elapsed_ms=timer.elapsed_ms(),
+            tokens_before=tokens_before,
+            tokens_after=tokens_after,
+            digest=digest,
+        )
 
     def _enforce_final_prompt_budget(
         self,
@@ -1175,8 +1350,11 @@ class ToolLoopEngine:
                 elif action == CapacityAction.WARN or action == CapacityAction.COMPRESS:
                     yield "\n\n📉 **[Capacity Warning]** 시스템 리소스 압박으로 성능이 저하될 수 있습니다.\n"
 
+            compress_attempt = None
             if not direct_response:
-                shaped_messages, prompt_str, usage_before, usage_after = self._maybe_compress_context(
+                from antigravity_k.engine.context_compress_observability import ContextCompressAttempt
+
+                raw_compress = self._maybe_compress_context(
                     shaped_messages,
                     prompt_str,
                     delegate_model,
@@ -1186,13 +1364,41 @@ class ToolLoopEngine:
                     skill_prompts,
                     focus_terms,
                 )
+                # Compat: CTX-02 tests may patch this to a legacy 4-tuple.
+                if isinstance(raw_compress, ContextCompressAttempt):
+                    compress_attempt = raw_compress
+                elif isinstance(raw_compress, tuple) and len(raw_compress) >= 4:
+                    shaped_t, prompt_t, before_t, after_t = raw_compress[:4]
+                    compress_attempt = ContextCompressAttempt(
+                        messages=list(shaped_t),
+                        prompt=str(prompt_t),
+                        usage_before=before_t if isinstance(before_t, (int, float)) else None,
+                        usage_after=after_t if isinstance(after_t, (int, float)) else None,
+                        attempted=before_t is not None,
+                        failed=False,
+                        failure_code=None,
+                        strategy="legacy_tuple_patch",
+                        elapsed_ms=0.0,
+                    )
+                else:
+                    raise TypeError(f"unexpected compress result type: {type(raw_compress)!r}")
+                shaped_messages = compress_attempt.messages
+                prompt_str = compress_attempt.prompt
                 self._refresh_checkpoint_context(shaped_messages)
-                if usage_before is not None:
+                if compress_attempt.failed:
+                    self.telemetry.compress_failures += 1
+                elif compress_attempt.compressed:
                     self.telemetry.context_compressions += 1
-                    yield f"\n📦 **[Context Compressor]** 토큰 사용량 {usage_before:.0f}% → {usage_after:.0f}% 압축\n\n"
-                    logger.info("[ToolLoop] Context compressed: %.0f%% → %.0f%%", usage_before, usage_after)
+                    logger.info(
+                        "[ToolLoop] Context compressed: %.0f%% → %.0f%% strategy=%s elapsed_ms=%.1f",
+                        compress_attempt.usage_before or 0.0,
+                        compress_attempt.usage_after or 0.0,
+                        compress_attempt.strategy,
+                        compress_attempt.elapsed_ms,
+                    )
 
-            # CTX-02: hard-limit re-check on the final serialized prompt before provider invoke.
+            # CTX-02/03: hard-limit re-check before provider invoke; compress failure
+            # never fail-opens an over-limit prompt past this gate.
             try:
                 prompt_str, shaped_messages, _final_fit = self._enforce_final_prompt_budget(
                     prompt_str,
@@ -1223,25 +1429,124 @@ class ToolLoopEngine:
                 _fit_compressed = bool(getattr(_final_fit, "compressed", False)) if _final_fit is not None else False
                 if _final_fit is not None and _fit_compressed:
                     self._refresh_checkpoint_context(shaped_messages)
-                    _fit_ledger = getattr(_final_fit, "ledger", None)
-                    _fit_digest = str(getattr(_final_fit, "digest", ""))
-                    _in = int(getattr(_fit_ledger, "input_total", 0) or 0)
-                    _res = int(getattr(_fit_ledger, "output_reserve", 0) or 0)
-                    yield (f"\n📐 **[Prompt Budget]** final input {_in}/{_res + _in} (digest `{_fit_digest[:12]}`)\n\n")
+
+                from antigravity_k.engine.context_compress_observability import (
+                    ComponentTokenSnapshot,
+                    CompressTelemetryRecord,
+                    ui_status_line,
+                )
+
+                compress_failed = bool(compress_attempt is not None and compress_attempt.failed)
+                fit_ledger = getattr(_final_fit, "ledger", None) if _final_fit is not None else None
+                fit_digest = str(getattr(_final_fit, "digest", "") or "") if _final_fit is not None else ""
+                fit_strategy = str(getattr(_final_fit, "strategy", "") or "") if _final_fit is not None else ""
+                tokens_before = (
+                    compress_attempt.tokens_before if compress_attempt is not None else ComponentTokenSnapshot()
+                )
+                tokens_after = (
+                    ComponentTokenSnapshot.from_mapping(fit_ledger.as_dict())
+                    if fit_ledger is not None and hasattr(fit_ledger, "as_dict")
+                    else (compress_attempt.tokens_after if compress_attempt is not None else ComponentTokenSnapshot())
+                )
+                strategy = (compress_attempt.strategy if compress_attempt is not None else None) or fit_strategy or None
+                digest = (compress_attempt.digest if compress_attempt is not None else None) or fit_digest or None
+                elapsed = float(compress_attempt.elapsed_ms) if compress_attempt is not None else 0.0
+                usage_before = compress_attempt.usage_before if compress_attempt is not None else None
+                usage_after = compress_attempt.usage_after if compress_attempt is not None else None
+                failure_code = (
+                    compress_attempt.failure_code if compress_attempt is not None and compress_attempt.failed else None
+                )
+
+                if compress_failed:
+                    outcome_name = "degraded"
+                    self.telemetry.compress_degraded += 1
+                elif (compress_attempt is not None and compress_attempt.compressed) or _fit_compressed:
+                    outcome_name = "success"
+                else:
+                    outcome_name = "noop"
+
+                if outcome_name != "noop":
+                    record = CompressTelemetryRecord(
+                        outcome=outcome_name,  # type: ignore[arg-type]
+                        trigger="tool_loop",
+                        strategy=strategy,
+                        digest=digest,
+                        elapsed_ms=elapsed,
+                        failure_code=failure_code,
+                        usage_before_pct=usage_before,
+                        usage_after_pct=usage_after,
+                        tokens_before=tokens_before,
+                        tokens_after=tokens_after,
+                        hard_limit_input=None,
+                        serialized_before=tokens_before.input_total or None,
+                        serialized_after=(
+                            int(fit_ledger.input_total) if fit_ledger is not None else tokens_after.input_total or None
+                        ),
+                        message=None,
+                    )
+                    line = ui_status_line(record)
+                    if line:
+                        yield line
+                    if outcome_name == "success" and _fit_compressed and fit_ledger is not None:
+                        _in = int(getattr(fit_ledger, "input_total", 0) or 0)
+                        _res = int(getattr(fit_ledger, "output_reserve", 0) or 0)
+                        yield (
+                            f"\n📐 **[Prompt Budget]** final input {_in}/{_res + _in} "
+                            f"(digest `{(fit_digest or '')[:12]}`)\n\n"
+                        )
+                    self._emit_compress_telemetry(record)
             except Exception as budget_error:
                 from antigravity_k.engine.context_budget import (
                     OversizedPromptComponentError,
                     PromptBudgetEnforcementError,
                     PromptBudgetExceededError,
                 )
+                from antigravity_k.engine.context_compress_observability import (
+                    ComponentTokenSnapshot,
+                    CompressFailureCode,
+                    CompressTelemetryRecord,
+                    ui_status_line,
+                )
 
                 # Fail-closed: typed budget errors AND any unexpected enforce failure
                 # must halt before stream_generate (never send unchecked / over-limit prompts).
+                self.telemetry.compress_halted += 1
+                failure_code = CompressFailureCode.STILL_OVER_LIMIT.value
+                if isinstance(budget_error, PromptBudgetEnforcementError):
+                    failure_code = CompressFailureCode.BUDGET_ENFORCE_FAILED.value
+                elif isinstance(budget_error, OversizedPromptComponentError):
+                    failure_code = CompressFailureCode.OVERSIZED_COMPONENT.value
+                halt_record = CompressTelemetryRecord(
+                    outcome="halted",
+                    trigger="tool_loop",
+                    strategy=(compress_attempt.strategy if compress_attempt is not None else None),
+                    digest=(compress_attempt.digest if compress_attempt is not None else None),
+                    elapsed_ms=float(compress_attempt.elapsed_ms) if compress_attempt is not None else 0.0,
+                    failure_code=(
+                        (
+                            compress_attempt.failure_code
+                            if compress_attempt is not None and compress_attempt.failed
+                            else None
+                        )
+                        or failure_code
+                    ),
+                    usage_before_pct=(compress_attempt.usage_before if compress_attempt is not None else None),
+                    usage_after_pct=(compress_attempt.usage_after if compress_attempt is not None else None),
+                    tokens_before=(
+                        compress_attempt.tokens_before if compress_attempt is not None else ComponentTokenSnapshot()
+                    ),
+                    tokens_after=(
+                        compress_attempt.tokens_after if compress_attempt is not None else ComponentTokenSnapshot()
+                    ),
+                    message=str(budget_error),
+                )
+                yield ui_status_line(halt_record)
+                self._emit_compress_telemetry(halt_record)
+
                 if isinstance(
                     budget_error,
                     (OversizedPromptComponentError, PromptBudgetExceededError, PromptBudgetEnforcementError),
                 ):
-                    yield f"\n\n⚠️ **[Prompt Budget]** 최종 프롬프트가 한도를 초과해 모델 호출을 중단합니다: {budget_error}\n"
                     outcome = (
                         "prompt_budget_enforcement_failed"
                         if isinstance(budget_error, PromptBudgetEnforcementError)
@@ -1259,7 +1564,6 @@ class ToolLoopEngine:
                     )
                     return
                 logger.error("final prompt budget enforce failed (fail-closed): %s", budget_error, exc_info=True)
-                yield f"\n\n⚠️ **[Prompt Budget]** 최종 예산 검사 실패로 모델 호출을 중단합니다: {budget_error}\n"
                 self._record_task_outcome(
                     task_id,
                     delegate_model,
@@ -2029,6 +2333,29 @@ class ToolLoopEngine:
             except ContextSnapshotStoreError as error:
                 logger.warning("Task context snapshot failed: %s", error, exc_info=True)
 
+    def _emit_compress_telemetry(self, record: object) -> None:
+        """Persist compress observability on the task execution event stream (CTX-03)."""
+        from antigravity_k.engine.context_compress_observability import CompressTelemetryRecord
+
+        if not isinstance(record, CompressTelemetryRecord):
+            return
+        task_context = self._task_execution_context()
+        if task_context is None:
+            logger.info(
+                "[ToolLoop] compress telemetry (no task context): %s",
+                record.payload_json(),
+            )
+            return
+        try:
+            state_store = self._state_store(task_context)
+            _ = state_store.append_execution_event(
+                task_context.task_id,
+                record.event_type(),
+                record.payload_json(),
+            )
+        except Exception:  # noqa: BLE001 — telemetry must not break the loop
+            logger.warning("compress telemetry persist failed", exc_info=True)
+
     def _publish_telemetry(self, task_id: str, target: str, completion_reason: str, success: bool) -> None:
         """프로토콜 건강도 통계를 로그와 이벤트 버스로 발행한다."""
         t = self.telemetry
@@ -2047,6 +2374,9 @@ class ToolLoopEngine:
                 repaired_tool_calls=t.repaired_tool_calls,
                 format_nudges=t.format_nudges,
                 context_compressions=t.context_compressions,
+                compress_degraded=t.compress_degraded,
+                compress_halted=t.compress_halted,
+                compress_failures=t.compress_failures,
                 blocked_rounds=t.blocked_rounds,
                 tool_exceptions=t.tool_exceptions,
                 deduped_calls=t.deduped_calls,

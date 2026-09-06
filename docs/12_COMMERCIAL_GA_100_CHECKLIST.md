@@ -32,7 +32,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | WS-04 | DONE | ws_04_frontend | ws_04_verify | codex/ws-04-dashboard-project / Ssak-Ai-ws-04 | `313c6447dda5cf17537024facba2b78868bbe467` | `.omo/evidence/commercial-ga-100/WS-04/` | r2 APPROVE 0.92; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-01 | DONE | ctx_01_conversation | ctx_01_verify | codex/ctx-01-conversation-revision / Ssak-Ai-ctx-01 | `8ba8337dbc953d3ac4788541adcf8294f809e9c6` | `.omo/evidence/commercial-ga-100/CTX-01/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-02 | DONE | ctx_02_budget | ctx_02_verify | codex/ctx-02-prompt-budget / Ssak-Ai-ctx-02 | `16db3b65e74275f433563d9b6c83721d956e3ba2` | `.omo/evidence/commercial-ga-100/CTX-02/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1–F3 closed |
-| CTX-03 | TODO |  |  |  |  |  | CTX-02 |
+| CTX-03 | REVIEW | ctx_03_observability |  | codex/ctx-03-compress-observability / Ssak-Ai-ctx-03 |  | `.omo/evidence/commercial-ga-100/CTX-03/` | CTX-02 DONE; owner self-check → independent review |
 | DAT-01 | TODO |  |  |  |  |  | GA-00 |
 | DAT-02 | TODO |  |  |  |  |  | GA-00 |
 | DAT-03 | TODO |  |  |  |  |  | GA-00 |
@@ -178,12 +178,14 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## CTX-03 · 압축 실패와 관측
 
-- [ ] catch-all fail-open이 hard-limit 초과를 통과시키지 않는다.
-- [ ] 압축 실패 시 provider 호출 여부가 정책대로다.
-- [ ] component별 before/after token ledger가 있다.
-- [ ] strategy, digest, elapsed, failure code가 기록된다.
-- [ ] UI 상태가 server 결과와 일치한다.
-- [ ] headroom/실패율 alert threshold가 있다.
+> Owner `ctx_03_observability` 구현 완료 → **REVIEW** (독립 reviewer APPROVE 전 DONE 금지).
+
+- [x] catch-all fail-open이 hard-limit 초과를 통과시키지 않는다. *(`_maybe_compress_context` returns failed attempt; stream-pre degrade; final gate halt)*
+- [x] 압축 실패 시 provider 호출 여부가 정책대로다. * (degrade under limit OK; halt when fit/enforce fails; stream_generate=0)*
+- [x] component별 before/after token ledger가 있다. *(`CompressTelemetryRecord.tokens_before/after`)*
+- [x] strategy, digest, elapsed, failure code가 기록된다. * (execution events + LoopTelemetry counters)*
+- [x] UI 상태가 server 결과와 일치한다. * (`context.compress.*` → completed/degraded/failed)*
+- [x] headroom/실패율 alert threshold가 있다. * (docs/09 + ALERT_* constants 5% / 15%)*
 
 ## DAT-01 · task transition 원자성
 

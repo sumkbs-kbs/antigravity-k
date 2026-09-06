@@ -1,0 +1,19 @@
+{
+  "task_id": "CTX-03",
+  "title": "compression failure policy and observability",
+  "owner": "ctx_03_observability",
+  "reviewer": "ctx_03_verify",
+  "status": "REVIEW",
+  "baseline_sha": "6c4aeffbba499982381bc45528509558cb96ffca",
+  "branch": "codex/ctx-03-compress-observability",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-03",
+  "started_at": "2026-09-06T12:35:00+09:00",
+  "environment": {
+    "os": "macOS",
+    "pytest_owner": "27 passed (ctx03+ctx02+final_budget+tool_loop compress)",
+    "ruff": "All checks passed"
+  },
+  "notes": "Owner implementation complete. No fake APPROVE. Awaiting independent ctx_03_verify.",
+  "verdict": null,
+  "result_sha_pending": true
+}

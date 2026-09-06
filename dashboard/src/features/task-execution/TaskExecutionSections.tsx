@@ -11,6 +11,7 @@ const STATUS_LABELS = {
   failed: '실패',
   cancelled: '취소됨',
   waiting: '대기 중',
+  degraded: '제한적 저하',
   unknown: '상태 미확인',
 } as const satisfies Record<ExecutionStatus, string>;
 

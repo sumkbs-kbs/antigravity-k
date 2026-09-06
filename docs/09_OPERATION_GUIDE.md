@@ -88,6 +88,14 @@ AGK_SEARCH_ENGINE_URL=https://main.search-engine-api.pages.dev make search-load
 - 로그에는 API key, cookie, Authorization, 개인 메모리 원문을 남기지 않는다.
 - provider 장애는 local fallback과 부분 결과 정책으로 격리한다.
 
+
+## 컨텍스트 압축 실패·예산 headroom 경보 (CTX-03)
+
+- 압축 시도 실패율(`context.compress.degraded` + `context.compress.halted` / 전체 compress attempt)이 **5%** (`ALERT_COMPRESS_FAILURE_RATE=0.05`)를 넘으면 조사한다.
+- 최종 프롬프트 input headroom이 **15% 미만** (`ALERT_BUDGET_HEADROOM_PCT=15`)이면 경고한다. headroom = `(input_budget - input_total) / input_budget`.
+- 이벤트 타입: `context.compress.succeeded` / `context.compress.degraded` / `context.compress.halted`. payload에 component tokens before/after, strategy, digest, elapsed_ms, failure_code가 포함된다.
+- **정책:** 압축 실패 + hard-limit 미만 → 제한적 degrade(읽기/계속 허용). 압축 실패(또는 fit 실패) + hard-limit 초과 → halt(모델 호출·mutation 중단). catch-all fail-open으로 over-limit prompt를 provider에 보내지 않는다.
+
 ## 장애 대응
 
 1. `/health`와 server log에서 import/provider 상태를 확인한다.

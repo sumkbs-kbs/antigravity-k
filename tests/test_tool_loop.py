@@ -119,14 +119,9 @@ def _maybe_compress_context(
     skill_prompts: str,
     focus_terms: tuple[str, ...] = (),
 ) -> tuple[list[dict[str, str]], str, float | None, float | None]:
-    method = cast(
-        Callable[
-            [list[dict[str, str]], str, str, str, str, str, str, tuple[str, ...]],
-            tuple[list[dict[str, str]], str, float | None, float | None],
-        ],
-        getattr(engine, "_maybe_compress_context"),
-    )
-    return method(
+    """Compatibility wrapper — returns the legacy 4-tuple for existing tests."""
+    method = getattr(engine, "_maybe_compress_context")
+    attempt = method(
         shaped_messages,
         prompt_str,
         delegate_model,
@@ -136,6 +131,7 @@ def _maybe_compress_context(
         skill_prompts,
         focus_terms,
     )
+    return attempt.messages, attempt.prompt, attempt.usage_before, attempt.usage_after
 
 
 def _refresh_checkpoint_context(engine: ToolLoopEngine, messages: list[dict[str, str]]) -> None:
