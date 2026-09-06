@@ -2,7 +2,7 @@
  * Activity Store (Zustand)
  * ========================
  * Accumulates live agent activity rows for the chat feed timeline —
- * the Antigravity-style "파일 수정함 / 명령을 실행함 / 파일을 읽음"
+ * the Ssak-Ai-style "파일 수정함 / 명령을 실행함 / 파일을 읽음"
  * collapsible strip. Fed by the /v1/ws/events socket (ToolExecution*,
  * FileOpened/Modified, FailureDetected, PlanningModeStarted).
  *

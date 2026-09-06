@@ -430,7 +430,7 @@ describe('ChatMessage code block', () => {
     expect(codeInPre).toBeInTheDocument();
   });
 
-  it('renders Antigravity thinking box when think tags are present', () => {
+  it('renders Ssak-Ai thinking box when think tags are present', () => {
     const content = '<think>이것은 시스템 아키텍처에 대한 심층 사고 과정입니다.</think>최종 분석 결과입니다.';
     const { container } = render(
       <ChatMessage message={createMessage({ role: 'assistant', content })} />,
@@ -442,7 +442,7 @@ describe('ChatMessage code block', () => {
     expect(container.textContent).toContain('최종 분석 결과입니다.');
   });
 
-  it('renders Antigravity tool cards for tool execution pattern', () => {
+  it('renders Ssak-Ai tool cards for tool execution pattern', () => {
     const content = '**도구 실행** (step 1/3): `run_command`\n완료되었습니다.';
     const { container } = render(
       <ChatMessage message={createMessage({ role: 'assistant', content })} />,
@@ -454,7 +454,7 @@ describe('ChatMessage code block', () => {
     expect(toolCard?.textContent).toContain('Step 1/3');
   });
 
-  it('renders Antigravity markdown tables in responsive container', () => {
+  it('renders Ssak-Ai markdown tables in responsive container', () => {
     const content = '| 항목 | 설명 |\n|---|---|\n| 토큰 | 1500 |\n| 지연시간 | 120ms |';
     const { container } = render(
       <ChatMessage message={createMessage({ role: 'assistant', content })} />,

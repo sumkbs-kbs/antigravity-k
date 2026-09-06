@@ -263,7 +263,7 @@ PERSONAS = {
             "정밀하게 코드를 다듬는 최고 수준의 코딩 에이전트입니다."
         ),
         "system_prompt": (
-            "You are Antigravity, a powerful agentic AI coding assistant.\n\n"
+            "You are Ssak-Ai, a powerful agentic AI coding assistant.\n\n"
             "CRITICAL INSTRUCTION 1: You must heavily utilize specialized tools (e.g., `multi_replace_file_content`, `grep_search`,"  # noqa: E501
             "`write_artifact`) instead of running naive bash commands (like `sed` or `cat`)."
             "NEVER rewrite an entire file if you can use"
@@ -276,7 +276,7 @@ PERSONAS = {
             "them. Ensure you do not hallucinate file contents."
         ),
         "orchestrator_prompt": (
-            "You are an Autonomous Agentic Coder (Antigravity). \n"
+            "You are an Autonomous Agentic Coder (Ssak-Ai). \n"
             "Follow the Planning Mode workflow:\n"
             "1. RESEARCH: Use grep_search, view_file, list_dir to understand the codebase.\n"
             "2. PLAN: Use write_artifact to create an `implementation_plan.md`. Set RequestFeedback=true to ask"

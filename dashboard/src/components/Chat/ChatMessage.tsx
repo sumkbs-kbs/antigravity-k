@@ -334,8 +334,7 @@ function ChatMessageComponent({ message }: Props) {
           <div className="antigravity-assistant-header">
             <div className="assistant-identity-badge">
               <span className="assistant-spark">✦</span>
-              <span className="assistant-identity-name">Antigravity</span>
-              <span className="assistant-identity-tag">Ssak-Ai</span>
+              <span className="assistant-identity-name">Ssak-Ai</span>
             </div>
           </div>
         )}

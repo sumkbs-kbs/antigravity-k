@@ -134,10 +134,7 @@ class EvolutionManager:
         # System prompt path assuming it's in config.yaml or a specific file.
         # For Ssak-Ai, we use config.yaml or orchestrator.py directly.
         # Let's save the evolved system prompt to the vault root for review.
-        original_text = (
-            "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team "
-            "working on Advanced Agentic Coding."
-        )
+        original_text = "You are Ssak-Ai, a powerful agentic AI coding assistant."
 
         failures_context = self._gather_failures("system_prompt_failures", limit=10)
 

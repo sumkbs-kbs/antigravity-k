@@ -1,8 +1,8 @@
 /**
- * ChatPage — Agent Workspace (Antigravity × Codex × Unsloth)
+ * ChatPage — Agent Workspace (Ssak-Ai × Codex × Unsloth)
  * ==========================================================
  * Composition mirrors the three reference screenshots:
- * - Antigravity: right-hand 환경 rail (변경 사항 / 로그 / branch /
+ * - Ssak-Ai: right-hand 환경 rail (변경 사항 / 로그 / branch /
  *   커밋·푸시 / 풀 리퀘스트 / 파일 액티브티 / 소스-MCP)
  * - Codex: activity feed (user prompt bubble, working indicator,
  *   file-edit cards, queued messages), breadcrumb top bar, Open IDE
@@ -1288,7 +1288,7 @@ export const ChatPage: React.FC = () => {
         />
       </div>
 
-      {/* ── Right: Antigravity 환경 rail ──────────────────────── */}
+      {/* ── Right: Ssak-Ai 환경 rail ──────────────────────── */}
       <EnvironmentPanel
         open={envPanelOpen}
         tab={envTab}

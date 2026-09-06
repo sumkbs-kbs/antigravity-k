@@ -652,7 +652,7 @@ class QualityGate:
         return score, issues
 
     def _check_antigravity_markdown_standards(self, output: str) -> tuple[float, list[str]]:
-        """Antigravity 모델 수준의 마크다운 규약(Mermaid, Carousel, 파일 링크 등) 준수 여부 검증."""
+        """Ssak-Ai 모델 수준의 마크다운 규약(Mermaid, Carousel, 파일 링크 등) 준수 여부 검증."""
         score = 1.0
         issues: list[str] = []
 

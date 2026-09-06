@@ -546,7 +546,7 @@ class TestHarness:
         title = await page.title()
         elapsed = (time.time() - start) * 1000
 
-        if "Ssak-Ai" in title or "Antigravity" in title or await page.query_selector("#app"):
+        if "Ssak-Ai" in title or await page.query_selector("#app"):
             return TestResult(intent.id, TestStatus.PASSED, elapsed, f"Dashboard loaded: {title}")
         else:
             return TestResult(intent.id, TestStatus.FAILED, elapsed, f"Unexpected title: {title}")

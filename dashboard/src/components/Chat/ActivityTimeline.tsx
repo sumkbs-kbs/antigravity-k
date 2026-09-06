@@ -1,8 +1,8 @@
 /**
- * ActivityTimeline — Antigravity-style live activity strip
+ * ActivityTimeline — Ssak-Ai-style live activity strip
  * ========================================================
  * Collapsed by default: shows the latest few activity labels as chips
- * ("파일 수정함 · 파일 읽음 · 명령 실행") like the Antigravity agent
+ * ("파일 수정함 · 파일 읽음 · 명령 실행") like the Ssak-Ai agent
  * feed. Expanding reveals per-item rows with status dots, mono detail
  * and relative time. Data comes from activityStore (ws events).
  */

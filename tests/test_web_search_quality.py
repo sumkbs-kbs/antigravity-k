@@ -659,7 +659,7 @@ async def test_self_hosted_search_converts_results_to_canonical_records(monkeypa
 
     results = await search_self_hosted(engine, "Qwen3.6 local model")
 
-    assert results[0].source == "Antigravity Search"
+    assert results[0].source == "Ssak-Ai Search"
     assert results[0].relevance_score == 0.87
     assert results[0].snippet == "Run Qwen3.6 locally."
     await_args = post_mock.await_args

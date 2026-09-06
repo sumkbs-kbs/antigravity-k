@@ -72,7 +72,7 @@ export function preprocessContent(text: string): string {
     return `%%INLINE_${idx}%%`;
   });
 
-  // ── Step 2.5: Antigravity Thinking Process (DeepSeek / Qwen reasoning) ──
+  // ── Step 2.5: Ssak-Ai Thinking Process (DeepSeek / Qwen reasoning) ──
   // Completed <think>...</think>
   processed = processed.replace(/<think>([\s\S]*?)<\/think>/gi, (_match, thinkContent) => {
     const trimmed = thinkContent.trim();

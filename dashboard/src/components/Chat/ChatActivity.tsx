@@ -1,8 +1,8 @@
 /**
- * ChatActivity — Codex/Antigravity-style activity feed pieces
+ * ChatActivity — Codex/Ssak-Ai-style activity feed pieces
  * ===========================================================
  * - WorkingIndicator: live "Working…" row with elapsed time
- * - StreamErrorBanner: Antigravity error card ("exceeded retry limit…")
+ * - StreamErrorBanner: Ssak-Ai error card ("exceeded retry limit…")
  * - FileEditCard: "파일 N개를 편집했습니다 +A −D" summary with
  *   expandable per-file rows, 실행 취소 / 리뷰 actions
  * - QueuedMessagesCard: Codex queued-messages card

@@ -37,7 +37,7 @@ describe('ChatPage agent workspace layout (Unsloth hero)', () => {
     expect(screen.getByLabelText('환경 패널 토글')).toBeInTheDocument();
   });
 
-  it('renders Antigravity environment rail with agent monitoring sections', () => {
+  it('renders Ssak-Ai environment rail with agent monitoring sections', () => {
     renderChatPage();
 
     expect(screen.getByLabelText('에이전트 모니터링 패널')).toBeInTheDocument();
