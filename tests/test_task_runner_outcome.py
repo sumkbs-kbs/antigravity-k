@@ -284,8 +284,10 @@ def test_runner_preserves_quality_gate_failure_and_rolls_back_snapshot(tmp_path:
             del message
             return "snapshot-quality"
 
-        def restore_snapshot(self, snapshot_hash: str) -> bool:
+        def restore_snapshot(self, snapshot_hash: str, scope=None) -> bool:
             self.restored.append(snapshot_hash)
+            self.restored_scopes = getattr(self, "restored_scopes", [])
+            self.restored_scopes.append(scope)
             return True
 
     outcomes: list[TaskOutcome] = []
@@ -326,8 +328,10 @@ def test_runner_rolls_back_snapshot_on_failure(tmp_path: Path):
             del message
             return "snapshot-1"
 
-        def restore_snapshot(self, snapshot_hash: str) -> bool:
+        def restore_snapshot(self, snapshot_hash: str, scope=None) -> bool:
             self.restored.append(snapshot_hash)
+            self.restored_scopes = getattr(self, "restored_scopes", [])
+            self.restored_scopes.append(scope)
             return True
 
     vault = FakeVault()

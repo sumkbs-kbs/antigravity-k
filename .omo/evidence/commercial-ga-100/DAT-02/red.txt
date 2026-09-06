@@ -1,0 +1,31 @@
+# DAT-02 red 증거 — BR-01 감사 재현
+
+## 재현 1: 신규 회귀 시험 (커밋 전, scope 미구현 상태)
+
+명령: uv run --no-sync pytest tests/test_vault_task_isolation.py -q
+결과: 9 failed, 1 passed (실패 목록)
+- TestTaskScopedRestore::test_discards_owned_untracked_change
+- TestTaskScopedRestore::test_unscoped_restore_still_refused_in_task_runner
+- TestTaskScopedToolBinding::test_task_run_binds_tool_paths_to_worktree
+- TestWorktreeMergeBack::test_success_merges_worktree_changes_back
+- TestWorktreeMergeBack::test_failure_does_not_merge
+- TestWorktreeMergeBack::test_merge_back_conflict_preserves_original
+- TestTaskScopedRestore::test_discards_owned_modification_and_deletion
+- TestTaskScopedRestore::test_preserves_changes_outside_scope
+- TestTaskScopedRestore::test_rejects_scope_escape
+
+(1 passed = TestTaskRollbackDestroysConcurrentChanges — 당시엔 "보존"이 아니라
+"관측만 하는" 자유도 테스트로 작성됨. 구현 후 보존 계약으로 강화.)
+
+## 재현 2: 실제 BR-01 시나리오 스크립트
+
+명령: uv run --no-sync python /tmp/br01_red_demo.py (shared vault + task B 변경 3종 + restore_snapshot)
+출력:
+  restore_snapshot returned: True
+  b_committed:   <destroyed>
+  b_uncommitted: <destroyed>
+  b_untracked:   <destroyed>
+  BR-01 REPRODUCED: 3/3 of task B's changes destroyed
+
+→ 공유 vault `git reset --hard` + `git clean -fd` 롤백이 task B의
+  committed/uncommitted/untracked 변경을 모두 파괴함을 확인.

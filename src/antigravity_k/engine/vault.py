@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import subprocess
 import threading
-from collections.abc import Generator, Mapping
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Literal, cast, final, overload, override
@@ -298,18 +299,35 @@ class VaultEngine:
             )
         return True
 
-    def restore_snapshot(self, commit_hash: str) -> bool:
-        """Restore the filesystem to a specific snapshot (commit hash).
+    def restore_snapshot(self, commit_hash: str, scope: Sequence[str] | None = None) -> bool:
+        """Restore paths to a specific snapshot (commit hash).
 
-        Refuses to run in a dangerous root path (``/``, home, Desktop, or any
-        path that is a direct child of the home directory) because
-        ``git reset --hard`` + ``git clean -fd`` would destroy unrelated files.
+        Two modes:
+
+        * ``scope=None`` — legacy full restore. Refuses to run in a dangerous
+          root path (``/``, home, Desktop, or any path that is a direct child
+          of the home directory) because ``git reset --hard`` + ``git clean
+          -fd`` would destroy unrelated files. Callers must not use this mode
+          to roll back concurrent task work (BR-01); it remains only for
+          explicit operator-initiated full restores.
+
+        * ``scope=<paths>`` — task-scoped restore (DAT-02). Only the given
+          paths are returned to their ``commit_hash`` state. Tracked paths are
+          restored via ``git checkout <commit> -- <path>`` (discarding both
+          modifications and deletions) and task-owned untracked files are
+          removed file-by-file. A scoped restore never touches paths outside
+          ``scope``, so concurrent writers' committed, uncommitted, and
+          untracked changes are preserved. Path traversal (``..``) or escaping
+          absolute paths in ``scope`` raise ``ValueError`` before any git
+          command runs.
 
         Returns:
             True on success, False on failure or when the vault path is deemed
             unsafe.
 
         """
+        if scope is not None:
+            return self._restore_snapshot_scoped(commit_hash, scope)
         # Safety check: never ``git reset --hard`` in a dangerous root path.
         if not self._is_safe_restore_target():
             return False
@@ -337,6 +355,120 @@ class VaultEngine:
             except subprocess.CalledProcessError as e:
                 logger.error(
                     "Failed to restore snapshot %s: %s",
+                    commit_hash,
+                    _error_text(cast(object, e.stderr)),
+                )
+        return False
+
+    def _restore_snapshot_scoped(self, commit_hash: str, scope: Sequence[str]) -> bool:
+        """DAT-02: restore only ``scope`` paths to ``commit_hash`` state.
+
+        Discard semantics per path (task-owned changes only):
+
+        * tracked, modified in worktree → ``git checkout <commit> -- path``
+        * tracked, deleted in worktree → ``git checkout <commit> -- path``
+        * tracked, committed by the task (path differs between ``commit_hash``
+          and HEAD) → ``git checkout <commit> -- path`` + stage the revert
+        * untracked (task-created) → unlink
+
+        Never runs ``git reset --hard`` / ``git clean -fd``.
+        """
+        # Validate scope before touching the working tree: reject empty scope,
+        # absolute paths, and traversal escapes up front.
+        normalized_scope: list[str] = []
+        seen: set[str] = set()
+        for raw in scope:
+            text = str(raw).strip()
+            if not text:
+                continue
+            candidate = Path(text)
+            if candidate.is_absolute() or ".." in candidate.parts:
+                logger.error("[SAFETY] Refusing scoped restore with escape path: %s", text)
+                raise ValueError(f"Scope path escapes the vault: {text}")
+            normalized_text = text.replace("\\", "/").rstrip("/")
+            if normalized_text in seen:
+                continue
+            seen.add(normalized_text)
+            normalized_scope.append(normalized_text)
+        if not normalized_scope:
+            return False
+
+        with self._acquire_vault_lock():
+            try:
+                # Resolve the snapshot commit to a tree so we can tell tracked
+                # paths apart from task-created (untracked) ones.
+                tree_res = subprocess.run(
+                    ["git", "ls-tree", "-r", "--name-only", "-z", commit_hash],
+                    cwd=self.vault_path,
+                    check=True,
+                    capture_output=True,
+                )
+                snapshot_paths = {
+                    entry.decode("utf-8", errors="replace") for entry in tree_res.stdout.split(b"\x00") if entry
+                }
+
+                restored: list[str] = []
+                removed: list[str] = []
+                for rel_path in normalized_scope:
+                    target = self.vault_path / rel_path
+                    if rel_path in snapshot_paths:
+                        # Path existed in the snapshot → checkout restores both
+                        # modified and deleted worktree states.
+                        _ = subprocess.run(
+                            ["git", "checkout", commit_hash, "--", rel_path],
+                            cwd=self.vault_path,
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        )
+                        restored.append(rel_path)
+                    elif target.exists() or target.is_symlink():
+                        # Task-created (untracked or newly committed) path →
+                        # discard the file itself. If the task committed it, the
+                        # revert commit below also stages the removal.
+                        if target.is_dir() and not target.is_symlink():
+                            shutil.rmtree(target)
+                        else:
+                            target.unlink()
+                        removed.append(rel_path)
+                    # Neither in snapshot nor on disk → nothing to discard.
+
+                if removed:
+                    # Stage deletions of task-created paths so the revert commit
+                    # (if any task commits exist) records them. Only paths that
+                    # HEAD tracks need staging — never-tracked + deleted files
+                    # have nothing to stage (git add would fail with a fatal
+                    # pathspec error).
+                    head_res = subprocess.run(
+                        ["git", "ls-tree", "-r", "--name-only", "-z", "HEAD"],
+                        cwd=self.vault_path,
+                        check=True,
+                        capture_output=True,
+                    )
+                    head_paths = {
+                        entry.decode("utf-8", errors="replace") for entry in head_res.stdout.split(b"\x00") if entry
+                    }
+                    to_stage = [p for p in removed if p in head_paths]
+                    if to_stage:
+                        _ = subprocess.run(
+                            ["git", "add", "--", *to_stage],
+                            cwd=self.vault_path,
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        )
+                if restored or removed:
+                    logger.info(
+                        "Scoped restore to %s: restored=%d removed=%d scope=%d",
+                        commit_hash,
+                        len(restored),
+                        len(removed),
+                        len(normalized_scope),
+                    )
+                return True
+            except subprocess.CalledProcessError as e:
+                logger.error(
+                    "Failed scoped restore of snapshot %s: %s",
                     commit_hash,
                     _error_text(cast(object, e.stderr)),
                 )

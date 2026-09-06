@@ -1,0 +1,50 @@
+{
+  "task_id": "DAT-02",
+  "title": "vault task 격리 — task-owned worktree/patch 영역과 안전한 rollback",
+  "baseline_sha": "35104f4fde5da718f2dd3048dfb1b51a225c23d7",
+  "base_branch_tip": "568833263fa4e53909b719aa5cd34ed6ee154526",
+  "base_branch": "codex/dat-01-task-cas",
+  "branch": "codex/dat-02-vault-isolation",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-dat-02",
+  "owner": "dat_02_vault",
+  "reviewer": "dat_02_verify (할당 대기 — 구현자와 상이)",
+  "started_at": "2026-09-06",
+  "status": "IMPLEMENTATION_COMPLETE_AWAITING_REVIEW",
+  "findings_addressed": ["BR-01"],
+  "changed_files": [
+    "src/antigravity_k/engine/vault.py",
+    "src/antigravity_k/engine/task_runner.py",
+    "tests/test_vault_task_isolation.py (new)",
+    "tests/test_task_runner_outcome.py (scope-aware fakes)"
+  ],
+  "contract_summary": {
+    "vault_restore_snapshot": "restore_snapshot(commit_hash, scope=None|Sequence[str]) — scope가 있으면 task 소유 경로만 복원 (git checkout/unlink, reset --hard/clean -fd 금지), 없으면 legacy 전체 복원(위험 경로 가드 유지)",
+    "task_rollback": "_rollback_snapshot이 항상 비어있지 않은 scope를 전달 — 전체 reset 롤백 불가능하게 잠금",
+    "worktree_binding": "use_worktree task는 실행 동안 RequestExecutionContext.canonical_project_root를 worktree로 바인딩, 종료 시 ambient 복원",
+    "merge_back": "merge_worktree_changes(task_id, path, merge_on_failure=False) — 성공 task만 merge, 충돌은 merge-tree 사전 탐지 후 원본 보존"
+  },
+  "verification": {
+    "new_tests": "10 passed (tests/test_vault_task_isolation.py)",
+    "regression": "47 passed (outcome/resume/worktree/isolation)",
+    "selected_subset": "347 passed (-k 'task or vault or worktree', WS-lane 기존 실패 3파일 제외)",
+    "preexisting_failures_not_ours": "test_agent_runtime.py 3, test_runtime_benchmark_binding.py 3, test_task_api.py 1 — base SHA stash 재실행으로 동일 확인",
+    "ruff": "pass",
+    "mypy": "pass (task_runner.py, vault.py, test_vault_task_isolation.py)"
+  },
+  "mutations_killed": [
+    "runner가 scope=None 호출로 퇴행 → test_unscoped_restore_still_refused_in_task_runner FAILED",
+    "vault가 scoped 경로를 full reset으로 강등 → test_preserves_changes_outside_scope + test_rejects_scope_escape FAILED",
+    "merge-back 충돌 가드 무시 + 무조건 성공 → 수동 시나리오 분석 결과 자동 merge abort가 원본 보존 (시험 통과 유지, 가드는 fail-fast 계약으로 유지)"
+  ],
+  "artifacts": [
+    ".omo/evidence/commercial-ga-100/DAT-02/red.txt",
+    ".omo/evidence/commercial-ga-100/DAT-02/tests.txt",
+    ".omo/evidence/commercial-ga-100/DAT-02/manual-qa.md",
+    ".omo/evidence/commercial-ga-100/DAT-02/metadata.json"
+  ],
+  "handover_notes": [
+    "vault_writes 추적은 runner 명시 기록 지점만 커버 — tool 임의 쓰기 연결은 후속 페이즈 권장",
+    "merge_worktree_changes 자동 호출은 승인 게이트 논의 후 연결 권장 (plan §3.4)",
+    "WS lane의 canonical runtime fixture 실패 7건은 WS lane 소유 — DAT-02와 무관"
+  ]
+}

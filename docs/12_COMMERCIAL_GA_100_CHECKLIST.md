@@ -34,7 +34,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | CTX-02 | DONE | ctx_02_budget | ctx_02_verify | codex/ctx-02-prompt-budget / Ssak-Ai-ctx-02 | `16db3b65e74275f433563d9b6c83721d956e3ba2` | `.omo/evidence/commercial-ga-100/CTX-02/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1–F3 closed |
 | CTX-03 | DONE | ctx_03_observability | ctx_03_verify | codex/ctx-03-compress-observability / Ssak-Ai-ctx-03 | `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3` | `.omo/evidence/commercial-ga-100/CTX-03/` | r2 APPROVE 0.95; prior REJECT closed in review.md; F1 closed; DAT-01 ready |
 | DAT-01 | REVIEW | dat_01_persistence | dat_01_verify | codex/dat-01-task-cas / Ssak-Ai-dat-01 | `5aed1a649ac572fb5789cce8da895576855f7aca` | `.omo/evidence/commercial-ga-100/DAT-01/` | r1 REJECT preserved; F1/F2 fix SHA submitted; re-review 대기; DONE 금지; DAT-02 금지 |
-| DAT-02 | TODO |  |  |  |  |  | GA-00 |
+| DAT-02 | REVIEW | dat_02_vault | dat_02_verify (할당 대기) | codex/dat-02-vault-isolation / Ssak-Ai-dat-02 | `<result SHA 확정 후 기입>` | `.omo/evidence/commercial-ga-100/DAT-02/` | DAT-01 DONE; BR-01 수정 구현 완료, 독립 리뷰 대기 |
 | DAT-03 | TODO |  |  |  |  |  | GA-00 |
 | SEC-01 | TODO |  |  |  |  |  | GA-00 |
 | SEC-02 | TODO |  |  |  |  |  | SEC-01 |
@@ -200,13 +200,18 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## DAT-02 · vault task 격리
 
-- [ ] task mutation이 독립 worktree/patch 영역에서 실행된다.
-- [ ] 공유 vault에 `reset --hard`/`clean -fd` rollback을 사용하지 않는다.
-- [ ] A 실패 후 B committed 변경이 보존된다.
-- [ ] A 취소 후 B uncommitted/untracked 변경이 보존된다.
-- [ ] A 소유 변경만 폐기된다.
-- [ ] conflict가 원본 보존 상태로 나타난다.
-- [ ] crash/orphan cleanup rehearsal을 수행했다.
+> 구현 완료 (2026-09-06, owner `dat_02_vault`). 독립 review 대기 — **DONE 금지**.
+> 구현: `VaultEngine.restore_snapshot(commit, scope=...)` 스코프 복원 (reset --hard/clean -fd 대신
+> git checkout/unlink), `_rollback_snapshot`이 항상 task scope 전달, worktree task 실행 context 바인딩,
+> `merge_worktree_changes` (충돌 시 merge-tree 사전 탐지 후 원본 보존). 시험 10 신규 + 47 회귀 green.
+
+- [x] task mutation이 독립 worktree/patch 영역에서 실행된다. *(use_worktree task 실행 context가 worktree에 바인딩; 스코프 롤백은 소유 경로만)*
+- [x] 공유 vault에 `reset --hard`/`clean -fd` rollback을 사용하지 않는다. *(task 롤백은 스코프 복원만; legacy 전체 복원은 위험 경로 가드 유지)*
+- [x] A 실패 후 B committed 변경이 보존된다. *(TestTaskRollbackPreservesConcurrentChanges)*
+- [x] A 취소 후 B uncommitted/untracked 변경이 보존된다. *(동일 시험 + 스코프 밖 보존 시험)*
+- [x] A 소유 변경만 폐기된다. *(test_discards_owned_* / test_preserves_changes_outside_scope)*
+- [x] conflict가 원본 보존 상태로 나타난다. *(test_merge_back_conflict_preserves_original + mutation 확인)*
+- [ ] crash/orphan cleanup rehearsal을 수행했다. *(다음 페이즈: kill -9 후 orphan worktree 정리 시나리오 — VAL-02와 연계)*
 
 ## DAT-03 · ProjectRegistry 원자성
 

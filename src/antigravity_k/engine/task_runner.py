@@ -15,10 +15,11 @@ import logging
 import os
 import re
 import sqlite3
+import subprocess
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,6 +48,28 @@ from antigravity_k.engine.task_state_types import (
 )
 from antigravity_k.engine.task_steering import TaskSteeringQueue, TaskSteeringResult
 from antigravity_k.engine.worktree_manager import WorktreeManager
+
+
+def _stderr_text(error: subprocess.CalledProcessError) -> str:
+    raw_stderr: object = error.__dict__.get("stderr")
+    if isinstance(raw_stderr, str):
+        return raw_stderr
+    if isinstance(raw_stderr, bytes):
+        return raw_stderr.decode(errors="replace")
+    return str(error)
+
+
+def _reset_worktree_context(token: object | None) -> None:
+    """Restore the ambient request execution context after a task finishes."""
+    if token is None:
+        return
+    try:
+        from antigravity_k.api.project_binding import reset_bound_request_execution_context
+
+        reset_bound_request_execution_context(token)  # type: ignore[arg-type]
+    except Exception:
+        logger.debug("worktree context reset failed", exc_info=True)
+
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +101,7 @@ class ModelManagerPort(Protocol):
 class VaultEnginePort(Protocol):
     def create_snapshot(self, description: str) -> str | None: ...
 
-    def restore_snapshot(self, snapshot_hash: str) -> bool: ...
+    def restore_snapshot(self, snapshot_hash: str, scope: Sequence[str] | None = None) -> bool: ...
 
     def write_note(
         self,
@@ -113,6 +136,43 @@ _DIRECT_RESPONSE_MARKERS = (
 )
 
 _VAULT_URL_PATTERN = re.compile(r"https?://[^\s'\"<>]+")
+
+# Directories whose vault writes are legitimate side-effects of task
+# bookkeeping rather than the task's intended work product. Scoped rollback
+# never discards changes under these prefixes (BR-01: only task-owned work
+# files are reverted; housekeeping artifacts of the runner itself survive).
+_TASK_VAULT_KEEP_PREFIXES: tuple[str, ...] = (".agent/", ".agk/", ".chroma/", ".git/")
+
+
+def _record_vault_mutation(task: "BackgroundTask", relative_path: str) -> None:
+    """Track a vault path a task mutated so rollback can scope to it (DAT-02).
+
+    ``task.vault_writes`` may be pre-seeded by the caller with paths the task is
+    expected to own (e.g. its worktree-scoped scratchpad). Recording here is
+    best-effort bookkeeping: failures never affect task execution.
+    """
+    try:
+        normalized = str(relative_path).replace("\\", "/").lstrip("/")
+        if not normalized:
+            return
+        owned = task.vault_writes
+        if isinstance(owned, set):
+            owned.add(normalized)
+    except Exception:
+        logger.debug("vault mutation tracking failed", exc_info=True)
+
+
+def _task_rollback_scope(task: "BackgroundTask") -> tuple[str, ...]:
+    """Paths this task owns in the shared vault, for a scoped restore (DAT-02).
+
+    Always returns at least one entry so the runner can never fall back into a
+    full ``reset --hard`` restore (which would destroy concurrent tasks'
+    committed/uncommitted/untracked changes — audit finding BR-01).
+    """
+    owned = task.vault_writes if isinstance(task.vault_writes, set) else set()
+    return tuple(
+        sorted(p for p in owned if isinstance(p, str) and p and not p.startswith(_TASK_VAULT_KEEP_PREFIXES)),
+    ) or ("__no_task_owned_paths__",)
 
 
 def _redact_vault_text(text: str) -> str:
@@ -159,7 +219,13 @@ class TaskCheckpoint:
 
 @final
 class BackgroundTask:
-    """백그라운드 태스크 상태 객체"""
+    """백그라운드 태스크 상태 객체.
+
+    ``vault_writes`` accumulates the vault-relative paths this task mutated
+    (best-effort tracking via :func:`_record_vault_mutation`). It seeds the
+    task-scoped rollback scope so a failed task never triggers a shared-vault
+    full restore (BR-01 / DAT-02).
+    """
 
     def __init__(
         self,
@@ -182,6 +248,7 @@ class BackgroundTask:
         self.checkpoints: list[TaskCheckpoint] = []
         self._thread: threading.Thread | None = None
         self.worktree_path: str | None = None
+        self.vault_writes: set[str] = set()
 
     def to_dict(self) -> TaskInfo:
         return {
@@ -450,6 +517,10 @@ class BackgroundTaskRunner:
             self._record_task_outcome(task, target_model, started_at, task.status)
             return
 
+        # DAT-02: a worktree task executes against its own worktree, never the
+        # server process cwd. Bind the execution context to the worktree root so
+        # PermissionGate/tool path resolution use it as the canonical root.
+        worktree_binding_token = self._bind_worktree_context(task)
         vault_engine = self.vault_engine
         try:
             if orchestrator is None:
@@ -606,16 +677,181 @@ class BackgroundTaskRunner:
             logger.exception("Background task failed: %s, error", task.task_id)
 
         finally:
+            _reset_worktree_context(worktree_binding_token)
             if task.worktree_path and task.status != TaskStatus.PAUSED:
                 self.worktree_manager.remove_worktree(task.task_id)
 
+    def _bind_worktree_context(self, task: BackgroundTask) -> object | None:
+        """Bind RequestExecutionContext to the task's worktree (DAT-02).
+
+        Worktree tasks must execute tools against the worktree root regardless
+        of the ambient request/session binding (server cwd=A, project=B rule).
+        Returns a reset token for :func:`_reset_worktree_context`.
+        """
+        if not task.worktree_path:
+            return None
+        try:
+            from antigravity_k.api.contracts.execution_context import RequestExecutionContext
+            from antigravity_k.api.project_binding import (
+                get_bound_request_execution_context,
+                set_bound_request_execution_context,
+            )
+
+            ambient = get_bound_request_execution_context()
+            worktree_root = os.path.realpath(task.worktree_path)
+            if ambient is not None:
+                context = ambient.model_copy(
+                    update={
+                        "canonical_project_root": worktree_root,
+                        "request_id": f"{ambient.request_id}#wt-{task.task_id}",
+                        "task_id": task.task_id,
+                    },
+                )
+            else:
+                context = RequestExecutionContext(
+                    request_id=f"task-{task.task_id}",
+                    task_id=task.task_id,
+                    project_id=f"worktree:{task.task_id}",
+                    canonical_project_root=worktree_root,
+                    conversation_id="conv_task_worktree",
+                    conversation_revision=0,
+                    actor_subject=task.owner_subject or "task-runner",
+                    session_id=f"task-{task.task_id}",
+                    model_id="task-worktree",
+                )
+            return set_bound_request_execution_context(context)
+        except Exception:
+            logger.exception("Worktree context binding failed for task %s", task.task_id)
+            return None
+
+    def merge_worktree_changes(
+        self,
+        task_id: str,
+        worktree_path: str,
+        *,
+        merge_on_failure: bool = False,
+    ) -> bool:
+        """Merge a successful task's worktree commit into the base branch.
+
+        DAT-02 contract: merge-back runs only for terminal-success tasks (or
+        when ``merge_on_failure`` is explicitly True). Conflicts leave the base
+        branch untouched (original preserved) and return False — never an
+        automatic overwrite.
+
+        Requires the worktree to be on a task branch with a committed state;
+        uncommitted work in the worktree is committed first with a task marker.
+        """
+        del task_id  # reserved for audit/event correlation in a later phase
+        repo = self.worktree_manager.base_repo_path
+        try:
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            if status.stdout.strip():
+                _ = subprocess.run(
+                    ["git", "add", "-A"],
+                    cwd=worktree_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                _ = subprocess.run(
+                    ["git", "commit", "-m", "[Task] Worktree merge-back checkpoint"],
+                    cwd=worktree_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            branch_res = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=worktree_path,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            task_branch = branch_res.stdout.strip()
+            if not task_branch or task_branch == "HEAD":
+                logger.error("Worktree %s is not on a branch; refusing merge-back", worktree_path)
+                return False
+
+            # Fail-fast conflict probe (git ≥2.38 merge-tree --write-tree):
+            # detect a conflicting merge before touching the base branch so the
+            # original state is always preserved on conflict.
+            base_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            task_head = subprocess.run(
+                ["git", "rev-parse", task_branch],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            probe = subprocess.run(
+                ["git", "merge-tree", "--write-tree", base_head, task_head],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+            )
+            if probe.returncode != 0:
+                logger.error(
+                    "Merge-back conflict detected for branch %s; base branch preserved",
+                    task_branch,
+                )
+                return False
+
+            merge = subprocess.run(
+                ["git", "merge", "--no-ff", "-m", f"Merge task worktree: {task_branch}", task_branch],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+            )
+            if merge.returncode != 0:
+                # Never leave the shared repo mid-merge; keep the original state.
+                _ = subprocess.run(
+                    ["git", "merge", "--abort"],
+                    cwd=repo,
+                    capture_output=True,
+                    text=True,
+                )
+                logger.error("Merge-back failed for %s; base branch preserved: %s", task_branch, merge.stderr)
+                return False
+            logger.info("Merged task worktree branch %s into base", task_branch)
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error("Merge-back process failed: %s", _stderr_text(e))
+            return False
+        except Exception:
+            logger.exception("Unexpected merge-back failure")
+            return False
+
     def _rollback_snapshot(self, task: BackgroundTask, vault_engine: VaultEnginePort | None) -> None:
+        """Roll back only the paths this task owns (DAT-02 / BR-01).
+
+        The scope is always non-empty so the restore call can never degrade
+        into a full-tree ``git reset --hard`` that would destroy concurrent
+        tasks' committed, uncommitted, and untracked changes.
+        """
         snapshot_hash = task.context.get("snapshot_hash")
         if not isinstance(snapshot_hash, str) or vault_engine is None:
             return
+        scope = _task_rollback_scope(task)
         try:
-            if vault_engine.restore_snapshot(snapshot_hash):
-                logger.info("Rolled back task %s to snapshot %s", task.task_id, snapshot_hash)
+            if vault_engine.restore_snapshot(snapshot_hash, scope=scope):
+                logger.info(
+                    "Rolled back task %s to snapshot %s (scoped: %d paths)",
+                    task.task_id,
+                    snapshot_hash,
+                    len(scope),
+                )
             else:
                 logger.error("Snapshot rollback was rejected for task %s", task.task_id)
         except Exception:

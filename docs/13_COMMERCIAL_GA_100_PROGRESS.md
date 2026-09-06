@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 10 |
+| 완료 | 11 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | DAT-01 F1/F2 fix 제출 — `dat_01_verify` re-review 대기 (DAT-02 금지; DONE 금지) |
+| 현재 작업 | DAT-02 구현 완료 — `dat_02_verify` 독립 리뷰 대기 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,33 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · DAT-02 구현 완료, 독립 검증 대기 (`dat_02_vault`)
+
+- 상태: **REVIEW** (DONE 아님 — `dat_02_verify` 독립 리뷰 전)
+- Branch/worktree: `codex/dat-02-vault-isolation` / `Ssak-Ai-dat-02`
+- Base: dat-01 tip `568833263fa4e53909b719aa5cd34ed6ee154526` (DAT-01 r2 APPROVE 후)
+- **BR-01 red 재현**: shared vault `reset --hard`+`clean -fd` 롤백으로 task B의
+  committed/uncommitted/untracked **3/3 파괴** 확인 (repro 스크립트 + 신규 시험 9 red, `red.txt`)
+- **구현**:
+  - `VaultEngine.restore_snapshot(commit_hash, scope=None|Sequence[str])` — 스코프 복원 모드 추가.
+    tracked 수정/삭제는 `git checkout <commit> -- path`, task 생성 untracked는 unlink,
+    task 커밋 신규 파일은 HEAD 트리 확인 후 스테이징. `reset --hard`/`clean -fd` 미사용.
+    스코프 `..`/절대경로 escape는 git 명령 전 `ValueError`.
+  - `task_runner._rollback_snapshot` — 항상 비어있지 않은 task scope 전달
+    (`__no_task_owned_paths__` 센티넬로 전체 복원 봉쇄). `.agent/` 등 housekeeping prefix 제외.
+  - worktree task 실행 시 `RequestExecutionContext`를 worktree root에 바인딩, 종료 시 ambient 복원
+    (server cwd=A/project=B 계약을 task worktree로 확장).
+  - `merge_worktree_changes()` — 성공 task만 merge-back, `git merge-tree --write-tree`
+    사전 충돌 탐지, 충돌/실패 시 `merge --abort` 후 원본 보존, `merge_on_failure=False` 기본.
+- **검증**: 신규 10 (`tests/test_vault_task_isolation.py`) + 회귀 47 green;
+  선택 하위집합 347 green. WS lane 기존 실패 7건은 stash로 base 동일 확인 (본 task 소유 아님).
+  ruff/mypy pass (대상 파일).
+- **mutation 3종**: runner scope 제거 → FAILED, vault 스코프→전체 복원 강등 → FAILED 2건,
+  충돌 가드 제거 → 자동 abort가 원본 보존하여 계약 유지 확인 (가드는 fail-fast 계약으로 유지).
+- 남은 항목: crash/orphan cleanup rehearsal (마지막 박스, VAL-02 연계).
+- Evidence: `.omo/evidence/commercial-ga-100/DAT-02/` (red/tests/manual-qa/metadata)
+- **DONE 금지. `dat_02_verify` 리뷰 후 result SHA 확정 필요.**
 
 ### 2026-09-06 · DAT-01 F1/F2 REJECT fix + re-review request (`dat_01_persistence`)
 
@@ -667,7 +694,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| — | — | — | — | CTX-03 DONE; next DAT-01 (coordinator assign) |
+| DAT-02 | dat_02_vault | `codex/dat-02-vault-isolation` | 구현 완료, 리뷰 대기 (REVIEW) | `dat_02_verify` 독립 리뷰 → result SHA 확정 → DONE |
 
 ## 차단 및 결정 대기
 
