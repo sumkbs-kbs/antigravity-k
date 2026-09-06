@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import shlex
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -201,6 +203,130 @@ def resolve_tool_path(raw_path: str, project_root: str) -> str:
     return resolved
 
 
+_APPLY_PATCH_PATH_PREFIXES: tuple[str, ...] = (
+    "*** Add File: ",
+    "*** Update File: ",
+    "*** Delete File: ",
+)
+
+_SHELL_ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def extract_apply_patch_paths(patch_text: str) -> list[str]:
+    """Return file paths declared in apply_patch headers (parse-based)."""
+    if not patch_text or not str(patch_text).strip():
+        return []
+    try:
+        from antigravity_k.engine.diff_engine import DiffApplyEngine
+
+        patches = DiffApplyEngine().parse_apply_patch(str(patch_text))
+    except Exception:
+        logger.debug("apply_patch parse failed during path extract", exc_info=True)
+        return []
+    return [p.file_path for p in patches if getattr(p, "file_path", None)]
+
+
+def rewrite_apply_patch_text(
+    patch_text: str,
+    project_root: str,
+    *,
+    tool_name: str = "apply_patch",
+) -> tuple[str, list[ResolvedToolPath]]:
+    """Resolve every apply_patch file path under ``project_root`` and rewrite headers.
+
+    Raises ``ToolPathError`` if any declared path escapes the canonical root.
+    """
+    raw_text = str(patch_text)
+    paths = extract_apply_patch_paths(raw_text)
+    if not paths:
+        return raw_text, []
+
+    root_real = os.path.realpath(os.path.abspath(project_root))
+    rewritten = raw_text
+    resolutions: list[ResolvedToolPath] = []
+
+    for raw_path in paths:
+        resolved = resolve_tool_path(raw_path, root_real)
+        replaced = False
+        for prefix in _APPLY_PATCH_PATH_PREFIXES:
+            needle = f"{prefix}{raw_path}"
+            if needle in rewritten:
+                rewritten = rewritten.replace(needle, f"{prefix}{resolved}", 1)
+                replaced = True
+                break
+        if not replaced:
+            # Parser saw the path; keep execute-time resolve as backstop.
+            logger.debug("apply_patch header for %r not rewritten in text", raw_path)
+
+        item = ResolvedToolPath(
+            arg_key="patch",
+            raw_path=raw_path,
+            inspected_path=resolved,
+            executed_path=resolved,
+            project_root=root_real,
+        )
+        resolutions.append(item)
+        record_path_audit(
+            {
+                "tool": tool_name,
+                "arg_key": "patch",
+                "raw_path": raw_path,
+                "inspected_path": resolved,
+                "executed_path": resolved,
+                "project_root": root_real,
+                "correlated": True,
+            }
+        )
+
+    return rewritten, resolutions
+
+
+def _is_shell_escape_path_candidate(token: str) -> bool:
+    """True when a shell token may reference a filesystem path outside cwd semantics."""
+    if not token or token.startswith("-"):
+        return False
+    expanded = os.path.expanduser(token)
+    normalized = _normalize_separators(expanded)
+    if os.path.isabs(normalized):
+        return True
+    if normalized.startswith("~"):
+        return True
+    parts = normalized.replace("\\", "/").split("/")
+    return ".." in parts
+
+
+def iter_shell_escape_path_candidates(command: str) -> list[str]:
+    """Extract absolute / ``..`` / ``~/`` path tokens from a shell command."""
+    if not command or not str(command).strip():
+        return []
+    try:
+        tokens = shlex.split(str(command), posix=os.name != "nt")
+    except ValueError:
+        tokens = str(command).split()
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in tokens:
+        if not tok:
+            continue
+        if _SHELL_ENV_ASSIGN_RE.match(tok):
+            continue
+        if not _is_shell_escape_path_candidate(tok):
+            continue
+        if tok in seen:
+            continue
+        seen.add(tok)
+        out.append(tok)
+    return out
+
+
+def assert_shell_command_paths_in_root(command: str, project_root: str) -> None:
+    """Raise ``ToolPathError`` if the command references a path outside ``project_root``."""
+    root_real = os.path.realpath(os.path.abspath(project_root))
+    for raw in iter_shell_escape_path_candidates(command):
+        resolve_tool_path(raw, root_real)
+
+
 def rewrite_tool_args(
     tool_name: str,
     args: Mapping[str, object],
@@ -215,8 +341,24 @@ def rewrite_tool_args(
     rewritten: dict[str, object] = dict(args)
     resolutions: list[ResolvedToolPath] = []
 
+    if tool_name == "apply_patch":
+        patch_val = rewritten.get("patch")
+        if isinstance(patch_val, str) and patch_val.strip():
+            new_patch, patch_resolutions = rewrite_apply_patch_text(
+                patch_val,
+                root_real,
+                tool_name=tool_name,
+            )
+            rewritten["patch"] = new_patch
+            resolutions.extend(patch_resolutions)
+
     if tool_name in SHELL_CWD_TOOLS and "cwd" not in rewritten:
         rewritten["cwd"] = root_real
+
+    if tool_name in SHELL_CWD_TOOLS:
+        command_val = rewritten.get("command")
+        if isinstance(command_val, str) and command_val.strip():
+            assert_shell_command_paths_in_root(command_val, root_real)
 
     if tool_name in ROOT_DEFAULT_PATH_TOOLS:
         raw_path = rewritten.get("path", ".")
@@ -285,11 +427,15 @@ __all__ = [
     "SHELL_CWD_TOOLS",
     "ResolvedToolPath",
     "ToolPathError",
+    "assert_shell_command_paths_in_root",
     "disable_path_audit_capture",
     "effective_project_root",
     "enable_path_audit_capture",
+    "extract_apply_patch_paths",
     "get_path_audit_events",
+    "iter_shell_escape_path_candidates",
     "record_path_audit",
     "resolve_tool_path",
+    "rewrite_apply_patch_text",
     "rewrite_tool_args",
 ]

@@ -12,7 +12,7 @@ from antigravity_k.api.project_binding import (
     reset_bound_request_execution_context,
     set_bound_request_execution_context,
 )
-from antigravity_k.tools.file_tools import GrepSearchTool, WriteFileTool
+from antigravity_k.tools.file_tools import ApplyPatchTool, GrepSearchTool, WriteFileTool
 from antigravity_k.tools.git_tools import GitStatusTool
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.system_tools import ReadFileTool, RunBashCommandTool
@@ -227,3 +227,118 @@ def test_direct_read_without_registry_still_cwd_sensitive_documented(
     monkeypatch.chdir(server)
     # Without rewrite, ambient cwd wins — proving why registry rewrite is required.
     assert "SERVER" in ReadFileTool().execute(file_path="probe.txt")
+
+
+def test_apply_patch_dotdot_escape_denied_no_outside_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F1: apply_patch with ../outside must DENY and create nothing outside."""
+    server = tmp_path / "server"
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    server.mkdir()
+    project.mkdir()
+    outside.mkdir()
+    monkeypatch.chdir(server)
+    _bind_project(tmp_path, "project")
+    enable_path_audit_capture()
+
+    registry = ToolRegistry(project_root=str(server))
+    registry.install(ApplyPatchTool())
+
+    patch_text = """*** Begin Patch
+*** Add File: ../outside/rel_pwn.txt
++REL
+*** End Patch"""
+    perm, result = registry.execute_with_permission("apply_patch", {"patch": patch_text})
+    assert perm == Permission.DENY
+    assert "escap" in result.lower() or "DENIED" in result or "outside" in result.lower()
+    assert not (outside / "rel_pwn.txt").exists()
+    assert not list(outside.iterdir())
+
+
+def test_apply_patch_absolute_outside_denied_no_outside_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F1: apply_patch with absolute outside path must DENY."""
+    server = tmp_path / "server"
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    server.mkdir()
+    project.mkdir()
+    outside.mkdir()
+    monkeypatch.chdir(server)
+    _bind_project(tmp_path, "project")
+
+    registry = ToolRegistry(project_root=str(server))
+    registry.install(ApplyPatchTool())
+
+    abs_target = outside / "abs_pwn.txt"
+    patch_text = f"""*** Begin Patch
+*** Add File: {abs_target}
++ABS
+*** End Patch"""
+    perm, result = registry.execute_with_permission("apply_patch", {"patch": patch_text})
+    assert perm == Permission.DENY
+    assert not abs_target.exists()
+
+
+def test_apply_patch_in_root_writes_project_only_and_correlates_audit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F1 positive: relative in-root path writes under project B; audit correlated."""
+    server = tmp_path / "server"
+    project = tmp_path / "project"
+    server.mkdir()
+    project.mkdir()
+    monkeypatch.chdir(server)
+    root = _bind_project(tmp_path, "project")
+    enable_path_audit_capture()
+
+    registry = ToolRegistry(project_root=str(server))
+    registry.install(ApplyPatchTool())
+
+    patch_text = """*** Begin Patch
+*** Add File: in_b.txt
++hello-b
+*** End Patch"""
+    perm, result = registry.execute_with_permission("apply_patch", {"patch": patch_text})
+    assert perm == Permission.ALLOW
+    assert "CREATED" in result
+    assert (project / "in_b.txt").read_text(encoding="utf-8") == "hello-b"
+    assert not (server / "in_b.txt").exists()
+
+    events = get_path_audit_events()
+    assert events
+    assert all(e["inspected_path"] == e["executed_path"] for e in events)
+    assert all(e["executed_path"].startswith(str(root)) for e in events)
+
+
+def test_shell_absolute_outside_path_denied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F2: cat /absolute/outside must DENY and not leak secret contents."""
+    server = tmp_path / "server"
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    server.mkdir()
+    project.mkdir()
+    outside.mkdir()
+    secret = outside / "secret.txt"
+    secret.write_text("SECRET", encoding="utf-8")
+    monkeypatch.chdir(server)
+    _bind_project(tmp_path, "project")
+
+    registry = ToolRegistry(project_root=str(server))
+    registry.install(RunBashCommandTool())
+
+    perm, out = registry.execute_with_permission(
+        "run_bash_command",
+        {"command": f"cat '{secret}'"},
+    )
+    assert perm == Permission.DENY
+    assert "SECRET" not in out

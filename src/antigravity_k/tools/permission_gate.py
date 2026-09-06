@@ -19,7 +19,13 @@ import re
 from collections.abc import Mapping
 
 from .tool_contracts import Permission, PermissionDecision, ToolArgument, ToolInvocation, ToolSpec
-from .tool_path import ToolPathError, effective_project_root, resolve_tool_path
+from .tool_path import (
+    ToolPathError,
+    assert_shell_command_paths_in_root,
+    effective_project_root,
+    extract_apply_patch_paths,
+    resolve_tool_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +135,7 @@ class PermissionGate:
                 reason="A tool-specific permission override is configured.",
             )
 
-        # 2. 위험 명령 차단 (Bash/Shell 도구)
+        # 2. 위험 명령 차단 (Bash/Shell 도구) + absolute/escape path policy (WS-02 F2)
         if tool_name in ("run_bash_command", "bash"):
             raw_command = args.get("command")
             command = raw_command if isinstance(raw_command, str) else ""
@@ -141,6 +147,34 @@ class PermissionGate:
                     source="permission_gate",
                     reason="The command matches a blocked dangerous-command policy.",
                 )
+            try:
+                assert_shell_command_paths_in_root(command, self.effective_root())
+            except ToolPathError as exc:
+                logger.warning("DENIED shell path escape: %s (%s)", command[:120], exc)
+                return PermissionDecision(
+                    spec=invocation.spec,
+                    permission=Permission.DENY,
+                    source="permission_gate",
+                    reason="The shell command references a path outside the permitted project boundary.",
+                    inspected_path=None,
+                    executed_path=None,
+                )
+
+        # 2b. apply_patch — paths live inside patch text, not PATH_ARG keys (WS-02 F1)
+        if tool_name == "apply_patch":
+            raw_patch = args.get("patch")
+            patch_text = raw_patch if isinstance(raw_patch, str) else ""
+            for patch_path in extract_apply_patch_paths(patch_text):
+                path_decision = self._check_path(patch_path, tool_name)
+                if path_decision == Permission.DENY:
+                    return PermissionDecision(
+                        spec=invocation.spec,
+                        permission=Permission.DENY,
+                        source="permission_gate",
+                        reason="The requested path is outside the permitted project boundary or protected.",
+                        inspected_path=None,
+                        executed_path=None,
+                    )
 
         # 3. 경로 기반 샌드박싱 (파일 도구) — inspected path == executed path (WS-02)
         path_decision = None

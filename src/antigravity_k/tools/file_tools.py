@@ -12,6 +12,7 @@ import glob as glob_module
 import logging
 import os
 import re
+from dataclasses import replace
 from typing import Any, TypeAlias, TypedDict, cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
@@ -729,8 +730,23 @@ class ApplyPatchTool(BaseTool):
         if not patches:
             return "Error: no file patches found in input"
 
+        from antigravity_k.tools.tool_path import (
+            ToolPathError,
+            effective_project_root,
+            resolve_tool_path,
+        )
+
+        root = effective_project_root()
         results: list[str] = []
         for patch in patches:
+            try:
+                resolved_path = resolve_tool_path(patch.file_path, root)
+            except ToolPathError as exc:
+                results.append(f"DENIED {patch.file_path}: {exc}")
+                continue
+
+            patch = replace(patch, file_path=resolved_path)
+
             if patch.is_new_file:
                 # 신규 파일 생성
                 if os.path.exists(patch.file_path):
@@ -769,7 +785,7 @@ class ApplyPatchTool(BaseTool):
 
         # 요약
         ok = sum(1 for r in results if r.startswith(("OK", "CREATED", "DELETED")))
-        failed = [r for r in results if r.startswith(("FAIL", "ERROR"))]
+        failed = [r for r in results if r.startswith(("FAIL", "ERROR", "DENIED"))]
         summary = f"Applied {ok}/{len(results)} operations."
         if failed:
             summary += f" {len(failed)} failed: " + "; ".join(failed[:3])

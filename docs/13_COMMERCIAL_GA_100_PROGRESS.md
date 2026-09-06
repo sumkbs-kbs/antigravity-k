@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 4 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | WS-02 REVIEW — r1 REJECT (`ws_02_verify`); fix + re-review 대기 |
+| 현재 작업 | WS-02 REVIEW — F1/F2 fix submitted; `re-review-request` → `ws_02_verify` |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-02 F1/F2 fix + re-review request (`ws_02_tools`)
+
+- owner: `ws_02_tools` (APPROVE 자체 작성 금지; prior `review.md` REJECT 보존)
+- branch/worktree: `codex/ws-02-tool-root` / `Ssak-Ai-ws-02`
+- Fix 요약:
+  - F1 `apply_patch`: parse headers → `resolve_tool_path` / rewrite absolute in-root; gate `_check_path`; tool opens only resolved paths; `../`·abs-outside → DENY·외부 파일 미생성
+  - F2 shell: absolute/`~/`/`..` 토큰을 canonical root로 resolve; escape → DENY (`cat` outside SECRET 미유출)
+  - 회귀: `tests/test_ws02_tool_root.py` **12 passed**; 묶음 **101 passed**; ruff clean
+- Evidence: `.omo/evidence/commercial-ga-100/WS-02/` (`re-review-request.md`, updated red/tests/manual-qa/adversarial/metadata; prior REJECT 보존)
+- result SHA: `PENDING_COMMIT` (commit 후 갱신)
+- 상태: `REVIEW` 유지 (DONE 아님). **WS-03/WS-04 이 lane 착수 금지** until re-review APPROVE.
 
 ### 2026-09-06 · WS-02 독립 review REJECT (r1) (`ws_02_verify`)
 
@@ -300,11 +312,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-02 | REVIEW (r1 REJECT) | `cada44afb90de8e8216cecc167eb669afc73e280` | ws_02_verify | apply_patch escape; fix + re-review 대기 |
+| WS-02 | REVIEW (fix pending r2) | `PENDING_COMMIT` | ws_02_verify | F1/F2 fixed; re-review-request; prior REJECT 보존 |
 
 ## 차단 및 결정 대기
 
-`WS-02` **REVIEW** — 독립 review r1 **REJECT** (`review.md`, tip `0422ab7`). Blocking: `apply_patch` canonical root escape. DONE/WS-03·WS-04 이 lane 착수 금지 until fix + re-review APPROVE. `WS-01` r2 APPROVE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`WS-02` **REVIEW** — r1 REJECT 보존; F1/F2 fix + `re-review-request.md` 제출. DONE/WS-03·WS-04 이 lane 착수 금지 until `ws_02_verify` re-review APPROVE. `WS-01` r2 APPROVE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 

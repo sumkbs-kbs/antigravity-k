@@ -6,6 +6,11 @@ apply_patch 포맷 파싱, hunk 매칭, 퍼지 폴백, 신규/삭제 파일,
 
 from pathlib import Path
 
+from antigravity_k.api.contracts.execution_context import RequestExecutionContext
+from antigravity_k.api.project_binding import (
+    reset_bound_request_execution_context,
+    set_bound_request_execution_context,
+)
 from antigravity_k.engine.diff_engine import DiffApplyEngine, FilePatch, Hunk
 from antigravity_k.tools.file_tools import ApplyPatchTool
 
@@ -261,6 +266,21 @@ class TestApplyPatch:
         assert result.new_content.endswith("\n")
 
 
+def _bind_tmp_project(tmp_path: Path) -> None:
+    ctx = RequestExecutionContext(
+        request_id="req-diff",
+        task_id="task-diff",
+        project_id="proj-diff",
+        canonical_project_root=str(tmp_path.resolve()),
+        conversation_id="conv-diff",
+        conversation_revision=0,
+        actor_subject="tester",
+        session_id="sess-diff",
+        model_id="test-model",
+    )
+    set_bound_request_execution_context(ctx)
+
+
 class TestApplyPatchTool:
     """ApplyPatchTool 통합 검증."""
 
@@ -279,50 +299,62 @@ class TestApplyPatchTool:
 
     def test_tool_update_existing_file(self, tmp_path: Path):
         """기존 파일 업데이트."""
-        test_file = tmp_path / "target.py"
-        _ = test_file.write_text("x = 1\ny = 2\n")
+        _bind_tmp_project(tmp_path)
+        try:
+            test_file = tmp_path / "target.py"
+            _ = test_file.write_text("x = 1\ny = 2\n")
 
-        tool = ApplyPatchTool()
-        patch_text = f"""*** Begin Patch
+            tool = ApplyPatchTool()
+            patch_text = f"""*** Begin Patch
 *** Update File: {test_file}
 @@ x = 1
 -x = 1
 +x = 10
 *** End Patch"""
 
-        result = tool.execute(patch=patch_text)
+            result = tool.execute(patch=patch_text)
 
-        assert "OK" in result
-        assert "x = 10" in test_file.read_text()
-        assert "y = 2" in test_file.read_text()
+            assert "OK" in result
+            assert "x = 10" in test_file.read_text()
+            assert "y = 2" in test_file.read_text()
+
+        finally:
+            reset_bound_request_execution_context()
 
     def test_tool_create_new_file(self, tmp_path: Path):
         """신규 파일 생성."""
-        new_file = tmp_path / "created.py"
+        _bind_tmp_project(tmp_path)
+        try:
+            new_file = tmp_path / "created.py"
 
-        tool = ApplyPatchTool()
-        patch_text = f"""*** Begin Patch
+            tool = ApplyPatchTool()
+            patch_text = f"""*** Begin Patch
 *** Add File: {new_file}
 +def new_func():
 +    return 42
 *** End Patch"""
 
-        result = tool.execute(patch=patch_text)
+            result = tool.execute(patch=patch_text)
 
-        assert "CREATED" in result
-        assert new_file.exists()
-        content = new_file.read_text()
-        assert "def new_func()" in content
-        assert "return 42" in content
+            assert "CREATED" in result
+            assert new_file.exists()
+            content = new_file.read_text()
+            assert "def new_func()" in content
+            assert "return 42" in content
+
+        finally:
+            reset_bound_request_execution_context()
 
     def test_tool_multi_file_operations(self, tmp_path: Path):
         """다중 파일 작업 (업데이트 + 생성)."""
-        existing = tmp_path / "existing.py"
-        _ = existing.write_text("a = 1\n")
-        new_file = tmp_path / "new.py"
+        _bind_tmp_project(tmp_path)
+        try:
+            existing = tmp_path / "existing.py"
+            _ = existing.write_text("a = 1\n")
+            new_file = tmp_path / "new.py"
 
-        tool = ApplyPatchTool()
-        patch_text = f"""*** Begin Patch
+            tool = ApplyPatchTool()
+            patch_text = f"""*** Begin Patch
 *** Update File: {existing}
 @@ a = 1
 -a = 1
@@ -332,24 +364,31 @@ class TestApplyPatchTool:
 +    pass
 *** End Patch"""
 
-        result = tool.execute(patch=patch_text)
+            result = tool.execute(patch=patch_text)
 
-        assert "2/2" in result
-        assert "a = 100" in existing.read_text()
-        assert new_file.exists()
+            assert "2/2" in result
+            assert "a = 100" in existing.read_text()
+            assert new_file.exists()
+
+        finally:
+            reset_bound_request_execution_context()
 
     def test_tool_missing_file_reports_error(self, tmp_path: Path):
         """존재하지 않는 파일 에러 보고."""
-        missing = tmp_path / "nonexistent.py"
+        _bind_tmp_project(tmp_path)
+        try:
+            missing = tmp_path / "nonexistent.py"
 
-        tool = ApplyPatchTool()
-        patch_text = f"""*** Begin Patch
+            tool = ApplyPatchTool()
+            patch_text = f"""*** Begin Patch
 *** Update File: {missing}
 @@ anything
 -old
 +new
 *** End Patch"""
 
-        result = tool.execute(patch=patch_text)
+            result = tool.execute(patch=patch_text)
 
-        assert "FAIL" in result or "ERROR" in result
+            assert "FAIL" in result or "ERROR" in result
+        finally:
+            reset_bound_request_execution_context()
