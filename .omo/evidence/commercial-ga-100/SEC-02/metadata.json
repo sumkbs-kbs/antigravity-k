@@ -1,0 +1,86 @@
+{
+  "task_id": "SEC-02",
+  "title": "PIN 교환 제한과 credential 표면 축소",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §SEC-02",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §SEC-02",
+  "status": "REVIEW_R1_APPROVE",
+  "branch": "codex/sec-02-pin-rate-limit",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-sec-02",
+  "base_sha": "25c4226",
+  "reviewer": "sec_02_verify (독립 세션 — Freebuff, 2026-09-07)",
+  "roles": {
+    "implementer": "sec_02_impl (Freebuff 세션, 2026-09-06)",
+    "reviewer": "sec_02_verify (구현자와 상이한 세션 필요)"
+  },
+  "acceptance_criteria": [
+    {
+      "criterion": "임의 보호 URL에서 PIN 후보를 보내도 PBKDF2 검증이 실행되지 않는다",
+      "evidence": [
+        "tests/test_sec02_pin_rate_limit.py::TestRawPinSurfaceRemoved — middleware가 X-Access-Pin 헤더/ag_access_pin 쿠키에 verify_pin 호출 안 함 (spy로 검증)",
+        "WS gate도 점 없는 credential(PIN 추정)에 PBKDF2 실행 안 함",
+        "정적 검증 테스트: verify_pin 호출처가 rate-limited login/token route뿐"
+      ]
+    },
+    {
+      "criterion": "IP와 계정/session 기준 burst 및 sustained limit이 적용된다",
+      "evidence": [
+        "src/antigravity_k/security/credential_gate.py — CredentialGate(burst_limit=5, sustained_limit=20/600s, lockout 300s)",
+        "login/token route에서 gate.register() → lockout 중 PBKDF2 진입 차단 (403 + Retry-After)",
+        "slowapi(429)는 gate(403) 이후의 이중 방어"
+      ]
+    },
+    {
+      "criterion": "성공/실패/lockout audit가 secret 없이 남는다",
+      "evidence": [
+        "src/antigravity_k/security/auth_audit.py — {event, remote, ts, detail} 링 버퍼 500건",
+        "credential 필드 구조적 금지 + detail 스크럽 (테스트가 PIN 유출 부정 검증)"
+      ]
+    },
+    {
+      "criterion": "부하 시험에서 공격 요청이 정상 인증 latency와 CPU를 threshold 이상 악화시키지 않는다",
+      "evidence": [
+        "50회 공격 sweep에서 PBKDF2 실행 기회 ≤ burst_limit(5)로 제한 (test_attack_sweep_does_not_trigger_pbkdf2)",
+        "lockout 중 check() latency: 누적 50건 실패 상태 vs 클린 상태 비교 — 5배 이내 (test_attack_latency_stays_flat)"
+      ]
+    }
+  ],
+  "surface_changes": {
+    "removed": [
+      "HTTP middleware의 X-Access-Pin 헤더 / ag_access_pin 쿠키 PBKDF2 검증 (auth_routes.authenticate_request)",
+      "WS gate의 legacy PIN 분기 (session_state.close_unauthorized_ws — query ?pin= / 점 없는 credential)",
+      "Harness의 X-Access-Pin 헤더 전송과 ag_access_pin 쿠키/localStorage 주입 → 토큰 교환 후 Bearer만"
+    ],
+    "added": [
+      "src/antigravity_k/security/credential_gate.py (신규)",
+      "src/antigravity_k/security/auth_audit.py (신규)",
+      "tests/test_sec02_pin_rate_limit.py (신규 17건)"
+    ],
+    "client_migration": "대시보드는 SEC-01 이전부터 token-first(accessPinCredential.ts가 legacy pin을 자동 정리) — 서버 표면 제거만으로 정상 동작"
+  },
+  "verification": {
+    "red": ".omo/evidence/commercial-ga-100/SEC-02/red.txt (16 failures/errors)",
+    "green": ".omo/evidence/commercial-ga-100/SEC-02/tests.txt (17 passed)",
+    "full_suite": "5507+ passed, 27 failed — failure list base 6d3c515와 byte-identical (0 regressions)",
+    "baseline_diff": "/tmp/sec02_base_failures.txt vs .tmp/sec02_failures.txt — identical",
+    "lint": "ruff clean (전체 src + 변경 테스트)",
+    "types": "mypy clean (462 files)"
+  },
+  "review": {
+    "verdict": "r1 APPROVE",
+    "review_commit": "(리뷰 커밋 — 커밋 후 갱신)",
+    "target": "eab18a4 (24c7ae3 rebase + eab18a4 integration fix)",
+    "merge_base": "25c4226",
+    "reviewer_script": "reviewer-acceptance-check.py — 12/12 PASS",
+    "adjacent_suites": "147 passed (SEC-02 17 + auth + truth table + WS + harness)",
+    "regression": "base 25c4226 vs branch eab18a4 전체 스위트 실패 목록 byte-identical (21=21) — 회귀 0",
+    "defects_found": 1,
+    "defects_resolved": 1,
+    "defect_note": "F1(중): 리베이스 자동병합이 WS gate 구 call부(pin=None)를 남김 → eab18a4에서 해소, 147건 재실행 green",
+    "review_doc": "review.md"
+  },
+  "notes": [
+    "SEC-01이 통합한 auth_policy 판정 위에 bearer-token-only 계약을 얹음",
+    "slowapi limiter 카운터는 fixture에서 reset해 테스트 간 간섭 제거",
+    "lockout 사유 코드는 HTTP 403 + Retry-After 헤더 (429는 slowapi가 담당)"
+  ]
+}
