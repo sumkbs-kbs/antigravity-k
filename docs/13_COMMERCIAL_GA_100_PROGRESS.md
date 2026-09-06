@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 5 |
-| 진행 중 | 1 |
+| 완료 | 6 |
+| 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | WS-03 REVIEW — owner fix submitted; awaiting `ws_03_verify` re-review |
+| 현재 작업 | WS-03 DONE (r2 APPROVE); next WS-04 eligible |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,23 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-03 독립 review r2 APPROVE (`ws_03_verify`)
+
+- tip reviewed: `d6713e7a327d24ff3f7d738effbc81c25087f966` (HEAD 확인)
+- Fix / Result SHA: `bf00b1e2ef153a2c02205d920e327d3519f22e23`
+- prior REJECT: `review.md` 보존; 본 기록 `review-r2.md`
+- Reviewer re-run: WS-03 **15 passed**; regression **51 passed**; ruff clean
+- Independent adversarial: **9 passed** (`adversarial-verify-r2.txt`) — F1–F7 CLOSED
+  - F1/F2: session DI = ProjectRuntime.session_manager; A secret not on B; A→B→A restore; not cwd
+  - F3: slash registry per project; agent_runtime not sticky
+  - F5: durable clear A leaves B cache/vector; no Path.cwd() wipe
+  - F6: factory wires real RAGIndexer + distinct project VaultEngine on orchestrator
+  - F7: scheduled_job_service project-scoped; submit_agent matches agent_runtime
+- Residual (non-blocking): process-global `get_vault_engine()` for vault REST / subagent / evolution — do not claim those surfaces project-isolated
+- AdversarialVerify: confirmed · Confidence 0.93
+- Evidence: `.omo/evidence/commercial-ga-100/WS-03/review-r2.md`
+- 상태: **DONE**. WS-04 이 lane 착수 허용 (선행: ARC-01, WS-01).
 
 ### 2026-09-06 · WS-03 REJECT fix 제출 (`ws_03_runtime`)
 
@@ -362,16 +379,17 @@ tags: [commercialization, progress, evidence, multi-agent]
 | ARC-01 | APPROVE | `ede637a11fce67ff43eb32be2aacc1a0396b538c` | arc_01_verify | r2 escape boundary; 16+4+10 probes; prior REJECT closed | 2026-09-06 |
 | WS-01 | APPROVE | `11658e046ecb7ce8eec6250401884142bc43fc2d` | ws_01_verify | r2 tools bind before generate; 13+43 + 6 probes; prior REJECT closed | 2026-09-06 |
 | WS-02 | APPROVE | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | ws_02_verify | r2 F1/F2 closed; 12+101 + adversarial; prior REJECT closed | 2026-09-06 |
+| WS-03 | APPROVE | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | ws_03_verify | r2 F1–F7 closed; 15+51 + 9 probes; prior REJECT closed | 2026-09-06 |
 
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-03 | REVIEW | ws_03_runtime | `bf00b1e2ef15…` | r1 REJECT preserved; owner fix → re-review |
+| — | — | — | — | WS-04 착수 가능 (선행: ARC-01, WS-01) |
 
 ## 차단 및 결정 대기
 
-`WS-03` **REVIEW** 유지 — owner fix for r1 REJECT submitted; `review.md` REJECT 보존. **DONE 아님. WS-04 이 lane 착수 금지** until `ws_03_verify` re-review APPROVE. `WS-02`/`WS-01` DONE 유지. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`WS-03` **DONE** (r2 APPROVE). WS-04 이 lane 착수 허용. Residual: process `get_vault_engine` (vault REST/subagent) non-blocking; shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. `WS-02`/`WS-01` DONE 유지. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 

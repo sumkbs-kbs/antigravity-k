@@ -28,7 +28,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | ARC-01 | DONE | arc_01_contract | arc_01_verify | codex/arc-01-execution-context / Ssak-Ai-arc-01 | `ede637a11fce67ff43eb32be2aacc1a0396b538c` | `.omo/evidence/commercial-ga-100/ARC-01/` | r2 APPROVE; prior REJECT closed in review.md; escape boundary verified |
 | WS-01 | DONE | ws_01_backend | ws_01_verify | codex/ws-01-project-binding / Ssak-Ai-ws-01 | `11658e046ecb7ce8eec6250401884142bc43fc2d` | `.omo/evidence/commercial-ga-100/WS-01/` | r2 APPROVE; prior REJECT closed in review.md; tools bind before generate |
 | WS-02 | DONE | ws_02_tools | ws_02_verify | codex/ws-02-tool-root / Ssak-Ai-ws-02 | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | `.omo/evidence/commercial-ga-100/WS-02/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1/F2 closed |
-| WS-03 | REVIEW | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | `.omo/evidence/commercial-ga-100/WS-03/` | r1 REJECT preserved; owner fix → re-review |
+| WS-03 | DONE | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | `.omo/evidence/commercial-ga-100/WS-03/` | r2 APPROVE 0.93; prior REJECT closed in review.md; F1–F7 closed |
 | WS-04 | TODO |  |  |  |  |  | ARC-01, WS-01 |
 | CTX-01 | TODO |  |  |  |  |  | ARC-01 |
 | CTX-02 | TODO |  |  |  |  |  | CTX-01 |
@@ -131,14 +131,14 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## WS-03 · project scoped 서비스 lifecycle
 
-> Independent review r1 **REJECT** preserved (`review.md`). Owner fix submitted (`re-review-request.md`) — session/slash/durable/RAG/job project-scoped. Status **REVIEW** (not DONE). **WS-04 이 lane 착수 금지** until `ws_03_verify` re-review APPROVE. Evidence: `.omo/evidence/commercial-ga-100/WS-03/`.
+> 독립 review r2 **APPROVE** (`review-r2.md`). r1 **REJECT**는 `review.md`에 보존. Fix SHA `bf00b1e2ef153a2c02205d920e327d3519f22e23`. Tip reviewed `d6713e7a327d24ff3f7d738effbc81c25087f966`. WS-04 착수 허용 (선행: ARC-01, WS-01). Residual: process `get_vault_engine` vault REST/subagent (DONE gate 외; orch/RAG factory는 project-scoped).
 
-- [x] orchestrator/runtime cache key에 project ID가 있다. *(`ProjectRuntimeRegistry`; session/slash/job also project-scoped after fix — owner claim, pending r2)*
-- [x] memory/RAG/artifact/context persistence가 project별이다. *(session DI+project_path; RAGIndexer+project VaultEngine wired in factory; durable under project root — owner claim, pending r2)*
-- [x] model별 compressor cache도 project별이다. *(`context_compressor_for` on project-keyed orchestrator; verify PASS)*
-- [x] A→B→A 전환 후 cross-project 데이터 0건이다. *(adversarial session/slash/durable/RAG tests added — owner claim, pending r2)*
-- [x] restart/eviction 뒤 격리가 유지된다. *(`test_restart_reload_preserves_disk_isolation`, LRU/evict; verify PASS for registry path)*
-- [x] watcher/DB/process cleanup을 확인했다. *(orch shutdown + project-scoped durable/vector paths — owner claim, pending r2)*
+- [x] orchestrator/runtime cache key에 project ID가 있다. *(`ProjectRuntimeRegistry` + session/slash/job on ProjectRuntime; r2 PASS)*
+- [x] memory/RAG/artifact/context persistence가 project별이다. *(session DI+project_path; factory RAGIndexer+project VaultEngine; durable under project root; r2 PASS)*
+- [x] model별 compressor cache도 project별이다. *(`context_compressor_for` on project-keyed orchestrator; r2 PASS)*
+- [x] A→B→A 전환 후 cross-project 데이터 0건이다. *(session secret / slash / durable / RAG adversarial r2 PASS)*
+- [x] restart/eviction 뒤 격리가 유지된다. *(`test_restart_reload_preserves_disk_isolation`, LRU/evict; r2 PASS)*
+- [x] watcher/DB/process cleanup을 확인했다. *(orch shutdown + project-scoped durable/vector; no cwd wipe; r2 PASS)*
 
 ## WS-04 · dashboard 프로젝트 상태
 
