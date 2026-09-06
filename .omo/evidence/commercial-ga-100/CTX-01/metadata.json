@@ -1,0 +1,21 @@
+{
+  "task_id": "CTX-01",
+  "title": "authoritative conversation store and revision protocol",
+  "owner": "ctx_01_conversation",
+  "reviewer": "ctx_01_verify",
+  "status": "REVIEW",
+  "baseline_sha": "d0186f595b1f93362bc8baf12c5c4515f4c544e2",
+  "branch": "codex/ctx-01-conversation-revision",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-01",
+  "started_at": "2026-09-06T11:19:00+09:00",
+  "environment": {
+    "os": "macOS",
+    "pytest_ctx01": "10 passed (store+api)",
+    "pytest_arc01_regression": "16 passed",
+    "vitest_related": "14 passed (3 files)"
+  },
+  "notes": "Owner implementation complete. Status REVIEW \u2014 independent ctx_01_verify must APPROVE. No self-APPROVE.",
+  "verdict": null,
+  "result_sha_pending": true,
+  "updated_at": "2026-09-06T11:33:06+09:00"
+}

@@ -100,10 +100,40 @@ export interface ApiOptions extends RequestInit {
 
 export type ChatCompletionPayload = Readonly<Record<string, unknown>>;
 
+
+/** CTX-01 revision conflict (HTTP 409). Full wire helpers live below. */
+export class ConversationRevisionConflictError extends Error {
+  readonly status = 409;
+  readonly payload: {
+    ok: false;
+    error: 'stale_conversation_revision';
+    detail: string;
+    conversation_id: string;
+    expected_revision: number;
+    current_revision: number;
+    correlation_id?: string;
+  };
+
+  constructor(payload: ConversationRevisionConflictError['payload']) {
+    super(payload.detail || 'Conversation revision conflict');
+    this.name = 'ConversationRevisionConflictError';
+    this.payload = payload;
+  }
+}
+
 export type ChatStreamHandlers = Readonly<{
   onChunk: (text: string) => void;
   onDone: () => void;
   onError: (error: Error) => void;
+  /** CTX-01: authoritative conversation snapshot from SSE trailer */
+  onConversationSnapshot?: (snapshot: {
+    conversation_id: string;
+    project_id: string;
+    revision: number;
+    message_count: number;
+    summary?: string | null;
+    retained_message_ids?: string[];
+  }) => void;
 }>;
 
 type ParsedSseData = Readonly<{
@@ -191,13 +221,36 @@ function parseSseData(input: string, flush: boolean): ParsedSseData {
   };
 }
 
-function emitChatFrame(frame: string, onChunk: (text: string) => void): void {
+function emitChatFrame(
+  frame: string,
+  onChunk: (text: string) => void,
+  onConversationSnapshot?: ChatStreamHandlers['onConversationSnapshot'],
+): void {
   if (frame === '[DONE]') return;
 
   let raw: unknown;
   try {
     raw = JSON.parse(frame);
   } catch {
+    return;
+  }
+
+  if (
+    raw
+    && typeof raw === 'object'
+    && 'agk_conversation' in raw
+    && (raw as { agk_conversation?: unknown }).agk_conversation
+    && typeof (raw as { agk_conversation: unknown }).agk_conversation === 'object'
+  ) {
+    const snap = (raw as { agk_conversation: {
+      conversation_id: string;
+      project_id: string;
+      revision: number;
+      message_count: number;
+      summary?: string | null;
+      retained_message_ids?: string[];
+    } }).agk_conversation;
+    onConversationSnapshot?.(snap);
     return;
   }
 
@@ -242,6 +295,28 @@ export async function streamChatCompletion(
       if (response.status === 401) {
         window.dispatchEvent(new CustomEvent('agk:pin-required'));
       }
+      if (response.status === 409) {
+        const body = await response.json().catch(() => null) as {
+          ok?: false;
+          error?: string;
+          detail?: string;
+          conversation_id?: string;
+          expected_revision?: number;
+          current_revision?: number;
+          correlation_id?: string;
+        } | null;
+        if (body && body.error === 'stale_conversation_revision') {
+          throw new ConversationRevisionConflictError({
+            ok: false,
+            error: 'stale_conversation_revision',
+            detail: body.detail || 'Conversation revision conflict',
+            conversation_id: body.conversation_id || '',
+            expected_revision: body.expected_revision ?? 0,
+            current_revision: body.current_revision ?? 0,
+            correlation_id: body.correlation_id,
+          });
+        }
+      }
       throw new Error(`Server returned ${response.status}`);
     }
 
@@ -260,12 +335,16 @@ export async function streamChatCompletion(
       buffer += decoder.decode(value, { stream: true });
       const parsed = parseSseData(buffer, false);
       buffer = parsed.remainder;
-      for (const frame of parsed.frames) emitChatFrame(frame, handlers.onChunk);
+      for (const frame of parsed.frames) {
+        emitChatFrame(frame, handlers.onChunk, handlers.onConversationSnapshot);
+      }
     }
 
     buffer += decoder.decode();
     const final = parseSseData(buffer, true);
-    for (const frame of final.frames) emitChatFrame(frame, handlers.onChunk);
+    for (const frame of final.frames) {
+      emitChatFrame(frame, handlers.onChunk, handlers.onConversationSnapshot);
+    }
     handlers.onDone();
   } catch (err: unknown) {
     if (isAbortError(err)) {
@@ -515,4 +594,123 @@ export async function saveSettings(settings: Record<string, string>): Promise<Se
     body: JSON.stringify(settings),
   });
   return SettingsSaveResponseSchema.parse(raw);
+}
+
+
+/* ─── CTX-01 conversation revision protocol ───────────────── */
+
+export type ConversationSnapshotWire = {
+  conversation_id: string;
+  project_id: string;
+  revision: number;
+  message_count: number;
+  summary?: string | null;
+  retained_message_ids?: string[];
+  tokens_before?: number;
+  tokens_after?: number;
+  tokens_reduced?: number;
+};
+
+export type ConversationHistoryWire = {
+  snapshot: ConversationSnapshotWire;
+  messages: Array<{
+    id: string;
+    role: 'user' | 'assistant' | 'system' | 'tool';
+    content: string;
+    created_at: number;
+    provenance?: string;
+  }>;
+  token_estimate: number;
+};
+
+export type ConversationConflictWire = {
+  ok: false;
+  error: 'stale_conversation_revision';
+  detail: string;
+  conversation_id: string;
+  expected_revision: number;
+  current_revision: number;
+  correlation_id?: string;
+};
+
+
+async function parseConversationResponse<T>(response: Response): Promise<T> {
+  if (response.status === 409) {
+    const body = await response.json().catch(() => null) as ConversationConflictWire | null;
+    if (body && body.error === 'stale_conversation_revision') {
+      throw new ConversationRevisionConflictError(body);
+    }
+    throw new Error(`Conversation conflict (${response.status})`);
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Conversation API ${response.status}: ${detail.slice(0, 200)}`);
+  }
+  return await response.json() as T;
+}
+
+/** Fetch authoritative conversation projection (refresh/reconnect). */
+export async function fetchConversationHistory(
+  conversationId: string,
+  projectId?: string | null,
+): Promise<ConversationHistoryWire> {
+  const headers = createProjectIdentityHeaders();
+  const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+  const response = await fetch(`/v1/conversations/${encodeURIComponent(conversationId)}${qs}`, {
+    method: 'GET',
+    headers,
+  });
+  return parseConversationResponse<ConversationHistoryWire>(response);
+}
+
+/** CAS compact — returns summary, retained IDs, new revision, token delta. */
+export async function compactConversation(payload: {
+  conversation_id: string;
+  expected_revision: number;
+  project_id?: string;
+  retain_tail?: number;
+}): Promise<ConversationSnapshotWire> {
+  const headers = createProjectIdentityHeaders({ 'Content-Type': 'application/json' });
+  const body = withProjectIdentityPayload({ ...payload });
+  const response = await fetch('/v1/conversations/compact', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  return parseConversationResponse<ConversationSnapshotWire>(response);
+}
+
+/** CAS append a single turn (tests / recovery). */
+export async function appendConversationTurn(payload: {
+  conversation_id: string;
+  expected_revision: number;
+  role?: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  project_id?: string;
+}): Promise<ConversationSnapshotWire> {
+  const headers = createProjectIdentityHeaders({ 'Content-Type': 'application/json' });
+  const body = withProjectIdentityPayload({ role: 'user', ...payload });
+  const response = await fetch('/v1/conversations/append', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  return parseConversationResponse<ConversationSnapshotWire>(response);
+}
+
+/** Fork conversation at a consistent revision. */
+export async function forkConversation(payload: {
+  conversation_id: string;
+  expected_revision?: number;
+  project_id?: string;
+  new_conversation_id?: string;
+}): Promise<ConversationSnapshotWire> {
+  const headers = createProjectIdentityHeaders({ 'Content-Type': 'application/json' });
+  const body = withProjectIdentityPayload({ ...payload });
+  const response = await fetch('/v1/conversations/fork', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  return parseConversationResponse<ConversationSnapshotWire>(response);
 }

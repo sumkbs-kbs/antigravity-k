@@ -263,6 +263,120 @@ def _validate_chat_request_body(body: object) -> JsonMap:
     return body_map
 
 
+def _extract_new_turn(body: JsonMap, messages: list[ChatMessage]) -> dict[str, str] | None:
+    """Prefer explicit new_turn; else latest user message from legacy messages array."""
+    raw = body.get("new_turn")
+    if isinstance(raw, dict):
+        role = _string_value(raw.get("role"), "user") or "user"
+        content = _content_text(raw.get("content", "")).strip()
+        if content:
+            return {"role": role, "content": content}
+    # Legacy: treat the latest user text as the new turn when revision protocol is on.
+    text = _latest_user_text(messages)
+    if text:
+        return {"role": "user", "content": text}
+    return None
+
+
+def _uses_conversation_revision_protocol(body: JsonMap) -> bool:
+    """True when client participates in CTX-01 authoritative history protocol."""
+    if body.get("new_turn") is not None:
+        return True
+    if _bool_value(body.get("use_conversation_store")):
+        return True
+    conv_id = _string_value(body.get("conversation_id"))
+    if conv_id and conv_id != "conv_unspecified":
+        return True
+    nested = body.get("execution_context")
+    if isinstance(nested, dict):
+        nested_id = _string_value(nested.get("conversation_id"))
+        if nested_id and nested_id != "conv_unspecified":
+            return True
+    return False
+
+
+def _apply_authoritative_conversation(
+    body: JsonMap,
+    execution_context: RequestExecutionContext,
+    messages: list[ChatMessage],
+) -> tuple[list[ChatMessage], object | None]:
+    """Replace client message array with server-authoritative history (CTX-01).
+
+    Returns (messages_for_model, snapshot_after_user_append_or_None).
+    """
+    if not _uses_conversation_revision_protocol(body):
+        return messages, None
+
+    from antigravity_k.engine.conversation_store import get_conversation_store
+
+    store = get_conversation_store()
+    new_turn = _extract_new_turn(body, messages)
+    history, snapshot = store.assemble_history_for_request(
+        project_id=execution_context.project_id,
+        conversation_id=execution_context.conversation_id,
+        expected_revision=execution_context.conversation_revision,
+        new_turn=new_turn,
+        create_if_missing=True,
+    )
+    # Preserve leading system messages the request may have injected (guards etc.)
+    # only when they are not already represented in the store.
+    leading_system: list[ChatMessage] = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            leading_system.append(msg)
+        else:
+            break
+    assembled: list[ChatMessage] = []
+    if leading_system and not any(m.get("role") == "system" for m in history[:1]):
+        assembled.extend(leading_system)
+    assembled.extend(cast(list[ChatMessage], history))
+    return assembled, snapshot
+
+
+def _persist_assistant_to_conversation_store(
+    execution_context: RequestExecutionContext,
+    snapshot: object | None,
+    assistant_text: str,
+) -> object | None:
+    """CAS-append assistant turn after generation; return latest snapshot."""
+    if snapshot is None:
+        return None
+    text = (assistant_text or "").strip()
+    if not text:
+        return snapshot
+    from antigravity_k.engine.conversation_store import get_conversation_store
+
+    store = get_conversation_store()
+    expected = int(getattr(snapshot, "revision", execution_context.conversation_revision))
+    try:
+        return store.append(
+            project_id=execution_context.project_id,
+            conversation_id=execution_context.conversation_id,
+            expected_revision=expected,
+            role="assistant",
+            content=text,
+        )
+    except Exception:
+        logger.exception("Failed to persist assistant turn to conversation store")
+        return snapshot
+
+
+def _conversation_revision_sse(snapshot: object | None) -> str:
+    if snapshot is None:
+        return ""
+    try:
+        if hasattr(snapshot, "model_dump"):
+            payload = cast(JsonMap, snapshot.model_dump(mode="json"))  # type: ignore[union-attr]
+        elif isinstance(snapshot, Mapping):
+            payload = cast(JsonMap, dict(cast(Mapping[str, object], snapshot)))
+        else:
+            return ""
+    except Exception:
+        return ""
+    data: JsonMap = {"agk_conversation": payload}
+    return "data: " + json.dumps(data) + "\n\n"
+
+
 def _resolve_chat_execution_context(request: Request, body: JsonMap, target_model: str) -> RequestExecutionContext:
     """Resolve ARC-01 RequestExecutionContext before chat side effects (WS-01)."""
     from antigravity_k.api.error_handler import correlation_id_var
@@ -433,6 +547,11 @@ async def chat_completions(
     request.state.canonical_project_root = execution_context.canonical_project_root
 
     messages = _messages_value(internal_req.get("messages", []))
+
+    # CTX-01: server conversation store is authoritative history when protocol is on.
+    # Assemble before injection guard so the guard sees the same history the model will.
+    messages, _conversation_snapshot = _apply_authoritative_conversation(body, execution_context, messages)
+    request.state.conversation_snapshot = _conversation_snapshot
 
     # P0 인젝션 방어: HIGH 패턴 감지 시 시스템 경고 삽입
     from antigravity_k.engine.prompt_injection_guard import PromptInjectionGuard
@@ -1032,6 +1151,15 @@ async def chat_completions(
                         {"role": "assistant", "content": full_response},
                     ]
                 )
+                _final_snap = _persist_assistant_to_conversation_store(
+                    execution_context,
+                    getattr(request.state, "conversation_snapshot", None),
+                    full_response,
+                )
+                request.state.conversation_snapshot = _final_snap
+                rev_frame = _conversation_revision_sse(_final_snap)
+                if rev_frame:
+                    yield rev_frame
 
                 active_session.done = True
                 yield "data: [DONE]\n\n"

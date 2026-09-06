@@ -271,7 +271,52 @@ class SlashCommandSessionMixin:
         return "\n".join(lines)
 
     def _cmd_compact(self, _args: list[str]) -> str:
-        """수동 컨텍스트 압축."""
+        """수동 컨텍스트 압축 — CTX-01 revision CAS when conversation binding is known."""
+        # Prefer authoritative conversation store when project/conversation are bound.
+        try:
+            from antigravity_k.api.project_binding import get_bound_request_execution_context
+            from antigravity_k.engine.conversation_store import get_conversation_store
+
+            ctx = get_bound_request_execution_context()
+            if ctx is not None:
+                store = get_conversation_store()
+                before = store.get(project_id=ctx.project_id, conversation_id=ctx.conversation_id)
+                tokens_before = before.estimate_tokens() if before else 0
+                snap = store.compact(
+                    project_id=ctx.project_id,
+                    conversation_id=ctx.conversation_id,
+                    expected_revision=ctx.conversation_revision if before is None else before.revision,
+                    retain_tail=6,
+                )
+                after = store.get(project_id=ctx.project_id, conversation_id=ctx.conversation_id)
+                tokens_after = after.estimate_tokens() if after else 0
+                retained = ", ".join(snap.retained_message_ids[:12]) or "(none)"
+                summary_preview = (snap.summary or "")[:200]
+                # Keep session_manager projection in sync when available.
+                if self._session_manager and after is not None:
+                    current_session = cast(
+                        dict[str, object], getattr(self._session_manager, "_current_session", {}) or {}
+                    )
+                    if current_session is not None:
+                        current_session["messages"] = after.prompt_messages()
+                        try:
+                            self._session_manager.save()
+                        except Exception:
+                            logger.exception("session_manager.save after compact failed")
+                return (
+                    "✅ 컨텍스트 압축 완료! (authoritative store CAS)\n"
+                    f"  conversation: `{snap.conversation_id}`\n"
+                    f"  revision: {ctx.conversation_revision} → {snap.revision}\n"
+                    f"  messages: {before.message_count if before else 0} → {snap.message_count}\n"
+                    f"  tokens: {tokens_before} → {tokens_after} (−{max(0, tokens_before - tokens_after)})\n"
+                    f"  retained IDs: {retained}\n"
+                    f"  summary: {summary_preview}"
+                )
+        except Exception as exc:
+            logger.exception("authoritative compact failed; falling back to session shaper")
+            # Fall through to legacy path when store CAS is unavailable.
+            _ = exc
+
         if not self._context_shaper or not self._session_manager:
             return "Context shaper or session manager not connected."
 

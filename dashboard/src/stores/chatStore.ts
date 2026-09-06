@@ -18,6 +18,8 @@ export interface ChatSession {
   title: string;
   updatedAt: string;
   messages: ChatMessage[];
+  /** Authoritative server revision (CTX-01). Client projection only. */
+  conversationRevision: number;
 }
 
 function generateId(): string {
@@ -49,6 +51,8 @@ export interface ChatState {
 
   // Messages
   messages: ChatMessage[];
+  /** Active conversation revision mirrored from server CAS (CTX-01). */
+  conversationRevision: number;
   isStreaming: boolean;
   currentAssistantContent: string;
 
@@ -67,6 +71,14 @@ export interface ChatState {
   updateSessionTitle: (id: string, title: string) => void;
   addMessage: (msg: ChatMessage) => void;
   updateLastAssistantMessage: (content: string) => void;
+  setConversationRevision: (revision: number) => void;
+  applyServerSnapshot: (snapshot: {
+    conversation_id: string;
+    revision: number;
+    summary?: string | null;
+    retained_message_ids?: string[];
+    messages?: ChatMessage[];
+  }) => void;
   setStreaming: (val: boolean) => void;
   setCurrentAssistantContent: (content: string) => void;
   appendToCurrentAssistantContent: (chunk: string) => void;
@@ -86,6 +98,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeSessionId: null,
   activeSession: null,
   messages: [],
+  conversationRevision: 0,
   isStreaming: false,
   currentAssistantContent: '',
   models: [],
@@ -100,11 +113,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       title: '새 대화',
       updatedAt: new Date().toISOString(),
       messages: [],
+      conversationRevision: 0,
     };
     set({
       activeSessionId: id,
       activeSession: session,
       messages: [],
+      conversationRevision: 0,
       sessions: [session, ...get().sessions.filter(s => s.id !== id)],
     });
     get().saveToStorage();
@@ -117,6 +132,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeSessionId: id,
         activeSession: session,
         messages: session.messages,
+        conversationRevision: session.conversationRevision ?? 0,
       });
     }
   },
@@ -207,6 +223,58 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ messages: newMessages, sessions: updatedSessions });
   },
 
+  setConversationRevision: (revision: number) => {
+    const safe = Number.isFinite(revision) && revision >= 0 ? Math.floor(revision) : 0;
+    const { activeSessionId, sessions, activeSession } = get();
+    const updatedSessions = sessions.map(s =>
+      s.id === activeSessionId ? { ...s, conversationRevision: safe } : s
+    );
+    const updatedActive = activeSession && activeSession.id === activeSessionId
+      ? { ...activeSession, conversationRevision: safe }
+      : activeSession;
+    set({
+      conversationRevision: safe,
+      sessions: updatedSessions,
+      activeSession: updatedActive,
+    });
+    get().saveToStorage();
+  },
+
+  applyServerSnapshot: (snapshot) => {
+    const revision = Math.max(0, Math.floor(snapshot.revision ?? 0));
+    const { activeSessionId, sessions, activeSession, messages } = get();
+    const nextMessages = snapshot.messages && snapshot.messages.length > 0
+      ? snapshot.messages
+      : messages;
+    const updatedSessions = sessions.map(s => {
+      if (s.id !== activeSessionId && s.id !== snapshot.conversation_id) return s;
+      return {
+        ...s,
+        id: snapshot.conversation_id || s.id,
+        messages: nextMessages,
+        conversationRevision: revision,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    const updatedActive = activeSession
+      ? {
+          ...activeSession,
+          id: snapshot.conversation_id || activeSession.id,
+          messages: nextMessages,
+          conversationRevision: revision,
+          updatedAt: new Date().toISOString(),
+        }
+      : activeSession;
+    set({
+      messages: nextMessages,
+      conversationRevision: revision,
+      activeSessionId: snapshot.conversation_id || activeSessionId,
+      sessions: updatedSessions,
+      activeSession: updatedActive,
+    });
+    get().saveToStorage();
+  },
+
   setStreaming: (val: boolean) => set({ isStreaming: val }),
   setCurrentAssistantContent: (content: string) => set({ currentAssistantContent: content }),
   appendToCurrentAssistantContent: (chunk: string) =>
@@ -232,11 +300,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const sessions = parsed.sessions;
         const activeSessionId = parsed.activeSessionId || sessions[0].id;
         const activeSession = sessions.find((s: ChatSession) => s.id === activeSessionId) || sessions[0];
+        const normalized = sessions.map((s: ChatSession) => ({
+          ...s,
+          conversationRevision: s.conversationRevision ?? 0,
+        }));
+        const active = normalized.find((s: ChatSession) => s.id === activeSessionId) || normalized[0];
         set({
-          sessions,
+          sessions: normalized,
           activeSessionId,
-          activeSession,
-          messages: activeSession.messages || [],
+          activeSession: active,
+          messages: active.messages || [],
+          conversationRevision: active.conversationRevision ?? 0,
         });
       }
     } catch (e) {
@@ -250,6 +324,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeSessionId: null,
       activeSession: null,
       messages: [],
+      conversationRevision: 0,
       isStreaming: false,
       currentAssistantContent: '',
     });

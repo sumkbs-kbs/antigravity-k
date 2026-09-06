@@ -15,6 +15,7 @@ from .approval_api import router as approval_router
 from .chat import router as chat_router
 from .code_api import router as code_router
 from .code_intel_api import router as code_intel_router
+from .conversation_api import router as conversation_router
 from .disclosure_api import router as disclosure_router
 from .events import router as events_router
 from .evolution_api import router as evolution_router
@@ -48,6 +49,7 @@ api_router = APIRouter()
 # ─── OpenAPI 태그 그룹 — Swagger UI에서 라우트 그룹화 ───
 
 api_router.include_router(chat_router, tags=["chat"])
+api_router.include_router(conversation_router, tags=["conversation"])
 api_router.include_router(events_router, tags=["events"])
 api_router.include_router(filesystem_router, tags=["filesystem"])
 api_router.include_router(system_api_router, tags=["system"])

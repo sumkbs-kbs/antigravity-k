@@ -23,6 +23,9 @@ import { useChangeStore } from '../../stores/changeStore';
 import { useFileStore } from '../../stores/fileStore';
 import {
   streamChatCompletion,
+  ConversationRevisionConflictError,
+  fetchConversationHistory,
+  compactConversation,
   fetchModels,
   fetchLocalModels,
   loadModel,
@@ -64,6 +67,7 @@ export const ChatPage: React.FC = () => {
     messages, isStreaming, selectedModel, isPlanMode, isTddMode,
     activeSession, activeSessionId, updateSessionTitle,
     addMessage, updateLastAssistantMessage, saveToStorage,
+    conversationRevision, setConversationRevision, applyServerSnapshot,
     setStreaming, appendToCurrentAssistantContent, setCurrentAssistantContent,
     loadFromStorage, setSelectedModel, clearForProjectSwitch,
   } = useChatStore();
@@ -172,6 +176,31 @@ export const ChatPage: React.FC = () => {
     fetchModels()
       .then(models => setAvailableModels(models))
       .catch(() => {});
+
+    // CTX-01: refresh/reconnect — align client projection to authoritative revision.
+    const syncConversation = async () => {
+      const chat = useChatStore.getState();
+      const projectId = useProjectStore.getState().activeProjectId;
+      const convId = chat.activeSessionId;
+      if (!convId || !projectId) return;
+      try {
+        const history = await fetchConversationHistory(convId, projectId);
+        useChatStore.getState().applyServerSnapshot({
+          conversation_id: history.snapshot.conversation_id,
+          revision: history.snapshot.revision,
+          summary: history.snapshot.summary,
+          retained_message_ids: history.snapshot.retained_message_ids,
+          messages: history.messages.map((m) => ({
+            id: m.id,
+            role: m.role === "tool" ? "system" : m.role,
+            content: m.content,
+          })),
+        });
+      } catch {
+        // Conversation may not exist yet on server — keep local projection.
+      }
+    };
+    void syncConversation();
   }, [loadFromStorage, loadLocalModels]);
 
   const reloadWorkspaceContext = useCallback(() => {
@@ -418,13 +447,20 @@ export const ChatPage: React.FC = () => {
     const abortController = new AbortController();
     abortRef.current = abortController;
 
-    const updatedMessages = useChatStore.getState().messages;
+    // CTX-01: client message array is projection only — server store is authoritative.
 
     let errorMessage: string | null = null;
+    const expectedRevision = useChatStore.getState().conversationRevision ?? 0;
+    const conversationId = useChatStore.getState().activeSessionId || activeSessionId;
     await streamChatCompletion(
       {
         model,
-        messages: updatedMessages,
+        // CTX-01: server store is SoT — send new turn + expected revision only
+        messages: [{ role: 'user', content: text }],
+        new_turn: { role: 'user', content: text },
+        conversation_id: conversationId ?? undefined,
+        conversation_revision: expectedRevision,
+        use_conversation_store: true,
         stream: true,
         agent_mode: true,
         plan_mode: planMode,
@@ -443,9 +479,21 @@ export const ChatPage: React.FC = () => {
         },
         onDone: () => {},
         onError: (err: Error) => {
-          if (err.name !== 'AbortError') {
-            errorMessage = err.message;
+          if (err.name === 'AbortError') return;
+          if (err instanceof ConversationRevisionConflictError) {
+            errorMessage = `stale_conversation_revision:${err.payload.current_revision}`;
+            return;
           }
+          errorMessage = err.message;
+        },
+        onConversationSnapshot: (snapshot) => {
+          if (!isIdentityCurrent(requestEpoch)) return;
+          applyServerSnapshot({
+            conversation_id: snapshot.conversation_id,
+            revision: snapshot.revision,
+            summary: snapshot.summary,
+            retained_message_ids: snapshot.retained_message_ids,
+          });
         },
       },
       abortController.signal,
@@ -472,7 +520,36 @@ export const ChatPage: React.FC = () => {
     useActivityStore.getState().recordTokenUsage(approxPromptTokens, approxCompletionTokens);
 
     if (errorMessage) {
-      setStreamError(errorMessage);
+      if (errorMessage.includes('revision') || errorMessage.includes('409')) {
+        // Best-effort: refresh authoritative projection on conflict.
+        try {
+          const convId = useChatStore.getState().activeSessionId;
+          const projectId = useProjectStore.getState().activeProjectId;
+          if (convId) {
+            const history = await fetchConversationHistory(convId, projectId);
+            applyServerSnapshot({
+              conversation_id: history.snapshot.conversation_id,
+              revision: history.snapshot.revision,
+              summary: history.snapshot.summary,
+              retained_message_ids: history.snapshot.retained_message_ids,
+              messages: history.messages.map((m) => ({
+                id: m.id,
+                role: m.role === 'tool' ? 'system' : m.role,
+                content: m.content,
+              })),
+            });
+            setStreamError(
+              `대화 리비전이 충돌했습니다 (서버 r${history.snapshot.revision}). 최신 이력으로 동기화했습니다. 다시 전송해 주세요.`,
+            );
+          } else {
+            setStreamError(errorMessage);
+          }
+        } catch {
+          setStreamError(errorMessage);
+        }
+      } else {
+        setStreamError(errorMessage);
+      }
     } else {
       detectChangesFromAssistantContent(assistantContent).catch(() => {});
     }

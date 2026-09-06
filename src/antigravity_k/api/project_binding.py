@@ -20,6 +20,7 @@ from antigravity_k.api.contracts.execution_context import (
     RequestExecutionContext,
     RequestExecutionContextWire,
 )
+from antigravity_k.engine.conversation_store import get_conversation_store
 from antigravity_k.engine.project_registry import ProjectRegistry, get_project_registry
 from antigravity_k.engine.request_execution_context import resolve_request_execution_context
 
@@ -365,9 +366,14 @@ def resolve_project_execution_context(
             correlation_id=correlation_id,
         )
 
+    # CTX-01: assert revision against authoritative store for real conversations.
+    # Legacy "conv_unspecified" traffic skips store assert to avoid false 409s.
+    conv_id = wire_model.conversation_id
+    use_store = require_existing_conversation or (bool(conv_id) and conv_id != "conv_unspecified")
     context = resolve_request_execution_context(
         wire_model,
         registry=registry or get_project_registry(),
+        conversation_store=get_conversation_store() if use_store else None,
         require_existing_conversation=require_existing_conversation,
     )
     if bind:

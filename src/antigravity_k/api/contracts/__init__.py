@@ -1,4 +1,4 @@
-"""Frozen commercial GA API contracts (ARC-01).
+"""Frozen commercial GA API contracts (ARC-01 / CTX-01).
 
 WS-01 / CTX-01 lanes consume these types; they must not redefine the
 execution-context shape or error codes.
@@ -9,7 +9,12 @@ from __future__ import annotations
 from antigravity_k.api.contracts.conversation import (
     CONVERSATION_REVISION_MIN,
     ConversationAppendRequest,
+    ConversationCompactRequest,
     ConversationConflictPayload,
+    ConversationForkRequest,
+    ConversationHistoryMessage,
+    ConversationHistoryResponse,
+    ConversationNewTurn,
     ConversationRef,
     ConversationSnapshot,
 )
@@ -38,7 +43,12 @@ __all__ = [
     "REQUEST_EXECUTION_CONTEXT_SCHEMA_VERSION",
     "ActorSessionRef",
     "ConversationAppendRequest",
+    "ConversationCompactRequest",
     "ConversationConflictPayload",
+    "ConversationForkRequest",
+    "ConversationHistoryMessage",
+    "ConversationHistoryResponse",
+    "ConversationNewTurn",
     "ConversationNotFoundError",
     "ConversationRef",
     "ConversationSnapshot",

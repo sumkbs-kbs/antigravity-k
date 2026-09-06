@@ -30,7 +30,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | WS-02 | DONE | ws_02_tools | ws_02_verify | codex/ws-02-tool-root / Ssak-Ai-ws-02 | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | `.omo/evidence/commercial-ga-100/WS-02/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1/F2 closed |
 | WS-03 | DONE | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | `.omo/evidence/commercial-ga-100/WS-03/` | r2 APPROVE 0.93; prior REJECT closed in review.md; F1–F7 closed |
 | WS-04 | DONE | ws_04_frontend | ws_04_verify | codex/ws-04-dashboard-project / Ssak-Ai-ws-04 | `313c6447dda5cf17537024facba2b78868bbe467` | `.omo/evidence/commercial-ga-100/WS-04/` | r2 APPROVE 0.92; prior REJECT closed in review.md; F1–F4 closed |
-| CTX-01 | TODO |  |  |  |  |  | ARC-01 |
+| CTX-01 | REVIEW | ctx_01_conversation | ctx_01_verify | codex/ctx-01-conversation-revision / Ssak-Ai-ctx-01 | _(pending commit)_ | `.omo/evidence/commercial-ga-100/CTX-01/` | ARC-01 |
 | CTX-02 | TODO |  |  |  |  |  | CTX-01 |
 | CTX-03 | TODO |  |  |  |  |  | CTX-02 |
 | DAT-01 | TODO |  |  |  |  |  | GA-00 |
@@ -153,13 +153,15 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## CTX-01 · conversation revision
 
-- [ ] server conversation store가 authoritative다.
-- [ ] client는 새 turn과 expected revision을 보낸다.
-- [ ] append/compact가 revision CAS를 사용한다.
-- [ ] `/compact` 응답에 summary/retained IDs/new revision이 있다.
-- [ ] 다음 request token이 실제 감소한다.
-- [ ] 두 탭 경쟁에서 overwrite 없이 conflict가 반환된다.
-- [ ] refresh/reconnect/fork 후 revision이 일치한다.
+> Owner `ctx_01_conversation` 구현 완료 → **REVIEW**. 독립 `ctx_01_verify` APPROVE 전 DONE 금지. Evidence: `.omo/evidence/commercial-ga-100/CTX-01/`.
+
+- [x] server conversation store가 authoritative다.
+- [x] client는 새 turn과 expected revision을 보낸다.
+- [x] append/compact가 revision CAS를 사용한다.
+- [x] `/compact` 응답에 summary/retained IDs/new revision이 있다.
+- [x] 다음 request token이 실제 감소한다.
+- [x] 두 탭 경쟁에서 overwrite 없이 conflict가 반환된다.
+- [x] refresh/reconnect/fork 후 revision이 일치한다.
 
 ## CTX-02 · 최종 프롬프트 예산
 
