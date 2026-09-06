@@ -16,6 +16,9 @@
   },
   "notes": "Owner self-check complete. Awaiting ctx_02_verify. No owner APPROVE.",
   "verdict": null,
-  "result_sha_pending": true,
-  "updated_at": "2026-09-06T12:45:00+09:00"
+  "result_sha_pending": false,
+  "updated_at": "2026-09-06T12:55:00+09:00",
+  "result_sha": "d04748cafe8879b9afaf310bdb6aab4f47ffb06a",
+  "impl_sha": "d04748cafe8879b9afaf310bdb6aab4f47ffb06a",
+  "tip_sha": "d04748cafe8879b9afaf310bdb6aab4f47ffb06a"
 }
