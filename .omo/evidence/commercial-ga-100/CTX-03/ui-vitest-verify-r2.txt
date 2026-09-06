@@ -1,0 +1,8 @@
+
+ RUN  v4.1.10 /Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-03/dashboard
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  13:01:19
+   Duration  450ms (transform 124ms, setup 32ms, import 151ms, tests 4ms, environment 208ms)

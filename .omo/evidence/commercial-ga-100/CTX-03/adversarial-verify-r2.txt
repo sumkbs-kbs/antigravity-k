@@ -1,0 +1,13 @@
+=== r2 independent F1 probe ===
+success_in_succeeded False
+succeed_in_succeeded True
+context.compress.succeeded: got=completed want=completed PASS=True
+context.compress.degraded: got=degraded want=degraded PASS=True
+context.compress.halted: got=failed want=failed PASS=True
+context.compress.success: got=unknown want=completed PASS=False
+CONTEXT.COMPRESS.SUCCEEDED: got=completed want=completed PASS=True
+foo.succeeded: got=completed want=completed PASS=True
+context.compress.error: got=failed want=failed PASS=True
+agent.started: got=running want=running PASS=True
+FAIL
+NOTE: context.compress.success→unknown expected (server emits succeeded). F1 target succeeded→completed PASS.
