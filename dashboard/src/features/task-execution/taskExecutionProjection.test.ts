@@ -162,5 +162,10 @@ describe('CTX-03 compress outcome status mapping', () => {
       'degraded',
       'failed',
     ]);
+    // F1: succeeded must not fall through to unknown (includes('success') misses 'succeeded')
+    expect(projection.checklist[0]?.status).not.toBe('unknown');
+    expect(projection.checklist[0]?.status).toBe('completed');
+    expect(projection.checklist[1]?.status).toBe('degraded');
+    expect(projection.checklist[2]?.status).toBe('failed');
   });
 });

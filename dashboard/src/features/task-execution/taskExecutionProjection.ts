@@ -101,12 +101,16 @@ function payloadText(payload: JsonValue, keys: readonly string[]): string | null
 
 function statusFor(eventType: string): ExecutionStatus {
   const normalized = eventType.toLowerCase();
-  // CTX-03: compress outcomes must map to distinct UI states matching server policy.
+  // CTX-03: exact compress event types (server EVENT_COMPRESS_*) before substring heuristics.
+  if (normalized === 'context.compress.halted') return 'failed';
+  if (normalized === 'context.compress.degraded') return 'degraded';
+  if (normalized === 'context.compress.succeeded') return 'completed';
+  // Substring heuristics — 'succeed' matches both success and succeeded.
   if (normalized.includes('compress') && normalized.includes('halt')) return 'failed';
   if (normalized.includes('degrad')) return 'degraded';
   if (normalized.includes('fail') || normalized.includes('error')) return 'failed';
   if (normalized.includes('cancel')) return 'cancelled';
-  if (normalized.includes('complete') || normalized.includes('finish') || normalized.includes('success')) {
+  if (normalized.includes('complete') || normalized.includes('finish') || normalized.includes('succeed')) {
     return 'completed';
   }
   if (normalized.includes('approval') || normalized.includes('wait') || normalized.includes('block')) {
