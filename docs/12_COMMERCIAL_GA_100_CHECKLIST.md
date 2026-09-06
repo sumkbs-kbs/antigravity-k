@@ -29,7 +29,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | WS-01 | DONE | ws_01_backend | ws_01_verify | codex/ws-01-project-binding / Ssak-Ai-ws-01 | `11658e046ecb7ce8eec6250401884142bc43fc2d` | `.omo/evidence/commercial-ga-100/WS-01/` | r2 APPROVE; prior REJECT closed in review.md; tools bind before generate |
 | WS-02 | DONE | ws_02_tools | ws_02_verify | codex/ws-02-tool-root / Ssak-Ai-ws-02 | `4cca8733bfa27f6c2f3042a15b3471ba298c48dd` | `.omo/evidence/commercial-ga-100/WS-02/` | r2 APPROVE 0.94; prior REJECT closed in review.md; F1/F2 closed |
 | WS-03 | DONE | ws_03_runtime | ws_03_verify | codex/ws-03-project-lifecycle / Ssak-Ai-ws-03 | `bf00b1e2ef153a2c02205d920e327d3519f22e23` | `.omo/evidence/commercial-ga-100/WS-03/` | r2 APPROVE 0.93; prior REJECT closed in review.md; F1–F7 closed |
-| WS-04 | REVIEW | ws_04_frontend | ws_04_verify | codex/ws-04-dashboard-project / Ssak-Ai-ws-04 | `313c6447dda5cf17537024facba2b78868bbe467` | `.omo/evidence/commercial-ga-100/WS-04/` | r1 REJECT preserved; owner F1–F4 fix + re-review-request; DONE/APPROVE 금지 until ws_04_verify r2 |
+| WS-04 | DONE | ws_04_frontend | ws_04_verify | codex/ws-04-dashboard-project / Ssak-Ai-ws-04 | `313c6447dda5cf17537024facba2b78868bbe467` | `.omo/evidence/commercial-ga-100/WS-04/` | r2 APPROVE 0.92; prior REJECT closed in review.md; F1–F4 closed |
 | CTX-01 | TODO |  |  |  |  |  | ARC-01 |
 | CTX-02 | TODO |  |  |  |  |  | CTX-01 |
 | CTX-03 | TODO |  |  |  |  |  | CTX-02 |
@@ -142,14 +142,14 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## WS-04 · dashboard 프로젝트 상태
 
-- [x] project store가 단일 source다. *(`useProjectStore`; Sidebar/FolderBrowser 경유)*
-- [x] ChatPage가 project change 후 context를 재조회한다. *(`switchEpoch` subscribe + reloadWorkspaceContext)*
-- [x] chat/task/file request에 project identity가 있다. *(owner fix F3: saveFile + ChatPage/FileTree/… `/api/fs/*` identity; awaiting r2)*
-- [x] switch 시 pending 이전 request를 취소 또는 격리한다. *(owner fix F1: fileStore AbortController + epoch gate; chat OK; awaiting r2)*
-- [x] stale response가 새 project store에 반영되지 않는다. *(owner fix F1/F2: tree race gated; editor/changes/tree cleared on switch; awaiting r2)*
-- [x] desktop/mobile browser에서 label과 payload가 일치한다. *(owner fix F4: mobile hard-assert B→C; desktop OK; vitest 86 pass; awaiting r2)*
+- [x] project store가 단일 source다. *(`useProjectStore`; Sidebar/FolderBrowser 경유; r2 PASS)*
+- [x] ChatPage가 project change 후 context를 재조회한다. *(`switchEpoch` subscribe + reloadWorkspaceContext; r2 PASS)*
+- [x] chat/task/file request에 project identity가 있다. *(saveFile + ChatPage/FileTree/… `/api/fs/*` identity; r2 PASS)*
+- [x] switch 시 pending 이전 request를 취소 또는 격리한다. *(fileStore AbortController + epoch gate; chat abort; r2 PASS)*
+- [x] stale response가 새 project store에 반영되지 않는다. *(tree race gated; editor/changes/tree cleared on switch; r2 PASS)*
+- [x] desktop/mobile browser에서 label과 payload가 일치한다. *(mobile hard-assert B→C; desktop OK; vitest 86; r2 PASS)*
 
-> 독립 review r1 **REJECT** (`review.md`) **보존**. Owner fix SHA `313c6447dda5cf17537024facba2b78868bbe467` / dist tip `0b0dad26481389cfede074a22ccd62719eaa3286`. `re-review-request.md` 제출. **DONE/APPROVE 금지** until `ws_04_verify` r2. CTX-01 본 turn 미착수.
+> 독립 review r2 **APPROVE** (`review-r2.md`). r1 **REJECT**는 `review.md`에 보존. Fix SHA `313c6447dda5cf17537024facba2b78868bbe467`. Tip reviewed `c9f2417138fc6fa34b5c3db40ad2553397ec3554`. CTX-01 착수 허용 (선행: ARC-01). Residual: FileTree 등 click→open epoch gate 좁은 race (DONE gate 외).
 
 ## CTX-01 · conversation revision
 

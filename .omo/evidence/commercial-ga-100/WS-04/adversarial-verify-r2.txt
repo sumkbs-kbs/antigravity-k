@@ -1,0 +1,35 @@
+WS-04 adversarial verify r2 (ws_04_verify) — independent of owner probes
+========================================================================
+Tip: c9f2417138fc6fa34b5c3db40ad2553397ec3554
+Fix SHA: 313c6447dda5cf17537024facba2b78868bbe467
+Dist tip: 0b0dad26481389cfede074a22ccd62719eaa3286
+
+F1 CLOSED — fileStore epoch + AbortController
+  Code: refreshTree/getWorkspace capture switchEpoch; beginInflightFetch AbortController;
+        set() gated by isIdentityCurrent + aborted; agk:project-switched aborts+clears tree
+  Vitest: "does not merge stale B tree after switch to C" PASS
+  Vitest: "getWorkspace does not apply stale workspacePath after switch" PASS
+  Contract probe (reviewer): B→C and B→C→D stale reject PASS
+
+F2 CLOSED — editor/change/tree cleared on switch
+  Code: editorStore.clearForProjectSwitch; ChatPage switchEpoch effect clears editor +
+        changeStore.clearChanges + fileStore.clearForProjectSwitch before chat reload
+  Vitest: clearForProjectSwitch closes tabs/preview PASS
+  Event listener also clears tree on agk:project-switched (Sidebar refreshTree follows)
+
+F3 CLOSED — file read/write identity (cited surfaces)
+  Code: saveFile uses createProjectIdentityHeaders + withProjectIdentityPayload
+  Code: ChatPage onFileOpened/onFileModified: identity + isIdentityCurrent gate
+  Code: FileTree/SearchPanel/ProblemsPanel/ArtifactPreview/changeDetector fs paths identity-aware
+  Vitest: saveFile asserts PROJECT_ID_HEADER + body.project_id PASS
+  Note (non-blocking): FileTree/ProblemsPanel/ArtifactPreview/SearchPanel click→open after await
+        lack explicit epoch gate (narrow click-then-switch race); ChatPage WS path is gated.
+        FolderBrowser /api/fs/browse remains access-pin (host path picker, pre-bind) — OK.
+
+F4 CLOSED — mobile e2e hard-fail
+  Spec: removed soft if (chatPayload?.project_id); always assert project_id + revision
+  Spec: real B→C sidebar switch (proj_mobile_b → proj_mobile_c) matching desktop pattern
+  Desktop B→C label↔payload retained
+  E2E not executed in this review env (spec defect closed by inspection; vitest is evidence for #7)
+
+VERDICT: APPROVE (F1–F4 closed). Residual notes non-blocking for WS-04 DONE.

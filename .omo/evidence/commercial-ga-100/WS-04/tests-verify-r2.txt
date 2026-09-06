@@ -1,0 +1,11 @@
+WS-04 vitest (independent re-run by ws_04_verify r2)
+====================================================
+Command: vitest run src/stores/__tests__/projectStore.test.ts src/api/projectIdentity.test.ts src/stores/__tests__/chatStore.test.ts src/stores/__tests__/fileStore.test.ts src/stores/__tests__/editorStore.test.ts src/api/client.test.ts
+cwd: dashboard/
+Result: Test Files 6 passed (6); Tests 86 passed (86)
+Duration: ~711ms
+Targeted F1/F2/F3 filters also PASS (stale B tree / getWorkspace / clearForProjectSwitch / saveFile identity)
+Date: 2026-09-06 11:17 KST (UTC+9)
+Reviewer: ws_04_verify
+HEAD at re-run: c9f2417138fc6fa34b5c3db40ad2553397ec3554
+Fix SHA under review: 313c6447dda5cf17537024facba2b78868bbe467
