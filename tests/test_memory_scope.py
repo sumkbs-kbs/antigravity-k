@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable, Protocol, cast
 from unittest.mock import MagicMock
 
@@ -192,9 +193,9 @@ def test_memory_routes_use_the_shared_dependency_manager(monkeypatch: pytest.Mon
     assert get_memory_manager() is manager
 
 
-def test_dependency_orchestrator_receives_shared_memory_manager(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_dependency_orchestrator_receives_shared_memory_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """WS-03: orchestrator is built per project — the project runtime factory must
+    receive the project's shared memory_manager (not a per-caller singleton)."""
     from antigravity_k.api import dependencies
 
     manager = MemoryManager()
@@ -203,24 +204,37 @@ def test_dependency_orchestrator_receives_shared_memory_manager(
     class Orchestrator:
         def __init__(self, **kwargs: object):
             captured.update(kwargs)
+            # Slash registry build touches these — stub minimal surface.
+            self.tool_registry = None
+            self.context_shaper = None
+            self.ctx = SimpleNamespace(skill_loader=None, slash_commands=SimpleNamespace(bind_runtime=lambda _rt: None))
 
-    monkeypatch.setattr(dependencies, "_orchestrator", None)
     monkeypatch.setattr(dependencies, "OrchestratorAgent", Orchestrator)
     monkeypatch.setattr(dependencies, "get_model_manager", lambda: MagicMock())
-    monkeypatch.setattr(dependencies, "get_vault_engine", lambda: None)
-    monkeypatch.setattr(dependencies, "_get_session_manager", lambda: SessionManager(base_dir=str(tmp_path)))
-    monkeypatch.setattr(dependencies, "get_memory_manager", lambda: manager)
+    monkeypatch.setattr(dependencies, "_build_project_vault", lambda _root: None)
+    monkeypatch.setattr(
+        dependencies,
+        "build_project_memory_manager",
+        lambda _root, _session, **_kw: manager,
+    )
+    monkeypatch.setattr(dependencies, "_attach_project_rag_indexer", lambda _o, _root: None)
+    monkeypatch.setattr(dependencies, "get_task_runner", lambda: MagicMock(), raising=False)
+    monkeypatch.setattr(dependencies, "_build_project_job_service", lambda _rt, _root: None, raising=False)
+    dependencies.reset_runtime_dependencies()
 
-    result = dependencies.get_orchestrator()
+    try:
+        result = dependencies.acquire_project_runtime(
+            project_root=str(tmp_path),
+        ).orchestrator
+    finally:
+        dependencies.reset_runtime_dependencies()
 
     assert isinstance(result, Orchestrator)
     assert captured["memory_manager"] is manager
 
 
 @pytest.mark.asyncio
-async def test_memory_purge_route_returns_audited_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+async def test_memory_purge_route_returns_audited_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     manager, _, _ = _memory_manager(tmp_path)
     audit_logger = cast(_AuditLogger, MagicMock())
 

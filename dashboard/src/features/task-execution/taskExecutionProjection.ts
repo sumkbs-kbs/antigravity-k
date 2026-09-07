@@ -1,4 +1,4 @@
-import type { AgentId, JsonValue, StepId, TaskEvent, TaskId } from './taskExecutionSchema';
+import type { AgentId, JsonValue, StepId, TaskEvent, TaskId, TaskStatus } from './taskExecutionSchema';
 
 export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting' | 'degraded' | 'unknown';
 
@@ -152,7 +152,12 @@ function agentDepth(agent: AgentAccumulator, agents: ReadonlyMap<AgentId, AgentA
   return depth;
 }
 
-export type AuthoritativeTaskStatus = ExecutionStatus | 'pending' | 'resuming' | 'paused' | null | undefined;
+/**
+ * Authoritative store status: the TaskSummary.status union (SoT, includes 'done')
+ * plus the projection-layer ExecutionStatus union for legacy callers. mapStoreStatusTo
+ * Execution normalizes every member, so this is intentionally wide.
+ */
+export type AuthoritativeTaskStatus = ExecutionStatus | TaskStatus | null | undefined;
 
 const TERMINAL_EXECUTION_STATUSES: ReadonlySet<ExecutionStatus> = new Set([
   'completed',

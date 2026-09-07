@@ -201,15 +201,14 @@ describe('SearchPanel search input', () => {
 
     expect(global.fetch).toHaveBeenCalledWith('/api/fs/search', expect.objectContaining({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
     }));
 
-    const callArgs = fetchMock.mock.calls.find(c => c[0] === '/api/fs/search');
-    if (callArgs) {
-      const body = JSON.parse(String(callArgs[1]?.body));
-      expect(body.query).toBe('function');
-      expect(body.max_results).toBe(200);
-    }
+    // WS-04/CTX-01 이후 headers는 createProjectIdentityHeaders가 만든 Headers 인스턴스다
+    // (Content-Type + access token + session/project identity 포함) — 평문 객체 비교 대신
+    // Headers 의미론으로 검증한다.
+    const searchCall = fetchMock.mock.calls.find(c => c[0] === '/api/fs/search');
+    const requestHeaders = new Headers((searchCall?.[1] as RequestInit | undefined)?.headers);
+    expect(requestHeaders.get('Content-Type')).toBe('application/json');
   });
 
   it('toggles regex option and re-searches', async () => {

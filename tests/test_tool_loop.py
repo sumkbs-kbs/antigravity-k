@@ -1621,6 +1621,7 @@ class TestToolLoopEngineRunLoop:
             ("ctx", "tool_executor", "execute_async"),
             "read_file",
             {"file_path": "README.md"},
+            guardrail_prechecked=True,
         )
 
     def test_recovers_each_qwen_scratchpad_action_in_a_multistep_contract(self, tmp_path: Path):
@@ -1665,8 +1666,8 @@ class TestToolLoopEngineRunLoop:
         assert record is not None
         assert record["status"] == "done"
         assert _mock_await_args_list(self._orch(), ("ctx", "tool_executor", "execute_async")) == [
-            (("read_file", {"file_path": "README.md"}), {}),
-            (("grep_search", {"query": "defaults"}), {}),
+            (("read_file", {"file_path": "README.md"}), {"guardrail_prechecked": True}),
+            (("grep_search", {"query": "defaults"}), {"guardrail_prechecked": True}),
         ]
 
     def test_resume_uses_checkpointed_tool_progress_and_evidence(self, tmp_path: Path):
@@ -2159,8 +2160,8 @@ class TestBatchDedup:
 
         calls: list[str] = []
 
-        async def fake_execute(tool_name: str, args: object) -> str:
-            _ = args
+        async def fake_execute(tool_name: str, args: object, *, guardrail_prechecked: bool = False) -> str:
+            _ = args, guardrail_prechecked
             calls.append(tool_name)
             return f"result for {tool_name}"
 

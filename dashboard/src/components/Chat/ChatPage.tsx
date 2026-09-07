@@ -449,7 +449,11 @@ export const ChatPage: React.FC = () => {
 
     // CTX-01: client message array is projection only — server store is authoritative.
 
-    let errorMessage: string | null = null;
+    // TS CFA does not track assignments made inside the onError callback across the
+    // await boundary (TS#9998), so a bare `= null` initializer narrows this to `null`
+    // and the post-await truthy branch collapses to `never`. The assertion keeps the
+    // declared string|null type at the read site below.
+    let errorMessage: string | null = null as string | null;
     const expectedRevision = useChatStore.getState().conversationRevision ?? 0;
     const conversationId = useChatStore.getState().activeSessionId || activeSessionId;
     await streamChatCompletion(

@@ -10,11 +10,14 @@ from antigravity_k.tools.tool_contracts import Permission
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 
-def _approved_output(_command: str, _env: Mapping[str, str]) -> str:
+def _approved_output(_command: str, _env: Mapping[str, str], *, cwd: str | None = None) -> str:
+    # WS-02: _run_with_sandbox now receives an explicit project cwd kwarg.
+    _ = cwd
     return "approved-output"
 
 
-def _no_sandbox(_command: str, _env: Mapping[str, str]) -> None:
+def _no_sandbox(_command: str, _env: Mapping[str, str], *, cwd: str | None = None) -> None:
+    _ = cwd
     return None
 
 

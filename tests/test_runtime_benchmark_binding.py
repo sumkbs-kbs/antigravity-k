@@ -1,6 +1,7 @@
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Protocol, cast
 from unittest.mock import MagicMock
 
@@ -15,6 +16,12 @@ from antigravity_k.engine.task_runner import BackgroundTask, BackgroundTaskRunne
 
 class _Orchestrator:
     vault_engine: object = None
+
+    # WS-03: _build_project_slash_registry reads these off the orchestrator —
+    # None values keep SlashCommandRegistry construction lazy-friendly.
+    tool_registry: object = None
+    context_shaper: object = None
+    ctx: object = SimpleNamespace(skill_loader=None, slash_commands=SimpleNamespace(bind_runtime=lambda _rt: None))
 
     def _get_model_for_role(self, role: str) -> str:
         assert role == "default"
@@ -35,6 +42,26 @@ class _Orchestrator:
         assert max_steps == 15
         assert ephemeral_message is None
         return iter(['<tool_call>{"name":"read_file","arguments":{"file_path":"README.md"}}</tool_call>done'])
+
+
+def _install_stub_orchestrator(
+    monkeypatch: pytest.MonkeyPatch,
+    model_manager: object | None = None,
+) -> None:
+    """WS-03: the project runtime factory builds OrchestratorAgent directly —
+    patch the class symbol so acquire_project_runtime() wires the stub in.
+
+    model_manager이 주어지면 get_model_manager가 그 인스턴스를 반환하게 유지한다 —
+    테스트가 자체 manager mock을 설치한 뒤 이 헬퍼를 호출해도 덮어쓰지 않는다
+    (덮어쓰면 harness updater와 테스트 단언 대상 mock이 달라진다).
+    """
+    monkeypatch.setattr(dependencies, "OrchestratorAgent", lambda **_kw: _Orchestrator())
+    if model_manager is not None:
+        monkeypatch.setattr(dependencies, "get_model_manager", lambda: model_manager, raising=False)
+    else:
+        monkeypatch.setattr(dependencies, "get_model_manager", lambda: MagicMock())
+    monkeypatch.setattr(dependencies, "_build_project_vault", lambda _root: None)
+    monkeypatch.setattr(dependencies, "_attach_project_rag_indexer", lambda _o, _root: None)
 
 
 class _CalibrationMock(Protocol):
@@ -59,12 +86,14 @@ def test_canonical_runtime_records_background_task_outcomes_for_calibration(
     harness = BenchmarkHarness(manager, db_path=tmp_path / "benchmark.json")
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
 
-    monkeypatch.setattr(dependencies, "_agent_runtime", None)
     monkeypatch.setattr(dependencies, "_benchmark_harness", harness, raising=False)
-    monkeypatch.setattr(dependencies, "get_orchestrator", _Orchestrator)
     monkeypatch.setattr(task_runner, "get_task_runner", lambda: runner)
+    _install_stub_orchestrator(monkeypatch, model_manager=manager)
+    dependencies.reset_runtime_dependencies()
 
-    task_id = dependencies.get_agent_runtime().submit_task(
+    # WS-03: get_agent_runtime builds through the project runtime factory; pass the
+    # tmp project_root so the cache key does not hit the shared registry default.
+    task_id = dependencies.get_agent_runtime(project_root=str(tmp_path)).submit_task(
         "inspect README",
         context={"expected_tools": ["read_file"]},
     )
@@ -90,12 +119,12 @@ def test_canonical_runtime_records_direct_task_outcomes_for_calibration(
     harness = BenchmarkHarness(manager, db_path=tmp_path / "benchmark.json")
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
 
-    monkeypatch.setattr(dependencies, "_agent_runtime", None)
     monkeypatch.setattr(dependencies, "_benchmark_harness", harness, raising=False)
-    monkeypatch.setattr(dependencies, "get_orchestrator", _Orchestrator)
     monkeypatch.setattr(task_runner, "get_task_runner", lambda: runner)
+    _install_stub_orchestrator(monkeypatch, model_manager=manager)
+    dependencies.reset_runtime_dependencies()
 
-    tracked = dependencies.get_agent_runtime().start_stream(
+    tracked = dependencies.get_agent_runtime(project_root=str(tmp_path)).start_stream(
         [{"role": "user", "content": "inspect README"}],
     )
 
@@ -130,14 +159,14 @@ def test_canonical_runtime_syncs_task_metrics_to_the_model_router(
         harnesses.append(harness)
         return harness
 
-    monkeypatch.setattr(dependencies, "_agent_runtime", None)
     monkeypatch.setattr(dependencies, "_benchmark_harness", None)
     monkeypatch.setattr(dependencies, "BenchmarkHarness", create_harness)
     monkeypatch.setattr(dependencies, "get_model_manager", lambda: manager)
-    monkeypatch.setattr(dependencies, "get_orchestrator", _Orchestrator)
     monkeypatch.setattr(task_runner, "get_task_runner", lambda: runner)
+    _install_stub_orchestrator(monkeypatch, model_manager=manager)
+    dependencies.reset_runtime_dependencies()
 
-    task_id = dependencies.get_agent_runtime().submit_task(
+    task_id = dependencies.get_agent_runtime(project_root=str(tmp_path)).submit_task(
         "inspect README",
         context={"benchmark_case_id": "tool-001", "expected_tools": ["read_file"]},
     )

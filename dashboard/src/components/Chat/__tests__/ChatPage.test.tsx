@@ -59,6 +59,7 @@ describe('ChatPage agent workspace layout (Unsloth hero)', () => {
         title: 'Continuing Previous Agent Work',
         updatedAt: new Date().toISOString(),
         messages: [],
+        conversationRevision: 0,
       },
     });
     renderChatPage();

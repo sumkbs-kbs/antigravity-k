@@ -115,7 +115,7 @@ class TestSessionEndpoints:
                 return {"role": "user", "content": "c"}
 
         sm = SimpleNamespace(
-            start_session=lambda resume=True: None,
+            start_session=lambda project_path="", resume=True: None,
             get_messages=lambda: [
                 Msg(),
                 {"role": "assistant", "content": "dict"},
@@ -605,9 +605,7 @@ class TestDeepHealthEndpoint:
             toolset_manager=SimpleNamespace(get_active_tools=lambda: ["tool"]),
         )
 
-        model_component = next(
-            component for component in health.components if component.name == "model_manager"
-        )
+        model_component = next(component for component in health.components if component.name == "model_manager")
         assert model_component.status.value == "healthy"
 
     def test_returns_health_payload_without_runtime_name_error(
