@@ -115,7 +115,7 @@ class TestSessionEndpoints:
                 return {"role": "user", "content": "c"}
 
         sm = SimpleNamespace(
-            start_session=lambda project_path="", resume=True: None,
+            start_session=lambda project_path=None, resume=True: None,
             get_messages=lambda: [
                 Msg(),
                 {"role": "assistant", "content": "dict"},

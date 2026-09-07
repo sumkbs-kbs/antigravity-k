@@ -69,19 +69,25 @@ def test_live_login_register_and_workspace_ws_auth(live_server: str, echo: EchoU
         assert created.status_code == 201
         hostname = ServiceResponse.model_validate_json(created.content).hostname
         assert client.get(f"/api/workspace/services/{hostname}/proxy").status_code == 401
-    for suffix in ("", "/nested/socket"):
-        url = f"ws://{live_server}/api/workspace/services/{hostname}/ws{suffix}"
-        with connect(url, proxy=None, open_timeout=5) as ws:
-            with pytest.raises(ConnectionClosed) as closed:
-                _ = ws.recv(timeout=5)
-            assert closed.value.rcvd is not None and closed.value.rcvd.code == 4401
-        with connect(url + f"?token={token}&room=qa", proxy=None, open_timeout=5) as ws:
-            assert ws.recv(timeout=5) == f"{suffix or '/'}?room=qa"
-            ws.send("live 한글")
-            assert ws.recv(timeout=5) == "live 한글"
-            ws.send(b"\x00live")
-            assert ws.recv(timeout=5) == b"\x00live"
-    assert len(echo.paths) == 2, "Rejected requests must not open upstream connections"
+
+        for suffix in ("", "/nested/socket"):
+            url = f"ws://{live_server}/api/workspace/services/{hostname}/ws{suffix}"
+            with connect(url, proxy=None, open_timeout=5) as ws:
+                with pytest.raises(ConnectionClosed) as closed:
+                    _ = ws.recv(timeout=5)
+                assert closed.value.rcvd is not None and closed.value.rcvd.code == 4401
+            # SEC-03: browser 클라이언트는 단기 1회성 ticket으로 WS 인증한다 —
+            # ticket은 재사용 불가이므로 연결마다 새로 발급한다.
+            ticket_resp = client.post("/api/auth/ws-ticket", headers={"Authorization": f"Bearer {token}"})
+            assert ticket_resp.status_code == 200
+            ws_ticket = str(ticket_resp.json()["ticket"])
+            with connect(url + f"?ticket={ws_ticket}&room=qa", proxy=None, open_timeout=5) as ws:
+                assert ws.recv(timeout=5) == f"{suffix or '/'}?room=qa"
+                ws.send("live 한글")
+                assert ws.recv(timeout=5) == "live 한글"
+                ws.send(b"\x00live")
+                assert ws.recv(timeout=5) == b"\x00live"
+        assert len(echo.paths) == 2, "Rejected requests must not open upstream connections"
     print("WIRE: HTTP no-auth=401, login=200, register=201, WS no-auth=4401 x2, authenticated text/binary=PASS x2")
 
 
@@ -94,10 +100,12 @@ def test_live_upstream_close_reaches_client(
     command: str,
     code: int,
 ) -> None:
-    """SEC-01/02: WS 인증은 token 채널만 — pin query는 credential이 아니다."""
+    """SEC-03: WS 인증은 subprotocol bearer 또는 단기 ticket — token query 제거."""
     record = registry.register("echo", "main", "qa", echo.port)
-    token = token_service.issue_token("qa")
-    url = f"ws://{live_server}/api/workspace/services/{record.hostname}/ws?token={token}"
+    from antigravity_k.security.ws_ticket import get_ws_ticket_service
+
+    ticket = get_ws_ticket_service(token_service).issue("qa")
+    url = f"ws://{live_server}/api/workspace/services/{record.hostname}/ws?ticket={ticket}"
     with connect(url, proxy=None, open_timeout=5, close_timeout=1) as ws:
         assert ws.recv(timeout=5) == "/"
         ws.send(command)
@@ -116,8 +124,10 @@ def test_live_unreachable_upstream_closes_1011(
         reserved.bind(("127.0.0.1", 0))
         port = cast(tuple[str, int], reserved.getsockname())[1]
         record = registry.register("offline", "main", "qa", port)
-        token = token_service.issue_token("qa")
-        url = f"ws://{live_server}/api/workspace/services/{record.hostname}/ws?token={token}"
+        from antigravity_k.security.ws_ticket import get_ws_ticket_service
+
+        ticket = get_ws_ticket_service(token_service).issue("qa")
+        url = f"ws://{live_server}/api/workspace/services/{record.hostname}/ws?ticket={ticket}"
         with connect(url, proxy=None, open_timeout=5) as ws:
             with pytest.raises(ConnectionClosed) as closed:
                 _ = ws.recv(timeout=15)

@@ -4,6 +4,13 @@ import type { EventHandlers } from '../useEventWebSocket';
 import { useEventWebSocket } from '../useEventWebSocket';
 import { useUiStore } from '../../stores/uiStore';
 
+// SEC-03: WS 인증은 장기 bearer subprotocol 대신 단기 1회성 ticket 교환이다.
+// fetchWsTicket을 mock해 ticket 플로우를 결정적으로 검증한다.
+vi.mock('../../utils/wsTicket', () => ({
+  fetchWsTicket: vi.fn(async () => 'sec03-one-time-ticket'),
+}));
+import { fetchWsTicket } from '../../utils/wsTicket';
+
 class MockWebSocket {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
@@ -145,9 +152,33 @@ describe('useEventWebSocket', () => {
     });
   });
 
-  it('authenticates the event websocket with a bearer subprotocol', () => {
-    // Given
+  it('authenticates the event websocket with a one-time ticket query param', async () => {
+    // Given — SEC-03: 저장된 bearer가 있으면 /auth/ws-ticket으로 단기 ticket을
+    // 교환하고, WS URL에는 ?ticket= 로 단 한 번 실린다 (subprotocol 없음).
     sessionStorage.setItem('ag_access_token', 'event-token');
+
+    // When
+    render(<HookHarness handlers={{}} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const socketUrl = MockWebSocket.instances.at(0)?.url;
+
+    // Then
+    expect(socketUrl).toBeDefined();
+    const parsedUrl = new URL(socketUrl ?? 'ws://invalid');
+    expect(parsedUrl.pathname).toBe('/v1/ws/events');
+    expect(parsedUrl.searchParams.get('ticket')).toBe('sec03-one-time-ticket');
+    // credential이 subprotocol/다른 query로 노출되지 않는다
+    expect(MockWebSocket.instances.at(0)?.protocols).toBeUndefined();
+    expect(parsedUrl.searchParams.get('token')).toBeNull();
+    expect(parsedUrl.searchParams.get('pin')).toBeNull();
+  });
+
+  it('connects without a ticket when no credential is stored', () => {
+    // Given — 익명(open_loopback) 서버 플로우: credential이 없으면 ticket
+    // 발급 자체를 시도하지 않고 곧바로 연결한다.
+    vi.mocked(fetchWsTicket).mockClear();
 
     // When
     render(<HookHarness handlers={{}} />);
@@ -158,6 +189,7 @@ describe('useEventWebSocket', () => {
     const parsedUrl = new URL(socketUrl ?? 'ws://invalid');
     expect(parsedUrl.pathname).toBe('/v1/ws/events');
     expect(parsedUrl.search).toBe('');
-    expect(MockWebSocket.instances.at(0)?.protocols).toEqual(['bearer.event-token']);
+    expect(MockWebSocket.instances.at(0)?.protocols).toBeUndefined();
+    expect(fetchWsTicket).not.toHaveBeenCalled();
   });
 });

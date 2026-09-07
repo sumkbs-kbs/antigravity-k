@@ -321,6 +321,31 @@ def logout() -> dict[str, str]:
     return {"detail": "Token is stateless; discard it client-side to complete logout."}
 
 
+class WSTicketResponse(BaseModel):
+    """SEC-03 — 단기 1회성 WS ticket 발급 응답."""
+
+    ticket: str
+    expires_in: int
+
+
+@router.post("/ws-ticket", response_model=WSTicketResponse)
+def issue_ws_ticket(request: Request) -> WSTicketResponse:
+    """인증된 세션에 단기(30초) 1회성 WebSocket ticket을 발급한다.
+
+    SEC-03: browser WS 클라이언트는 장기 bearer를 URL에 실을 수 없다(로그/
+    history 노출). 대신 이 endpoint(Bearer 인증 필요)에서 ticket을 받아
+    ``?ticket=``로 단 한 번 사용한다. ticket은 재사용 불가이므로 유출되어도
+    노출 창이 수 초다. 인증되지 않은 호출은 middleware가 차단한다(401).
+    """
+    from antigravity_k.security.ws_ticket import get_ws_ticket_service
+
+    subject = getattr(request.state, "auth_subject", None)
+    if not isinstance(subject, str) or not subject:
+        subject = "bearer"
+    service = get_ws_ticket_service(get_token_service())
+    return WSTicketResponse(ticket=service.issue(subject), expires_in=int(service.ttl_sec))
+
+
 @router.get("/status")
 def auth_status() -> dict[str, object]:
     """SEC-01 상태 endpoint — UI 표시와 실제 인증이 같은 policy 소스를 쓴다.

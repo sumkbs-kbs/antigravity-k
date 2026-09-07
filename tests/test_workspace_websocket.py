@@ -118,7 +118,7 @@ def test_unauthorized_workspace_ws_never_reaches_upstream(
 
 
 @pytest.mark.parametrize("suffix", ["", "/nested/socket"])
-@pytest.mark.parametrize("channel", ["token", "subprotocol"])
+@pytest.mark.parametrize("channel", ["ticket", "subprotocol"])
 def test_authenticated_workspace_ws_roundtrip_strips_credentials(
     client: TestClient,
     echo: EchoUpstream,
@@ -127,7 +127,7 @@ def test_authenticated_workspace_ws_roundtrip_strips_credentials(
     suffix: str,
     channel: str,
 ) -> None:
-    """SEC-01/02: WS PIN query 인증 제거에 따라 token/subprotocol 채널만 인증된다.
+    """SEC-03: WS 인증은 subprotocol bearer 또는 단기 1회성 ticket 채널만.
 
     pin 파라미터(평문+URL인코딩)는 token 채널 쿼리에 장식으로 포함해
     "credential 전달 차단" 검증을 유지한다 — 인증 수단으로는 쓰이지 않는다.
@@ -139,7 +139,11 @@ def test_authenticated_workspace_ws_roundtrip_strips_credentials(
     if channel == "subprotocol":
         protocols = [f"bearer.{token}"]
     else:
-        query += f"&token={token}&token={token}&p%69n=do-not-forward&pin={TEST_PIN}"
+        from antigravity_k.security.ws_ticket import get_ws_ticket_service
+
+        # 게이트가 쓰는 공유 싱글톤으로 발급 — 같은 secret, 1회성 유지.
+        ticket = get_ws_ticket_service(token_service).issue("qa")
+        query += f"&ticket={ticket}&p%69n=do-not-forward&pin={TEST_PIN}"
     with client.websocket_connect(
         f"/api/workspace/services/{record.hostname}/ws{suffix}?{query}",
         subprotocols=protocols,
@@ -183,8 +187,11 @@ def test_authenticated_unavailable_service_closes_cleanly(
     hostname = "unknown.localhost"
     if service_state == "stopped":
         hostname = registry.register("echo", "main", "qa", 1, status="stopped").hostname
-    token = token_service.issue_token("qa")
-    with client.websocket_connect(f"/api/workspace/services/{hostname}/ws?token={token}") as ws:
+    from antigravity_k.security.ws_ticket import get_ws_ticket_service
+
+    # 게이트가 쓰는 공유 싱글톤으로 발급 — fixture token_service와 같은 secret.
+    ticket = get_ws_ticket_service(token_service).issue("qa")
+    with client.websocket_connect(f"/api/workspace/services/{hostname}/ws?ticket={ticket}") as ws:
         with pytest.raises(WebSocketDisconnect) as closed:
             _ = ws.receive_text()
         assert closed.value.code == 1008
