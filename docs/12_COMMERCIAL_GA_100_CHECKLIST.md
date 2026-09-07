@@ -38,10 +38,10 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | DAT-03 | DONE | dat_03_registry | dat_03_verify (r1 APPROVE) | codex/dat-03-registry-atomic / Ssak-Ai-dat-03 | `f61e06f` | `.omo/evidence/commercial-ga-100/DAT-03/` | 병합 완료 (`ba5e1f3`) — 2026-09-06. AC 4건 독립 재현, 결함 0, 회귀 0. 브랜치는 audit trail로 보존 |
 | SEC-01 | DONE | sec_01_policy | sec_01_verify (독립 세션) | codex/sec-01-auth-policy / Ssak-Ai-sec-01 | `89ad09f` | `.omo/evidence/commercial-ga-100/SEC-01/` | 단일 fail-closed AuthPolicy (HTTP/SSE/WS) — r1 APPROVE (독립 재현 6/6), 병합 `f2a03c7`, 회귀 0 |
 | SEC-02 | DONE | sec_02_impl | sec_02_verify (독립 세션) | codex/sec-02-pin-rate-limit / Ssak-Ai-sec-02 | `eab18a4` | `.omo/evidence/commercial-ga-100/SEC-02/` | bearer-token-only 표면 + credential gate(burst 5/sustained 20·600s/lockout 300s) + secret-free audit — r1 APPROVE (독립 재현 12/12), 병합 `3ec95e2`, 회귀 0 (21=21) |
-| SEC-03 | TODO |  |  |  |  |  | SEC-01 |
+| SEC-03 | MERGED_REVIEW_PENDING | sec_03_impl | (할당 대기) | codex/sec-03-ws-origin-ticket (병합 `3be742d`) | `71b48a7` | `.omo/evidence/commercial-ga-100/SEC-03/` | SEC-01 |
 | EVO-01 | TODO |  |  |  |  |  | GA-00 |
 | EVO-02 | TODO |  |  |  |  |  | EVO-01 |
-| TRN-01 | TODO |  |  |  |  |  | GA-00 |
+| TRN-01 | MERGED_REVIEW_PENDING | trn_01_impl | (할당 대기) | codex/trn-01-recipe-source (병합 `583911a`) | `3e55745` | `.omo/evidence/commercial-ga-100/TRN-01/` | GA-00 |
 | TRN-02 | TODO |  |  |  |  |  | TRN-01 |
 | RAG-01 | TODO |  |  |  |  |  | GA-00 |
 | RAG-02 | TODO |  |  |  |  |  | RAG-01 |
@@ -241,13 +241,14 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## SEC-03 · WebSocket 보호
 
-- [ ] query PIN/token 인증을 제거했다.
-- [ ] 짧은 수명의 1회성 WS ticket을 사용한다.
-- [ ] Origin allowlist가 있다.
-- [ ] missing/wrong Origin을 거절한다.
-- [ ] expired/reused ticket을 거절한다.
-- [ ] 정상 reconnect와 event replay가 통과한다.
-- [ ] cross-site browser 시나리오가 차단된다.
+- [x] query PIN/token 인증을 제거했다. (ws gate가 ticket만 수용 — `71b48a7`)
+- [x] 짧은 수명의 1회성 WS ticket을 사용한다. (30초 JWT + jti 1회성, replay 거절)
+- [x] Origin allowlist가 있다. (`ws_origin.py` — CORS와 동일 소스)
+- [x] missing/wrong Origin을 거절한다. (missing은 non-browser로 허용 — 브라우저 Origin은 정확 일치만)
+- [x] expired/reused ticket을 거절한다. (테스트 18건 검증)
+- [x] 정상 reconnect와 event replay가 통과한다. (기존 WS 스위트 마이그레이션 후 통과)
+- [x] cross-site browser 시나리오가 차단된다. (악의 Origin + 유효 ticket도 거절)
+- [ ] 독립 r1 리뷰 (sec_03_verify) — **병합됨 `3be742d`, 리뷰 대기**
 
 ## EVO-01 · mutation fail-closed
 
@@ -267,12 +268,13 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## TRN-01 · 학습 recipe 일치
 
-- [ ] legacy command와 typed recipe가 한 resolve 경로를 사용한다.
-- [ ] iterations/batch/layers/LR validation이 있다.
-- [ ] request/dry-run argv/child argv/progress/result가 일치한다.
-- [ ] backend 미지원 option이 사전 거절된다.
-- [ ] recipe digest가 결정적이다.
-- [ ] MLX와 Unsloth capability 표시가 정확하다.
+- [x] legacy command와 typed recipe가 한 resolve 경로를 사용한다. (`hyperparameters.py` — `3e55745`)
+- [x] iterations/batch/layers/LR validation이 있다. (실행 전 거절 + 미지원 키 거절)
+- [x] request/dry-run argv/child argv/progress/result가 일치한다. (단일 resolve 구조)
+- [x] backend 미지원 option이 사전 거절된다. (capability 표)
+- [x] recipe digest가 결정적이다.
+- [x] MLX와 Unsloth capability 표시가 정확하다.
+- [ ] 독립 r1 리뷰 (trn_01_verify) — **병합됨 `583911a`, 리뷰 대기**
 
 ## TRN-02 · timeout과 자원 반환
 

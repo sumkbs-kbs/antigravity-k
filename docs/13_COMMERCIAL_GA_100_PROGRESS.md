@@ -772,11 +772,14 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **다음**: 독립 리뷰 r1 (sec_02_verify) → 병합.
 
 
-## 진행 중 작업
+### 2026-09-07 · SEC-03/TRN-01 구현 완료 + baseline 통합 (r1 리뷰 대기)
 
-| Task | Owner | Branch | 단계 | 다음 종료 조건 |
-|---|---|---|---|---|
-| (없음 — 다음 병렬 레인 후보: SEC-03, TRN-01, EVO-01) | | | | |
+- **SEC-03 구현 완료** (worktree `Ssak-Ai-sec-03`, 커밋 `71b48a7` + 증거 `79a07be`, baseline `ec144cd`에 리베이스): WS Origin allowlist(`ws_origin.py`) + 단기 1회성 ticket(`ws_ticket.py`, 30초 JWT·jti replay 방지) + `POST /v1/auth/ws-ticket` + WS 게이트 통합(query `?token=`/subprotocol 채널 제거) + dashboard ticket 교환(`useEventWebSocket`/`TerminalSession`/`wsTicket.ts`). 신규 테스트 18건 + 기존 WS 스위트 마이그레이션, 대상 스위트 99 passed, mypy 465 clean, vitest 748/749(1건은 baseline 선행). 충돌 1건(`test_system_api_memory_suite` start_session lambda 기본값)은 production 시그니처(`project_path: str | None = None`)에 맞춰 해소.
+- **TRN-01 구현 완료** (worktree `Ssak-Ai-trn-01`, 커밋 `3e55745`): `hyperparameters.py` 단일 검증·resolve 모듈 — validate → capability → argv/progress/recipe digest/result metadata가 한 구조에서 일치. 신규 테스트 18건, 대상 146 passed, ruff/mypy clean. 전체 회귀 분석에서 base 대비 8건 신규 실패 → 기존 테스트가 옛 비일관 동작(config는 auto→mlx 해석, dataset_path는 원본 파일)에 의존한 것으로 판명 — 9건을 새 계약으로 마이그레이션.
+- **baseline 통합**: main worktree 미커밋 ChatPage lint 정리분 커밋(`f909c40`) → `codex/sec-03-ws-origin-ticket` 병합(`3be742d`) → TRN-01 리베이스 후 병합(`583911a`) → SEC-03 origin 테스트가 개발자 `.env`의 좁은 `AGK_CORS_ORIGINS`에 의존하던 1건을 env 격리로 수정(`3f6924c`).
+- **병합 후 회귀**: 전체 스위트 **5588 passed / 9 failed** — 병합 전 baseline과 실패 목록 byte-identical (회귀 0). 9건은 WS-lane fixture 선행 실패(별도 트랙에서 처리 예정).
+- **상태 주의**: SEC-03/TRN-01은 구현+증거 완료 상태로 baseline에 통합되었으나 **독립 r1 리뷰는 아직 미수행** — 리뷰어(sec_03_verify/trn_01_verify)가 수용기준을 독립 재현해야 DONE 표기 가능.
+- **워크트리 정리**: 병합 완료 레인 worktree 17개 + /tmp 검증용 4개 제거 (브랜치는 audit trail로 보존).
 
 ### 2026-09-07 · SEC-02 독립 리뷰 r1 APPROVE + 병합 DONE
 
