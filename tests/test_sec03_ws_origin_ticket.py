@@ -30,8 +30,15 @@ class TestWsOriginAllowlist:
         assert ws_origin_allowed(None) is True
         assert ws_origin_allowed("") is True
 
-    def test_default_allowlist_accepts_dashboard_dev_origin(self) -> None:
+    def test_default_allowlist_accepts_dashboard_dev_origin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """기본 allowlist(AGK_CORS_ORIGINS 미설정)의 loopback origin을 수용한다.
+
+        개발자 .env가 AGK_CORS_ORIGINS를 좁게 설정했을 수 있으므로(운영자가
+        CORS/WS를 한곳에서 제어하는 계약) 기본값 검증은 env를 지운 뒤 한다.
+        """
         from antigravity_k.security.ws_origin import ws_origin_allowed
+
+        monkeypatch.delenv("AGK_CORS_ORIGINS", raising=False)
 
         assert ws_origin_allowed("http://localhost:5173") is True
         assert ws_origin_allowed("http://127.0.0.1:8000") is True
