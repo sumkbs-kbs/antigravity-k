@@ -241,21 +241,45 @@ class TestApplyRecipeOverrides:
         )
         pipe = _make_pipeline(tmp_path)
         recipe = get_recipe("chat-sft")
+        # TRN-01: 오버라이드는 validate_hyperparameters를 통과해야 한다 (미지원 키 거절).
+        # 'iterations'는 chat-sft 레시피 기본값에 없으므로 사용자 값이 그대로 채택되는지 검증한다.
         result = pipe.apply_recipe(
             recipe_name="chat-sft",
             base_model="org/model",
             output_dir=str(tmp_path / "recipe-out"),
             source="",
-            hyperparameter_overrides={"epochs": 7, "custom_flag": "on"},
+            hyperparameter_overrides={"iterations": 777},
         )
         config = result["config"]
         assert isinstance(config, dict)
         hyper = config["hyperparameters"]
         assert isinstance(hyper, dict)
-        assert hyper["epochs"] == 7  # 사용자 지정이 레시피 기본을 이긴다
-        assert hyper["custom_flag"] == "on"
+        assert hyper["iterations"] == 777  # 사용자 지정이 레시피 기본을 이긴다
+        # mlx argv에도 동일 값이 반영된다 (단일 resolve 경로 — argv/config 일치)
+        command = str(config.get("command", ""))
+        assert "--iters 777" in command
         assert result["sufficient"] is False  # 레코드 0건 — min_records 미달
         assert result["recipe"] == recipe.name
+
+    def test_user_overrides_unknown_key_rejected(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+        """TRN-01 수용기준 2: 알 수 없는 키는 조용히 무시되지 않고 실행 전 거절된다."""
+        monkeypatch.setattr(
+            "antigravity_k.engine.data_recipes.load_records_from_source",
+            lambda *_a, **_k: [],
+        )
+        pipe = _make_pipeline(tmp_path)
+        import pytest as _pytest
+
+        from antigravity_k.finetune.hyperparameters import HyperparameterValidationError
+
+        with _pytest.raises(HyperparameterValidationError, match="알 수 없는 하이퍼파라미터 키"):
+            pipe.apply_recipe(
+                recipe_name="chat-sft",
+                base_model="org/model",
+                output_dir=str(tmp_path / "recipe-out-unknown"),
+                source="",
+                hyperparameter_overrides={"epochs": 7},  # 미지원 키 (오타 시나리오)
+            )
 
 
 class TestFuseAndOllamaServe:

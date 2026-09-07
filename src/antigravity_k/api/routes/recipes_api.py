@@ -10,8 +10,15 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from antigravity_k.engine.data_recipes import RECIPES
+from antigravity_k.finetune.hyperparameters import backend_capabilities
 
 router = APIRouter(prefix="/api/recipes")
+
+
+@router.get("/capabilities")
+async def list_capabilities() -> dict[str, object]:
+    """백엔드 capability schema (TRN-01) — MLX/Unsloth 지원 차이를 UI에 노출."""
+    return {"ok": True, "capabilities": [backend_capabilities("mlx"), backend_capabilities("unsloth")]}
 
 
 @router.get("")

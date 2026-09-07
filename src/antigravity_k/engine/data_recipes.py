@@ -81,11 +81,12 @@ RECIPES: Final[tuple[DataRecipe, ...]] = (
         source_hint="quality_gate_pairs",
         format="dpo",
         # unsloth 가이드: DPO/RL 계열 학습률 5e-6 (SFT 2e-4 대비 작게), epochs 1-3
+        # TRN-01: mlx 백엔드는 iterations로 환산되므로 unsloth 전용 num_train_epochs는
+        # 기본 오버라이드에서 제외 — mlx 실행 시 capability 게이트가 통과한다.
         hyperparameter_overrides={
             "iterations": 400,
             "learning_rate": "5e-6",
             "batch_size": 4,
-            "num_train_epochs": 1,
         },
         min_records=5,
         tags=("dpo", "preference", "alignment"),

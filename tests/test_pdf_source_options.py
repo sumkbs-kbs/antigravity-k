@@ -297,13 +297,14 @@ class TestPdfRecordsWithOptions:
         )
 
         assert result["records"] == 3
+        # auto→mlx 해석이 config와 일치 — dataset_path는 train/valid 분할 디렉터다 (TRN-01).
+        # 3건 < 2×batch_size(2)라도 batch_size=2이면 3>=4? 아니오(3<4) → 복제 분할, 셔플 없음.
+        # 순서 무관하게 헤더 집합을 검증한다.
         dataset = Path(str(result["dataset_path"]))
-        prompts = [
-            json.loads(line)["messages"][0]["content"]
-            for line in dataset.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        assert prompts == ["Install Guide", "TOC Page", "Usage Basics"]
+        assert dataset.is_dir()
+        lines = "\n".join(f.read_text(encoding="utf-8") for f in sorted(dataset.glob("*.jsonl")))
+        prompts = {json.loads(line)["messages"][0]["content"] for line in lines.splitlines() if line.strip()}
+        assert prompts == {"Install Guide", "TOC Page", "Usage Basics"}
 
 
 @pytest.mark.slow
@@ -342,13 +343,27 @@ class TestPdfTrainRecipeSlowE2E:
         assert result["sufficient"] is False  # 최소 레코드 미달 경고가 포함된 완결 결과
 
         # 2) 데이터셋 파일 실재 + chat 포맷 + 템플릿 질문
+        # 2) 데이터셋 실재 — auto→mlx 해석이 config와 일치하므로 분할 디렉터 계약
         dataset = Path(str(result["dataset_path"]))
-        assert dataset.is_file()
-        rows = [json.loads(line) for line in dataset.read_text(encoding="utf-8").splitlines() if line.strip()]
+        assert dataset.is_dir()
+        split_files = sorted(dataset.glob("*.jsonl"))
+        assert {f.name for f in split_files} == {"train.jsonl", "valid.jsonl"}
+        all_lines = "\n".join(f.read_text(encoding="utf-8") for f in split_files)
+        rows = [json.loads(line) for line in all_lines.splitlines() if line.strip()]
         assert len(rows) == 4
-        assert rows[0]["messages"][0]["role"] == "user"
-        assert rows[0]["messages"][0]["content"] == "guide 문서 1장: Install Guide에 대해 설명해줘"
-        assert "TOC" not in rows[0]["messages"][0]["content"]
+        # mlx 셔플 분할(batch_size=2, 4건)로 순서가 섞인다 — 페이지 번호로 재구성해 검증한다.
+        import re as _re2
+
+        def _page(q: str) -> int:
+            m = _re2.search(r"문서 (\d+)장", q)
+            assert m, q
+            return int(m.group(1))
+
+        by_page = {_page(r["messages"][0]["content"]): r["messages"][0]["content"] for r in rows}
+        # TOC(2페이지) 필터 제외 → 1, 3, 4, 5페이지가 남는다 ({page}는 PDF 페이지 번호).
+        assert sorted(by_page) == [1, 3, 4, 5]
+        assert by_page[1] == "guide 문서 1장: Install Guide에 대해 설명해줘"
+        assert "TOC" not in " ".join(by_page.values())
         assert all(len(r["messages"][1]["content"]) >= 20 for r in rows)
 
         # 3) 학습 설정 파일 실재 + pdf-qa-sft 하이퍼파라미터 포함
@@ -366,14 +381,26 @@ class TestPdfTrainRecipeSlowE2E:
     # ─── Phase 50: 같은 패스에서 DOCX/CSV 입력 경로까지 ──────────────
 
     def _assert_recipe_artifacts(self, result: dict, *, recipe: str, expected_rows: int) -> list[dict]:
-        """세 소스 공통: 데이터셋/설정 파일 실재 + chat 포맷 행 검증. 파싱된 행 반환."""
+        """세 소스 공통: 데이터셋/설정 파일 실재 + chat 포맷 행 검증. 파싱된 행 반환.
+
+        TRN-01 이후 apply_recipe는 auto→mlx 해석이 config와 일치하므로
+        dataset_path는 mlx_dataset 디렉터리(train/valid 분할)다. 분할은 배치
+        최소 크기 보장을 위해 소량 데이터에서 train=valid 복제를 쓴다
+        (split_dataset_for_mlx 계약) — 고유 행 수로 검증한다.
+        """
         assert result["recipe"] == recipe
         assert result["records"] == expected_rows
         dataset = Path(str(result["dataset_path"]))
         config = Path(str(result["config_path"]))
-        assert dataset.is_file() and config.is_file()
-        rows = [json.loads(line) for line in dataset.read_text(encoding="utf-8").splitlines() if line.strip()]
-        assert len(rows) == expected_rows
+        if dataset.is_dir():
+            files = sorted(dataset.glob("*.jsonl"))
+            assert files, "mlx_dataset 디렉터에 train/valid jsonl이 있어야 한다"
+            lines = "\n".join(f.read_text(encoding="utf-8") for f in files)
+        else:
+            lines = dataset.read_text(encoding="utf-8")
+        rows = [json.loads(line) for line in lines.splitlines() if line.strip()]
+        unique_rows = {json.dumps(r, sort_keys=True, ensure_ascii=False) for r in rows}
+        assert len(unique_rows) == expected_rows
         for row in rows:
             assert row["messages"][0]["role"] == "user"
             assert len(row["messages"][1]["content"]) >= 20
@@ -406,9 +433,20 @@ class TestPdfTrainRecipeSlowE2E:
         )
 
         rows = self._assert_recipe_artifacts(result, recipe="docx-qa-sft", expected_rows=4)
-        questions = [r["messages"][0]["content"] for r in rows]
-        assert questions == [f"manual 매뉴얼 {i}절 정리" for i in range(1, 5)]
-        assert "TOC" not in " ".join(questions)  # 5번째 섹션(TOC 포함은 2번째) — 범위로 잘림
+        # mlx 분할(batch_size=2, 4건)은 셔플 분할이므로 순서가 섞인다 —
+        # 섹션 번호로 재구성해 원본 매핑을 검증한다.
+        questions_all = [r["messages"][0]["content"] for r in rows]
+        import re as _re
+
+        def _section(q: str) -> int:
+            m = _re.search(r"(\d+)절", q)
+            assert m, q
+            return int(m.group(1))
+
+        by_section = {_section(q): q for q in questions_all}
+        assert sorted(by_section) == [1, 2, 3, 4]
+        assert all(by_section[i] == f"manual 매뉴얼 {i}절 정리" for i in range(1, 5))
+        assert "TOC" not in " ".join(questions_all)  # 5번째 섹션(TOC 포함은 2번째) — 범위로 잘림
 
     def test_csv_train_recipe_e2e(self, tmp_path: Path) -> None:
         """CSV 소스: csv-to-chat가 prompt/response 컬럼을 chat 데이터셋으로 직행한다."""
@@ -473,17 +511,22 @@ class TestPdfTrainRecipeSlowE2E:
         )
         r_csv = pipeline.apply_recipe("csv-to-chat", source=str(csv_file), output_dir=str(tmp_path / "out-csv"), **base)
 
-        # 세 결과의 데이터셋 경로는 모두 다르고(디렉터 분리), 파일이 모두 실재한다.
+        # 세 결과의 데이터셋 경로는 모두 다르고(디렉터 분리), mlx 계약상 디렉터이며 실재한다.
         paths = {r_pdf["dataset_path"], r_docx["dataset_path"], r_csv["dataset_path"]}
         assert len(paths) == 3
-        assert all(Path(p).is_file() for p in paths)
+        assert all(Path(p).is_dir() for p in paths)
         assert {r_pdf["recipe"], r_docx["recipe"], r_csv["recipe"]} == {"pdf-qa-sft", "docx-qa-sft", "csv-to-chat"}
 
         # 각 아티팩트 내용이 소스와 일치 — 연속 실행해도 서로 섞이지 않는다.
-        def _questions(path: str) -> list[str]:
-            lines = Path(path).read_text(encoding="utf-8").splitlines()
-            return [json.loads(line)["messages"][0]["content"] for line in lines if line.strip()]
+        # (mlx 분할로 행이 train/valid에 나뉘고 소량 데이터는 복제될 수 있으므로 집합 비교)
+        def _questions(path: str) -> set[str]:
+            lines: list[str] = []
+            p = Path(path)
+            files = sorted(p.glob("*.jsonl")) if p.is_dir() else [p]
+            for f in files:
+                lines.extend(f.read_text(encoding="utf-8").splitlines())
+            return {json.loads(line)["messages"][0]["content"] for line in lines if line.strip()}
 
-        assert _questions(r_pdf["dataset_path"]) == headers
-        assert _questions(r_docx["dataset_path"]) == ["Alpha", "Beta", "Gamma"]
-        assert _questions(r_csv["dataset_path"]) == ["질문1"]
+        assert _questions(r_pdf["dataset_path"]) == set(headers)
+        assert _questions(r_docx["dataset_path"]) == {"Alpha", "Beta", "Gamma"}
+        assert _questions(r_csv["dataset_path"]) == {"질문1"}

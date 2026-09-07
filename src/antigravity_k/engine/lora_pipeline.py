@@ -18,6 +18,7 @@ Unsloth/mlx-lm 기반 파인튜닝 설정을 자동 생성합니다.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import logging
@@ -119,6 +120,65 @@ class TrainingRunResult:
 def mlx_lm_available() -> bool:
     """mlx-lm 패키지 설치 여부."""
     return importlib.util.find_spec("mlx_lm") is not None
+
+
+def _recipe_default_overrides(recipe: object) -> dict[str, float | int | str]:
+    """레시피의 기본 하이퍼파라미터 오버라이드 (TRN-01 검증 입력용)."""
+    return dict(getattr(recipe, "hyperparameter_overrides", {}) or {})
+
+
+def _apply_overrides_to_mlx_command(command: str, overrides: dict[str, float | int | str]) -> str:
+    """mlx-lm command 문자열의 플래그 값을 검증된 오버라이드로 갱신한다 (TRN-01).
+
+    플래그가 없으면 추가한다. typed resolve 경로(resolve_training_recipe)와
+    동일 규칙 — iters=iterations, batch-size=batch_size, learning-rate,
+    num-layers=num_layers, seed는 오버라이드 대상이 아니다.
+    """
+    flag_map = {
+        "iterations": "--iters",
+        "batch_size": "--batch-size",
+        "learning_rate": "--learning-rate",
+        "num_layers": "--num-layers",
+    }
+    tokens = command.split()
+    for key, flag in flag_map.items():
+        if key not in overrides:
+            continue
+        value = str(overrides[key])
+        try:
+            idx = tokens.index(flag)
+            if idx + 1 < len(tokens):
+                tokens[idx + 1] = value
+            else:
+                tokens.append(value)
+        except ValueError:
+            tokens.extend([flag, value])
+    return " ".join(tokens)
+
+
+def _sha256_file(path: Path) -> str:
+    """단일 파일 내용의 SHA-256."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _sha256_path(path: str | Path) -> str:
+    """파일(또는 디렉터리 내 jsonl 파일들) 내용의 SHA-256 (provenance용)."""
+    p = Path(path)
+    if p.is_dir():
+        digest = hashlib.sha256()
+        for child in sorted(p.glob("*.jsonl")):
+            digest.update(child.name.encode("utf-8"))
+            with open(child, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    digest.update(chunk)
+        return digest.hexdigest()
+    if not p.is_file():
+        return ""
+    return _sha256_file(p)
 
 
 def _as_object(value: object) -> JsonObject:
@@ -1229,8 +1289,41 @@ model.save_pretrained("{output_dir}/dpo_model")
             records_to_training_jsonl,
         )
         from antigravity_k.engine.pdf_source_options import PdfSourceOptions
+        from antigravity_k.finetune.hyperparameters import (
+            compute_recipe_digest,
+            validate_hyperparameters,
+        )
 
-        recipe: DataRecipe = get_recipe(recipe_name)
+        if platform == "auto":
+            from antigravity_k.engine.provider_adapters.unsloth_platform_policy import (
+                default_training_platform,
+                host_platform,
+            )
+
+            platform = str(default_training_platform(host_platform()))
+
+        # TRN-01: 검증은 모든 파일 IO 전에 — 0/음수/과대 값·미지원 키를 조용히 무시하지 않는다
+        #  - 레시피 기본값: 백엔드가 미지원하는 키는 제거 (unsloth 전용 기본값이 mlx에 유입되지 않게)
+        #  - 사용자 오버라이드: 미지원 키는 엄격히 거절 (실행 전 fail-fast)
+        from antigravity_k.finetune.hyperparameters import backend_capabilities
+
+        recipe0: DataRecipe = get_recipe(recipe_name)
+        resolved_platform = "mlx" if platform == "mlx" else platform
+        raw_supported = backend_capabilities(resolved_platform)["supported_keys"]
+        supported = {str(k) for k in cast("Sequence[object]", raw_supported)}
+        recipe_defaults = {k: v for k, v in _recipe_default_overrides(recipe0).items() if k in supported}
+        merged_overrides = validate_hyperparameters(
+            {**recipe_defaults, **(hyperparameter_overrides or {})},
+            backend=resolved_platform,
+        )
+        recipe_digest = compute_recipe_digest(
+            recipe=recipe_name,
+            base_model=base_model,
+            platform=resolved_platform,
+            overrides=merged_overrides,
+        )
+
+        recipe: DataRecipe = recipe0
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
 
@@ -1295,17 +1388,21 @@ model.save_pretrained("{output_dir}/dpo_model")
                 platform=platform,
             )
 
-        # 레시피 하이퍼파라미터 조정 병합 (사용자 지정 값이 최종 우선)
+        # 레시피 하이퍼파라미터 병합 — TRN-01: 검증·정규화된 값을 단일 경로로 사용한다
         hyper: dict[str, object] = (
             dict(config.get("hyperparameters", {})) if isinstance(config.get("hyperparameters", {}), dict) else {}
         )
-        for key, value in recipe.hyperparameter_overrides.items():
-            hyper[key] = value
-        for key, value in (hyperparameter_overrides or {}).items():
+        for key, value in merged_overrides.items():
             hyper[key] = value
         if hyper:
             config["hyperparameters"] = hyper
         config["recipe"] = recipe.name
+        config["recipe_sha256"] = recipe_digest
+
+        # TRN-01 mlx argv 일치: config command의 --iters/--batch-size/--learning-rate를
+        # 검증·정규화된 오버라이드로 갱신 (resolve 단일 경로 — typed recipe와 동일 규칙)
+        if resolved_platform == "mlx" and isinstance(config.get("command"), str):
+            config["command"] = _apply_overrides_to_mlx_command(str(config["command"]), merged_overrides)
 
         if platform == "mlx":
             config["train_path"] = str(out / "mlx_dataset" / "train.jsonl")
@@ -1316,6 +1413,22 @@ model.save_pretrained("{output_dir}/dpo_model")
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
+        # TRN-01 재실행 provenance — digest/입력/데이터 통계를 디스크에 기록
+        provenance: JsonObject = {
+            "recipe": recipe.name,
+            "recipe_sha256": recipe_digest,
+            "base_model": base_model,
+            "platform": resolved_platform,
+            "overrides": dict(merged_overrides),
+            "records": applied_records,
+            # mlx는 train/valid 분할 디렉터리를 쓰므로 디렉터리(jsonl 집합) digest를 계산한다.
+            "dataset_sha256": _sha256_path(dataset_path),
+            "config_path": str(config_path),
+        }
+        provenance_path = Path(output_dir) / "recipe_provenance.json"
+        with open(provenance_path, "w", encoding="utf-8") as f:
+            json.dump(provenance, f, ensure_ascii=False, indent=2)
+
         ret: JsonObject = {
             "recipe": recipe.name,
             "format": recipe.format,
@@ -1324,6 +1437,7 @@ model.save_pretrained("{output_dir}/dpo_model")
             "sufficient": applied_records >= recipe.min_records,
             "dataset_path": dataset_path,
             "config_path": str(config_path),
+            "recipe_sha256": recipe_digest,
             "config": config,
         }
         if platform == "mlx":

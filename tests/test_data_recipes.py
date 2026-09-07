@@ -247,9 +247,17 @@ def test_apply_recipe_with_csv_source(tmp_path: Path) -> None:
     )
     assert result["records"] == 25
     assert result["sufficient"] is True
+    # auto→mlx 해석이 config와 일치 — dataset_path는 train/valid 분할 디렉터다 (TRN-01)
+    # (25건 ≥ 2×batch_size이므로 셔플 분할이 적용된다 — 내용 기반 검증)
     dataset = Path(str(result["dataset_path"]))
-    first = json.loads(dataset.read_text(encoding="utf-8").splitlines()[0])
-    assert first["messages"][0]["content"] == "질문0"
+    assert dataset.is_dir()
+    split_files = sorted(dataset.glob("*.jsonl"))
+    assert {f.name for f in split_files} == {"train.jsonl", "valid.jsonl"}
+    all_lines = "\n".join(f.read_text(encoding="utf-8") for f in split_files)
+    contents = [json.loads(line)["messages"][0]["content"] for line in all_lines.splitlines() if line.strip()]
+    assert len(contents) == 25  # 분할해도 총 레코드 수는 보존된다 (중복 없는 분할)
+    assert set(contents) == {f"질문{i}" for i in range(25)}
+    assert "질문0" in contents
 
 
 def test_apply_recipe_dpo_uses_pairs(tmp_path: Path) -> None:
@@ -347,8 +355,12 @@ class TestPdfSource:
 
         assert result["records"] == 2
         assert result["recipe"] == "pdf-qa-sft"
+        # auto→mlx 해석이 config와 일치 — dataset_path는 train/valid 분할 디렉터다 (TRN-01)
         dataset = Path(str(result["dataset_path"]))
-        first = json.loads(dataset.read_text(encoding="utf-8").splitlines()[0])
+        assert dataset.is_dir()
+        split_files = sorted(dataset.glob("*.jsonl"))
+        assert {f.name for f in split_files} == {"train.jsonl", "valid.jsonl"}
+        first = json.loads(split_files[0].read_text(encoding="utf-8").splitlines()[0])
         assert first["messages"][0]["content"] == "Chapter One"
 
 
