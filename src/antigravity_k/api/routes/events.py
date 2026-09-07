@@ -113,6 +113,8 @@ async def websocket_events(websocket: WebSocket) -> None:
         while True:
             get_task: asyncio.Task[dict[str, object]] = asyncio.ensure_future(queue.get())
             wait_task: asyncio.Task[bool] = asyncio.ensure_future(disconnect_event.wait())
+            done: set[asyncio.Task[object]] = set()
+            pending: set[asyncio.Task[object]] = {get_task, wait_task}
             try:
                 done, pending = await asyncio.wait(
                     {get_task, wait_task},

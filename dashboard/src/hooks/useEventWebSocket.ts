@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { useUiStore } from '../stores/uiStore';
 import { firePluginHook } from '../plugin/pluginRegistry';
 import { readStoredAccessToken } from '../utils/accessPinCredential';
+import { fetchWsTicket } from '../utils/wsTicket';
 
 const executionModeSchema = z.enum(['interactive', 'plan', 'build']);
 const eventObjectSchema = z.object({}).catchall(z.unknown()).readonly();
@@ -193,6 +194,11 @@ export function useEventWebSocket(handlers: EventHandlers) {
       if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
       isConnecting = true;
 
+      // SEC-03: credential은 URL에 실지 않는다. 저장된 bearer가 있으면 먼저
+      // 단기 1회성 ticket으로 교환해 ?ticket= 로 단 한 번 사용한다. ticket
+      // 발급 실패(미인증, 오프라인) 시 credential 없이 연결 — 익명
+      // open_loopback 서버에서는 그대로 통과하고 보호 서버에서는 4401로
+      // 거절된 뒤 재시도한다.
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.port === '5173' || window.location.port === '5174'
         ? 'localhost:8000'
@@ -200,45 +206,56 @@ export function useEventWebSocket(handlers: EventHandlers) {
       const wsUrl = new URL(`${protocol}//${host}/v1/ws/events`);
       const accessToken = readStoredAccessToken();
 
-      try {
-        const nextSocket = accessToken === null
-          ? new WebSocket(wsUrl)
-          : new WebSocket(wsUrl, [`bearer.${accessToken}`]);
-        socket = nextSocket;
-
-        nextSocket.onopen = () => {
+      const open = (ticket: string | null): void => {
+        if (isDisposed) {
           isConnecting = false;
-          if (reconnectTimer !== null) {
-            clearTimeout(reconnectTimer);
-            reconnectTimer = null;
-          }
-        };
+          return;
+        }
+        if (ticket !== null) wsUrl.searchParams.set('ticket', ticket);
+        try {
+          const nextSocket = new WebSocket(wsUrl);
+          socket = nextSocket;
 
-        nextSocket.onmessage = (event) => {
-          let rawMessage: unknown;
-          try {
-            rawMessage = JSON.parse(event.data);
-          } catch {
-            return;
-          }
+          nextSocket.onopen = () => {
+            isConnecting = false;
+            if (reconnectTimer !== null) {
+              clearTimeout(reconnectTimer);
+              reconnectTimer = null;
+            }
+          };
 
-          const parsedMessage = eventMessageSchema.safeParse(rawMessage);
-          if (!parsedMessage.success) return;
-          dispatchEventMessage(parsedMessage.data, handlersRef.current);
-        };
+          nextSocket.onmessage = (event) => {
+            let rawMessage: unknown;
+            try {
+              rawMessage = JSON.parse(event.data);
+            } catch {
+              return;
+            }
 
-        nextSocket.onclose = () => {
-          if (socket === nextSocket) socket = null;
+            const parsedMessage = eventMessageSchema.safeParse(rawMessage);
+            if (!parsedMessage.success) return;
+            dispatchEventMessage(parsedMessage.data, handlersRef.current);
+          };
+
+          nextSocket.onclose = () => {
+            if (socket === nextSocket) socket = null;
+            isConnecting = false;
+            scheduleReconnect();
+          };
+
+          nextSocket.onerror = () => {
+            nextSocket.close();
+          };
+        } catch {
           isConnecting = false;
           scheduleReconnect();
-        };
+        }
+      };
 
-        nextSocket.onerror = () => {
-          nextSocket.close();
-        };
-      } catch {
-        isConnecting = false;
-        scheduleReconnect();
+      if (accessToken === null) {
+        open(null);
+      } else {
+        void fetchWsTicket().then((ticket) => open(ticket));
       }
     }
 

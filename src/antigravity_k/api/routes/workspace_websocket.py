@@ -58,7 +58,11 @@ def _websocket_headers(websocket: WebSocket, record: ServiceRecord) -> dict[str,
 async def relay_workspace_websocket(websocket: WebSocket, record: ServiceRecord, path: str) -> None:
     target = f"{record.websocket_base_url}/{path.lstrip('/')}"
     query_string = urlencode(
-        [(key, value) for key, value in websocket.query_params.multi_items() if key not in {"token", "pin"}]
+        [
+            (key, value)
+            for key, value in websocket.query_params.multi_items()
+            if key not in {"token", "pin", "ticket"}  # SEC-02/03: credential 쿼리는 upstream에 전달 금지
+        ]
     )
     if query_string:
         target = f"{target}?{query_string}"

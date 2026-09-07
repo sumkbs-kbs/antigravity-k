@@ -33,6 +33,11 @@ vi.mock('xterm-addon-fit', () => ({
 
 import TerminalSession from '../TerminalSession';
 
+// SEC-03: terminal WS 인증도 단기 1회성 ticket 교환이다 (bearer subprotocol 제거).
+vi.mock('../../../utils/wsTicket', () => ({
+  fetchWsTicket: vi.fn(async () => 'sec03-terminal-ticket'),
+}));
+
 class MockWebSocket {
   static readonly OPEN = 1;
   static readonly instances: MockWebSocket[] = [];
@@ -109,16 +114,20 @@ describe('TerminalSession', () => {
     expect(terminalMocks.fit).toHaveBeenCalledTimes(1);
   });
 
-  it('authenticates the terminal websocket with a bearer subprotocol', () => {
+  it('authenticates the terminal websocket with a one-time ticket query param', async () => {
     sessionStorage.setItem('ag_access_token', 'terminal-token');
     render(<TerminalSession sessionId="terminal-test" />);
 
-    act(() => {
+    await act(async () => {
       [...frames.values()].forEach(callback => callback(0));
+      await Promise.resolve();
     });
 
-    expect(MockWebSocket.instances[0]?.url).toBe('ws://localhost:8000/ws/terminal');
-    expect(MockWebSocket.instances[0]?.protocols).toEqual(['bearer.terminal-token']);
+    const parsedUrl = new URL(MockWebSocket.instances[0]?.url ?? 'ws://invalid');
+    expect(`${parsedUrl.protocol}//${parsedUrl.host}${parsedUrl.pathname}`).toBe('ws://localhost:8000/ws/terminal');
+    expect(parsedUrl.searchParams.get('ticket')).toBe('sec03-terminal-ticket');
+    // credential이 subprotocol로 노출되지 않는다 (SEC-03)
+    expect(MockWebSocket.instances[0]?.protocols).toBeUndefined();
   });
 
   it('does not reconnect when the terminal feature is disabled', () => {

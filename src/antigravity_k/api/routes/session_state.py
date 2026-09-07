@@ -59,20 +59,44 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
     저장 PIN hash가 있으면 loopback 개발 모드도 보호 상태이며, 익명 허용은
     명시적 dev 설정 + loopback + credential 전무 조건에서만 가능하다.
 
-    Authenticates the connection using a bearer token (``?token=`` query or
-    ``Sec-WebSocket-Protocol`` subprotocol). PIN query 인증은 제거되었다 —
-    PIN은 rate-limited login route로만 제출한다 (SEC-02 표면 축소 정합).
+    SEC-03 보호 순서:
+      1. **Origin allowlist** — browser 클라이언트(Origin 헤더 존재)는
+         allowlist 정확 일치만 허용. 불일치는 4403 거절 (cross-site 차단).
+         Origin이 없으면 browser가 아닌 클라이언트(curl/CLI)로 보고 통과.
+      2. **credential** — bearer token(``Sec-WebSocket-Protocol`` subprotocol
+         채널) 또는 단기 1회성 ticket(``?ticket=``). PIN query는 SEC-02에서
+         이미 제거되었고, 장기 bearer의 **query 전달도 제거**되었다 — URL은
+         로그/browser history에 남으므로 credential이 노출된다 (plan §SEC-03).
+      3. 판정은 공유 AuthPolicy(ticket/bearer 검증 결과를 token_verified로
+         반영) — 실패는 4401 거절.
     """
     from antigravity_k.api.auth_policy import get_shared_auth_policy
     from antigravity_k.api.auth_routes import get_token_service
     from antigravity_k.config import config
     from antigravity_k.engine.auth import extract_token_from_ws
+    from antigravity_k.security.ws_origin import ws_origin_allowed
 
     # Accept first so we can send a close code; Starlette requires accept before close.
     await websocket.accept()
     websocket.state.agk_accepted = True
 
+    # ── SEC-03 1단계: Origin allowlist (cross-site browser 차단) ──
+    origin: str | None = None
+    try:
+        origin = websocket.headers.get("origin") or None
+    except AttributeError:
+        origin = None  # 테스트 더블 등 headers가 없는 클라이언트
+    if not ws_origin_allowed(origin):
+        await websocket.close(code=4403, reason="Origin not allowed")
+        return True
+
+    # ── SEC-03 2단계: credential — subprotocol bearer 또는 단기 ticket ──
     credential = extract_token_from_ws(websocket)
+    ticket: str | None = None
+    try:
+        ticket = websocket.query_params.get("ticket") or None
+    except AttributeError:
+        ticket = None
 
     token_verified = False
     token_subject: str | None = None
@@ -82,8 +106,15 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
             token_verified = True
             subject = claims.get("sub")
             token_subject = subject if isinstance(subject, str) and subject else "bearer"
+    elif ticket:
+        from antigravity_k.security.ws_ticket import get_ws_ticket_service
 
-    # SEC-02: evaluate_credential은 PIN credential을 받지 않는다 (query ?pin= 제거).
+        ticket_subject = get_ws_ticket_service().consume(ticket)
+        if ticket_subject is not None:
+            token_verified = True
+            token_subject = ticket_subject
+
+    # SEC-02: evaluate_credential은 PIN credential을 받지 않는다.
     decision = get_shared_auth_policy().evaluate_credential(
         token_verified=token_verified,
         host=config.server.host,
@@ -95,10 +126,9 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
         websocket.state.auth_subject = token_subject
         return False
 
-    # SEC-02: WS는 bearer token만 수용한다 — 과거 "점이 없으면 legacy PIN으로
-    # 간주해 PBKDF2 검증" 분기는 query로 PIN 후보를 반복 전송해 PBKDF2 CPU 비용을
-    # 유발하는 공격 표면이었으므로 제거되었다. evaluate_credential에 pin=None을
-    # 전달하므로 이 경로에서 PBKDF2가 실행될 수 없다.
+    # SEC-02/SEC-03: WS는 subprotocol bearer 또는 단기 ticket만 수용한다 —
+    # query ?pin= (SEC-02 제거)와 query ?token= (SEC-03 제거, URL credential
+    # 노출) 모두 더 이상 인증 수단이 아니다.
     # No valid credential — deny (4401, plan 규정 equivalent).
     await websocket.close(code=4401, reason="Unauthorized")
     return True

@@ -8,6 +8,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { readStoredAccessToken } from '../../utils/accessPinCredential';
+import { fetchWsTicket } from '../../utils/wsTicket';
 import 'xterm/css/xterm.css';
 
 const TerminalPanel: React.FC = () => {
@@ -82,34 +83,45 @@ const TerminalPanel: React.FC = () => {
         const host = window.location.port === '5173' || window.location.port === '5174' || window.location.port === '3000'
           ? 'localhost:8000' : window.location.host;
         const accessToken = readStoredAccessToken();
-        const ws = accessToken === null
-          ? new WebSocket(`${protocol}//${host}/ws/terminal`)
-          : new WebSocket(`${protocol}//${host}/ws/terminal`, [`bearer.${accessToken}`]);
-        activeWs = ws;
-        wsRef.current = ws;
+        const wsUrl = new URL(`${protocol}//${host}/ws/terminal`);
 
-        ws.onopen = () => {
-          if (disposed) {
-            ws.close();
-            return;
-          }
-          term?.writeln('\x1b[32m[Ssak-Ai] Terminal connected.\x1b[0m');
-          fitAddon?.fit();
-        };
-        ws.onmessage = (event: MessageEvent) => {
-          if (!disposed) term?.write(event.data);
-        };
-        ws.onclose = () => {
+        // SEC-03: bearer를 subprotocol에 실지 않는다 — 단기 1회성 ticket 사용.
+        const open = (ticket: string | null): void => {
           if (disposed) return;
-          term?.writeln('\x1b[31m[Ssak-Ai] Terminal disconnected. Reconnecting in 3s...\x1b[0m');
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            connectWebSocket();
-          }, 3000);
+          if (ticket !== null) wsUrl.searchParams.set('ticket', ticket);
+          const ws = new WebSocket(wsUrl);
+          activeWs = ws;
+          wsRef.current = ws;
+
+          ws.onopen = () => {
+            if (disposed) {
+              ws.close();
+              return;
+            }
+            term?.writeln('\x1b[32m[Ssak-Ai] Terminal connected.\x1b[0m');
+            fitAddon?.fit();
+          };
+          ws.onmessage = (event: MessageEvent) => {
+            if (!disposed) term?.write(event.data);
+          };
+          ws.onclose = () => {
+            if (disposed) return;
+            term?.writeln('\x1b[31m[Ssak-Ai] Terminal disconnected. Reconnecting in 3s...\x1b[0m');
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              connectWebSocket();
+            }, 3000);
+          };
+          ws.onerror = () => {
+            if (!disposed) console.error('Terminal WebSocket error');
+          };
         };
-        ws.onerror = () => {
-          if (!disposed) console.error('Terminal WebSocket error');
-        };
+
+        if (accessToken === null) {
+          open(null);
+        } else {
+          void fetchWsTicket().then((ticket) => open(ticket));
+        }
       };
 
       dataDisposable = term.onData((data: string) => {

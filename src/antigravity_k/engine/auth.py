@@ -273,6 +273,11 @@ def extract_token_from_ws(websocket: "WebSocket") -> str | None:
     rate-limited login route로만 제출한다. WS에서 PIN credential을 수집하지
     않는다 (credential 표면 축소 + 로그/audit 누출 방지).
 
+    SEC-03: 장기 bearer의 ``token`` query parameter도 제거되었다 — URL(로그,
+    browser history, proxy 로그)에 credential이 남는 채널이므로, browser
+    클라이언트는 단기 1회성 ticket(``?ticket=``)을, 비-browser 클라이언트는
+    subprotocol bearer 채널을 쓴다.
+
     Args:
         websocket: The inbound WebSocket connection.
 
@@ -280,10 +285,6 @@ def extract_token_from_ws(websocket: "WebSocket") -> str | None:
         The token string, or None if none was provided.
 
     """
-    # Query parameter (primary for browser WS clients).
-    token = websocket.query_params.get("token")
-    if token:
-        return token
     # Subprotocol header (set by non-browser clients).
     protocols = websocket.headers.get("sec-websocket-protocol")
     if protocols:

@@ -9,6 +9,7 @@ import React, { useEffect, useRef } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { readStoredAccessToken } from '../../utils/accessPinCredential';
+import { fetchWsTicket } from '../../utils/wsTicket';
 import 'xterm/css/xterm.css';
 
 interface Props {
@@ -98,41 +99,51 @@ const TerminalSession: React.FC<Props> = ({ sessionId }) => {
         const wsUrl = new URL(`${protocol}//${host}/ws/terminal`);
         const accessToken = readStoredAccessToken();
 
-        const ws = accessToken === null
-          ? new WebSocket(wsUrl)
-          : new WebSocket(wsUrl, [`bearer.${accessToken}`]);
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-          if (disposed) {
-            ws.close();
-            return;
-          }
-          term?.writeln('\x1b[32m[Ssak-Ai] Terminal connected.\x1b[0m');
-          fitAddonRef.current?.fit();
-        };
-
-        ws.onmessage = (event: MessageEvent) => {
-          if (!disposed) term?.write(event.data);
-        };
-
-        ws.onclose = (event) => {
+        // SEC-03: bearer를 subprotocol에 실지 않는다 — 단기 1회성 ticket을
+        // ?ticket= 로 사용 (재사용 불가, 30초 만료). 발급 실패 시 익명 시도.
+        const open = (ticket: string | null): void => {
           if (disposed) return;
-          if (event.code === 1008 && event.reason === 'Terminal WebSocket is disabled') {
-            term?.writeln('\x1b[33m[Ssak-Ai] Terminal is disabled. Set AGK_ENABLE_TERMINAL_WS=true to enable it.\x1b[0m');
-            return;
-          }
-          term?.writeln('\x1b[31m[Ssak-Ai] Terminal disconnected. Reconnecting in 3s...\x1b[0m');
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            connectWebSocket();
-          }, 3000);
-          reconnectTimerRef.current = reconnectTimer;
+          if (ticket !== null) wsUrl.searchParams.set('ticket', ticket);
+          const ws = new WebSocket(wsUrl);
+          wsRef.current = ws;
+
+          ws.onopen = () => {
+            if (disposed) {
+              ws.close();
+              return;
+            }
+            term?.writeln('\x1b[32m[Ssak-Ai] Terminal connected.\x1b[0m');
+            fitAddonRef.current?.fit();
+          };
+
+          ws.onmessage = (event: MessageEvent) => {
+            if (!disposed) term?.write(event.data);
+          };
+
+          ws.onclose = (event) => {
+            if (disposed) return;
+            if (event.code === 1008 && event.reason === 'Terminal WebSocket is disabled') {
+              term?.writeln('\x1b[33m[Ssak-Ai] Terminal is disabled. Set AGK_ENABLE_TERMINAL_WS=true to enable it.\x1b[0m');
+              return;
+            }
+            term?.writeln('\x1b[31m[Ssak-Ai] Terminal disconnected. Reconnecting in 3s...\x1b[0m');
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              connectWebSocket();
+            }, 3000);
+            reconnectTimerRef.current = reconnectTimer;
+          };
+
+          ws.onerror = () => {
+            if (!disposed) console.error('Terminal WebSocket error:', sessionId);
+          };
         };
 
-        ws.onerror = () => {
-          if (!disposed) console.error('Terminal WebSocket error:', sessionId);
-        };
+        if (accessToken === null) {
+          open(null);
+        } else {
+          void fetchWsTicket().then((ticket) => open(ticket));
+        }
       };
 
       connectWebSocket();

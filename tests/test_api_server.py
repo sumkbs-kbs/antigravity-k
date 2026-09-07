@@ -301,12 +301,16 @@ def test_kanban_websocket_sends_flat_tasks_payload(client: TestClient):
     )
 
     try:
-        # WebSocket requires auth via query param (browsers can't set WS headers).
-        # The client fixture sets X-Access-Pin for HTTP, but WS needs ?pin=.
+        # SEC-03: WS auth uses a short-lived single-use ticket (?ticket=).
+        # The old ?pin= channel was removed in SEC-02; long-lived bearer
+        # tokens in query strings were removed in SEC-03.
         ws_url = "/ws/kanban"
-        pin = config.security.access_pin
-        if pin:
-            ws_url += f"?pin={pin}"
+        if config.security.access_pin:
+            from antigravity_k.engine.auth import TokenService
+            from antigravity_k.security.ws_ticket import get_ws_ticket_service
+
+            ticket = get_ws_ticket_service(TokenService()).issue("test")
+            ws_url += f"?ticket={ticket}"
         with client.websocket_connect(ws_url) as websocket:
             payload = cast(JsonObject, json.loads(websocket.receive_text()))
 
