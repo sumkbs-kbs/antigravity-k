@@ -26,7 +26,7 @@ def _body(**overrides: Any) -> dict[str, Any]:
         "base_model": "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
         "source": "",
         "platform": "mlx",
-        "hyperparameters": {"iterations": 5, "epochs": 2},
+        "hyperparameters": {"iterations": 5, "batch_size": 2},
     }
     base.update(overrides)
     return base

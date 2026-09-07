@@ -53,6 +53,8 @@ class TrainingJobView(TypedDict):
     error: str
     started_at: float
     finished_at: float | None
+    recipe_sha256: str  # TRN-01 — 재실행 provenance 키
+    iterations: int  # TRN-01 — child argv의 --iters와 동일 (progress denominator)
 
 
 class _Job:
@@ -74,6 +76,8 @@ class _Job:
             "error": "",
             "started_at": time.time(),
             "finished_at": None,
+            "recipe_sha256": "",
+            "iterations": 0,
         }
         self.iterations = 0  # mlx-lm --iterations (진행률 분모)
         self.cancelled = False
@@ -113,6 +117,34 @@ def _require_allowed(tool_name: str, args: dict[str, str], risk_level: str) -> N
         raise HTTPException(status_code=403, detail=f"Permission denied for {tool_name}: {decision.permission.value}")
 
 
+def _iters_from_command(command: str) -> int:
+    """mlx-lm command에서 --iters 값을 파싱 (progress denominator 백업 경로)."""
+    tokens = command.split()
+    for i, tok in enumerate(tokens):
+        if tok == "--iters" and i + 1 < len(tokens):
+            try:
+                return int(tokens[i + 1])
+            except ValueError:
+                return 0
+    return 0
+
+
+def _validate_start_request(request: TrainingJobStartRequest) -> None:
+    """시작 요청 하이퍼파라미터 게이트 (TRN-01) — 잡 생성 전 400 거절.
+
+    iterations가 지정된 경우 검증하고, 나머지 키는 finetune.hyperparameters의
+    단일 규칙으로 검증한다 (백엔드는 요청 platform; auto면 mlx 가정).
+    """
+    from antigravity_k.finetune.hyperparameters import HyperparameterValidationError, validate_hyperparameters
+
+    platform = str(request.get("platform", "auto"))
+    backend = "mlx" if platform in ("", "auto", "mlx") else platform
+    try:
+        _ = validate_hyperparameters(dict(request.get("hyperparameters", {})), backend=backend)
+    except HyperparameterValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _run_job(job: _Job, request: TrainingJobStartRequest) -> None:
     """백그라운드 스레드 본체 — apply_recipe 후 run_training."""
     from antigravity_k.engine.lora_pipeline import LoRAPipeline
@@ -145,6 +177,24 @@ def _run_job(job: _Job, request: TrainingJobStartRequest) -> None:
         job.view["finished_at"] = time.time()
         return
 
+    # TRN-01: progress denominator와 digest는 apply_recipe 결과(검증된 오버라이드)에서
+    # 읽는다 — 요청 → argv → progress가 하나의 dict에서 나온다.
+    job.view["recipe_sha256"] = str(result.get("recipe_sha256", ""))
+    config = result.get("config")
+    config_iters = 0
+    if isinstance(config, dict):
+        hyper_cfg = config.get("hyperparameters")
+        raw_iters = hyper_cfg.get("iterations") if isinstance(hyper_cfg, dict) else None
+        try:
+            config_iters = int(raw_iters) if raw_iters is not None else 0
+        except (TypeError, ValueError):
+            config_iters = 0
+        if config_iters <= 0:
+            config_iters = _iters_from_command(str(config.get("command", "")))
+    if config_iters > 0:
+        job.iterations = config_iters
+    job.view["iterations"] = job.iterations
+
     job.view["dataset_path"] = str(result.get("dataset_path", ""))
     job.view["config_path"] = str(result.get("config_path", ""))
     job.view["records"] = int(result.get("records", 0))
@@ -174,6 +224,7 @@ def _run_job(job: _Job, request: TrainingJobStartRequest) -> None:
 @router.post("")
 async def start_training_job(request: TrainingJobStartRequest) -> dict[str, object]:
     """레시피 적용 + 학습 실행을 백그라운드 잡으로 시작한다."""
+    _validate_start_request(request)
     _require_allowed(
         "start_training", {"recipe": request.get("recipe", ""), "base_model": request.get("base_model", "")}, "critical"
     )
