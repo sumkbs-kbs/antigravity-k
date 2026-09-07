@@ -1,0 +1,10 @@
+ERROR    antigravity_k.engine.ambient_watchdog:ambient_watchdog.py:105 Unhandled exception
+FAILED tests/test_agent_runtime.py::test_background_task_route_uses_canonical_runtime
+FAILED tests/test_agent_runtime.py::test_chat_stream_keeps_generator_context_across_threadpool
+FAILED tests/test_agent_runtime.py::test_chat_stream_route_uses_canonical_runtime
+FAILED tests/test_api_server.py::test_chat_completions_capabilities_uses_connected_policy
+FAILED tests/test_api_server.py::test_chat_completions_openai_format
+FAILED tests/test_api_server.py::test_chat_completions_routes_slash_codex
+FAILED tests/test_api_server.py::test_chat_completions_routes_slash_goal
+FAILED tests/test_api_server.py::test_chat_completions_self_capability_bypasses_llm
+FAILED tests/test_task_api.py::test_submit_task_uses_typed_canonical_runtime_contract
