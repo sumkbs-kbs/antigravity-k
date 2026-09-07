@@ -1,0 +1,68 @@
+{
+  "task_id": "TRN-01",
+  "title": "학습 recipe 단일 source와 실행 인자 일치",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §TRN-01",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §TRN-01",
+  "status": "REVIEW_R1_APPROVE",
+  "branch": "codex/trn-01-recipe-source",
+  "worktree": "(제거됨 — 병합 후 통합 정리)",
+  "base_sha": "6d3c515",
+  "result_sha": "3e55745 (리베이스 후 717ee89, 병합 583911a)",
+  "reviewer": "trn_01_verify (독립 세션 — Freebuff, 2026-09-07)",
+  "roles": {
+    "implementer": "trn_01_impl (Freebuff 세션, 2026-09-07)",
+    "reviewer": "trn_01_verify (구현자와 상이한 세션 필요)"
+  },
+  "note": "원본 metadata는 worktree 정리 시 유실되어 리뷰 시점 사실로 재구성함 (구현·검증 결과는 독립 재현으로 확인됨).",
+  "acceptance_criteria": [
+    {
+      "criterion": "legacy command와 typed recipe가 한 resolve 경로를 사용한다",
+      "evidence": [
+        "src/antigravity_k/finetune/hyperparameters.py — validate_hyperparameters 단일 게이트",
+        "lora_pipeline.apply_recipe와 generate_config 모두 이 경로를 통과 (lora_pipeline.py:1315)",
+        "독립 재현: apply_recipe(iterations=777, learning_rate=3e-4) → 명령에 --iters 777 --learning-rate 3e-4 반영, config hyperparameters와 동일 값"
+      ]
+    },
+    {
+      "criterion": "iterations/batch/layers/LR validation이 있다",
+      "evidence": [
+        "0/음수/과대/미지원 키/learning_rate=1.5 전부 실행 전 HyperparameterValidationError",
+        "mlx에서 unsloth 전용 키 거절 (capability 미지원 명시)"
+      ]
+    },
+    {
+      "criterion": "request/dry-run argv/child argv/progress/result가 일치한다",
+      "evidence": [
+        "단일 resolve 구조 — validate 통과값이 argv와 config에 동시 반영",
+        "recipe_sha256 digest가 config에 동봉됨"
+      ]
+    },
+    {
+      "criterion": "backend 미지원 option이 사전 거절된다",
+      "evidence": [
+        "backend_capabilities('mlx').unsupported_keys 선언 + validate에서 거절",
+        "미지원 백엔드(tpu) 거절"
+      ]
+    },
+    {
+      "criterion": "recipe digest가 결정적이다",
+      "evidence": [
+        "동일 입력 → 동일 SHA-256, 키 순서/LR 표기 차이(2e-4 vs 2E-4)에도 동일",
+        "입력 변경(iterations 100→200) 시 다른 digest"
+      ]
+    },
+    {
+      "criterion": "MLX와 Unsloth capability 표시가 정확하다",
+      "evidence": [
+        "mlx executable=True / unsloth executable=False (CUDA 호스트 필요 명시)"
+      ]
+    }
+  ],
+  "verification": {
+    "implementer_tests": "test_trn01_recipe_single_source.py 18 passed",
+    "regression": "구현 단계에서 base 대비 8건 신규 실패 → 기존 테스트의 옛 비일관 동작 의존으로 판명, 9건을 새 계약으로 마이그레이션. 병합 후 전체 스위트 실패 목록 baseline과 byte-identical (9=9)",
+    "lint": "ruff clean (hyperparameters.py + lora_pipeline.py)"
+  },
+  "generated_at": "2026-09-07 (재구성)",
+  "generated_by": "Freebuff agent (reviewer session)"
+}

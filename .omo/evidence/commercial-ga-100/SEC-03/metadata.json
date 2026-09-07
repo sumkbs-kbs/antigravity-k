@@ -3,12 +3,12 @@
   "title": "WebSocket Origin allowlist + 단기 1회성 ticket",
   "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §SEC-03",
   "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §SEC-03",
-  "status": "IMPLEMENTATION_DONE_REVIEW_PENDING",
+  "status": "REVIEW_R1_APPROVE",
   "branch": "codex/sec-03-ws-origin-ticket",
   "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-sec-03",
   "base_sha": "ec144cd",
   "commit": "71b48a7",
-  "reviewer": "sec_03_verify (할당 대기)",
+  "reviewer": "sec_03_verify (독립 세션 — Freebuff, 2026-09-07)",
   "roles": {
     "implementer": "sec_03_impl (Freebuff 세션, 2026-09-06~07)",
     "reviewer": "sec_03_verify (구현자와 상이한 세션 필요)"
@@ -60,5 +60,6 @@
     "구현 세부와 진행 로그는 docs/ 진행문서 및 커밋 71b48a7 참조"
   ],
   "generated_at": "2026-09-07",
-  "generated_by": "Freebuff agent (implementer session)"
+  "generated_by": "Freebuff agent (implementer session)",
+  "review_note": "독립 재현 4/4 PASS, 구현자 테스트 44 passed, 회귀 9=9"
 }

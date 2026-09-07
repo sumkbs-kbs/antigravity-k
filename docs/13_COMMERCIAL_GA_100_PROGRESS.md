@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 11 |
-| 진행 중 | 1 |
+| 완료 | 18 |
+| 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | DAT-02 구현 완료 — `dat_02_verify` 독립 리뷰 대기 |
+| 현재 작업 | SEC-03/TRN-01 DONE — 다음 레인: EVO-01, RAG-01, REL-01, UI-01 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -780,6 +780,13 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **병합 후 회귀**: 전체 스위트 **5588 passed / 9 failed** — 병합 전 baseline과 실패 목록 byte-identical (회귀 0). 9건은 WS-lane fixture 선행 실패(별도 트랙에서 처리 예정).
 - **상태 주의**: SEC-03/TRN-01은 구현+증거 완료 상태로 baseline에 통합되었으나 **독립 r1 리뷰는 아직 미수행** — 리뷰어(sec_03_verify/trn_01_verify)가 수용기준을 독립 재현해야 DONE 표기 가능.
 - **워크트리 정리**: 병합 완료 레인 worktree 17개 + /tmp 검증용 4개 제거 (브랜치는 audit trail로 보존).
+
+### 2026-09-07 · SEC-03/TRN-01 독립 리뷰 r1 APPROVE → DONE
+
+- **SEC-03 리뷰** (reviewer `sec_03_verify`): 독립 스크립트로 수용기준 4/4 재현 — (AC-1) Origin allowlist: cross-site/scheme 교체/suffix 우회 전부 거절, non-browser missing origin 허용 (AC-2) ticket: 첫 소비 성공 → replay 거절, 변조/만료(ttl_sec=1 재현)/bearer-typ 혼입 거절 (AC-3) 게이트 소스 정적 재현: `?token=`/subprotocol 부재, ticket-only, 발급 route는 Bearer 인증 (AC-4) 악의 Origin + 유효 ticket 조합도 Origin이 먼저 차단. 구현자 테스트 44 passed, 회귀 9=9. 증거: `SEC-03/review.md`.
+- **TRN-01 리뷰** (reviewer `trn_01_verify`): 독립 스크립트로 수용기준 4/4 재현 — validation 게이트(0/음수/과대/미지원 키/LR 범위/unsloth 전용 키), capability 표(mlx 실행 가능·unsloth 로컬 불가), digest 결정성(키 순서/LR 표기 차이에도 동일), 단일 resolve(`--iters 777 --learning-rate 3e-4`가 argv·config·digest 동시 반영). 구현자 테스트 18 passed. 증거: `TRN-01/review.md` + metadata(원본 유실로 리뷰 시점 사실 재구성).
+- **최종 상태**: SEC-03 **DONE** (`71b48a7`, 병합 `3be742d`), TRN-01 **DONE** (`717ee89`, 병합 `583911a`). 브랜치는 audit trail로 보존.
+- **현재 진행**: **18/33 DONE** (기존 16 + SEC-03 + TRN-01).
 
 ### 2026-09-07 · SEC-02 독립 리뷰 r1 APPROVE + 병합 DONE
 
