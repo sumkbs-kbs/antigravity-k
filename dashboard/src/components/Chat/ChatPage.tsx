@@ -25,7 +25,6 @@ import {
   streamChatCompletion,
   ConversationRevisionConflictError,
   fetchConversationHistory,
-  compactConversation,
   fetchModels,
   fetchLocalModels,
   loadModel,
@@ -67,7 +66,7 @@ export const ChatPage: React.FC = () => {
     messages, isStreaming, selectedModel, isPlanMode, isTddMode,
     activeSession, activeSessionId, updateSessionTitle,
     addMessage, updateLastAssistantMessage, saveToStorage,
-    conversationRevision, setConversationRevision, applyServerSnapshot,
+    applyServerSnapshot,
     setStreaming, appendToCurrentAssistantContent, setCurrentAssistantContent,
     loadFromStorage, setSelectedModel, clearForProjectSwitch,
   } = useChatStore();
@@ -75,7 +74,6 @@ export const ChatPage: React.FC = () => {
   const { addToast, setCommandPaletteVisible } = useUiStore();
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const activeProjectName = useProjectStore((s) => s.activeProjectName);
-  const activeProjectPath = useProjectStore((s) => s.activeProjectPath);
   const switchEpoch = useProjectStore((s) => s.switchEpoch);
   const hydrateProjects = useProjectStore((s) => s.hydrateFromServer);
   const projectSwitchEpochRef = useRef(switchEpoch);
@@ -119,10 +117,10 @@ export const ChatPage: React.FC = () => {
   const [isScanningLocal, setIsScanningLocal] = useState<boolean>(false);
 
   const loadLocalModels = useCallback(async (refresh = false) => {
-    setIsScanningLocal(true);
     try {
       const res = await fetchLocalModels(refresh);
       if (res.ok && res.models) {
+        setIsScanningLocal(true);
         setLocalModels(res.models);
         const currentSelected = useChatStore.getState().selectedModel;
         const exists = res.models.some(m => m.id === currentSelected);
@@ -137,6 +135,9 @@ export const ChatPage: React.FC = () => {
       setIsScanningLocal(false);
     }
   }, [setSelectedModel]);
+
+  // 스캔 시작을 렌더 단계가 아닌 첫 await 이후로 미룬다 —
+  // effect 본문에서 동기 setState(cascading render)를 피하기 위함.
 
   const handleModelChoice = useCallback((modelId: string) => {
     setSelectedModel(modelId);
@@ -162,17 +163,23 @@ export const ChatPage: React.FC = () => {
   const isPlanModeRef = useRef(isPlanMode);
   const isTddModeRef = useRef(isTddMode);
   const runRef = useRef<(text: string) => Promise<void>>(async () => {});
+  // 로컬 모델 로더의 최신 버전을 가리키는 레퍼런스 — init effect가 마운트 시 1회만
+  // 실행되도록 하면서 effect 본문의 동기 setState(react-hooks/set-state-in-effect)를 피한다.
+  const loadLocalModelsRef = useRef<(refresh?: boolean) => Promise<void>>(async () => {});
+  // 워크스페이스 컨텍스트 리로더의 최신 버전 레퍼런스 — 동일 목적.
+  const reloadWorkspaceContextRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
     isPlanModeRef.current = isPlanMode;
     isTddModeRef.current = isTddMode;
-  }, [isPlanMode, isTddMode, selectedModel]);
+    loadLocalModelsRef.current = loadLocalModels;
+  }, [isPlanMode, isTddMode, selectedModel, loadLocalModels]);
 
   /* ─── Init ───────────────────────────────────────────────── */
   useEffect(() => {
     loadFromStorage();
-    void loadLocalModels(false);
+    void loadLocalModelsRef.current(false);
     fetchModels()
       .then(models => setAvailableModels(models))
       .catch(() => {});
@@ -231,12 +238,18 @@ export const ChatPage: React.FC = () => {
       .catch(() => {});
   }, []);
 
+  // reloadWorkspaceContext의 최신 버전을 ref에 동기화 — 아래 init effect와
+  // 프로젝트 전환 effect가 마운트 시 1회 실행되면서도 항상 최신 클로저를 쓰게 한다.
+  useEffect(() => {
+    reloadWorkspaceContextRef.current = reloadWorkspaceContext;
+  }, [reloadWorkspaceContext]);
+
   useEffect(() => {
     void hydrateProjects();
   }, [hydrateProjects]);
 
   useEffect(() => {
-    reloadWorkspaceContext();
+    reloadWorkspaceContextRef.current();
     // 실행 권한 모드 초기값 동기화 (읽기 전용이면 칩이 즉시 반영됨)
     fetch('/api/system/access-mode', { headers: createProjectIdentityHeaders() })
       .then(r => r.ok ? r.json() : null)
@@ -455,7 +468,7 @@ export const ChatPage: React.FC = () => {
     // declared string|null type at the read site below.
     let errorMessage: string | null = null as string | null;
     const expectedRevision = useChatStore.getState().conversationRevision ?? 0;
-    const conversationId = useChatStore.getState().activeSessionId || activeSessionId;
+    const conversationId = useChatStore.getState().activeSessionId ?? activeSessionId;
     await streamChatCompletion(
       {
         model,
@@ -567,7 +580,7 @@ export const ChatPage: React.FC = () => {
   }, [
     addMessage, saveToStorage, setStreaming, appendToCurrentAssistantContent,
     updateLastAssistantMessage, startElapsedTimer, stopElapsedTimer,
-    webSearch, codeMode, mcpAllowlist,
+    webSearch, codeMode, mcpAllowlist, activeSessionId, applyServerSnapshot,
   ]);
 
   useEffect(() => {
