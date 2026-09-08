@@ -27,6 +27,22 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_bound_execution_context() -> Iterator[None]:
+    """테스트 경계마다 ARC-01 바인딩된 실행 컨텍스트를 해제한다.
+
+    ``resolve_project_execution_context(bind=True)`` (chat/task route)는 실서버에서
+    요청별 contextvar 분리로 누수가 없지만, 테스트는 같은 스레드에서 연속 실행되므로
+    바인딩이 다음 테스트로 새어 나가 ``effective_project_root()`` 기반 경로 검사
+    (WS-02 sandbox)를 오염시킨다. 시작·종료 양쪽에서 리셋해 테스트 순서 무관성을 보장.
+    """
+    from antigravity_k.api.project_binding import reset_bound_request_execution_context
+
+    reset_bound_request_execution_context()
+    yield
+    reset_bound_request_execution_context()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _sec01_test_auth_harness() -> Iterator[None]:
     """세션 전체: SEC-01 명시적 dev 익명 허용 + 자격증명 격리."""
@@ -56,6 +72,20 @@ def _sec01_test_auth_harness() -> Iterator[None]:
     auth_routes_mod._token_service = None
     auth_routes_mod._pin_hash = None
     auth_routes_mod.init_auth_state()
+
+    # WS-01 계약: chat/task route는 project_id 또는 session active-project
+    # binding을 요구한다. 기본 세션("default")을 레지스트리의 active project에
+    # binding해 두면 라우트 테스트가 실제 사용자 플로우(프로젝트 연 뒤 대화)
+    # 와 동일한 상태에서 실행된다. binding이 없던 테스트는 WS-01 게이트에서
+    # MissingExecutionContextError로 실패했었다 (2026-09-07 정리).
+    from antigravity_k.api.project_binding import bind_session_active_project
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    try:
+        active = get_project_registry().get_active_project()
+        bind_session_active_project("", active.id)
+    except Exception:
+        pass  # registry 부트 실패 시에도 기존 테스트 동작은 유지
 
     yield
 

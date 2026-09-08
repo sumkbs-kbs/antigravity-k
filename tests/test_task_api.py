@@ -122,16 +122,22 @@ def test_submit_task_uses_typed_canonical_runtime_contract(client: TestClient, r
 
     assert response.status_code == 202
     assert response.json() == {"status": "submitted", "task_id": "task-123"}
-    assert runtime.submit_calls == [
-        {
-            "prompt": "inspect the repository",
-            "context": {"expected_tools": ["read_file"]},
-            "target_model": "qwen-local",
-            "use_worktree": True,
-            "idempotency_key": "request-1",
-            "owner_subject": "owner",
-        },
-    ]
+    # WS-01: submit context는 immutable project binding 필드가 merge된다.
+    assert len(runtime.submit_calls) == 1
+    call = runtime.submit_calls[0]
+    assert call["prompt"] == "inspect the repository"
+    assert call["target_model"] == "qwen-local"
+    assert call["use_worktree"] is True
+    assert call["idempotency_key"] == "request-1"
+    assert call["owner_subject"] == "owner"
+    binding_ctx = call["context"]
+    assert binding_ctx["expected_tools"] == ["read_file"]
+    assert binding_ctx["project_id"] == "default"
+    assert binding_ctx["canonical_project_root"]
+    assert binding_ctx["session_id"] == "default"
+    assert binding_ctx["actor_subject"] == "owner"
+    assert binding_ctx["schema_version"] == 1
+    assert binding_ctx["execution_context"]["project_id"] == "default"
 
 
 def test_submit_task_rejects_blank_prompt(client: TestClient, runtime: FakeTaskRuntime) -> None:

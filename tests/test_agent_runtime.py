@@ -803,16 +803,17 @@ def test_background_task_route_uses_canonical_runtime(monkeypatch: pytest.Monkey
     )
 
     assert result.model_dump() == {"status": "submitted", "task_id": "task_route_001"}
-    assert calls == [
-        {
-            "prompt": "inspect the project",
-            "context": {"expected_tools": ["read_file"]},
-            "target_model": "",
-            "use_worktree": False,
-            "idempotency_key": "route-001",
-            "owner_subject": "anonymous",
-        },
-    ]
+    # WS-01: submit context는 immutable project binding 필드가 merge된다.
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["prompt"] == "inspect the project"
+    assert call["target_model"] == ""
+    assert call["use_worktree"] is False
+    assert call["idempotency_key"] == "route-001"
+    assert call["owner_subject"] == "anonymous"
+    assert call["context"]["expected_tools"] == ["read_file"]
+    assert call["context"]["project_id"] == "default"
+    assert call["context"]["actor_subject"] == "anonymous"
 
 
 def test_task_api_resume_route_uses_canonical_runtime(monkeypatch: pytest.MonkeyPatch):
@@ -906,6 +907,10 @@ async def test_chat_stream_route_uses_canonical_runtime(monkeypatch: pytest.Monk
             yield "runtime-response"
 
     class Request:
+        # WS-01: route는 request.state(auth_subject/execution_context)와 headers를 읽는다.
+        state = SimpleNamespace()
+        headers = {}
+
         async def json(self) -> dict[str, object]:
             return {
                 "model": "test-combo",
@@ -953,6 +958,10 @@ async def test_chat_stream_keeps_generator_context_across_threadpool(monkeypatch
                 marker.reset(token)
 
     class Request:
+        # WS-01: route는 request.state(auth_subject/execution_context)와 headers를 읽는다.
+        state = SimpleNamespace()
+        headers = {}
+
         async def json(self) -> dict[str, object]:
             return {
                 "model": "test-combo",
