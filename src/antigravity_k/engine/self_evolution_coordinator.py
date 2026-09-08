@@ -188,6 +188,8 @@ class EvolutionResult:
     error_message: str = ""
     duration_sec: float = 0.0
     details: JsonObject = field(default_factory=dict)
+    # EVO-01 — lifecycle 단계 기록: approved/applied/validated/rolled_back 순
+    events: list[JsonObject] = field(default_factory=list)
 
     @property
     def summary(self) -> str:
@@ -262,15 +264,25 @@ class SelfEvolutionCoordinator:
         self._last_evolution_time: float = 0.0
         self._turns_since_last_evolution: int = 0
         self._deps_initialized: bool = False
+        # EVO-01 — sandbox/validator 초기화 실패는 fail-closed: mutation 금지
+        self._deps_init_failed: bool = False
+        self._deps_init_error: str = ""
+        # EVO-01 — 승인/적용/검증/rollback event ledger (메모리, 최근 200건)
+        self._event_ledger: list[JsonObject] = []
 
     # ─── 지연 초기화 ─────────────────────────────────────────────
 
     def _ensure_deps(self) -> None:
-        """필요한 하위 엔진들을 지연 초기화합니다."""
+        """필요한 하위 엔진들을 지연 초기화합니다. (EVO-01 fail-closed)
+
+        sandbox 또는 필수 validator 초기화가 실패하면 조용히 넘어가지 않고
+        ``_deps_init_failed``를 남겨 ``auto_evolve``가 mutation을 거절한다.
+        """
         if self._deps_initialized:
             return
         self._deps_initialized = True
 
+        failures: list[str] = []
         try:
             from antigravity_k.engine.rsi_engine import RSIEngine
 
@@ -309,7 +321,13 @@ class SelfEvolutionCoordinator:
                 RSISandbox(project_root=self._root, verify_fn=self._verify_fn),
             )
         except (ImportError, RuntimeError, AttributeError):
-            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
+            # EVO-01 — sandbox는 mutation의 전제 조건. 실패는 fail-closed로 기록한다.
+            failures.append("sandbox")
+            logger.warning("[SEC] sandbox 초기화 실패 — mutation 차단 (fail-closed)", exc_info=True)
+
+        if failures:
+            self._deps_init_failed = True
+            self._deps_init_error = ", ".join(failures)
 
         try:
             from antigravity_k.engine.self_improvement import SelfImprovementLoop
@@ -346,6 +364,19 @@ class SelfEvolutionCoordinator:
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
     # ─── 메인 API ────────────────────────────────────────────────
+
+    def _record_event(self, stage: str, detail: JsonObject | None = None) -> None:
+        """EVO-01 — 진화 lifecycle 이벤트를 ledger에 기록 (최근 200건 유지)."""
+        event: JsonObject = {"stage": stage, "ts": time.time()}
+        if detail:
+            event.update(detail)
+        self._event_ledger.append(event)
+        if len(self._event_ledger) > 200:
+            del self._event_ledger[:-200]
+
+    def get_event_ledger(self) -> list[JsonObject]:
+        """EVO-01 — 승인/적용/검증/rollback event ledger 사본 반환."""
+        return [dict(e) for e in self._event_ledger]
 
     def record_performance(self, snapshot: PerformanceSnapshot) -> None:
         """태스크 완료 후 성능 스냅샷을 기록합니다.
@@ -426,6 +457,31 @@ class SelfEvolutionCoordinator:
         self._ensure_deps()
         self.record_performance(snapshot)
 
+        # EVO-01 — sandbox/필수 validator 초기화 실패 시 mutation을 실행하지 않는다 (fail-closed)
+        if self._deps_init_failed or self._sandbox is None:
+            result = EvolutionResult(
+                skipped=True,
+                error_message=(
+                    f"fail-closed: 진화 의존성 초기화 실패 ({self._deps_init_error or 'sandbox 미구성'})"
+                    " — mutation 실행 차단"
+                ),
+                duration_sec=time.time() - start_time,
+            )
+            self._record_event(
+                "blocked",
+                {"reason": "deps_init_failed", "detail": result.error_message},
+            )
+            self._save_evolution_history(
+                EvolutionHistory(
+                    cycle_id=f"sec_{int(time.time())}",
+                    timestamp=time.time(),
+                    result=result,
+                    snapshot=snapshot,
+                )
+            )
+            logger.warning("[SEC] ⛔ fail-closed: %s", result.error_message)
+            return result
+
         # 1. 진화 필요성 판단
         if not self.should_evolve(snapshot.quality_grade):
             return EvolutionResult(skipped=True)
@@ -455,24 +511,33 @@ class SelfEvolutionCoordinator:
             result.decision = decision
             result.mutation_domain = decision.domain
 
-            # 3. 샌드박스 내 변이 실행
+            # 3. 샌드박스 내 변이 실행 (EVO-01 — sandbox 없는 mutation 경로 제거)
             mutation_payload = {}
-            if self._sandbox:
-                with self._sandbox.safe_mutation(f"sec_{decision.domain.value}_{int(time.time())}"):
-                    mutation_payload = self._execute_mutation(decision, snapshot)
-                    if mutation_payload.get("applied"):
-                        # 4. 검증
-                        validation = self._validate(decision, mutation_payload)
-                        if not validation.get("passed", False):
-                            raise RuntimeError(f"Validation failed: {validation.get('reason', 'unknown')}")
-            else:
+            with self._sandbox.safe_mutation(f"sec_{decision.domain.value}_{int(time.time())}"):
                 mutation_payload = self._execute_mutation(decision, snapshot)
+                if mutation_payload.get("applied"):
+                    self._record_event(
+                        "applied",
+                        {"domain": decision.domain.value, "method": str(mutation_payload.get("method", ""))},
+                    )
+                    # 4. 검증 (validation timeout 포함 — 실패/timeout 모두 task-owned rollback)
+                    validation = self._validate(decision, mutation_payload)
+                    if not validation.get("passed", False):
+                        self._record_event(
+                            "validation_failed",
+                            {"reason": str(validation.get("reason", "unknown"))[:200]},
+                        )
+                        raise RuntimeError(f"Validation failed: {validation.get('reason', 'unknown')}")
+                    self._record_event("validated", {"domain": decision.domain.value})
 
             # 5. 결과 기록
             result.success = bool(mutation_payload.get("applied"))
             result.after_metric = snapshot.quality_score + decision.expected_improvement
             result.improvement = result.after_metric - result.before_metric
             result.details = mutation_payload
+            result.events = list(self._event_ledger[-10:])
+
+            self._record_event("approved", {"domain": decision.domain.value})
 
             # 6. 진화 이력 저장
             self._save_evolution_history(
@@ -491,15 +556,19 @@ class SelfEvolutionCoordinator:
             )
 
         except RuntimeError as e:
-            # 롤백 필요
+            # 롤백 필요 — safe_mutation 컨텍스트가 이미 snapshot rollback 수행
             result.success = False
             result.rolled_back = True
             result.error_message = str(e)
+            self._record_event("rolled_back", {"reason": str(e)[:200]})
+            result.events = list(self._event_ledger[-10:])
             logger.warning("[SEC] 🔄 진화 롤백: %s", e)
 
         except Exception as e:
             result.success = False
             result.error_message = str(e)
+            self._record_event("rolled_back", {"reason": f"unexpected: {str(e)[:150]}"})
+            result.events = list(self._event_ledger[-10:])
             logger.exception("[SEC] ❌ 진화 실패 (최상위 안전망)")
 
         result.duration_sec = time.time() - start_time
