@@ -25,6 +25,7 @@ import logging
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
@@ -115,6 +116,7 @@ class TrainingRunResult:
     log_tail: list[str] = field(default_factory=list)
     command: str = ""
     error: str = ""
+    termination: str = "completed"  # TRN-02 — completed | timeout | no_output_hang | cancelled
 
 
 def mlx_lm_available() -> bool:
@@ -772,15 +774,21 @@ model.save_pretrained("{output_dir}/dpo_model")
         config: Mapping[str, object],
         on_log: Callable[[str], None] | None = None,
         timeout_sec: float | None = None,
+        no_output_timeout_sec: float | None = None,
+        cancel_event: threading.Event | None = None,
+        on_proc_start: Callable[[object], None] | None = None,
     ) -> TrainingRunResult:
-        """생성된 mlx-lm 학습 설정을 실제로 실행합니다.
+        """생성된 mlx-lm 학습 설정을 실제로 실행합니다. (TRN-02 감독 포함)
 
         platform이 "mlx"면 command를 파싱해 서브프로세스로 실행하고
         로그를 on_log 콜백으로 스트리밍합니다. "unsloth"는 CUDA GPU가 필요해
         스크립트를 디스크에 저장한 뒤 안내 에러와 함께 실패 결과를 반환합니다.
+
+        TRN-02: 프로세스는 새 프로세스 그룹(start_new_session)으로 실행되고
+        watchdog이 timeout_sec / no_output_timeout_sec / cancel_event를 감독해
+        그룹 전체를 함께 종료합니다. 결과의 termination 필드로 사유가 기록됩니다.
         """
         started = time.monotonic()
-        _ = timeout_sec
         platform = str(config.get("platform", ""))
 
         if platform == "unsloth":
@@ -802,15 +810,20 @@ model.save_pretrained("{output_dir}/dpo_model")
                 elapsed_sec=time.monotonic() - started,
             )
 
+        from antigravity_k.finetune.training_supervision import (
+            supervise_command,
+        )
+
         argv = shlex.split(command)
         tail: list[str] = []
         try:
-            proc: subprocess.Popen[str] = subprocess.Popen(
+            outcome = supervise_command(
                 argv,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
+                timeout_sec=timeout_sec,
+                no_output_timeout_sec=no_output_timeout_sec,
+                cancel_event=cancel_event,
+                on_output=on_log,
+                on_proc_start=on_proc_start,
             )
         except OSError as exc:
             return TrainingRunResult(
@@ -820,24 +833,15 @@ model.save_pretrained("{output_dir}/dpo_model")
                 elapsed_sec=time.monotonic() - started,
             )
 
-        assert proc.stdout is not None
-        stdout: TextIO = cast(TextIO, proc.stdout)
-        with proc:
-            for raw_line in stdout:
-                line = raw_line.rstrip()
-                tail.append(line)
-                if len(tail) > 50:
-                    _ = tail.pop(0)
-                if on_log is not None:
-                    on_log(line)
-
-        exit_code = proc.wait() if proc.poll() is None else proc.returncode
+        tail = outcome.output[-50:]
         return TrainingRunResult(
-            success=exit_code == 0,
-            exit_code=exit_code,
+            success=outcome.success,
+            exit_code=outcome.return_code,
             elapsed_sec=time.monotonic() - started,
             log_tail=tail,
             command=command,
+            error=outcome.detail if outcome.reason != "completed" else "",
+            termination=outcome.reason,
         )
 
     @staticmethod

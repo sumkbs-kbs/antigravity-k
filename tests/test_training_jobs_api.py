@@ -44,7 +44,7 @@ def test_start_and_poll_completed_job(client: TestClient, tmp_path: Any, monkeyp
     monkeypatch.chdir(tmp_path)
 
     def fake_run_training(
-        self: object, config: dict[str, object], on_log: Any = None, timeout_sec: Any = None
+        self: object, config: dict[str, object], on_log: Any = None, timeout_sec: Any = None, **kwargs: Any
     ) -> TrainingRunResult:
         if on_log is not None:
             on_log("iter 1: loss=2.0")

@@ -239,7 +239,7 @@ class TestTrainingJobsApiTrn01:
             patch.object(
                 LoRAPipeline,
                 "run_training",
-                new=lambda self, config, on_log=None, timeout_sec=None: TrainingRunResult(
+                new=lambda self, config, on_log=None, timeout_sec=None, **kwargs: TrainingRunResult(
                     success=True, exit_code=0, elapsed_sec=0.01
                 ),
             ),

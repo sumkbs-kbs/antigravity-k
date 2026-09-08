@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
 import threading
 import time
 import uuid
@@ -20,6 +21,7 @@ from typing import TypedDict
 
 from fastapi import APIRouter, HTTPException
 
+from antigravity_k.finetune.training_supervision import TERMINATION_GRACE_SEC
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
 
@@ -36,6 +38,8 @@ class TrainingJobStartRequest(TypedDict, total=False):
     pdf_pages: str
     pdf_header_filter: str
     pdf_question_template: str
+    timeout_sec: float | None  # TRN-02 — 학습 wall-clock 상한 (None=무제한)
+    no_output_timeout_sec: float | None  # TRN-02 — 무출력 hang 감지 상한 (None=비활성)
 
 
 class TrainingJobView(TypedDict):
@@ -55,6 +59,7 @@ class TrainingJobView(TypedDict):
     finished_at: float | None
     recipe_sha256: str  # TRN-01 — 재실행 provenance 키
     iterations: int  # TRN-01 — child argv의 --iters와 동일 (progress denominator)
+    termination: str  # TRN-02 — completed | timeout | no_output_hang | cancelled
 
 
 class _Job:
@@ -78,10 +83,12 @@ class _Job:
             "finished_at": None,
             "recipe_sha256": "",
             "iterations": 0,
+            "termination": "completed",
         }
         self.iterations = 0  # mlx-lm --iterations (진행률 분모)
         self.cancelled = False
-        self.proc: object | None = None  # run_training의 Popen — 취소용
+        self.cancel_event = threading.Event()  # TRN-02 — watchdog cancel 신호
+        self.proc: subprocess.Popen[str] | None = None  # run_training의 Popen — 취소용 (on_proc_start 콜백)
 
     def append_log(self, line: str) -> None:
         tail = self.view["log_tail"]
@@ -209,13 +216,23 @@ def _run_job(job: _Job, request: TrainingJobStartRequest) -> None:
         return
 
     # 실제 학습 실행 (동기 — 잡 스레드 안이므로 이벤트 루프를 막지 않는다)
+    # TRN-02: watchdog이 timeout/no-output/cancel을 감독하고, on_proc_start로
+    # 실제 Popen을 잡에 노출해 취소가 프로세스 그룹에 도달하게 한다.
+    def _capture_proc(proc: object) -> None:
+        if isinstance(proc, subprocess.Popen):
+            job.proc = proc
+
     run_result = pipeline.run_training(
         config,
         on_log=job.append_log,
-        timeout_sec=None,
+        timeout_sec=request.get("timeout_sec"),
+        no_output_timeout_sec=request.get("no_output_timeout_sec"),
+        cancel_event=job.cancel_event,
+        on_proc_start=_capture_proc,
     )
     job.view["progress"] = 100
     job.view["finished_at"] = time.time()
+    job.view["termination"] = run_result.termination
     job.view["status"] = "completed" if run_result.success else "failed"
     if not run_result.success:
         job.view["error"] = run_result.error or f"exit_code={run_result.exit_code}"
@@ -258,16 +275,23 @@ async def cancel_training_job(job_id: str) -> dict[str, object]:
     if job is None:
         raise HTTPException(status_code=404, detail="Unknown training job")
     if job.view["status"] != "running":
+        # TRN-02 — 중복 cancel은 idempotent: 이미 종료된 잡이면 200 ok:false 반환
         return {"ok": False, "detail": "job is not running"}
+    if job.cancelled:
+        return {"ok": False, "detail": "job already cancelled"}
     job.cancelled = True
+    job.cancel_event.set()  # watchdog이 프로세스 그룹 전체를 종료한다
     proc = job.proc
     if proc is not None and hasattr(proc, "terminate"):
-        terminate = getattr(proc, "terminate")
+        # watchdog이 아직 시작 전인 극초기 레이스 보호 — 그룹 종료 재시도
         try:
-            terminate()
+            from antigravity_k.finetune.training_supervision import terminate_process_group
+
+            terminate_process_group(proc, grace_sec=TERMINATION_GRACE_SEC)
         except Exception:  # noqa: BLE001 — 이미 종료된 프로세스는 무시
             pass
     job.view["status"] = "failed"
     job.view["error"] = "cancelled by user"
+    job.view["termination"] = "cancelled"
     job.view["finished_at"] = time.time()
     return {"ok": True}

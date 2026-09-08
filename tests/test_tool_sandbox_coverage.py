@@ -197,6 +197,7 @@ ALLOWLIST: dict[str, Rule] = {
         allow_shell=True,
     ),
     "finetune/trainer.py": Rule(INTERNAL_FIXED, "mlx-lm 학습 Popen 고정 argv"),
+    "finetune/training_supervision.py": Rule(INTERNAL_FIXED, "TRN-02 감독 Popen — timeout/no-output/cancel 그룹 종료"),
     "finetune/artifact_lifecycle.py": Rule(INTERNAL_FIXED, "아티팩트 git 고정"),
     "finetune/training_adapter.py": Rule(INTERNAL_FIXED, "학습 어댑터 고정 호출"),
     "security/lintai_scanner.py": Rule(INTERNAL_FIXED, "lintai 스캐너 CLI 고정"),

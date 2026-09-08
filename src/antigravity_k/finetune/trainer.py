@@ -591,6 +591,16 @@ def main() -> None:
         help="공용 capability/resource broker DB 경로",
     )
     _ = train_p.add_argument("--resource-idempotency-key", help="재시도 중복 실행 방지 키")
+    _ = train_p.add_argument(
+        "--timeout-sec",
+        type=float,
+        help="TRN-02 — 학습 wall-clock 상한 (초). 초과 시 프로세스 그룹이 종료된다",
+    )
+    _ = train_p.add_argument(
+        "--no-output-timeout-sec",
+        type=float,
+        help="TRN-02 — 무출력 hang 감지 상한 (초). stdout 정체 시 프로세스 그룹이 종료된다",
+    )
 
     # prepare
     prep_p = sub.add_parser("prepare", help="데이터 준비")
@@ -710,7 +720,11 @@ def main() -> None:
                 resource_settings,
             )
             with reserve_finetune_resource(admission):
-                result = run_resolved_training(resolved)
+                result = run_resolved_training(
+                    resolved,
+                    timeout_sec=args.timeout_sec,
+                    no_output_timeout_sec=args.no_output_timeout_sec,
+                )
         except ValidationError as error:
             logger.error("학습 자원 설정 검증 실패")
             raise SystemExit(2) from error
