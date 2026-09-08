@@ -33,6 +33,12 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+### 2026-09-08 · RAG-01 구현·병합 (21/33)
+
+- **RAG-01 구현** (worktree `Ssak-Ai-rag-01`, 브랜치 `codex/rag-01-chunk-identity`): `_make_unique_id` — canonical file + structural ordinal + suffix + content digest 파생. 반복 heading·60자 공통 prefix·여러 intro·표 혼합 문서의 ID 충돌 원천 차단. `_chunk_markdown_prose`에 섹션 ordinal 부여, `_annotate_chunks`를 동일 파생식 최종 방어선으로 교체 (불안정한 dedupe_ 접미사 제거).
+- **검증**: 신규 스위트 7 passed (실제 Chroma reopen·stale vector 포함), 기존 RAG 스위트 22 passed, 전체 회귀 5,601 passed / 0 failed, ruff/mypy clean. 증거 팩 커밋 후 baseline 병합, 머지 후 13 passed.
+- **현재 진행**: **21/33 DONE** (기존 20 + RAG-01).
+
 ### 2026-09-08 · EVO-01 구현·병합 (20/33)
 
 - **EVO-01 구현** (worktree `Ssak-Ai-evo-01`, 브랜치 `codex/evo-01-mutation-fail-closed`): `auto_evolve`의 sandbox 없는 mutation else 분기 제거 — sandbox init 실패는 `_deps_init_failed`로 기록되고 진화 사이클이 fail-closed 차단된다 (blocked event). 모든 mutation은 `safe_mutation` 내부에서 실행되며 validation 실패/timeout은 RuntimeError→task-owned rollback. 신규 event ledger(approved/applied/validated/rolled_back, 200건)와 `EvolutionResult.events`로 감사 경로 제공.

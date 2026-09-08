@@ -43,7 +43,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | EVO-02 | TODO |  |  |  |  |  | EVO-01 |
 | TRN-01 | DONE | trn_01_impl | trn_01_verify (독립 세션) | codex/trn-01-recipe-source (병합 `583911a`) | `717ee89` | `.omo/evidence/commercial-ga-100/TRN-01/` | GA-00 |
 | TRN-02 | DONE | trn_02_impl | r1 리뷰 대기 | codex/trn-02-timeout-resource (병합 `52cfb14`) | `564324d` | `.omo/evidence/commercial-ga-100/TRN-02/` | TRN-01 |
-| RAG-01 | TODO |  |  |  |  |  | GA-00 |
+| RAG-01 | DONE | rag_01_impl | r1 리뷰 대기 | codex/rag-01-chunk-identity (병합) | — | `.omo/evidence/commercial-ga-100/RAG-01/` | GA-00 |
 | RAG-02 | TODO |  |  |  |  |  | RAG-01 |
 | REL-01 | TODO |  |  |  |  |  | GA-00 |
 | REL-02 | TODO |  |  |  |  |  | GA-00 |
@@ -287,12 +287,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## RAG-01 · chunk identity
 
-- [ ] ID에 canonical file/ordinal 또는 content identity가 있다.
-- [ ] 반복 heading의 모든 ID가 고유하다.
-- [ ] 긴 공통 prefix와 여러 intro가 충돌하지 않는다.
-- [ ] 무변경 재색인은 stable하고 duplicate가 없다.
-- [ ] 수정/삭제 뒤 stale vector가 없다.
-- [ ] 실제 Chroma reopen에서 모든 chunk가 검색된다.
+- [x] ID에 canonical file/ordinal 또는 content identity가 있다. — _make_unique_id: file+ordinal+suffix+digest
+- [x] 반복 heading의 모든 ID가 고유하다. — 섹션 ordinal (test_repeated_headings_get_unique_ids)
+- [x] 긴 공통 prefix와 여러 intro가 충돌하지 않는다. — ordinal+digest 분해 (test_long_common_prefix_docs, test_multiple_intros_unique)
+- [x] 무변경 재색인은 stable하고 duplicate가 없다. — test_unchanged_reindex_is_stable_and_duplicate_free
+- [x] 수정/삭제 뒤 stale vector가 없다. — test_modify_and_delete_leave_no_stale_vectors
+- [x] 실제 Chroma reopen에서 모든 chunk가 검색된다. — test_chroma_reopen_finds_all_chunks
 
 ## RAG-02 · source line
 
