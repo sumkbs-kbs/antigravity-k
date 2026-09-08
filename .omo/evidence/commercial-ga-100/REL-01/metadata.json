@@ -1,0 +1,47 @@
+{
+  "task_id": "REL-01",
+  "title": "clean build 순서와 SBOM 실행 가능성",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §REL-01",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §REL-01",
+  "status": "IMPLEMENTATION_DONE_REVIEW_PENDING",
+  "branch": "codex/rel-01-sbom-order",
+  "base_sha": "e46fa12",
+  "implementer": "rel_01_impl (Freebuff 세션, 2026-09-08)",
+  "reviewer": "rel_01_verify (할당 대기)",
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "empty venv/clean checkout에서 SBOM 생성과 verify가 성공한다",
+      "evidence": "실측: uv build → dist wheel+sdist 생성, clean uv venv에서 release_sbom generate는 pydantic/typer만으로 동작(CI가 이미 이 순서), verify가 dist 아티팩트 대상 status:verified 반환. test_ci_generates_sbom_before_build/test_release_generates_sbom_before_build로 순서 고정"
+    },
+    {
+      "id": "AC-2",
+      "text": "wheel과 sdist 설치 후 CLI/API import smoke가 성공한다",
+      "evidence": "실측: clean venv ×2 (wheel, sdist 각각) → import antigravity_k (0.1.0), from antigravity_k.engine import release_sbom, python -m antigravity_k.cli --help 전부 성공"
+    },
+    {
+      "id": "AC-3",
+      "text": "lock digest와 SBOM dependency set이 일치한다",
+      "evidence": "실측: python_runtime_dependencies(uv.lock runtime closure) 61개 == python.cdx.json components 61개, 집합 완전 일치. test_sbom_set_matches_uv_lock_runtime_closure + test_sbom_declares_lockfile_provenance(agk:lockfile=uv.lock)로 고정"
+    },
+    {
+      "id": "AC-4",
+      "text": "release job은 artifact 검증 실패 시 publish 전에 중단한다",
+      "evidence": "실측: verify 실패 시 exit code 2. 구조 검증: publish-pypi needs: build, verify step에 continue-on-error 없음 → verify 실패 시 build job 실패 → publish 미실행. test_publish_is_gated_behind_build_job + test_verify_failure_exits_nonzero로 고정"
+    }
+  ],
+  "implementation": {
+    "new_files": [
+      "tests/test_rel01_clean_build_sbom.py"
+    ],
+    "modified_files": [],
+    "design": "기존 release_sbom/release_dependencies 파이프라인과 CI/release 워크플로가 이미 올바른 순서(generate→build→verify→publish)를 갖고 있어 구현 변경 없이 계약을 테스트로 고정. 실측 검증(clean venv 설치·SBOM-lock 일치·exit code)을 수용기준 재현으로 수행."
+  },
+  "verification": {
+    "target_suite": "uv run --no-sync pytest tests/test_rel01_clean_build_sbom.py -q → 8 passed",
+    "adjacent_suites": "test_release_sbom + test_release_baseline + test_release_metadata → 50 passed",
+    "live_verification": "uv build (wheel+sdist), clean uv venv ×2 설치 smoke, release_sbom verify 실측, SBOM 61 == lock closure 61",
+    "full_regression": "uv run --no-sync pytest tests/ -q -m 'not slow and not benchmark' → 5609 passed, 0 failed (worktree projects.json 아티팩트 align 후)",
+    "lint": "ruff clean"
+  }
+}
