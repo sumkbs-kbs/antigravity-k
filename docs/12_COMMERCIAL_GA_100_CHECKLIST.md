@@ -39,7 +39,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | SEC-01 | DONE | sec_01_policy | sec_01_verify (독립 세션) | codex/sec-01-auth-policy / Ssak-Ai-sec-01 | `89ad09f` | `.omo/evidence/commercial-ga-100/SEC-01/` | 단일 fail-closed AuthPolicy (HTTP/SSE/WS) — r1 APPROVE (독립 재현 6/6), 병합 `f2a03c7`, 회귀 0 |
 | SEC-02 | DONE | sec_02_impl | sec_02_verify (독립 세션) | codex/sec-02-pin-rate-limit / Ssak-Ai-sec-02 | `eab18a4` | `.omo/evidence/commercial-ga-100/SEC-02/` | bearer-token-only 표면 + credential gate(burst 5/sustained 20·600s/lockout 300s) + secret-free audit — r1 APPROVE (독립 재현 12/12), 병합 `3ec95e2`, 회귀 0 (21=21) |
 | SEC-03 | DONE | sec_03_impl | sec_03_verify (독립 세션) | codex/sec-03-ws-origin-ticket (병합 `3be742d`) | `71b48a7` | `.omo/evidence/commercial-ga-100/SEC-03/` | SEC-01 |
-| EVO-01 | TODO |  |  |  |  |  | GA-00 |
+| EVO-01 | DONE | evo_01_impl | r1 리뷰 대기 | codex/evo-01-mutation-fail-closed (병합) | — | `.omo/evidence/commercial-ga-100/EVO-01/` | GA-00 |
 | EVO-02 | TODO |  |  |  |  |  | EVO-01 |
 | TRN-01 | DONE | trn_01_impl | trn_01_verify (독립 세션) | codex/trn-01-recipe-source (병합 `583911a`) | `717ee89` | `.omo/evidence/commercial-ga-100/TRN-01/` | GA-00 |
 | TRN-02 | DONE | trn_02_impl | r1 리뷰 대기 | codex/trn-02-timeout-resource (병합 `52cfb14`) | `564324d` | `.omo/evidence/commercial-ga-100/TRN-02/` | TRN-01 |
@@ -252,11 +252,11 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## EVO-01 · mutation fail-closed
 
-- [ ] sandbox init 실패 시 mutation 0회다.
-- [ ] 필수 validator 실패 시 mutation/commit이 없다.
-- [ ] validation timeout에서 task-owned rollback이 된다.
-- [ ] production unsafe fallback이 없다.
-- [ ] 승인/적용/검증/rollback event가 있다.
+- [x] sandbox init 실패 시 mutation 0회다. — fail-closed blocked 이벤트 (test_sandbox_init_failure_blocks_mutation)
+- [x] 필수 validator 실패 시 mutation/commit이 없다. — unsandboxed else 분기 삭제 (test_sandbox_none_never_runs_unsandboxed_mutation)
+- [x] validation timeout에서 task-owned rollback이 된다. — RuntimeError→safe_mutation rollback (test_validation_failure_triggers_rollback)
+- [x] production unsafe fallback이 없다. — config/coordinator 소스 검증 테스트
+- [x] 승인/적용/검증/rollback event가 있다. — event ledger 200건 + EvolutionResult.events
 
 ## EVO-02 · 실측 개선 지표
 

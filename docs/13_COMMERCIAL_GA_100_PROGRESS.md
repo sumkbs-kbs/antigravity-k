@@ -33,6 +33,12 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+### 2026-09-08 · EVO-01 구현·병합 (20/33)
+
+- **EVO-01 구현** (worktree `Ssak-Ai-evo-01`, 브랜치 `codex/evo-01-mutation-fail-closed`): `auto_evolve`의 sandbox 없는 mutation else 분기 제거 — sandbox init 실패는 `_deps_init_failed`로 기록되고 진화 사이클이 fail-closed 차단된다 (blocked event). 모든 mutation은 `safe_mutation` 내부에서 실행되며 validation 실패/timeout은 RuntimeError→task-owned rollback. 신규 event ledger(approved/applied/validated/rolled_back, 200건)와 `EvolutionResult.events`로 감사 경로 제공.
+- **검증**: 신규 스위트 6 passed + 기존 coordinator 34 passed, 전체 회귀 5,594 passed / 0 failed, ruff/mypy clean. 증거 팩 커밋 후 baseline 병합, 머지 후 40 passed.
+- **현재 진행**: **20/33 DONE** (기존 19 + EVO-01).
+
 ### 2026-09-08 · WS-lane 선행 실패 9건 해소 + TRN-02 구현·병합
 
 - **WS-lane fixture 수정** (커밋 `21d77bb`): `test_agent_runtime` 3건, `test_api_server` 5건, `test_task_api` 1건 — SEC-01 auth harness가 도입한 명시적 익명허용 env(`AGK_SEC_DEV_NO_PIN_ALLOW`)를 fixture가 세팅하지 않아 발생. conftest에 공용 fixture 추가 + 3개 테스트 파일 갱신. 이어서 발견한 3건 테스트 간섭(`test_agent_tools_api` ×2, `test_claw_integration` ×1 — ContextVar 바인딩 누수)도 autouse 리셋 fixture로 해소. **전체 스위트 완전 green (5,597 passed / 0 failed)**.
