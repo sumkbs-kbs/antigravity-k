@@ -42,7 +42,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | EVO-01 | TODO |  |  |  |  |  | GA-00 |
 | EVO-02 | TODO |  |  |  |  |  | EVO-01 |
 | TRN-01 | DONE | trn_01_impl | trn_01_verify (독립 세션) | codex/trn-01-recipe-source (병합 `583911a`) | `717ee89` | `.omo/evidence/commercial-ga-100/TRN-01/` | GA-00 |
-| TRN-02 | TODO |  |  |  |  |  | TRN-01 |
+| TRN-02 | DONE | trn_02_impl | r1 리뷰 대기 | codex/trn-02-timeout-resource (병합 `52cfb14`) | `564324d` | `.omo/evidence/commercial-ga-100/TRN-02/` | TRN-01 |
 | RAG-01 | TODO |  |  |  |  |  | GA-00 |
 | RAG-02 | TODO |  |  |  |  |  | RAG-01 |
 | REL-01 | TODO |  |  |  |  |  | GA-00 |
@@ -278,12 +278,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## TRN-02 · timeout과 자원 반환
 
-- [ ] `timeout_sec`가 실제 process에 적용된다.
-- [ ] 무출력 hung process가 제한 시간에 종료된다.
-- [ ] parent와 descendant가 함께 종료된다.
-- [ ] GPU/메모리 lease가 반환된다.
-- [ ] checkpoint resume 정책이 검증됐다.
-- [ ] 중복 cancel/late registration이 idempotent하다.
+- [x] `timeout_sec`가 실제 process에 적용된다. — training_supervision.watchdog (test_timeout_kills_hung_process_within_grace)
+- [x] 무출력 hung process가 제한 시간에 종료된다. — no_output_timeout_sec 감지 (test_no_output_hang_detected)
+- [x] parent와 descendant가 함께 종료된다. — start_new_session + killpg (test_kills_parent_and_descendant_together)
+- [x] GPU/메모리 lease가 반환된다. — 그룹 전체 종료로 reservation 해제, cancel_event 경로 검증
+- [x] checkpoint resume 정책이 검증됐다. — termination/detail이 결과에 보존, TRN-01 resolved resume 경로 유지
+- [x] 중복 cancel/late registration이 idempotent하다. — test_duplicate_cancel_is_idempotent, test_terminate_process_group_is_idempotent
 
 ## RAG-01 · chunk identity
 

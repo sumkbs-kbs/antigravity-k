@@ -33,6 +33,14 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+### 2026-09-08 · WS-lane 선행 실패 9건 해소 + TRN-02 구현·병합
+
+- **WS-lane fixture 수정** (커밋 `21d77bb`): `test_agent_runtime` 3건, `test_api_server` 5건, `test_task_api` 1건 — SEC-01 auth harness가 도입한 명시적 익명허용 env(`AGK_SEC_DEV_NO_PIN_ALLOW`)를 fixture가 세팅하지 않아 발생. conftest에 공용 fixture 추가 + 3개 테스트 파일 갱신. 이어서 발견한 3건 테스트 간섭(`test_agent_tools_api` ×2, `test_claw_integration` ×1 — ContextVar 바인딩 누수)도 autouse 리셋 fixture로 해소. **전체 스위트 완전 green (5,597 passed / 0 failed)**.
+- **TRN-02 구현** (worktree `Ssak-Ai-trn-02`, 브랜치 `codex/trn-02-timeout-resource`): 신규 `finetune/training_supervision.py` — timeout·무출력 hang·cancel 감독 watchdog + `start_new_session` 프로세스 그룹 SIGTERM→grace→SIGKILL. `lora_pipeline.run_training`과 `finetune run_resolved_training`이 공유. `training_jobs_api` cancel이 실제 Popen에 도달(on_proc_start), 중복 cancel idempotent, `termination` 필드 기록. trainer CLI `--timeout-sec/--no-output-timeout-sec` 추가. sandbox ALLOWLIST에 신규 실행 경로 등록.
+- **TRN-02 검증**: 신규 스위트 15 passed, 인접 86 passed, 전체 회귀 **5,589 passed / 0 failed**, ruff/mypy clean. 증거 팩 `TRN-02/metadata.json` (커밋 `52cfb14`).
+- **병합**: `codex/trn-02-timeout-resource` → `codex/m1-task-events` (fast-forward). 머지 후 대상 스위트 50 passed + wiring 확인.
+- **현재 진행**: **19/33 DONE** (기존 18 + TRN-02).
+
 ### 2026-09-06 · DAT-03 구현 완료 (BR-03) (`dat_03_registry`)
 
 - 브랜치 `codex/dat-03-registry-atomic` @ `f61e06f` (base `8cec36c` — DAT-02 병합 후 기준선).
