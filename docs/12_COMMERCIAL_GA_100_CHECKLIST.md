@@ -45,7 +45,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | TRN-02 | DONE | trn_02_impl | r1 리뷰 대기 | codex/trn-02-timeout-resource (병합 `52cfb14`) | `564324d` | `.omo/evidence/commercial-ga-100/TRN-02/` | TRN-01 |
 | RAG-01 | DONE | rag_01_impl | r1 리뷰 대기 | codex/rag-01-chunk-identity (병합) | — | `.omo/evidence/commercial-ga-100/RAG-01/` | GA-00 |
 | RAG-02 | TODO |  |  |  |  |  | RAG-01 |
-| REL-01 | TODO |  |  |  |  |  | GA-00 |
+| REL-01 | DONE | rel_01_impl | r1 리뷰 대기 | codex/rel-01-sbom-order (병합) | — | `.omo/evidence/commercial-ga-100/REL-01/` | GA-00 |
 | REL-02 | TODO |  |  |  |  |  | GA-00 |
 | REL-03 | TODO |  |  |  |  |  | REL-01, REL-02 |
 | UI-01 | TODO |  |  |  |  |  | GA-00 |
@@ -304,11 +304,11 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## REL-01 · package와 SBOM
 
-- [ ] clean venv에서 project 설치 후 SBOM을 생성한다.
-- [ ] wheel/sdist build/install/import/CLI smoke가 통과한다.
-- [ ] lock digest와 SBOM set이 일치한다.
-- [ ] NOTICE/provenance가 artifact에 포함된다.
-- [ ] 검증 실패가 publish 전에 release를 중단한다.
+- [x] clean venv에서 project 설치 후 SBOM을 생성한다. — 실측: clean venv generate/verify 성공 + 워크플로 순서 고정
+- [x] wheel/sdist build/install/import/CLI smoke가 통과한다. — 실측: uv build + clean venv ×2 import/CLI smoke
+- [x] lock digest와 SBOM set이 일치한다. — 실측: 61 == 61 집합 일치 + test 고정
+- [x] NOTICE/provenance가 artifact에 포함된다. — package data 검증 테스트
+- [x] 검증 실패가 publish 전에 release를 중단한다. — exit 2 + needs: build + continue-on-error 부재 고정
 
 ## REL-02 · frontend와 container
 

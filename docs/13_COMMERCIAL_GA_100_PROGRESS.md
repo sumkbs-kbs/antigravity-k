@@ -33,6 +33,12 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+### 2026-09-08 · REL-01 구현·병합 (22/33)
+
+- **REL-01 검증·고정** (worktree `Ssak-Ai-rel-01`, 브랜치 `codex/rel-01-sbom-order`): 기존 release_sbom 파이프라인이 올바른 순서(generate→build→verify→publish)를 갖고 있어 구현 변경 없이 계약을 테스트로 고정. **실측 검증**: uv build → clean venv ×2 (wheel/sdist) 설치 → import/CLI smoke 성공, release_sbom verify 성공(실패 시 exit 2), SBOM component set == uv.lock runtime closure (61=61).
+- **검증**: 신규 스위트 8 passed, release 인접 50 passed, 전체 회귀 5,609 passed / 0 failed. 증거 팩 커밋 후 baseline 병합, 머지 후 16 passed.
+- **현재 진행**: **22/33 DONE** (기존 21 + REL-01).
+
 ### 2026-09-08 · RAG-01 구현·병합 (21/33)
 
 - **RAG-01 구현** (worktree `Ssak-Ai-rag-01`, 브랜치 `codex/rag-01-chunk-identity`): `_make_unique_id` — canonical file + structural ordinal + suffix + content digest 파생. 반복 heading·60자 공통 prefix·여러 intro·표 혼합 문서의 ID 충돌 원천 차단. `_chunk_markdown_prose`에 섹션 ordinal 부여, `_annotate_chunks`를 동일 파생식 최종 방어선으로 교체 (불안정한 dedupe_ 접미사 제거).
