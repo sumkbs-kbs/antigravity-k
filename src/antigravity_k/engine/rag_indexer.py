@@ -336,13 +336,23 @@ class RAGIndexer:
         return len(chunks)
 
     def _annotate_chunks(self, chunks: list[CodeChunk], source_hash: str) -> None:
+        """청크 메타데이터 부여 + RAG-01 ID 고유성 보장.
+
+        청킹 단계에서 이미 ordinal 기반 ID를 받지만, 함수/클래스 겹침 등
+        어떤 경로로도 중복이 남지 않도록 여기서 최종 방어선을 둔다.
+        중복 발견 시 ordinal+content digest로 재파생 — dedupe 접미사가
+        무변경 재색인의 ID 안정성을 깨지 않도록 _make_unique_id를 쓴다.
+        """
         indexed_at = datetime.now(UTC).isoformat()
         seen_ids: set[str] = set()
         for index, chunk in enumerate(chunks):
             if chunk.chunk_id in seen_ids:
-                chunk.chunk_id = self._make_id(
+                chunk.chunk_id = self._make_unique_id(
                     chunk.file_path,
-                    f"dedupe_{chunk.chunk_id}_{chunk.start_line}_{chunk.end_line}_{index}",
+                    f"dedupe_{chunk.node_type}_{index}",
+                    chunk.content,
+                    index,
+                    seen_ids,
                 )
             seen_ids.add(chunk.chunk_id)
             chunk.metadata.update(
@@ -860,44 +870,51 @@ class RAGIndexer:
         prose: str,
         _char_offset: int = 0,
     ) -> list[CodeChunk]:
-        """Markdown 산문(비-테이블) 텍스트를 헤딩 기준으로 분할합니다."""
+        """Markdown 산문(비-테이블) 텍스트를 헤딩 기준으로 분할합니다.
+
+        RAG-01: 반복 heading("## 개요"가 문서에 3번)도 고유 ID를 갖도록
+        정규화된 heading 경로 + 섹션 ordinal을 ID 원료로 사용한다.
+        """
         chunks: list[CodeChunk] = []
         current_section = ""
         current_title = "intro"
         section_start = 1
+        section_ordinal = 0
+        used_ids: set[str] = set()
+
+        def _emit(end_line: int) -> None:
+            nonlocal section_ordinal
+            if not current_section.strip():
+                return
+            chunk = CodeChunk(
+                chunk_id=self._make_unique_id(
+                    rel_path,
+                    f"sec_{section_ordinal:03d}_{current_title}",
+                    current_section,
+                    section_ordinal,
+                    used_ids,
+                ),
+                file_path=rel_path,
+                node_type="text_section",
+                node_name=current_title,
+                content=current_section[:MAX_CHUNK_CHARS],
+                start_line=section_start,
+                end_line=end_line,
+            )
+            used_ids.add(chunk.chunk_id)
+            chunks.append(chunk)
+            section_ordinal += 1
 
         for i, line in enumerate(prose.split("\n"), 1):
             if line.startswith("#"):
-                if current_section.strip():
-                    chunks.append(
-                        CodeChunk(
-                            chunk_id=self._make_id(rel_path, current_title),
-                            file_path=rel_path,
-                            node_type="text_section",
-                            node_name=current_title,
-                            content=current_section[:MAX_CHUNK_CHARS],
-                            start_line=section_start,
-                            end_line=i - 1,
-                        ),
-                    )
+                _emit(i - 1)
                 current_title = line.lstrip("#").strip()[:60]
                 current_section = line + "\n"
                 section_start = i
             else:
                 current_section += line + "\n"
 
-        if current_section.strip():
-            chunks.append(
-                CodeChunk(
-                    chunk_id=self._make_id(rel_path, current_title),
-                    file_path=rel_path,
-                    node_type="text_section",
-                    node_name=current_title,
-                    content=current_section[:MAX_CHUNK_CHARS],
-                    start_line=section_start,
-                    end_line=len(prose.split("\n")),
-                ),
-            )
+        _emit(len(prose.split("\n")))
 
         return chunks
 
@@ -938,6 +955,31 @@ class RAGIndexer:
         """안정적인 청크 ID를 생성합니다."""
         raw = f"{file_path}::{suffix}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _make_unique_id(
+        file_path: str,
+        suffix: str,
+        content: str,
+        ordinal: int,
+        used: set[str],
+    ) -> str:
+        """RAG-01 — 충돌 없는 고유 청크 ID.
+
+        ID 구성: canonical file + structural suffix + ordinal + content digest.
+        반복 heading("## 개요"가 3번)·60자 공통 prefix·여러 intro가 같은 suffix로
+        수렴해도 ordinal이 갈라놓고, 동일 ordinal 재충돌은 content digest가 갈라놓는다.
+        무변경 재색인에서는 같은 입력 → 같은 ID (stable).
+        """
+        base = f"{file_path}::{ordinal:04d}::{suffix}"
+        digest = hashlib.sha256(content.encode()).hexdigest()[:12]
+        candidate = RAGIndexer._make_id(base, digest)
+        # digest까지 충돌하는 극단 케이스 — ordinal 재스캔으로 마무리
+        bump = 0
+        while candidate in used:
+            bump += 1
+            candidate = RAGIndexer._make_id(f"{base}#{bump}", digest)
+        return candidate
 
     @staticmethod
     def _decorator_name(node: ast.expr) -> str:
