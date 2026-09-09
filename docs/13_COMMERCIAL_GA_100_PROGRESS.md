@@ -905,3 +905,27 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **실측**: staging 12/12 passed, finetune/trn 스위트 100 passed, 전체 5,695 passed(1 실패는 worktree registry 환경 아티팩트 — 복구 후 3 passed), ruff/mypy clean.
 - **병합**: `b57317a` (baseline, --no-ff). 병합 후 finetune 스위트 67 passed.
 - **현재 진행**: **30/33 DONE**. 잔여: VAL-02, DOC-01, RC-01.
+
+### 2026-09-09 · VAL-02 staging 실측·병합 (31/33)
+
+- **VAL-02 구현** (worktree `Ssak-Ai-val-02`, 브랜치 `codex/val-02-resilience`, 커밋 `74271a9`):
+  - `scripts/val02_staging.py` — 6개 시나리오 실측 러너 (임시 디렉터리, JSON artifact):
+    SC-1 task CAS race(8 procs × 32 tasks — terminal contradiction 0, cross-owner leak 0),
+    SC-2 conversation CAS race(6 procs — append 성공 수 == 최종 메시지 수),
+    SC-3 registry flock(5 procs × 40 프로젝트 동시 등록 — 유실 0),
+    SC-4 kill -9 복구(SIGKILL 후 커밋 이벤트 sequence 무결성 + prepare_resume 복구),
+    SC-5 부하(300 ops — P95 3.14ms / P99 3.92ms / err 0 / FD +0),
+    SC-6 soak 60s(41,636 ops — RSS 성장 0.4MB, orphan worktree 0, DB 접근 유지).
+  - **제품 결함 발견·수정 (conversation_store, CTX-01 lane 환류)**:
+    F1 `_persist` 결정론적 tmp 파일명 — 동시 writer가 서로의 tmp를 치환해 append 유실
+    → 프로세스 고유 tmp + os.replace. F2 프로세스별 메모리 캐시로 CAS 평가 — 타 프로세스
+    append 미관찰, 침묵 덮어쓰기 → flock + 디스크 재적재로 프로세스 경계에서도
+    "두 동시 writer는 침묵 중 덮어쓰지 않는다" 계약 유지.
+  - 회귀 고정: `tests/test_val02_conversation_multiprocess.py` 3건.
+  - 환경 결합 제거: `test_desktop_context_api`가 체크아웃 디렉터리명에 결합하던 것을
+    계약 기반 검증으로 교체 (worktree에서도 green).
+- **실측**: staging 6/6 PASS, VAL-02+CTX-01+OBS-01 스위트 50 passed, 전체 5,695 passed,
+  mypy 470 files clean, ruff clean.
+- **리뷰**: 독립 r1 APPROVE (`.omo/evidence/commercial-ga-100/VAL-02/review.md`).
+- **병합**: `df4ee1d` (baseline, --no-ff). 병합 후 핵심 스위트 15 passed 재확인.
+- **현재 진행**: **31/33 DONE**. 잔여: DOC-01, RC-01.

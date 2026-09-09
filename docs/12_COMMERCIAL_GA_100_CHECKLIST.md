@@ -53,7 +53,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | QLT-01 | DONE | qlt_01_impl | r1 리뷰 대기 | codex/m1-task-events (직접 커밋) | `7685103` | `.omo/evidence/commercial-ga-100/QLT-01/` | 모든 기능 lane |
 | OBS-01 | DONE | obs_01_impl | r1 리뷰 대기 | codex/obs-01-observability | `e24112f` | `.omo/evidence/commercial-ga-100/OBS-01/` | QLT-01 |
 | VAL-01 | DONE | val_01_impl | r1 리뷰 대기 | codex/val-01-staging | `4d3c939` | `.omo/evidence/commercial-ga-100/VAL-01/` | QLT-01, REL-03 |
-| VAL-02 | TODO |  |  |  |  |  | QLT-01 |
+| VAL-02 | DONE | val_02_impl | val_02_verify (독립 세션) | codex/val-02-resilience (병합 `df4ee1d`) | `74271a9` | `.omo/evidence/commercial-ga-100/VAL-02/` | QLT-01 — conversation CAS 다중 프로세스 결함 F1/F2 수정 포함, staging 6/6 PASS |
 | DOC-01 | TODO |  |  |  |  |  | 기능·운영 lane |
 | RC-01 | TODO |  |  |  |  |  | 전체 |
 
