@@ -40,7 +40,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | SEC-02 | DONE | sec_02_impl | sec_02_verify (독립 세션) | codex/sec-02-pin-rate-limit / Ssak-Ai-sec-02 | `eab18a4` | `.omo/evidence/commercial-ga-100/SEC-02/` | bearer-token-only 표면 + credential gate(burst 5/sustained 20·600s/lockout 300s) + secret-free audit — r1 APPROVE (독립 재현 12/12), 병합 `3ec95e2`, 회귀 0 (21=21) |
 | SEC-03 | DONE | sec_03_impl | sec_03_verify (독립 세션) | codex/sec-03-ws-origin-ticket (병합 `3be742d`) | `71b48a7` | `.omo/evidence/commercial-ga-100/SEC-03/` | SEC-01 |
 | EVO-01 | DONE | evo_01_impl | r1 리뷰 대기 | codex/evo-01-mutation-fail-closed (병합) | — | `.omo/evidence/commercial-ga-100/EVO-01/` | GA-00 |
-| EVO-02 | TODO |  |  |  |  |  | EVO-01 |
+| EVO-02 | DONE | evo_02_impl | r1 리뷰 대기 | codex/evo-02-measured-eval (병합 `b6fbba9`) | `f8c85f7` | `.omo/evidence/commercial-ga-100/EVO-02/` | EVO-01 |
 | TRN-01 | DONE | trn_01_impl | trn_01_verify (독립 세션) | codex/trn-01-recipe-source (병합 `583911a`) | `717ee89` | `.omo/evidence/commercial-ga-100/TRN-01/` | GA-00 |
 | TRN-02 | DONE | trn_02_impl | r1 리뷰 대기 | codex/trn-02-timeout-resource (병합 `52cfb14`) | `564324d` | `.omo/evidence/commercial-ga-100/TRN-02/` | TRN-01 |
 | RAG-01 | DONE | rag_01_impl | r1 리뷰 대기 | codex/rag-01-chunk-identity (병합) | — | `.omo/evidence/commercial-ga-100/RAG-01/` | GA-00 |
@@ -260,11 +260,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## EVO-02 · 실측 개선 지표
 
-- [ ] expected와 measured metric field가 분리됐다.
-- [ ] 재평가 전 상태가 pending이다.
-- [ ] frozen held-out 평가 provenance가 있다.
-- [ ] regression promotion이 거절된다.
-- [ ] UI/API가 예상·실측·신뢰구간을 구분한다.
+- [x] expected와 measured metric field가 분리됐다. (measured_after_metric vs expected_improvement — `f8c85f7`)
+- [x] 재평가 전 상태가 pending이다. (evaluation_state=pending_evaluation, runner 없으면 실측 생성 안 함)
+- [x] frozen held-out 평가 provenance가 있다. (benchmark_provenance: suite/env_hash 16자리 sha256/evaluated_at)
+- [x] regression promotion이 거절된다. (improvement<=0 → regression_rejected + promotion_rejected 이벤트)
+- [x] UI/API가 예상·실측·신뢰구간을 구분한다. (get_report pending_evaluations 카운트 + 상태별 summary 문구)
+- [ ] 독립 r1 리뷰 (evo_02_verify) — 대기
 
 ## TRN-01 · 학습 recipe 일치
 
