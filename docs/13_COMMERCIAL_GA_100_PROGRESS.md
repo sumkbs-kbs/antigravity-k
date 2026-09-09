@@ -963,3 +963,19 @@ tags: [commercialization, progress, evidence, multi-agent]
   image id `sha256:3e15f1d9…` — `.omo/evidence/commercial-ga-100/RC-01/` 등록.
 - **판정**: checklist RC-01 13/13 체크, rubric 100/100, **GO** (READINESS_REPORT.md §6).
 - **완료**: GA-100 plan 전체 **33/33 DONE**.
+
+### 2026-09-10 · GA-100 종료 후 정리 (housekeeping)
+
+- **코드 상태 확인**: HEAD `922853e`는 RC-01 candidate `2ae967a` 대비 문서·증거팩 전용
+  커밋만 존재 — gate 코드 상태 불변.
+- **병합 완료 worktree 정리**: `Ssak-Ai-doc-01`(DOC-01), `Ssak-Ai-val-02`(VAL-02)는
+  baseline에 완전 병합(`git log HEAD..branch` 빈 결과) 확인 후 worktree·브랜치 제거,
+  `git worktree prune` 완료. 잔여 파생 디렉터리 없음.
+- **추적 노이즈 제거**: dashboard/node_modules 바이너리 84종 + `tsconfig.tsbuildinfo`
+  추적 해제, gitignore 고정. RC-01 gate 실행으로 축적된 `data/benchmark_results.json`
+  실측데이터(+214행)와 동일 소스 dist 재빌드 바이트 차이는 커밋으로 반영 (`922853e`).
+- **ssak-ai-local-70b-upgrade lane 보존**: 미병합 독립 feature lane(27 commits, 481 files,
+  +31,511 lines — unified agent/adaptive stability routing/graphify hybrid retrieval).
+  `git worktree repair`로 리팩토링 전 구경댓 link(`antigravity-k/.git`) 복구 — branch tip
+  `f82f16b` 및 worktree 모두 정상. 병합 여부는 별도 결정 사항 (GA-100 범위 외).
+- **최종 상태**: GA-100 plan **33/33 DONE 유지**, 잔여 계획 항목 0.
