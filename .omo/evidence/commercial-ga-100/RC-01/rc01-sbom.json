@@ -1,0 +1,1302 @@
+{
+  "components": [
+    {
+      "bom-ref": "requirements-L4",
+      "description": "requirements line 4: aiofiles==24.1.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/aiofiles/"
+        }
+      ],
+      "name": "aiofiles",
+      "purl": "pkg:pypi/aiofiles@24.1.0",
+      "type": "library",
+      "version": "24.1.0"
+    },
+    {
+      "bom-ref": "requirements-L6",
+      "description": "requirements line 6: annotated-doc==0.0.4",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/annotated-doc/"
+        }
+      ],
+      "name": "annotated-doc",
+      "purl": "pkg:pypi/annotated-doc@0.0.4",
+      "type": "library",
+      "version": "0.0.4"
+    },
+    {
+      "bom-ref": "requirements-L10",
+      "description": "requirements line 10: annotated-types==0.7.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/annotated-types/"
+        }
+      ],
+      "name": "annotated-types",
+      "purl": "pkg:pypi/annotated-types@0.7.0",
+      "type": "library",
+      "version": "0.7.0"
+    },
+    {
+      "bom-ref": "requirements-L12",
+      "description": "requirements line 12: anyio==4.13.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/anyio/"
+        }
+      ],
+      "name": "anyio",
+      "purl": "pkg:pypi/anyio@4.13.0",
+      "type": "library",
+      "version": "4.13.0"
+    },
+    {
+      "bom-ref": "requirements-L19",
+      "description": "requirements line 19: attrs==26.1.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/attrs/"
+        }
+      ],
+      "name": "attrs",
+      "purl": "pkg:pypi/attrs@26.1.0",
+      "type": "library",
+      "version": "26.1.0"
+    },
+    {
+      "bom-ref": "requirements-L23",
+      "description": "requirements line 23: certifi==2026.5.20",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/certifi/"
+        }
+      ],
+      "name": "certifi",
+      "purl": "pkg:pypi/certifi@2026.5.20",
+      "type": "library",
+      "version": "2026.5.20"
+    },
+    {
+      "bom-ref": "requirements-L27",
+      "description": "requirements line 27: cffi==2.0.0 ; platform_python_implementation != 'PyPy'",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/cffi/"
+        }
+      ],
+      "name": "cffi",
+      "purl": "pkg:pypi/cffi@2.0.0",
+      "type": "library",
+      "version": "2.0.0"
+    },
+    {
+      "bom-ref": "requirements-L29",
+      "description": "requirements line 29: click==8.4.1",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/click/"
+        }
+      ],
+      "name": "click",
+      "purl": "pkg:pypi/click@8.4.1",
+      "type": "library",
+      "version": "8.4.1"
+    },
+    {
+      "bom-ref": "requirements-L31",
+      "description": "requirements line 31: colorama==0.4.6 ; sys_platform == 'win32'",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/colorama/"
+        }
+      ],
+      "name": "colorama",
+      "purl": "pkg:pypi/colorama@0.4.6",
+      "type": "library",
+      "version": "0.4.6"
+    },
+    {
+      "bom-ref": "requirements-L36",
+      "description": "requirements line 36: croniter==6.2.4",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/croniter/"
+        }
+      ],
+      "name": "croniter",
+      "purl": "pkg:pypi/croniter@6.2.4",
+      "type": "library",
+      "version": "6.2.4"
+    },
+    {
+      "bom-ref": "requirements-L38",
+      "description": "requirements line 38: cryptography==50.0.1",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/cryptography/"
+        }
+      ],
+      "name": "cryptography",
+      "purl": "pkg:pypi/cryptography@50.0.1",
+      "type": "library",
+      "version": "50.0.1"
+    },
+    {
+      "bom-ref": "requirements-L42",
+      "description": "requirements line 42: deprecated==1.3.1",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/deprecated/"
+        }
+      ],
+      "name": "deprecated",
+      "purl": "pkg:pypi/deprecated@1.3.1",
+      "type": "library",
+      "version": "1.3.1"
+    },
+    {
+      "bom-ref": "requirements-L44",
+      "description": "requirements line 44: fastapi==0.136.3",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/fastapi/"
+        }
+      ],
+      "name": "fastapi",
+      "purl": "pkg:pypi/fastapi@0.136.3",
+      "type": "library",
+      "version": "0.136.3"
+    },
+    {
+      "bom-ref": "requirements-L46",
+      "description": "requirements line 46: filelock==3.29.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/filelock/"
+        }
+      ],
+      "name": "filelock",
+      "purl": "pkg:pypi/filelock@3.29.0",
+      "type": "library",
+      "version": "3.29.0"
+    },
+    {
+      "bom-ref": "requirements-L48",
+      "description": "requirements line 48: h11==0.16.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/h11/"
+        }
+      ],
+      "name": "h11",
+      "purl": "pkg:pypi/h11@0.16.0",
+      "type": "library",
+      "version": "0.16.0"
+    },
+    {
+      "bom-ref": "requirements-L52",
+      "description": "requirements line 52: httpcore==1.0.9",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/httpcore/"
+        }
+      ],
+      "name": "httpcore",
+      "purl": "pkg:pypi/httpcore@1.0.9",
+      "type": "library",
+      "version": "1.0.9"
+    },
+    {
+      "bom-ref": "requirements-L54",
+      "description": "requirements line 54: httptools==0.8.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/httptools/"
+        }
+      ],
+      "name": "httptools",
+      "purl": "pkg:pypi/httptools@0.8.0",
+      "type": "library",
+      "version": "0.8.0"
+    },
+    {
+      "bom-ref": "requirements-L56",
+      "description": "requirements line 56: httpx==0.28.1",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/httpx/"
+        }
+      ],
+      "name": "httpx",
+      "purl": "pkg:pypi/httpx@0.28.1",
+      "type": "library",
+      "version": "0.28.1"
+    },
+    {
+      "bom-ref": "requirements-L60",
+      "description": "requirements line 60: httpx-sse==0.4.3",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/httpx-sse/"
+        }
+      ],
+      "name": "httpx-sse",
+      "purl": "pkg:pypi/httpx-sse@0.4.3",
+      "type": "library",
+      "version": "0.4.3"
+    },
+    {
+      "bom-ref": "requirements-L62",
+      "description": "requirements line 62: idna==3.16",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/idna/"
+        }
+      ],
+      "name": "idna",
+      "purl": "pkg:pypi/idna@3.16",
+      "type": "library",
+      "version": "3.16"
+    },
+    {
+      "bom-ref": "requirements-L66",
+      "description": "requirements line 66: jsonschema==4.26.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/jsonschema/"
+        }
+      ],
+      "name": "jsonschema",
+      "purl": "pkg:pypi/jsonschema@4.26.0",
+      "type": "library",
+      "version": "4.26.0"
+    },
+    {
+      "bom-ref": "requirements-L68",
+      "description": "requirements line 68: jsonschema-specifications==2025.9.1",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/jsonschema-specifications/"
+        }
+      ],
+      "name": "jsonschema-specifications",
+      "purl": "pkg:pypi/jsonschema-specifications@2025.9.1",
+      "type": "library",
+      "version": "2025.9.1"
+    },
+    {
+      "bom-ref": "requirements-L70",
+      "description": "requirements line 70: limits==5.8.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/limits/"
+        }
+      ],
+      "name": "limits",
+      "purl": "pkg:pypi/limits@5.8.0",
+      "type": "library",
+      "version": "5.8.0"
+    },
+    {
+      "bom-ref": "requirements-L72",
+      "description": "requirements line 72: linkify-it-py==2.1.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/linkify-it-py/"
+        }
+      ],
+      "name": "linkify-it-py",
+      "purl": "pkg:pypi/linkify-it-py@2.1.0",
+      "type": "library",
+      "version": "2.1.0"
+    },
+    {
+      "bom-ref": "requirements-L74",
+      "description": "requirements line 74: markdown-it-py==4.2.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/markdown-it-py/"
+        }
+      ],
+      "name": "markdown-it-py",
+      "purl": "pkg:pypi/markdown-it-py@4.2.0",
+      "type": "library",
+      "version": "4.2.0"
+    },
+    {
+      "bom-ref": "requirements-L79",
+      "description": "requirements line 79: mcp==1.30.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/mcp/"
+        }
+      ],
+      "name": "mcp",
+      "purl": "pkg:pypi/mcp@1.30.0",
+      "type": "library",
+      "version": "1.30.0"
+    },
+    {
+      "bom-ref": "requirements-L81",
+      "description": "requirements line 81: mdit-py-plugins==0.6.1",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/mdit-py-plugins/"
+        }
+      ],
+      "name": "mdit-py-plugins",
+      "purl": "pkg:pypi/mdit-py-plugins@0.6.1",
+      "type": "library",
+      "version": "0.6.1"
+    },
+    {
+      "bom-ref": "requirements-L83",
+      "description": "requirements line 83: mdurl==0.1.2",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/mdurl/"
+        }
+      ],
+      "name": "mdurl",
+      "purl": "pkg:pypi/mdurl@0.1.2",
+      "type": "library",
+      "version": "0.1.2"
+    },
+    {
+      "bom-ref": "requirements-L85",
+      "description": "requirements line 85: nest-asyncio==1.6.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/nest-asyncio/"
+        }
+      ],
+      "name": "nest-asyncio",
+      "purl": "pkg:pypi/nest-asyncio@1.6.0",
+      "type": "library",
+      "version": "1.6.0"
+    },
+    {
+      "bom-ref": "requirements-L87",
+      "description": "requirements line 87: networkx==3.6.1",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/networkx/"
+        }
+      ],
+      "name": "networkx",
+      "purl": "pkg:pypi/networkx@3.6.1",
+      "type": "library",
+      "version": "3.6.1"
+    },
+    {
+      "bom-ref": "requirements-L89",
+      "description": "requirements line 89: numpy==2.4.6",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/numpy/"
+        }
+      ],
+      "name": "numpy",
+      "purl": "pkg:pypi/numpy@2.4.6",
+      "type": "library",
+      "version": "2.4.6"
+    },
+    {
+      "bom-ref": "requirements-L91",
+      "description": "requirements line 91: packaging==26.2",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/packaging/"
+        }
+      ],
+      "name": "packaging",
+      "purl": "pkg:pypi/packaging@26.2",
+      "type": "library",
+      "version": "26.2"
+    },
+    {
+      "bom-ref": "requirements-L93",
+      "description": "requirements line 93: platformdirs==4.10.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/platformdirs/"
+        }
+      ],
+      "name": "platformdirs",
+      "purl": "pkg:pypi/platformdirs@4.10.0",
+      "type": "library",
+      "version": "4.10.0"
+    },
+    {
+      "bom-ref": "requirements-L95",
+      "description": "requirements line 95: prometheus-client==0.26.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/prometheus-client/"
+        }
+      ],
+      "name": "prometheus-client",
+      "purl": "pkg:pypi/prometheus-client@0.26.0",
+      "type": "library",
+      "version": "0.26.0"
+    },
+    {
+      "bom-ref": "requirements-L97",
+      "description": "requirements line 97: psutil==6.1.1",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/psutil/"
+        }
+      ],
+      "name": "psutil",
+      "purl": "pkg:pypi/psutil@6.1.1",
+      "type": "library",
+      "version": "6.1.1"
+    },
+    {
+      "bom-ref": "requirements-L99",
+      "description": "requirements line 99: pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/pycparser/"
+        }
+      ],
+      "name": "pycparser",
+      "purl": "pkg:pypi/pycparser@3.0",
+      "type": "library",
+      "version": "3.0"
+    },
+    {
+      "bom-ref": "requirements-L101",
+      "description": "requirements line 101: pydantic==2.13.4",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/pydantic/"
+        }
+      ],
+      "name": "pydantic",
+      "purl": "pkg:pypi/pydantic@2.13.4",
+      "type": "library",
+      "version": "2.13.4"
+    },
+    {
+      "bom-ref": "requirements-L107",
+      "description": "requirements line 107: pydantic-core==2.46.4",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/pydantic-core/"
+        }
+      ],
+      "name": "pydantic-core",
+      "purl": "pkg:pypi/pydantic-core@2.46.4",
+      "type": "library",
+      "version": "2.46.4"
+    },
+    {
+      "bom-ref": "requirements-L109",
+      "description": "requirements line 109: pydantic-settings==2.15.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/pydantic-settings/"
+        }
+      ],
+      "name": "pydantic-settings",
+      "purl": "pkg:pypi/pydantic-settings@2.15.0",
+      "type": "library",
+      "version": "2.15.0"
+    },
+    {
+      "bom-ref": "requirements-L113",
+      "description": "requirements line 113: pygments==2.20.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/pygments/"
+        }
+      ],
+      "name": "pygments",
+      "purl": "pkg:pypi/pygments@2.20.0",
+      "type": "library",
+      "version": "2.20.0"
+    },
+    {
+      "bom-ref": "requirements-L117",
+      "description": "requirements line 117: pyjwt==2.13.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/pyjwt/"
+        }
+      ],
+      "name": "pyjwt",
+      "purl": "pkg:pypi/pyjwt@2.13.0",
+      "type": "library",
+      "version": "2.13.0"
+    },
+    {
+      "bom-ref": "requirements-L121",
+      "description": "requirements line 121: python-dateutil==2.9.0.post0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/python-dateutil/"
+        }
+      ],
+      "name": "python-dateutil",
+      "purl": "pkg:pypi/python-dateutil@2.9.0.post0",
+      "type": "library",
+      "version": "2.9.0.post0"
+    },
+    {
+      "bom-ref": "requirements-L123",
+      "description": "requirements line 123: python-dotenv==1.2.2",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/python-dotenv/"
+        }
+      ],
+      "name": "python-dotenv",
+      "purl": "pkg:pypi/python-dotenv@1.2.2",
+      "type": "library",
+      "version": "1.2.2"
+    },
+    {
+      "bom-ref": "requirements-L127",
+      "description": "requirements line 127: python-multipart==0.0.32",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/python-multipart/"
+        }
+      ],
+      "name": "python-multipart",
+      "purl": "pkg:pypi/python-multipart@0.0.32",
+      "type": "library",
+      "version": "0.0.32"
+    },
+    {
+      "bom-ref": "requirements-L129",
+      "description": "requirements line 129: pywin32==311 ; sys_platform == 'win32'",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/pywin32/"
+        }
+      ],
+      "name": "pywin32",
+      "purl": "pkg:pypi/pywin32@311",
+      "type": "library",
+      "version": "311"
+    },
+    {
+      "bom-ref": "requirements-L131",
+      "description": "requirements line 131: pyyaml==6.0.3",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/pyyaml/"
+        }
+      ],
+      "name": "pyyaml",
+      "purl": "pkg:pypi/pyyaml@6.0.3",
+      "type": "library",
+      "version": "6.0.3"
+    },
+    {
+      "bom-ref": "requirements-L135",
+      "description": "requirements line 135: rank-bm25==0.2.2",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/rank-bm25/"
+        }
+      ],
+      "name": "rank-bm25",
+      "purl": "pkg:pypi/rank-bm25@0.2.2",
+      "type": "library",
+      "version": "0.2.2"
+    },
+    {
+      "bom-ref": "requirements-L137",
+      "description": "requirements line 137: referencing==0.37.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/referencing/"
+        }
+      ],
+      "name": "referencing",
+      "purl": "pkg:pypi/referencing@0.37.0",
+      "type": "library",
+      "version": "0.37.0"
+    },
+    {
+      "bom-ref": "requirements-L141",
+      "description": "requirements line 141: rich==15.0.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/rich/"
+        }
+      ],
+      "name": "rich",
+      "purl": "pkg:pypi/rich@15.0.0",
+      "type": "library",
+      "version": "15.0.0"
+    },
+    {
+      "bom-ref": "requirements-L146",
+      "description": "requirements line 146: rpds-py==0.30.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/rpds-py/"
+        }
+      ],
+      "name": "rpds-py",
+      "purl": "pkg:pypi/rpds-py@0.30.0",
+      "type": "library",
+      "version": "0.30.0"
+    },
+    {
+      "bom-ref": "requirements-L150",
+      "description": "requirements line 150: shellingham==1.5.4",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/shellingham/"
+        }
+      ],
+      "name": "shellingham",
+      "purl": "pkg:pypi/shellingham@1.5.4",
+      "type": "library",
+      "version": "1.5.4"
+    },
+    {
+      "bom-ref": "requirements-L152",
+      "description": "requirements line 152: six==1.17.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/six/"
+        }
+      ],
+      "name": "six",
+      "purl": "pkg:pypi/six@1.17.0",
+      "type": "library",
+      "version": "1.17.0"
+    },
+    {
+      "bom-ref": "requirements-L154",
+      "description": "requirements line 154: slowapi==0.1.10",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/slowapi/"
+        }
+      ],
+      "name": "slowapi",
+      "purl": "pkg:pypi/slowapi@0.1.10",
+      "type": "library",
+      "version": "0.1.10"
+    },
+    {
+      "bom-ref": "requirements-L156",
+      "description": "requirements line 156: sse-starlette==3.4.4",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/sse-starlette/"
+        }
+      ],
+      "name": "sse-starlette",
+      "purl": "pkg:pypi/sse-starlette@3.4.4",
+      "type": "library",
+      "version": "3.4.4"
+    },
+    {
+      "bom-ref": "requirements-L158",
+      "description": "requirements line 158: starlette==1.6.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/starlette/"
+        }
+      ],
+      "name": "starlette",
+      "purl": "pkg:pypi/starlette@1.6.0",
+      "type": "library",
+      "version": "1.6.0"
+    },
+    {
+      "bom-ref": "requirements-L163",
+      "description": "requirements line 163: textual==8.2.8",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/textual/"
+        }
+      ],
+      "name": "textual",
+      "purl": "pkg:pypi/textual@8.2.8",
+      "type": "library",
+      "version": "8.2.8"
+    },
+    {
+      "bom-ref": "requirements-L165",
+      "description": "requirements line 165: typer==0.26.2",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/typer/"
+        }
+      ],
+      "name": "typer",
+      "purl": "pkg:pypi/typer@0.26.2",
+      "type": "library",
+      "version": "0.26.2"
+    },
+    {
+      "bom-ref": "requirements-L167",
+      "description": "requirements line 167: typing-extensions==4.15.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/typing-extensions/"
+        }
+      ],
+      "name": "typing-extensions",
+      "purl": "pkg:pypi/typing-extensions@4.15.0",
+      "type": "library",
+      "version": "4.15.0"
+    },
+    {
+      "bom-ref": "requirements-L179",
+      "description": "requirements line 179: typing-inspection==0.4.2",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/typing-inspection/"
+        }
+      ],
+      "name": "typing-inspection",
+      "purl": "pkg:pypi/typing-inspection@0.4.2",
+      "type": "library",
+      "version": "0.4.2"
+    },
+    {
+      "bom-ref": "requirements-L185",
+      "description": "requirements line 185: uc-micro-py==2.0.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/uc-micro-py/"
+        }
+      ],
+      "name": "uc-micro-py",
+      "purl": "pkg:pypi/uc-micro-py@2.0.0",
+      "type": "library",
+      "version": "2.0.0"
+    },
+    {
+      "bom-ref": "requirements-L3",
+      "description": "requirements line 3: -e .",
+      "externalReferences": [
+        {
+          "comment": "explicit local path",
+          "type": "other",
+          "url": "."
+        }
+      ],
+      "name": "unknown",
+      "type": "library"
+    },
+    {
+      "bom-ref": "requirements-L187",
+      "description": "requirements line 187: uvicorn==0.48.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/uvicorn/"
+        }
+      ],
+      "name": "uvicorn",
+      "purl": "pkg:pypi/uvicorn@0.48.0",
+      "type": "library",
+      "version": "0.48.0"
+    },
+    {
+      "bom-ref": "requirements-L191",
+      "description": "requirements line 191: uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/uvloop/"
+        }
+      ],
+      "name": "uvloop",
+      "purl": "pkg:pypi/uvloop@0.22.1",
+      "type": "library",
+      "version": "0.22.1"
+    },
+    {
+      "bom-ref": "requirements-L193",
+      "description": "requirements line 193: watchfiles==1.2.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/watchfiles/"
+        }
+      ],
+      "name": "watchfiles",
+      "purl": "pkg:pypi/watchfiles@1.2.0",
+      "type": "library",
+      "version": "1.2.0"
+    },
+    {
+      "bom-ref": "requirements-L197",
+      "description": "requirements line 197: websockets==16.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/websockets/"
+        }
+      ],
+      "name": "websockets",
+      "purl": "pkg:pypi/websockets@16.0",
+      "type": "library",
+      "version": "16.0"
+    },
+    {
+      "bom-ref": "requirements-L199",
+      "description": "requirements line 199: wrapt==2.3.0",
+      "externalReferences": [
+        {
+          "comment": "implicit dist url",
+          "type": "distribution",
+          "url": "https://pypi.org/simple/wrapt/"
+        }
+      ],
+      "name": "wrapt",
+      "purl": "pkg:pypi/wrapt@2.3.0",
+      "type": "library",
+      "version": "2.3.0"
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "requirements-L10"
+    },
+    {
+      "ref": "requirements-L101"
+    },
+    {
+      "ref": "requirements-L107"
+    },
+    {
+      "ref": "requirements-L109"
+    },
+    {
+      "ref": "requirements-L113"
+    },
+    {
+      "ref": "requirements-L117"
+    },
+    {
+      "ref": "requirements-L12"
+    },
+    {
+      "ref": "requirements-L121"
+    },
+    {
+      "ref": "requirements-L123"
+    },
+    {
+      "ref": "requirements-L127"
+    },
+    {
+      "ref": "requirements-L129"
+    },
+    {
+      "ref": "requirements-L131"
+    },
+    {
+      "ref": "requirements-L135"
+    },
+    {
+      "ref": "requirements-L137"
+    },
+    {
+      "ref": "requirements-L141"
+    },
+    {
+      "ref": "requirements-L146"
+    },
+    {
+      "ref": "requirements-L150"
+    },
+    {
+      "ref": "requirements-L152"
+    },
+    {
+      "ref": "requirements-L154"
+    },
+    {
+      "ref": "requirements-L156"
+    },
+    {
+      "ref": "requirements-L158"
+    },
+    {
+      "ref": "requirements-L163"
+    },
+    {
+      "ref": "requirements-L165"
+    },
+    {
+      "ref": "requirements-L167"
+    },
+    {
+      "ref": "requirements-L179"
+    },
+    {
+      "ref": "requirements-L185"
+    },
+    {
+      "ref": "requirements-L187"
+    },
+    {
+      "ref": "requirements-L19"
+    },
+    {
+      "ref": "requirements-L191"
+    },
+    {
+      "ref": "requirements-L193"
+    },
+    {
+      "ref": "requirements-L197"
+    },
+    {
+      "ref": "requirements-L199"
+    },
+    {
+      "ref": "requirements-L23"
+    },
+    {
+      "ref": "requirements-L27"
+    },
+    {
+      "ref": "requirements-L29"
+    },
+    {
+      "ref": "requirements-L3"
+    },
+    {
+      "ref": "requirements-L31"
+    },
+    {
+      "ref": "requirements-L36"
+    },
+    {
+      "ref": "requirements-L38"
+    },
+    {
+      "ref": "requirements-L4"
+    },
+    {
+      "ref": "requirements-L42"
+    },
+    {
+      "ref": "requirements-L44"
+    },
+    {
+      "ref": "requirements-L46"
+    },
+    {
+      "ref": "requirements-L48"
+    },
+    {
+      "ref": "requirements-L52"
+    },
+    {
+      "ref": "requirements-L54"
+    },
+    {
+      "ref": "requirements-L56"
+    },
+    {
+      "ref": "requirements-L6"
+    },
+    {
+      "ref": "requirements-L60"
+    },
+    {
+      "ref": "requirements-L62"
+    },
+    {
+      "ref": "requirements-L66"
+    },
+    {
+      "ref": "requirements-L68"
+    },
+    {
+      "ref": "requirements-L70"
+    },
+    {
+      "ref": "requirements-L72"
+    },
+    {
+      "ref": "requirements-L74"
+    },
+    {
+      "ref": "requirements-L79"
+    },
+    {
+      "ref": "requirements-L81"
+    },
+    {
+      "ref": "requirements-L83"
+    },
+    {
+      "ref": "requirements-L85"
+    },
+    {
+      "ref": "requirements-L87"
+    },
+    {
+      "ref": "requirements-L89"
+    },
+    {
+      "ref": "requirements-L91"
+    },
+    {
+      "ref": "requirements-L93"
+    },
+    {
+      "ref": "requirements-L95"
+    },
+    {
+      "ref": "requirements-L97"
+    },
+    {
+      "ref": "requirements-L99"
+    }
+  ],
+  "metadata": {
+    "timestamp": "2026-09-09T14:58:47.761827+00:00",
+    "tools": {
+      "components": [
+        {
+          "description": "CycloneDX Software Bill of Materials (SBOM) generator for Python projects and environments",
+          "externalReferences": [
+            {
+              "type": "build-system",
+              "url": "https://github.com/CycloneDX/cyclonedx-python/actions"
+            },
+            {
+              "type": "distribution",
+              "url": "https://pypi.org/project/cyclonedx-bom/"
+            },
+            {
+              "type": "documentation",
+              "url": "https://cyclonedx-bom-tool.readthedocs.io/"
+            },
+            {
+              "type": "issue-tracker",
+              "url": "https://github.com/CycloneDX/cyclonedx-python/issues"
+            },
+            {
+              "type": "license",
+              "url": "https://github.com/CycloneDX/cyclonedx-python/blob/main/LICENSE"
+            },
+            {
+              "type": "release-notes",
+              "url": "https://github.com/CycloneDX/cyclonedx-python/blob/main/CHANGELOG.md"
+            },
+            {
+              "type": "vcs",
+              "url": "https://github.com/CycloneDX/cyclonedx-python/"
+            },
+            {
+              "type": "website",
+              "url": "https://github.com/CycloneDX/cyclonedx-python/#readme"
+            }
+          ],
+          "group": "CycloneDX",
+          "licenses": [
+            {
+              "license": {
+                "acknowledgement": "declared",
+                "id": "Apache-2.0"
+              }
+            }
+          ],
+          "name": "cyclonedx-py",
+          "type": "application",
+          "version": "7.3.1"
+        },
+        {
+          "description": "Python library for CycloneDX",
+          "externalReferences": [
+            {
+              "type": "build-system",
+              "url": "https://github.com/CycloneDX/cyclonedx-python-lib/actions"
+            },
+            {
+              "type": "distribution",
+              "url": "https://pypi.org/project/cyclonedx-python-lib/"
+            },
+            {
+              "type": "documentation",
+              "url": "https://cyclonedx-python-library.readthedocs.io/"
+            },
+            {
+              "type": "issue-tracker",
+              "url": "https://github.com/CycloneDX/cyclonedx-python-lib/issues"
+            },
+            {
+              "type": "license",
+              "url": "https://github.com/CycloneDX/cyclonedx-python-lib/blob/main/LICENSE"
+            },
+            {
+              "type": "release-notes",
+              "url": "https://github.com/CycloneDX/cyclonedx-python-lib/blob/main/CHANGELOG.md"
+            },
+            {
+              "type": "vcs",
+              "url": "https://github.com/CycloneDX/cyclonedx-python-lib"
+            },
+            {
+              "type": "website",
+              "url": "https://github.com/CycloneDX/cyclonedx-python-lib/#readme"
+            }
+          ],
+          "group": "CycloneDX",
+          "licenses": [
+            {
+              "license": {
+                "acknowledgement": "declared",
+                "id": "Apache-2.0"
+              }
+            }
+          ],
+          "name": "cyclonedx-python-lib",
+          "type": "library",
+          "version": "11.12.0"
+        }
+      ]
+    }
+  },
+  "serialNumber": "urn:uuid:2e14cd83-bd25-4b2b-bbe7-adc9d6bc97c5",
+  "version": 1,
+  "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6"
+}

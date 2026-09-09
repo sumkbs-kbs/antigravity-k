@@ -1,0 +1,6 @@
+{
+  "candidate_sha": "2ae967ad7c57513de9b6d3f8e1753e1a5be243b9",
+  "rollback_target_sha": "5ed04b7cfd791959f14bfa83bcc650d84a9887c1",
+  "rollback_method": "git checkout <prev-candidate> + uv sync --frozen (reset/revert \ubd88\ud544\uc694 \u2014 \ubb38\uc11c runbook \ubc29\uc2dd)",
+  "worktree_checkout_test": true
+}

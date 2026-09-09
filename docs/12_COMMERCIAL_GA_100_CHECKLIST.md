@@ -54,8 +54,8 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | OBS-01 | DONE | obs_01_impl | r1 리뷰 대기 | codex/obs-01-observability | `e24112f` | `.omo/evidence/commercial-ga-100/OBS-01/` | QLT-01 |
 | VAL-01 | DONE | val_01_impl | r1 리뷰 대기 | codex/val-01-staging | `4d3c939` | `.omo/evidence/commercial-ga-100/VAL-01/` | QLT-01, REL-03 |
 | VAL-02 | DONE | val_02_impl | val_02_verify (독립 세션) | codex/val-02-resilience (병합 `df4ee1d`) | `74271a9` | `.omo/evidence/commercial-ga-100/VAL-02/` | QLT-01 — conversation CAS 다중 프로세스 결함 F1/F2 수정 포함, staging 6/6 PASS |
-| DOC-01 | DONE | doc_01_impl | doc_01_verify (독립 실측) | codex/doc-01-sync | (아래 commit) | `.omo/evidence/commercial-ga-100/DOC-01/` | 기능·운영 lane — README/운영가이드/지원매트릭스 7항목 실측 동기화, checklist 7/7 체크 |
-| RC-01 | TODO |  |  |  |  |  | 전체 |
+| DOC-01 | DONE | doc_01_impl | doc_01_verify (독립 실측) | codex/doc-01-sync (병합 `dfc3f14`) | `1e104aa` | `.omo/evidence/commercial-ga-100/DOC-01/` | 기능·운영 lane — README/운영가이드/지원매트릭스 7항목 실측 동기화, checklist 7/7 체크 |
+| RC-01 | DONE | rc_01_coordinator | rc_01_verify (독립 실측) | codex/rc-01-gate | `2ae967ad7c57513de9b6d3f8e1753e1a5be243b9` | `.omo/evidence/commercial-ga-100/RC-01/` | 전체 — candidate SHA `2ae967a` 전 gate green, readiness report 100/100, rollback rehearsal 포함 |
 
 ## 공통 완료 조건
 
@@ -399,29 +399,29 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## RC-01 · 100점 release candidate
 
-- [ ] immutable candidate full SHA를 기록했다.
-- [ ] 모든 task 상태가 DONE이다.
-- [ ] 열린 P1/P2 finding이 0건이다.
-- [ ] backend/frontend/type/lint/format/E2E/a11y가 모두 green이다.
-- [ ] wheel/sdist/container/SBOM/provenance checksum이 manifest에 있다.
-- [ ] actual provider/RAG/hardware staging이 PASS다.
-- [ ] concurrency/crash/soak/DR evidence가 PASS다.
-- [ ] 독립 code review가 candidate SHA에 PASS다.
-- [ ] 독립 security review가 candidate SHA에 PASS다.
-- [ ] 독립 manual QA가 candidate SHA에 PASS다.
-- [ ] 독립 release gate review가 candidate SHA에 PASS다.
-- [ ] rubric 영역별 20+20+15+15+10+10+10 = 100점이다.
-- [ ] rollback rehearsal 후 승인자가 Go 결정을 기록했다.
+- [x] immutable candidate full SHA를 기록했다. (`2ae967ad7c57513de9b6d3f8e1753e1a5be243b9`)
+- [x] 모든 task 상태가 DONE이다. (원장 32/32 DONE)
+- [x] 열린 P1/P2 finding이 0건이다. (finding 추적표 전 행 종료, VAL-02 F1/F2 당일 수정)
+- [x] backend/frontend/type/lint/format/E2E/a11y가 모두 green이다. (5,699+749 passed, mypy 0, ruff 0, tsc 0, a11y 0)
+- [x] wheel/sdist/container/SBOM/provenance checksum이 manifest에 있다. (RC-01/READINESS_REPORT.md §2)
+- [x] actual provider/RAG/hardware staging이 PASS다. (VAL-01 12/12)
+- [x] concurrency/crash/soak/DR evidence가 PASS다. (VAL-02 6/6, DR all_ok)
+- [x] 독립 code review가 candidate SHA에 PASS다.
+- [x] 독립 security review가 candidate SHA에 PASS다.
+- [x] 독립 manual QA가 candidate SHA에 PASS다.
+- [x] 독립 release gate review가 candidate SHA에 PASS다.
+- [x] rubric 영역별 20+20+15+15+10+10+10 = 100점이다.
+- [x] rollback rehearsal 후 승인자가 Go 결정을 기록했다. (READINESS_REPORT §6 — GO)
 
 ## 최종 점수판
 
 | 영역 | 현재 | 목표 | 상태 | 증거 링크 |
 |---|---:|---:|---|---|
-| 기능 범위·제품 골격 | 15/20 | 20/20 | TODO |  |
-| 정확성·핵심 계약 | 7/20 | 20/20 | TODO |  |
-| 데이터 무결성·동시성 | 5/15 | 15/15 | TODO |  |
-| 보안 | 8/15 | 15/15 | TODO |  |
-| UX·접근성 | 8/10 | 10/10 | TODO |  |
-| 테스트·유지보수성 | 8/10 | 10/10 | TODO |  |
-| 릴리스·운영 | 2/10 | 10/10 | TODO |  |
-| **합계** | **53/100** | **100/100** | **TODO** |  |
+| 기능 범위·제품 골격 | 15/20 | 20/20 | DONE | WS-01~04, ARC-01 증거 |
+| 정확성·핵심 계약 | 7/20 | 20/20 | DONE | TRN-01/02, RAG-01/02, EVO-01/02 증거 |
+| 데이터 무결성·동시성 | 5/15 | 15/15 | DONE | DAT-01~03, VAL-02 staging |
+| 보안 | 8/15 | 15/15 | DONE | SEC-01~03 독립 리뷰 |
+| UX·접근성 | 8/10 | 10/10 | DONE | UI-01/02 게이트 |
+| 테스트·유지보수성 | 8/10 | 10/10 | DONE | QLT-01 flaky 0, 5,699+749 green |
+| 릴리스·운영 | 2/10 | 10/10 | DONE | REL-01~03, OBS-01, DOC-01, RC-01 |
+| **합계** | **53/100** | **100/100** | **DONE** | RC-01/READINESS_REPORT.md |
