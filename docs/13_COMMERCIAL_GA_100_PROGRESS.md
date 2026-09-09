@@ -929,3 +929,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **리뷰**: 독립 r1 APPROVE (`.omo/evidence/commercial-ga-100/VAL-02/review.md`).
 - **병합**: `df4ee1d` (baseline, --no-ff). 병합 후 핵심 스위트 15 passed 재확인.
 - **현재 진행**: **31/33 DONE**. 잔여: DOC-01, RC-01.
+
+### 2026-09-09 · DOC-01 문서 동기화·병합 (32/33)
+
+- **DOC-01 구현** (worktree `Ssak-Ai-doc-01`, 브랜치 `codex/doc-01-sync`, 커밋 `1e104aa`):
+  - **실측 대조 방법**: openapi.json 엔드포인트 전수 확인, clean-copy 설치 재현
+    (uv sync → agk doctor 14 passed → serve → /health·/api/auth/status·/api/ready 200),
+    config.py/config.yaml/Dockerfile/Makefile 대조.
+  - **드리프트 수정 6건**: 모델 표기(Qwen3.6→Qwen3.8), 포트(8000→8400),
+    패키지매니저(npm→pnpm frozen), compose 표기(docker run),
+    GA_SUPPORT_MATRIX concurrency 행(VAL-02 실측 반영), serve 예제 정렬.
+  - **관리자 runbook 3종 신설** (09_OPERATION_GUIDE): PIN 설정/교체(auth reset),
+    WebSocket ticket 접속 정책(SEC-03), 업그레이드/롤백.
+  - checklist DOC-01 7/7 체크.
+- **병합**: `dfc3f14` (baseline, --no-ff).
+- **현재 진행**: **32/33 DONE**. 잔여: RC-01.
