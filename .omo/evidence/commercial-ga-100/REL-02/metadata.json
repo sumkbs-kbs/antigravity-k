@@ -1,0 +1,69 @@
+{
+  "task_id": "REL-02",
+  "title": "frontend lock/output와 Docker runtime 계약",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §REL-02",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §REL-02",
+  "status": "IMPLEMENTATION_DONE_REVIEW_PENDING",
+  "branch": "codex/rel-02-container-contract",
+  "worktree": "(병합 후 제거)",
+  "base_sha": "405a092",
+  "result_sha": "c15ec3e",
+  "roles": {
+    "implementer": "rel_02_impl (Freebuff 세션)",
+    "reviewer": "rel_02_verify (할당 대기)"
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "단일 package manager/lockfile을 정했다",
+      "evidence": "pnpm 11.3.0 — packageManager 필드 고정 + CI version: 11.3.0 + Docker pnpm@11.3.0. npm 스타일 overrides는 pnpm 11에서 무시되므로 pnpm-workspace.yaml로 이전 (단일 진실원). package.json의 중복 pnpm.* 필드 제거"
+    },
+    {
+      "id": "AC-2",
+      "text": "frozen install이 clean 환경에서 통과한다",
+      "evidence": "실측: rm -rf node_modules → pnpm install --frozen-lockfile → Done (로컬 macOS + Docker node:22-alpine 양쪽). remark-breaks 누락 건은 lockfile 재생성으로 수복, 계약 테스트 test_lockfile_specifiers_match_package_json이 재발 차단"
+    },
+    {
+      "id": "AC-3",
+      "text": "Vite/CI/Docker/package-data output path가 같다",
+      "evidence": "Vite outDir = ../src/antigravity_k/dashboard_dist, pyproject package-data dashboard_dist/*, Docker COPY /app/src/antigravity_k/dashboard_dist/ (구 /app/dashboard/dist 제거). test_docker_copies_vite_outdir_not_dashboard_dist_dir로 고정"
+    },
+    {
+      "id": "AC-4",
+      "text": "container health와 dashboard load가 통과한다",
+      "evidence": "실측: docker build 성공 (98s), 컨테이너 기동 후 /v1/health 200, / (dashboard) 200, restart 후 health 200"
+    },
+    {
+      "id": "AC-5",
+      "text": "container Vault Git smoke가 통과한다",
+      "evidence": "실측: 컨테이너 내 vault_data에서 git init → commit → git show HEAD:doc.md 성공. 런타임 이미지에 git 2.47.3 포함, entrypoint가 git 부재/vault_data 비쓰기 가능 시 fail-fast (exit 1)"
+    },
+    {
+      "id": "AC-6",
+      "text": "비루트 volume permission과 restart를 검증했다",
+      "evidence": "실측: bind-mount 볼륨에서 uid=1001(agk)로 commit 생성, 컨테이너 재시작 후 커밋·파일 유지 + health 200"
+    }
+  ],
+  "implementation": {
+    "files_changed": [
+      "Dockerfile (pnpm frozen 전환, node:22-alpine, COPY 경로 수정, git 추가)",
+      "docker-entrypoint.sh (git/vault_data fail-fast 검증)",
+      "dashboard/package.json (packageManager 고정, pnpm.* 필드 제거)",
+      "dashboard/pnpm-lock.yaml (재생성 — remark-breaks 포함)",
+      "dashboard/pnpm-workspace.yaml (이미 트래킹됨 — Docker COPY에 추가)",
+      "tests/test_rel02_container_contract.py (신규 — 정적 계약 12건)"
+    ],
+    "notes": [
+      "pnpm 11은 package.json의 pnpm.* 필드를 읽지 않는다 — 설정은 pnpm-workspace.yaml로 (WARN 메시지로 확인)",
+      "pnpm 11은 node:sqlite builtin이 필요해 node:20-alpine에서 ERR_UNKNOWN_BUILTIN_MODULE — node:22-alpine 사용",
+      "Docker frozen install 실패의 근본 원인은 pnpm-workspace.yaml이 lockfile 설치 레이어에 COPY되지 않은 것 — overrides 불일치로 나타남"
+    ]
+  },
+  "verification": {
+    "clean_frozen_install": "로컬 + Docker 양쪽 rm -rf node_modules → pnpm install --frozen-lockfile 성공",
+    "docker_build": "docker build -t ssak-ai:rel-02-test . 성공 (98.3s)",
+    "container_smoke": "health 200, dashboard 200, git smoke 성공, restart 후 유지",
+    "contract_tests": "tests/test_rel02_container_contract.py 12 passed, 1 skipped (증거 팩은 병합 시 활성화)",
+    "dashboard_suite": "pnpm test 749 passed, typecheck 0 errors"
+  }
+}

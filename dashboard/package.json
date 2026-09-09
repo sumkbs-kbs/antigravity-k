@@ -69,9 +69,5 @@
     "vite": "^6.0.0",
     "vitest": "^4.1.10"
   },
-  "overrides": {
-    "monaco-editor": {
-      "dompurify": "3.4.14"
-    }
-  }
+  "packageManager": "pnpm@11.3.0"
 }
