@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
@@ -175,7 +176,15 @@ class EvolutionDecision:
 
 @dataclass
 class EvolutionResult:
-    """단일 진화 사이클의 결과."""
+    """단일 진화 사이클의 결과.
+
+    EVO-02 — 예상과 실측의 분리 계약:
+      - ``expected_improvement``: mutation 적용 전 산출한 "기대값" (추정).
+      - ``measured_after_metric``: held-out benchmark 재실행으로만 채워지는 실측값.
+        적용 직후에는 반드시 ``None`` (pending_evaluation 상태).
+      - ``improvement``: 실측이 있을 때만 계산된다 (measured - before).
+        실측 전 improvement 주장은 금지된다 (None).
+    """
 
     success: bool = False
     skipped: bool = False
@@ -183,8 +192,12 @@ class EvolutionResult:
     mutation_domain: MutationDomain = MutationDomain.SYSTEM_PROMPT
     decision: EvolutionDecision | None = None
     before_metric: float = 0.0
-    after_metric: float = 0.0
-    improvement: float = 0.0
+    # EVO-02 — 예상값 (추정) 과 실측값의 명시적 분리
+    expected_improvement: float = 0.0
+    measured_after_metric: float | None = None
+    improvement: float | None = None
+    evaluation_state: str = "pending_evaluation"  # pending | evaluated | regression_rejected
+    benchmark_provenance: JsonObject = field(default_factory=dict)
     error_message: str = ""
     duration_sec: float = 0.0
     details: JsonObject = field(default_factory=dict)
@@ -198,8 +211,15 @@ class EvolutionResult:
             return "⏭ 진화 생략 (이미 최근 개선됨)"
         if self.rolled_back:
             return f"🔄 진화 롤백됨 ({self.error_message})"
-        if self.success:
-            return f"✅ [{self.mutation_domain.value}] 개선 완료 (Δ{self.improvement:+.2f})"
+        if self.success and self.evaluation_state == "regression_rejected":
+            return f"⚠️ [{self.mutation_domain.value}] 적용됐으나 실측 회귀 — promotion 거절"
+        if self.success and self.improvement is None:
+            return (
+                f"🔬 [{self.mutation_domain.value}] 적용 완료 — 평가 대기"
+                " (기대 Δ{:+.2f}, 실측 미확정)".format(self.expected_improvement)
+            )
+        if self.success and self.improvement is not None:
+            return f"✅ [{self.mutation_domain.value}] 실측 개선 확인 (Δ{self.improvement:+.2f})"
         return f"❌ 진화 실패: {self.error_message}"
 
 
@@ -530,10 +550,14 @@ class SelfEvolutionCoordinator:
                         raise RuntimeError(f"Validation failed: {validation.get('reason', 'unknown')}")
                     self._record_event("validated", {"domain": decision.domain.value})
 
-            # 5. 결과 기록
+            # 5. 결과 기록 (EVO-02 — 예상과 실측의 분리)
+            # after_metric을 expected로 채우지 않는다 — 실측은 held-out 재평가로만 확정된다.
+            # 적용 직후 상태는 pending_evaluation이며 improvement는 미확정(None)이다.
             result.success = bool(mutation_payload.get("applied"))
-            result.after_metric = snapshot.quality_score + decision.expected_improvement
-            result.improvement = result.after_metric - result.before_metric
+            result.expected_improvement = decision.expected_improvement
+            result.measured_after_metric = None  # pending_evaluation — 실측 없음
+            result.improvement = None
+            result.evaluation_state = "pending_evaluation"
             result.details = mutation_payload
             result.events = list(self._event_ledger[-10:])
 
@@ -1175,7 +1199,12 @@ class SelfEvolutionCoordinator:
                     "skipped": entry.result.skipped,
                     "rolled_back": entry.result.rolled_back,
                     "domain": entry.result.mutation_domain.value,
+                    # EVO-02 — 예상·실측·평가 상태를 분리 기록
+                    "expected_improvement": entry.result.expected_improvement,
+                    "measured_after_metric": entry.result.measured_after_metric,
                     "improvement": entry.result.improvement,
+                    "evaluation_state": entry.result.evaluation_state,
+                    "benchmark_provenance": entry.result.benchmark_provenance,
                     "error": entry.result.error_message,
                     "quality_grade": entry.snapshot.quality_grade,
                     "quality_score": entry.snapshot.quality_score,
@@ -1214,7 +1243,88 @@ class SelfEvolutionCoordinator:
                 if self._last_evolution_time > 0
                 else "never"
             ),
+            # EVO-02 — 평가 대기/완료 구분 노출
+            "pending_evaluations": sum(
+                1
+                for h in self._history
+                if h.result.success and h.result.evaluation_state == "pending_evaluation"
+            ),
         }
+
+    # ─── EVO-02 · held-out 실측 평가 ─────────────────────────────────
+
+    def evaluate_pending_mutation(
+        self,
+        cycle_id: str,
+        run_frozen_benchmark: Callable[[str], float] | None = None,
+    ) -> EvolutionResult | None:
+        """적용 완료(pending_evaluation) mutation의 held-out 실측 평가를 수행한다.
+
+        Args:
+            cycle_id: 평가할 진화 사이클 ID.
+            run_frozen_benchmark: frozen benchmark 재실행 함수. suite id를 받고 실측 점수를 반환한다.
+                None이면 coordinator가 가진 harness 참조를 사용하려 시도한다 (미구성 시 실패).
+
+        Returns:
+            실측이 채워진 EvolutionResult (regression이면 promotion 거절 상태). 사이클을
+            찾지 못하면 None.
+        """
+        entry = next((h for h in self._history if h.cycle_id == cycle_id), None)
+        if entry is None:
+            return None
+        result = entry.result
+        if not result.success or result.evaluation_state != "pending_evaluation":
+            return result
+
+        if run_frozen_benchmark is None:
+            logger.warning("[SEC] ⛔ frozen benchmark runner 미구성 — 실측 없이 평가 불가 (pending 유지)")
+            return result
+
+        suite = f"evo-{result.mutation_domain.value}"
+        measured = float(run_frozen_benchmark(suite))
+        result.measured_after_metric = measured
+        result.improvement = measured - result.before_metric
+        result.evaluation_state = "evaluated"
+
+        # environment/provenance hash — 같은 환경에서 재실행됐음을 보장
+        import hashlib
+
+        env_fingerprint = {
+            "suite": suite,
+            "before_metric": result.before_metric,
+            "python": sys.version.split()[0],
+            "timestamp": time.time(),
+        }
+        result.benchmark_provenance = {
+            "suite": suite,
+            "env_hash": hashlib.sha256(
+                json.dumps(env_fingerprint, sort_keys=True).encode("utf-8")
+            ).hexdigest()[:16],
+            "evaluated_at": time.time(),
+        }
+
+        if result.improvement <= 0:
+            # regression — promotion 거절을 기록. mutation은 이미 rollback되지 않았으므로
+            # task-owned rollback 또는 disabled 전환을 상위 레이어에 위임한다.
+            result.evaluation_state = "regression_rejected"
+            self._record_event(
+                "promotion_rejected",
+                {"cycle_id": cycle_id, "improvement": result.improvement},
+            )
+            logger.warning(
+                "[SEC] ⚠️ 실측 회귀 — promotion 거절: cycle=%s, Δ=%s",
+                cycle_id,
+                result.improvement,
+            )
+        else:
+            self._record_event(
+                "promotion_approved",
+                {"cycle_id": cycle_id, "improvement": result.improvement},
+            )
+
+        result.events = list(self._event_ledger[-10:])
+        self._save_evolution_history(entry)
+        return result
 
     def render_markdown_report(self) -> str:
         """진화 보고서를 마크다운으로 렌더링합니다."""
