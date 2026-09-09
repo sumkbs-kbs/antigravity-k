@@ -231,6 +231,10 @@ class ProjectRegistry:
                 tmp.unlink(missing_ok=True)
             except OSError:
                 pass
+            # OBS-01: 레지스트리 저장 실패를 운영 metric에 기록
+            from antigravity_k.engine.operational_metrics import record_registry_write
+
+            record_registry_write("save_error")
             raise RegistrySaveError(
                 f"Failed to save project registry to {self.storage_path}: {e}",
                 cause=e,
@@ -389,6 +393,10 @@ class _RegistryFileLock:
             except BlockingIOError:
                 if time.monotonic() >= deadline:
                     os.close(fd)
+                    # OBS-01: lock 획득 타임아웃을 운영 metric에 기록
+                    from antigravity_k.engine.operational_metrics import record_registry_write
+
+                    record_registry_write("lock_timeout")
                     raise RegistryLockTimeout(
                         f"Could not acquire registry lock {self._lock_path} within {self._timeout}s"
                     ) from None

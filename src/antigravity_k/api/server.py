@@ -1,6 +1,7 @@
 """FastAPI application factory, middleware, and lifespan for the Ssak-Ai API."""
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -378,6 +379,7 @@ _PUBLIC_EXACT_PATHS = frozenset(
         "/api/auth/login",
         "/api/auth/token",
         "/api/auth/status",  # SEC-01: UI 표시용 — 사전인증 상태 조회 (credential 노출 없음)
+        "/api/ready",  # OBS-01: orchestration readiness probe (dependency 상태만 노출)
         "/api/remote/pairing/complete",
         "/api/remote/pairing/relay",
         "/api/remote/pairing/relay/poll",
@@ -570,6 +572,29 @@ def metrics_endpoint() -> Response:
 
 
 # ---------------------------------------------------------------------------
+# OBS-01 — readiness probe: 실제 필수 dependency를 검사한다 (/health와 구분).
+# ---------------------------------------------------------------------------
+from antigravity_k.engine.operational_metrics import compute_readiness  # noqa: E402
+
+
+@app.get(
+    "/api/ready",
+    include_in_schema=False,
+)
+def readiness_endpoint() -> Response:
+    """Readiness probe — task DB/registry/writable storage/model manager 검사.
+
+    not_ready는 503, ready/degraded는 200을 반환한다. orchestration 플랫폼의
+    readiness probe와 운영 runbook의 진단 입력으로 함께 사용한다.
+    """
+    report = compute_readiness()
+    status_code = 503 if report["status"] == "not_ready" else 200
+    return Response(
+        content=json.dumps(report, ensure_ascii=False), status_code=status_code, media_type="application/json"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Correlation-ID middleware + global exception handler registration.
 # ---------------------------------------------------------------------------
 import uuid  # noqa: E402
@@ -590,13 +615,44 @@ async def correlation_id_middleware(request: Request, call_next: RequestResponse
     a request across services), otherwise generates one. The id is stored in a
     ``ContextVar`` so log records can include it, and echoed back in the
     ``X-Request-Id`` response header.
+
+    OBS-01: 요청 시작/종료를 operation 범위 구조화 로그로 남긴다 —
+    구조화 로그 한 줄로 method/path/status/latency/correlation을 추적한다.
+    실행 컨텍스트(project/task/conversation)는 바인딩되는 대로
+    ``log_operation_event``가 자동 주입한다.
     """
     cid = request.headers.get("X-Request-Id") or uuid.uuid4().hex[:12]
     token = correlation_id_var.set(cid)
+    from antigravity_k.engine.operational_metrics import log_operation_event
+
+    start = asyncio.get_event_loop().time()
+    log_operation_event(
+        "http.request.started",
+        method=request.method,
+        path=request.url.path,
+    )
     try:
         response = await call_next(request)
         response.headers["X-Request-Id"] = cid
+        log_operation_event(
+            "http.request.completed",
+            outcome="ok",
+            duration_ms=(asyncio.get_event_loop().time() - start) * 1000,
+            status=response.status_code,
+            method=request.method,
+            path=request.url.path,
+        )
         return response
+    except Exception as exc:
+        log_operation_event(
+            "http.request.failed",
+            outcome="error",
+            duration_ms=(asyncio.get_event_loop().time() - start) * 1000,
+            error_code=type(exc).__name__,
+            method=request.method,
+            path=request.url.path,
+        )
+        raise
     finally:
         correlation_id_var.reset(token)
 
