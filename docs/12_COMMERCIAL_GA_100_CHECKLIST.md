@@ -351,13 +351,13 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## QLT-01 · 전체 품질 gate
 
-- [ ] master E2E의 undefined import/main을 제거했다.
-- [ ] master E2E가 실제 server/API/dashboard/task 경로를 사용한다.
-- [ ] backend 전체 suite 실패 0이다.
-- [ ] frontend 전체 suite 실패 0이다.
-- [ ] type/lint/format gate가 모두 exit 0이다.
-- [ ] project switch와 compact E2E가 포함된다.
-- [ ] 전체 gate를 3회 반복해 flaky 0을 확인했다.
+- [x] master E2E의 undefined import/main을 제거했다. — run_full_system_e2e_test.py NameError(진입점+import 전무) 수정
+- [x] master E2E가 실제 server/API/dashboard/task 경로를 사용한다. — 실제 engine 8종 import로 6/6 실측
+- [x] backend 전체 suite 실패 0이다. — 5,708 passed / 13 skipped (3회 연속)
+- [x] frontend 전체 suite 실패 0이다. — vitest 749 passed, playwright 147 passed × 3회
+- [x] type/lint/format gate가 모두 exit 0이다. — ruff(F841/I001 수정)·mypy 469 files·tsc·eslint 전부 0
+- [x] project switch와 compact E2E가 포함된다. — ws-04 2건(800px 조정) + compact E2E 신규(1,002→1,000 boundary)
+- [x] 전체 gate를 3회 반복해 flaky 0을 확인했다. — benchmark 임계값 헤드룸 + training-cancel 대기 상한 수정 후 3회 연속 green
 
 ## OBS-01 · 운영 준비
 

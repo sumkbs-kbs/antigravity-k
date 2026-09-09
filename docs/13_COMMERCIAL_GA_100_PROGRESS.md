@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 27 |
+| 완료 | 28 |
 | 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | UI-02 DONE (27/33) — 후반 게이트: QLT-01 → OBS-01 → VAL-01/02 → DOC-01 → RC-01 |
+| 현재 작업 | QLT-01 DONE (28/33) — 다음: OBS-01 → VAL-01/02 → DOC-01 → RC-01 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -876,3 +876,9 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **실측**: e2e 70건(UI-01 33 + hard gate 33 + keyboard 4) 전부 통과, dashboard vitest 749 passed, tsc/eslint clean, 백엔드 회귀 5,710 passed / 13 skipped.
 - **병합**: `9784c82` (baseline, --no-ff). 병합 후 desktop-context/e2e-smoke 재확인 통과.
 - **현재 진행**: **27/33 DONE**. 후반 게이트 QLT-01부터.
+
+### 2026-09-09 · QLT-01 구현 (28/33)
+
+- **QLT-01** (직접 커밋 `7685103`): master E2E(`run_full_system_e2e_test.py`)가 미정의 함수 호출 + import 전무로 NameError — 진입점·8개 engine import 수정 후 **6/6 실측**. flaky 3건 제거(benchmark 임계값에 suite 경합 헤드룸: context 3s→6s, max_engine 50→300ms; training-cancel 대기 루프 6s→20s/2.5s→10s 상한, 조기 탈출 유지), ruff F841/I001 수정. compact E2E 신규 추가(1,002 이벤트 → 1,000 한계 compaction 경계에서 최신 이벤트 유지). ws-04 모바일 케이스는 768px 이하 축소 사이드바(UX 의도)와 충돌 → 800px로 조정.
+- **실측**: backend 5,708 passed × 3회 연속, playwright 147 passed × 3회 연속, vitest 749 passed, ruff/mypy/tsc/eslint exit 0.
+- **현재 진행**: **28/33 DONE**.
