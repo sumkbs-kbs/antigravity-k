@@ -14,10 +14,10 @@ GA-100 plan §REL-02:
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
-import tomllib
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = PROJECT_ROOT / "dashboard"
@@ -133,11 +133,13 @@ def test_non_root_user_and_owned_data_dirs() -> None:
 # ── 실측 아티팩트 참조 ──────────────────────────────────────────
 
 
-@pytest.mark.skipif(not (PROJECT_ROOT / ".omo" / "evidence" / "commercial-ga-100" / "REL-02").is_dir(),
-                    reason="증거 팩은 병합 시점에 추가된다")
+@pytest.mark.skipif(
+    not (PROJECT_ROOT / ".omo" / "evidence" / "commercial-ga-100" / "REL-02").is_dir(),
+    reason="증거 팩은 병합 시점에 추가된다",
+)
 def test_evidence_pack_documents_live_verification() -> None:
-    metadata = (
-        PROJECT_ROOT / ".omo" / "evidence" / "commercial-ga-100" / "REL-02" / "metadata.json"
-    ).read_text(encoding="utf-8")
+    metadata = (PROJECT_ROOT / ".omo" / "evidence" / "commercial-ga-100" / "REL-02" / "metadata.json").read_text(
+        encoding="utf-8"
+    )
     for token in ("docker build", "health 200", "vault smoke"):
         assert token in metadata

@@ -198,7 +198,6 @@ class TestStreamingReconstruction:
         fake.chunks = ['<tool_call>\n{"name": "read_file", "arguments": {"path": "a.py"}}\n</tool_call>']
         with test_client.stream("POST", "/v1/messages", json=_base_body(stream=True)) as res:
             events = [json.loads(line[6:]) for line in res.iter_lines() if line.startswith("data: ")]
-        types = [e["type"] for e in events]
         starts = [e for e in events if e["type"] == "content_block_start"]
         tool_starts = [e for e in starts if e["content_block"]["type"] == "tool_use"]
         assert tool_starts, "tool_use content_block_start 이벤트 필요"

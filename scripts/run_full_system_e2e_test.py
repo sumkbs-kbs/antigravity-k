@@ -5,6 +5,19 @@ Executes a full flight mission from CLI-level fast path down to kernel verifiers
 """
 
 import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from antigravity_k.engine.call_hierarchy_graph import CallHierarchyGraph
+from antigravity_k.engine.code_verifier import DeterministicCodeVerifier
+from antigravity_k.engine.fast_path_kernel import FastPathKernel
+from antigravity_k.engine.flight_controller import AutonomousFlightController
+from antigravity_k.engine.reflexion_memory import ReflexionMemory
+from antigravity_k.engine.static_type_security_gate import StaticTypeSecurityGate
+from antigravity_k.engine.working_memory_compactor import WorkingMemoryCompactor
+from antigravity_k.engine.zero_waste_compressor import ZeroWasteCompressor
 
 
 def run_master_test():
@@ -77,11 +90,11 @@ def run_master_test():
         score += 1
 
     print("\n" + "=" * 80)
-    print(f"🎉 MASTER SYSTEM SCORE: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🎉 MASTER SYSTEM SCORE: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 80)
     return score == total
 
 
 if __name__ == "__main__":
-    success = run_master_e2e()
+    success = run_master_test()
     sys.exit(0 if success else 1)

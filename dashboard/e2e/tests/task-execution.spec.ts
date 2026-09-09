@@ -339,6 +339,42 @@ test('repairs a live stream gap with authoritative replay before completing', as
   await expect(page.getByText('스트림 완료')).toBeVisible();
 });
 
+test('compacts a large event stream behind a snapshot boundary without losing the latest events', async ({ page }) => {
+  // Given: a replay of 1,002 events — over the replica compaction limit (1,000).
+  const bigEvents: Array<Record<string, unknown>> = Array.from({ length: 1_002 }, (_, i) => ({
+    sequence: i + 1,
+    type: 'progress',
+    payload: { message: `step ${i + 1}` },
+    timestamp: new Date(Date.UTC(2026, 7, 20, 9, 0, Math.min(i, 59))).toISOString(),
+  }));
+  await installTaskFixtures(page);
+  await page.route(/\/api\/tasks\/task-ui\/events(?:\?.*)?$/, async (route) => {
+    const cursor = Number(new URL(route.request().url()).searchParams.get('after_sequence') ?? '0');
+    const slice = cursor === 0 ? bigEvents : [];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ task_id: 'task-ui', events: slice, last_sequence: bigEvents.length, has_more: false }),
+    });
+  });
+  await page.route(/\/api\/tasks\/task-ui\/events\/stream(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'event: stream.end\ndata: {"task_id":"task-ui","last_sequence":1002,"status":"done"}\n\n',
+    });
+  });
+
+  // When: the dashboard replays and compacts the stream.
+  await page.goto('/agent');
+
+  // Then: the newest events remain rendered (compaction keeps the tail),
+  // and the trace header reports the bounded count instead of the raw total.
+  await expect(page.getByRole('region', { name: '실행 추적' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/1,?000 events/)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('step 1002')).toBeVisible();
+});
+
 test('does not mark an incomplete terminal replay as complete', async ({ page }) => {
   const replayCursors: number[] = [];
 
