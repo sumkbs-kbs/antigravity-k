@@ -841,7 +841,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **구현** (`codex/evo-02-measured-eval`, result `f8c85f7`): auto\_evolve가 mutation 적용 직후 measured\_after\_metric=None/pending\_evaluation으로 반환해 예상치 위장 제거. evaluate\_pending\_mutation(cycle\_id, run\_frozen\_benchmark)이 frozen benchmark 재실행으로만 실측을 채우고 env\_hash(sha256 16자리) provenance 기록. improvement<=0 → regression\_rejected + promotion\_rejected, >0 → promotion\_approved. get\_report()에 pending\_evaluations 카운트 추가.
 - **검증**: 신규 스위트 12 passed, evolution 8개 스위트 138 passed, 전체 백엔드 5679 passed/13 skipped (실패 2건은 baseline 동일 환경 아티팩트 — 1건은 병합 전 수정). ruff/mypy clean.
 - **병합**: baseline `2547776` ← merge `b6fbba9` (--no-ff). worktree 제거, 브랜치 audit trail 보존.
-- **현재 진행**: **25/33 DONE**.
+- **현재 진행**: **24/33 DONE** (체크리스트 테이블 기준 — GA-00, GOV-01, ARC-01, WS-01→04, CTX-01→03, DAT-01→03, SEC-01→03, EVO-01, EVO-02, TRN-01, TRN-02, RAG-01, REL-01, REL-02, UI-01).
 
 
 ## 차단 및 결정 대기
