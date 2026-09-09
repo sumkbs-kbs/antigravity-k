@@ -13,6 +13,8 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal, Mapping
@@ -155,8 +157,27 @@ class ConversationStore:
             storage_dir = os.path.join(os.path.expanduser("~"), ".antigravity", "conversations")
         self._storage_dir = Path(storage_dir)
         self._storage_dir.mkdir(parents=True, exist_ok=True)
+        # VAL-02: 다중 프로세스 writer 간 원자성 — 프로세스 공유 flock(CTX-01 계약
+        # "두 동시 writer는 침묵 중 덮어쓰지 않는다"를 프로세스 경계에서도 유지).
+        # 단일 프로세스 스레드 경쟁은 기존 threading.RLock으로 충분하다.
+        self._flock_path = self._storage_dir / ".cas.lock"
+        self._flock_fd: int | None = None
 
     # ── ConversationRevisionStore protocol ──────────────────────────────
+
+    @contextmanager
+    def _cross_process_lock(self) -> Generator[None, None, None]:
+        """프로세스 간 CAS 원자성을 위한 flock (스레드 락은 self._lock이 담당)."""
+        import fcntl
+
+        self._flock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(self._flock_path), os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
 
     def get_revision(self, *, project_id: str, conversation_id: str) -> int | None:
         with self._lock:
@@ -277,8 +298,13 @@ class ConversationStore:
                 context={"conversation_revision": expected_revision},
             )
 
-        with self._lock:
+        # VAL-02: 다른 프로세스의 append와 경쟁할 수 있으므로 flock 안에서
+        # 디스크 최신 상태를 재적재한 뒤 CAS를 평가한다 (stale 메모리 캐시로
+        # 인한 침묵 덮어쓰기 방지).
+        with self._lock, self._cross_process_lock():
             record = self._ensure_loaded(project_id, conversation_id)
+            if record is not None:
+                self._reload_from_disk(project_id, conversation_id, record)
             if record is None:
                 if not create_if_missing or expected_revision != 0:
                     if expected_revision != 0:
@@ -354,8 +380,10 @@ class ConversationStore:
             )
         retain_tail = max(0, int(retain_tail))
 
-        with self._lock:
+        with self._lock, self._cross_process_lock():
             record = self._ensure_loaded(project_id, conversation_id)
+            if record is not None:
+                self._reload_from_disk(project_id, conversation_id, record)
             if record is None:
                 raise ConversationNotFoundError(
                     detail=f"Conversation not found: {conversation_id}",
@@ -512,10 +540,35 @@ class ConversationStore:
     def _persist(self, record: ConversationRecord) -> None:
         path = self._path_for(record.project_id, record.conversation_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        # VAL-02 수정: 결정론적 tmp 파일명(<conv>.tmp)은 동시 writer가 서로의 tmp를
+        # 삭제/치환해 FileNotFoundError로 유실을 만든다. 프로세스 고유 tmp + os.replace
+        # 로 원자성과 임시파일 격리를 동시에 보장한다.
+        tmp = path.parent / f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
         payload = json.dumps(record.to_dict(), ensure_ascii=False, indent=2)
         tmp.write_text(payload, encoding="utf-8")
         os.replace(tmp, path)
+
+    def _reload_from_disk(self, project_id: str, conversation_id: str, current: ConversationRecord) -> None:
+        """VAL-02: flock 아래 디스크 최신 상태를 현재 캐시에 반영한다.
+
+        다른 프로세스가 revision을 앞당겼으면(expected보다 크면) 현재 CAS는 stale
+        가 되므로 StaleConversationRevisionError가 뜨도록 캐시를 갱신한다.
+        """
+        path = self._path_for(project_id, conversation_id)
+        if not path.is_file():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                disk_record = ConversationRecord.from_dict(data)
+                if disk_record.revision > current.revision:
+                    current.revision = disk_record.revision
+                    current.messages = disk_record.messages
+                    current.summary = disk_record.summary
+                    current.retained_message_ids = disk_record.retained_message_ids
+                    current.updated_at = disk_record.updated_at
+        except Exception:
+            logger.exception("Failed to reload conversation %s/%s", project_id, conversation_id)
 
     def _load(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
         path = self._path_for(project_id, conversation_id)
