@@ -54,7 +54,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | OBS-01 | DONE | obs_01_impl | r1 리뷰 대기 | codex/obs-01-observability | `e24112f` | `.omo/evidence/commercial-ga-100/OBS-01/` | QLT-01 |
 | VAL-01 | DONE | val_01_impl | r1 리뷰 대기 | codex/val-01-staging | `4d3c939` | `.omo/evidence/commercial-ga-100/VAL-01/` | QLT-01, REL-03 |
 | VAL-02 | DONE | val_02_impl | val_02_verify (독립 세션) | codex/val-02-resilience (병합 `df4ee1d`) | `74271a9` | `.omo/evidence/commercial-ga-100/VAL-02/` | QLT-01 — conversation CAS 다중 프로세스 결함 F1/F2 수정 포함, staging 6/6 PASS |
-| DOC-01 | TODO |  |  |  |  |  | 기능·운영 lane |
+| DOC-01 | DONE | doc_01_impl | doc_01_verify (독립 실측) | codex/doc-01-sync | (아래 commit) | `.omo/evidence/commercial-ga-100/DOC-01/` | 기능·운영 lane — README/운영가이드/지원매트릭스 7항목 실측 동기화, checklist 7/7 체크 |
 | RC-01 | TODO |  |  |  |  |  | 전체 |
 
 ## 공통 완료 조건
@@ -389,13 +389,13 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## DOC-01 · 문서 동기화
 
-- [ ] README clean install 절차가 실제 성공한다.
-- [ ] project 선택과 context compact 동작을 설명한다.
-- [ ] auth reset과 WS 정책을 설명한다.
-- [ ] backup/restore/upgrade/rollback runbook이 있다.
-- [ ] container/provider/hardware 지원 범위가 정확하다.
-- [ ] API example이 contract test와 동기화된다.
-- [ ] 과거 완료 주장과 현재 상태의 모순을 제거했다.
+- [x] README clean install 절차가 실제 성공한다. (clean-copy에서 uv sync→doctor 14 passed→serve→/health·/api/ready 200 실측)
+- [x] project 선택과 context compact 동작을 설명한다. (README 기능 표에 POST /api/projects/switch, POST /v1/conversations/compact 추가)
+- [x] auth reset과 WS 정책을 설명한다. (09_OPERATION_GUIDE 관리자 runbook 신설 — PIN 부트스트랩/교체, SEC-02 제한, SEC-03 ws-ticket 절차)
+- [x] backup/restore/upgrade/rollback runbook이 있다. (09_OPERATION_GUIDE — DR 리허설 절차 + 업그레이드/롤백 runbook)
+- [x] container/provider/hardware 지원 범위가 정확하다. (compose 표기 실제 파일에 맞게 수정, GA_SUPPORT_MATRIX VAL-02 증거 갱신)
+- [x] API example이 contract test와 동기화된다. (openapi.json 실측 — auth 6종·ready·v1/messages·responses 확인, README 포트 8400 동기화)
+- [x] 과거 완료 주장과 현재 상태의 모순을 제거했다. (qwen3.6→qwen3.8, npm→pnpm, 포트 8000→8400 드리프트 수정)
 
 ## RC-01 · 100점 release candidate
 

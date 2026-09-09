@@ -14,7 +14,7 @@ pip install -e ".[dev,rag]"
 
 ## 설정
 
-- 기본 모델: `config.yaml`의 `model.main_model` 및 `code_model` = `qwen3.6:latest`.
+- 기본 모델: `config.yaml`의 `model.main_model` 및 `code_model` = `qwen3.8:latest` (DOC-01 실측 동기화 — 구버전 문서의 `qwen3.6` 표기는 config.yaml과 불일치).
 - 기본 inference engine: Ollama.
 - LM Studio: `lmstudio/qwen3.6` 프로필을 선택한다. Local Server에서 API 토큰을 활성화한 경우에만 `LM_STUDIO_API_KEY`를 설정한다. `repo` 값은 LM Studio `/v1/models`가 노출하는 실제 model identifier와 같아야 한다.
 - Direct MLX: `uv sync --extra mlx --extra dev` 후 `mlx-community/Qwen2.5-Coder-32B-Instruct-4bit` 프로필을 선택한다. 가중치를 미리 받으려면 `uv run hf download mlx-community/Qwen2.5-Coder-32B-Instruct-4bit`를 실행한다. 기본 Qwen/Ollama 설정은 바꾸지 않는다. MLX 프로필은 mflux 0.19 계열과 공존할 수 있도록 `mlx>=0.32,<0.33`으로 고정한다.
@@ -52,9 +52,10 @@ pip install -e ".[dev,rag]"
 ## 실행/검증
 
 ```bash
-uvicorn antigravity_k.api.server:app --host 127.0.0.1 --port 8000
-curl -fsS http://127.0.0.1:8000/health
-curl -fsS http://127.0.0.1:8000/openapi.json
+# 기본 포트는 8400 (config server.port, AGK_SERVER_PORT로 변경 가능)
+uv run agk serve --host 127.0.0.1 --port 8400
+curl -fsS http://127.0.0.1:8400/health
+curl -fsS http://127.0.0.1:8400/openapi.json
 make quality-contract
 ```
 
@@ -62,7 +63,7 @@ Ollama local smoke:
 
 ```bash
 ollama list
-ollama run qwen3.6:latest
+ollama run qwen3.8:latest
 ```
 
 로컬 RAG 검색 품질을 측정할 때는 기본적으로 fixture가 참조하는 엔진 코드만 인덱싱해 초기 임베딩 시간을 제한한다. 더 넓은 범위가 필요하면 `--subdir`를 반복 지정한다.
@@ -183,6 +184,54 @@ uv run --no-sync python scripts/dr_rehearsal.py --output /tmp/dr-rehearsal.json
 
 실제 장애 시 절차: (a) 손상 파일을 quarantine 디렉터리로 이동 (삭제 금지),
 (b) 백업이 있으면 복구, 없으면 재초기화, (c) `/api/ready` 200 확인.
+
+## 관리자 runbook — 업그레이드/롤백
+
+### 업그레이드
+
+1. **사전 백업**: 서버 정지 → `data/` 전체(특히 `projects.json`, `.bak`,
+   `tasks.db`, `auth_hash`, `token_secret`)와 활성 workspace의
+   `.antigravity/`를 백업한다. Vault는 Git 원격에 push 상태를 확인한다.
+2. **코드 교체**: `git fetch && git checkout <candidate-SHA>` →
+   `uv sync --frozen`(또는 extra 포함 `uv sync --extra dev --extra rag --extra mlx`)
+   → `uv run agk doctor`로 14개 진단 통과를 확인한다.
+3. **가동**: `uv run agk serve` 후 `/health`(liveness)와 `/api/ready`(readiness,
+   task DB/registry/storage/model)가 모두 200인지 확인한다.
+
+### 롤백
+
+1. 서버 정지 → 이전 `data/` 백업 복원 (`projects.json` 파손 시 `.bak` 자동 복구,
+   `tasks.db` 파손 시 quarantine 후 재초기화 — 위 DR 리허설 절차와 동일).
+2. `git checkout <이전 candidate-SHA>` → `uv sync --frozen` → doctor → 가동 확인.
+3. 롤백 후에도 Vault 커밋은 Git 이력으로 보존된다 — 강제 reset 금지,
+   `git revert`로만 되돌린다.
+
+## 관리자 runbook — 인증(auth) 운영
+
+### PIN 설정/교체 (auth reset)
+
+1. PIN은 `AGK_SEC_ACCESS_PIN` 환경변수로 부트스트랩한다. 서버 기동 시 최초 1회
+   PBKDF2-SHA256으로 해시화되어 `AGK_SEC_PIN_HASH_FILE`(기본 `data/auth_hash`,
+   권한 0600)에 저장되며, 이후 plaintext PIN은 저장되지 않는다.
+2. **PIN 교체**: 서버 정지 → `data/auth_hash` 삭제(또는 `AGK_SEC_PIN_HASH_FILE`
+   경로 변경) → 새 `AGK_SEC_ACCESS_PIN`으로 재기동. 재기동 즉시 새 PIN으로
+   `/api/auth/login`해 발급된 Bearer token(기본 12시간)만 유효하다.
+3. credential이 존재하면 loopback 개발 환경에서도 보호 상태다(SEC-01 fail-closed).
+   익명 허용은 `AGK_SEC_DEV_NO_PIN_ALLOW=true`(dev, 명시 설정)일 때만 가능하며
+   `AGK_ENV=production`에서는 절대 허용되지 않는다.
+4. 로그인 실패 제한(SEC-02): IP/계정 기준 burst 5회/분, sustained 20회/600초
+   초과 시 300초 lockout(403). lockout 급증 시 ⑶ runbook의 credential 유출
+   점검 절차를 따른다.
+
+### WebSocket 접속 정책 (SEC-03)
+
+- WS 연결은 query `?token=`/subprotocol credential 채널을 지원하지 않는다.
+- 클라이언트는 ① `POST /api/auth/ws-ticket`(Bearer 인증)으로 30초 수명 1회용
+  ticket을 발급받고 ② `Origin`이 `AGK_CORS_ORIGINS` 허용 목록에 포함된 상태로
+  `ticket`을 handshake에 전달한다(헤더 또는 지정 채널). 재사용·만료 ticket,
+  허용 목록 밖 Origin은 거절된다.
+- 정상 reconnect는 새 ticket 발급으로 수행한다. 이벤트 replay는 ticket 소비 후
+  정상 세션에서 `after_sequence` 커서로 이어받는다.
 
 ## 현재 운영 제한
 

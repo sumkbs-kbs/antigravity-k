@@ -51,7 +51,7 @@ labels below do not authorize a general “private” claim; see
 | Surface | Classification | Current repository evidence | Missing gate / owner |
 |---|---|---|---|
 | Single interactive operator on one local/self-hosted instance | GA target disposition (not a load certification) | ADR-0003 single-operator boundary; no marketed seat count | Product owner; keep wording as single-operator only |
-| Concurrent / simultaneous multi-user interactive sessions on one instance | Unverified / unsupported for GA claims | No VAL-02 concurrency or multi-seat staging evidence in GOV-01 | `VAL-02` load/concurrency evidence; release coordinator + security owner |
+| Concurrent / simultaneous multi-user interactive sessions on one instance | Experimental — single-operator use remains the GA target | VAL-02 multi-process staging evidence exists (`codex/val-02-resilience` @ `74271a9`): task CAS race 32 tasks × 8 procs 0 contradiction, conversation CAS 6 procs 0 loss, registry flock 5 procs × 40 projects 0 loss, kill -9 recovery PASS, P95 3.14 ms / soak 60 s RSS +0.4 MB. Multi-seat product claim still requires release-coordinator review. | Release coordinator disposition; RC-01 candidate-SHA gate. |
 | Multi-tenant or multi-customer concurrent tenancy | Unsupported / excluded | SaaS excluded by ADR-0003 | SaaS expansion gate before `RC-01` |
 
 Do not convert “single tenant” into a concurrent-user capacity number. Any marketed concurrent-user limit requires candidate-SHA `VAL-02` evidence and release-coordinator approval.
