@@ -50,7 +50,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | REL-03 | DONE | rel_03_impl | r1 리뷰 대기 | codex/rel-03-supply-chain-audit (병합) | `26ae62e` | `.omo/evidence/commercial-ga-100/REL-03/` | REL-01, REL-02 |
 | UI-01 | DONE | ui_01_impl | r1 리뷰 대기 | codex/ui-01-route-a11y-gate (병합) | `cda84dc` | `.omo/evidence/commercial-ga-100/UI-01/` | GA-00 |
 | UI-02 | DONE | ui_02_impl | r1 리뷰 대기 | codex/ui-02-accessibility (병합) | `7d33f23` | `.omo/evidence/commercial-ga-100/UI-02/` | UI-01 |
-| QLT-01 | TODO |  |  |  |  |  | 모든 기능 lane |
+| QLT-01 | DONE | qlt_01_impl | r1 리뷰 대기 | codex/m1-task-events (직접 커밋) | `7685103` | `.omo/evidence/commercial-ga-100/QLT-01/` | 모든 기능 lane |
 | OBS-01 | TODO |  |  |  |  |  | QLT-01 |
 | VAL-01 | TODO |  |  |  |  |  | QLT-01, REL-03 |
 | VAL-02 | TODO |  |  |  |  |  | QLT-01 |
