@@ -31,6 +31,10 @@ class DistributionInventory(BaseModel):
     manifest_roots: tuple[str, ...] = Field(min_length=1)
     prohibited_spdx: tuple[str, ...] = Field(min_length=1)
     prohibited_python_packages: tuple[str, ...] = Field(min_length=1)
+    #: REL-03 — 플랫폼 마커 패키지 (win32 전용 등)로 현재 플랫폼에 설치되지
+    #: 않아 license 메타데이터 판독이 불가한 lock 패키지. license gate는 이
+    #: 목록에 있으면 unknown 대신 marker-allowed로 판정한다 (보고에는 남긴다).
+    marker_platform_packages: tuple[str, ...] = ()
 
 
 class ReleaseBaseline(BaseModel):

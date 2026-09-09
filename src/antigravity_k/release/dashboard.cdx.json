@@ -6,7 +6,7 @@
     "component": {
       "bom-ref": "pkg:npm/antigravity-k-dashboard-react@0.1.0",
       "type": "application",
-      "name": "antigravity-k-dashboard-react",
+      "name": "ssak-ai-dashboard-react",
       "version": "0.1.0"
     }
   },
@@ -14,7 +14,7 @@
     {
       "bom-ref": "pkg:npm/antigravity-k-dashboard-react@0.1.0",
       "type": "application",
-      "name": "antigravity-k-dashboard-react",
+      "name": "ssak-ai-dashboard-react",
       "version": "0.1.0"
     },
     {
@@ -1358,6 +1358,26 @@
       ]
     },
     {
+      "bom-ref": "pkg:npm/mdast-util-newline-to-break@2.0.0",
+      "type": "library",
+      "name": "mdast-util-newline-to-break",
+      "version": "2.0.0",
+      "purl": "pkg:npm/mdast-util-newline-to-break@2.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/mdast-util-newline-to-break/-/mdast-util-newline-to-break-2.0.0.tgz"
+        }
+      ]
+    },
+    {
       "bom-ref": "pkg:npm/mdast-util-phrasing@4.1.0",
       "type": "library",
       "name": "mdast-util-phrasing",
@@ -2254,6 +2274,26 @@
         {
           "type": "distribution",
           "url": "https://registry.npmjs.org/rehype-sanitize/-/rehype-sanitize-6.0.0.tgz"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/remark-breaks@4.0.0",
+      "type": "library",
+      "name": "remark-breaks",
+      "version": "4.0.0",
+      "purl": "pkg:npm/remark-breaks@4.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/remark-breaks/-/remark-breaks-4.0.0.tgz"
         }
       ]
     },
