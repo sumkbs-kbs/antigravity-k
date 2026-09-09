@@ -344,6 +344,9 @@ class ConversationStore:
 
         Returns snapshot with summary, retained_message_ids, and new revision.
         """
+        # OBS-01: 압축 시도 결과를 운영 metric에 기록 (record/persist 실패 제외).
+        from antigravity_k.engine.operational_metrics import record_compaction
+
         if expected_revision < 0:
             raise InvalidConversationRevisionError(
                 detail="conversation_revision must be >= 0",
@@ -381,6 +384,7 @@ class ConversationStore:
                 record.retained_message_ids = tuple(m.id for m in record.messages)
                 record.updated_at = time.time()
                 self._persist(record)
+                record_compaction("success")
                 return record.snapshot()
 
             old = messages[:-retain_tail] if retain_tail else messages
@@ -404,6 +408,7 @@ class ConversationStore:
             record.revision = expected_revision + 1
             record.updated_at = time.time()
             self._persist(record)
+            record_compaction("success")
             return record.snapshot()
 
     def fork(

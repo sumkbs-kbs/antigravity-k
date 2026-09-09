@@ -501,6 +501,12 @@ class ModelManager:
             combo=combo_name,
             fallback_depth=fallback_depth,
         )
+        # OBS-01: provider 실패를 운영 metric에 기록 (timeout/오류 구분)
+        from antigravity_k.engine.operational_metrics import record_provider_failure
+
+        lowered = error.lower()
+        is_timeout = "timeout" in lowered or "timed out" in lowered
+        record_provider_failure("timeout" if is_timeout else "error")
         self.router.mark_failure(model, reason=error)
 
     def _maybe_cascade_escalate(

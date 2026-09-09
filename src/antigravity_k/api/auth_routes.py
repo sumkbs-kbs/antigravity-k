@@ -182,6 +182,7 @@ def login(request: Request, body: LoginRequest) -> TokenResponse:
          lockout 중에는 PBKDF2 검증을 실행하지 않아 공격이 CPU를 소진하지 못한다.
     모든 성공/실패/lockout은 credential 없이 audit에 기록된다.
     """
+    from antigravity_k.engine.operational_metrics import record_auth_event as record_auth_metric
     from antigravity_k.security.auth_audit import record_auth_event
     from antigravity_k.security.credential_gate import get_credential_gate
 
@@ -203,6 +204,7 @@ def login(request: Request, body: LoginRequest) -> TokenResponse:
     if stored is None:
         # No PIN configured — auth is effectively disabled.
         logger.warning("Login attempted with no PIN hash configured.")
+        record_auth_metric("failed")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication is not configured on this server.",
@@ -212,8 +214,10 @@ def login(request: Request, body: LoginRequest) -> TokenResponse:
         decision = gate.record_failure(gate_key)
         logger.info("Failed login attempt from %s", remote)
         record_auth_event("login_failed", remote)
+        record_auth_metric("failed")
         if not decision.allowed:
             record_auth_event("lockout", remote, "failure threshold reached")
+            record_auth_metric("lockout")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Too many failed attempts. Retry after {max(1, int(decision.retry_after_sec))}s.",
@@ -226,6 +230,7 @@ def login(request: Request, body: LoginRequest) -> TokenResponse:
 
     gate.record_success(gate_key)
     record_auth_event("login_success", remote)
+    record_auth_metric("success")
     token = get_token_service().issue_token(subject="user")
     return TokenResponse(access_token=token, expires_in=get_token_service().ttl_seconds)
 
@@ -246,6 +251,7 @@ def token_login(
         표준 OAuth2 token response: ``{"access_token": "...", "token_type": "bearer", "expires_in": ...}``
     """
     _ = request
+    from antigravity_k.engine.operational_metrics import record_auth_event as record_auth_metric
     from antigravity_k.security.auth_audit import record_auth_event
     from antigravity_k.security.credential_gate import get_credential_gate
 
@@ -262,6 +268,7 @@ def token_login(
 
     stored = get_current_pin_hash()
     if stored is None:
+        record_auth_metric("failed")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication is not configured on this server.",
@@ -270,8 +277,10 @@ def token_login(
     if not verify_pin(form_data.username, stored):
         decision = gate.record_failure(gate_key)
         record_auth_event("login_failed", remote)
+        record_auth_metric("failed")
         if not decision.allowed:
             record_auth_event("lockout", remote, "failure threshold reached")
+            record_auth_metric("lockout")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Too many failed attempts. Retry after {max(1, int(decision.retry_after_sec))}s.",
@@ -284,6 +293,7 @@ def token_login(
 
     gate.record_success(gate_key)
     record_auth_event("login_success", remote)
+    record_auth_metric("success")
     token = get_token_service().issue_token(subject="user")
     return TokenResponse(
         access_token=token,

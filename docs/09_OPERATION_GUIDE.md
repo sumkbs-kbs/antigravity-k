@@ -104,6 +104,86 @@ AGK_SEARCH_ENGINE_URL=https://main.search-engine-api.pages.dev make search-load
 4. 재시작은 idempotency key와 checkpoint 이후부터 수행한다.
 5. cache/vector/Vault 변경 전 백업하고, rollback은 Git/Vault/worktree 계약을 따른다.
 
+## OBS-01 · SLO·경보·재해 복구 runbook
+
+### operation correlation (구조화 로그)
+
+- 모든 HTTP 요청은 `X-Request-Id`를 상관 id로 받아(없으면 생성) 로그에 남긴다.
+- `antigravity_k.ops` 로거의 `http.request.started` / `http.request.completed` /
+  `http.request.failed` 이벤트가 method/path/status/latency_ms/correlation_id를
+  JSON 한 줄로 기록한다. 실행 컨텍스트가 바인딩되면 project_id/task_id/
+  conversation_id/session_id/model_id가 같은 줄에 주입되어 한 operation의
+  project→task→tool→model 흐름을 추적할 수 있다.
+- `log_operation_event(event, outcome=..., **fields)`로 도메인 이벤트도 동일
+  포맷으로 남긴다 (JSONFormatter 활용).
+
+### 핵심 운영 metric (Prometheus `/metrics`)
+
+| metric | outcome 값 | 수집 지점 |
+|---|---|---|
+| `ssak_context_compactions_total` | success/degraded/halted/error | conversation_store.compact |
+| `ssak_auth_events_total` | success/failed/lockout | auth_routes 로그인·토큰 교환 |
+| `ssak_registry_writes_total` | success/save_error/lock_timeout | project_registry 저장 |
+| `ssak_vault_commits_total` | success/commit_error | vault _auto_commit |
+| `ssak_task_transition_conflicts_total` | conflict/rejected | task_state_store CAS |
+| `ssak_provider_failures_total` | timeout/error | model_manager 추론 실패 |
+
+기존 RED 계열(`http_requests_total`, `http_request_duration_seconds`)과
+LLM 계열(`llm_calls_total`)은 그대로 유지된다.
+
+### readiness probe (`GET /api/ready`, 공개)
+
+- 검사 항목: `task_db`(SQLite 접근), `registry`(활성 프로젝트),
+  `writable_storage`(프로젝트 루트 쓰기 probe), `model_manager`(로드 모델).
+- 집계: not_ready ≥1 → `not_ready` + **HTTP 503**, degraded만 있으면
+  `degraded` + 200, 전부 ready면 `ready` + 200.
+- 개별 검사 실패는 다른 검사에 오염되지 않는다 (격리 실행).
+- liveness는 기존 `/health`를 그대로 사용한다.
+
+### SLO와 경보 (owner: 운영 담당자, first-response: 해당 runbook 절차)
+
+| 지표 | SLO | 경보 임계 | runbook 절차 |
+|---|---|---|---|
+| API 가용성 (readiness 200) | 월 99.5% | `/api/ready` 503 2회 연속 | 아래 ① |
+| HTTP 5xx 비율 | < 1% (5분 창) | 1% 초과 5분 지속 | 아래 ② |
+| auth lockout 급증 | < 5/min 정상 | `ssak_auth_events_total{outcome="lockout"}` 증가율 5/min 초과 | 아래 ③ |
+| 압축 실패율 (CTX-03) | < 5% | `ssak_context_compactions_total` degraded+halted 비율 5% 초과 | 아래 ④ |
+| task CAS 충돌 | 정보성 | `conflict` 증가율 10/min 초과 | 아래 ⑤ |
+| provider 실패 | 정보성 | `ssak_provider_failures_total{outcome="timeout"}` 3회/5min | 아래 ⑥ |
+
+1. **readiness 503** — `/api/ready` JSON의 checks[].detail에서 실패 컴포넌트를
+   확인한다. task_db면 아래 DR 리허설의 DB corruption 절차, registry면 backup
+   복구 절차, storage면 디스크/권한을 확인한다.
+2. **5xx 급증** — `http.request.failed` 로그의 error_code 분포를 확인하고
+   최근 배포/설정 변경을 롤백 검토한다.
+3. **lockout 급증** — `get_auth_audit_events()`로 원격 IP 분포를 확인한다.
+   단일 IP 다수 실패는 lockout이 정상 동작 중인 것이므로 방화벽 차단을 검토하고,
+   분산 다수면 credential 노출/무차별 공격을 가정하고 PIN을 교체한다.
+4. **압축 실패율 초과** — `context.compress.*` 이벤트의 failure_code를 모아
+   근본 원인(모델 컨텍스트 설정, summarize_fn 실패)을 확인한다.
+5. **CAS 충돌 급증** — 같은 task에 다중 worker가 붙었는지 확인한다.
+   충돌은 정합성 보호 동작이므로 데이터 조치는 불필요하다.
+6. **provider timeout** — 로컬 모델 프로세스(Ollama 등) 상태와 하드웨어
+   자원을 확인하고, 콤보 폴백이 정상 동작했는지 `llm_calls_total`로 검증한다.
+
+### 재해 복구 리허설
+
+```bash
+uv run --no-sync python scripts/dr_rehearsal.py --output /tmp/dr-rehearsal.json
+```
+
+3개 시나리오를 임시 디렉터리에서 실측한다 (프로덕션 데이터 무변경):
+
+1. **backup_restore** — `data/projects.json` 파손 → `.bak`에서 자동 복구,
+   손상본은 `.corrupt-<ts>`로 격리 보존.
+2. **db_corruption** — task DB SQLite header 파손 → 감지 후 격리(quarantine)
+   + 재초기화 + 재기록 검증.
+3. **project_migration** — 프로젝트 루트 실제 이동 → registry id 재활성 →
+   remove+add로 path 갱신 → 활성 프로젝트 전환 확인.
+
+실제 장애 시 절차: (a) 손상 파일을 quarantine 디렉터리로 이동 (삭제 금지),
+(b) 백업이 있으면 복구, 없으면 재초기화, (c) `/api/ready` 200 확인.
+
 ## 현재 운영 제한
 
-DNS-aware SSRF, robots policy, alerting rehearsal, backup restore, load test가 완료되지 않았으므로 공개 인터넷 대상 상용 운영을 승인하지 않는다.
+DNS-aware SSRF, robots policy, load test가 완료되지 않았으므로 공개 인터넷 대상 상용 운영을 승인하지 않는다. (alerting rehearsal과 backup restore는 OBS-01에서 리허설 완료 — 위 재해 복구 리허설 절차 참조)

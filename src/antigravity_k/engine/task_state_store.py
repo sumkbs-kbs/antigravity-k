@@ -232,6 +232,10 @@ class TaskStateStore:
         do not already emit a domain-specific completion event).
         """
         if status not in TASK_STATUSES:
+            # OBS-01: 허용 전이 밖 상태 거절도 운영 metric에 기록
+            from antigravity_k.engine.operational_metrics import record_task_transition_conflict
+
+            record_task_transition_conflict("rejected")
             raise InvalidTaskStatusError(status)
 
         with self._connection() as connection:
@@ -254,6 +258,10 @@ class TaskStateStore:
             cas_version = current_version if expected_version is None else int(expected_version)
 
             if expected_status is not None and str(expected_status) != current:
+                # OBS-01: stale expected CAS 충돌을 운영 metric에 기록
+                from antigravity_k.engine.operational_metrics import record_task_transition_conflict
+
+                record_task_transition_conflict("conflict")
                 raise TaskTransitionConflictError(
                     task_id,
                     requested=status,
@@ -263,6 +271,9 @@ class TaskStateStore:
                     current_version=current_version,
                 )
             if expected_version is not None and int(expected_version) != current_version:
+                from antigravity_k.engine.operational_metrics import record_task_transition_conflict as _rtc
+
+                _rtc("conflict")
                 raise TaskTransitionConflictError(
                     task_id,
                     requested=status,
@@ -311,6 +322,10 @@ class TaskStateStore:
                         (task_id,),
                     )
                 )
+                # OBS-01: CAS 충돌(lost race / stale expected)을 운영 metric에 기록
+                from antigravity_k.engine.operational_metrics import record_task_transition_conflict
+
+                record_task_transition_conflict("conflict")
                 raise TaskTransitionConflictError(
                     task_id,
                     requested=status,

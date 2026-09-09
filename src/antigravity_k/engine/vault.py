@@ -180,6 +180,9 @@ class VaultEngine:
                     logger.error("Failed to initialize Git repo: %s", _error_text(cast(object, e.stderr)))
 
     def _auto_commit(self, file_path: str, message: str = "Auto-commit via VaultEngine"):
+        # OBS-01: vault commit 성공/실패를 운영 metric에 기록
+        from antigravity_k.engine.operational_metrics import record_vault_commit
+
         with vault_stage_transaction(self.vault_path, file_path) as commit_env:
             try:
                 result = subprocess.run(
@@ -193,6 +196,7 @@ class VaultEngine:
                 raise VaultCommitError(f"git commit failed for {file_path}: {e}") from e
         if result.returncode == 0:
             logger.info("Git commit successful: %s", message)
+            record_vault_commit("success")
             if commit_env is not None:
                 try:
                     _ = subprocess.run(
@@ -211,6 +215,7 @@ class VaultEngine:
             logger.debug("Nothing to commit for %s (no-op)", file_path)
             return
         logger.error("Git commit failed for %s (exit %d): %s", file_path, result.returncode, output)
+        record_vault_commit("commit_error")
         raise VaultCommitError(
             f"git commit failed for {file_path} (exit {result.returncode}): {output}",
         )
