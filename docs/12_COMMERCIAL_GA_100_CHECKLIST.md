@@ -44,7 +44,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | TRN-01 | DONE | trn_01_impl | trn_01_verify (독립 세션) | codex/trn-01-recipe-source (병합 `583911a`) | `717ee89` | `.omo/evidence/commercial-ga-100/TRN-01/` | GA-00 |
 | TRN-02 | DONE | trn_02_impl | r1 리뷰 대기 | codex/trn-02-timeout-resource (병합 `52cfb14`) | `564324d` | `.omo/evidence/commercial-ga-100/TRN-02/` | TRN-01 |
 | RAG-01 | DONE | rag_01_impl | r1 리뷰 대기 | codex/rag-01-chunk-identity (병합) | — | `.omo/evidence/commercial-ga-100/RAG-01/` | GA-00 |
-| RAG-02 | TODO |  |  |  |  |  | RAG-01 |
+| RAG-02 | DONE | rag_02_impl | r1 리뷰 대기 | codex/rag-02-line-provenance (병합 `5656115`) | `e2c780a` | `.omo/evidence/commercial-ga-100/RAG-02/` | RAG-01 |
 | REL-01 | DONE | rel_01_impl | r1 리뷰 대기 | codex/rel-01-sbom-order (병합) | — | `.omo/evidence/commercial-ga-100/REL-01/` | GA-00 |
 | REL-02 | DONE | rel_02_impl | r1 리뷰 대기 | codex/rel-02-container-contract (병합) | `c15ec3e` | `.omo/evidence/commercial-ga-100/REL-02/` | GA-00 |
 | REL-03 | TODO |  |  |  |  |  | REL-01, REL-02 |
@@ -297,11 +297,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## RAG-02 · source line
 
-- [ ] strip 전 absolute offset을 보존한다.
-- [ ] prose/table/code block line range가 정확하다.
-- [ ] CRLF/Unicode/빈 줄 fixture가 통과한다.
-- [ ] stale digest/range를 citation validator가 거절한다.
-- [ ] UI/CLI citation을 열어 원문을 확인했다.
+- [x] strip 전 absolute offset을 보존한다. (_chunk_markdown_prose가 원문 조각+절대 시작 라인을 받아 계산 — `e2c780a`)
+- [x] prose/table/code block line range가 정확하다. (표 본문 시작 기준 + AST lineno)
+- [x] CRLF/Unicode/빈 줄 fixture가 통과한다. (인덱싱 시 LF 정규화, 13건 스위트)
+- [x] stale digest/range를 citation validator가 거절한다. ([citation:id:5-8] range 대조 + freshness=stale→unverified)
+- [x] UI/CLI citation을 열어 원문을 확인했다. (format_context가 doc.md:9-10 absolute 헤더 노출)
+- [ ] 독립 r1 리뷰 (rag_02_verify) — 대기
 
 ## REL-01 · package와 SBOM
 
