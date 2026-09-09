@@ -46,7 +46,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | RAG-01 | DONE | rag_01_impl | r1 리뷰 대기 | codex/rag-01-chunk-identity (병합) | — | `.omo/evidence/commercial-ga-100/RAG-01/` | GA-00 |
 | RAG-02 | TODO |  |  |  |  |  | RAG-01 |
 | REL-01 | DONE | rel_01_impl | r1 리뷰 대기 | codex/rel-01-sbom-order (병합) | — | `.omo/evidence/commercial-ga-100/REL-01/` | GA-00 |
-| REL-02 | TODO |  |  |  |  |  | GA-00 |
+| REL-02 | DONE | rel_02_impl | r1 리뷰 대기 | codex/rel-02-container-contract (병합) | `c15ec3e` | `.omo/evidence/commercial-ga-100/REL-02/` | GA-00 |
 | REL-03 | TODO |  |  |  |  |  | REL-01, REL-02 |
 | UI-01 | DONE | ui_01_impl | r1 리뷰 대기 | codex/ui-01-route-a11y-gate (병합) | `cda84dc` | `.omo/evidence/commercial-ga-100/UI-01/` | GA-00 |
 | UI-02 | TODO |  |  |  |  |  | UI-01 |
@@ -312,12 +312,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## REL-02 · frontend와 container
 
-- [ ] 단일 package manager/lockfile을 정했다.
-- [ ] frozen install이 clean 환경에서 통과한다.
-- [ ] Vite/CI/Docker/package-data output path가 같다.
-- [ ] container health와 dashboard load가 통과한다.
-- [ ] container Vault Git smoke가 통과한다.
-- [ ] 비루트 volume permission과 restart를 검증했다.
+- [x] 단일 package manager/lockfile을 정했다. — pnpm 11.3.0 고정, overrides는 pnpm-workspace.yaml로
+- [x] frozen install이 clean 환경에서 통과한다. — 로컬 + Docker 양쪽 rm -rf 후 frozen 성공
+- [x] Vite/CI/Docker/package-data output path가 같다. — src/antigravity_k/dashboard_dist 단일 경로, 계약 테스트 고정
+- [x] container health와 dashboard load가 통과한다. — 실측 200/200, restart 후 200
+- [x] container Vault Git smoke가 통과한다. — 컨테이너 내 init/commit/read 성공, entrypoint fail-fast
+- [x] 비루트 volume permission과 restart를 검증했다. — uid 1001 커밋, 재시작 후 유지
 
 ## REL-03 · 공급망 audit
 
