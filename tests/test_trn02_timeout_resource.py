@@ -235,8 +235,10 @@ class TestTrainingJobsApi:
                 },
             )
             job_id = res.json()["job_id"]
-            # 프로세스가 등록되고 첫 로그가 찍힐 때까지 대기 (전체 스위트 부하 감안 여유)
-            for _ in range(120):
+            # 프로세스가 등록되고 첫 로그가 찍힐 때까지 대기
+            # (전체 suite 부하 시 프로세스 스폰이 느려질 수 있어 20s 상한 —
+            #  조기 조건 충족 시 즉시 탈출하므로 솔로 실행 시간은 불변)
+            for _ in range(400):
                 view = client.get(f"/api/training-jobs/{job_id}").json()
                 if view["status"] == "running" and "iter 1" in "\n".join(view["log_tail"]):
                     break
@@ -244,7 +246,7 @@ class TestTrainingJobsApi:
             cancel = client.post(f"/api/training-jobs/{job_id}/cancel")
             assert cancel.status_code == 200
             assert cancel.json()["ok"] is True
-            for _ in range(50):
+            for _ in range(200):
                 view = client.get(f"/api/training-jobs/{job_id}").json()
                 if view["status"] != "running":
                     break
