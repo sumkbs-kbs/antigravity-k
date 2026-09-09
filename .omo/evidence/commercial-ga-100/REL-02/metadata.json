@@ -31,7 +31,7 @@
     {
       "id": "AC-4",
       "text": "container health와 dashboard load가 통과한다",
-      "evidence": "실측: docker build 성공 (98s), 컨테이너 기동 후 /v1/health 200, / (dashboard) 200, restart 후 health 200"
+      "evidence": "실측: docker build 성공 (98s), 컨테이너 기동 후 /v1/health 200, / (dashboard) 200, restart 후 health 200. 실측: 컨테이너 안 vault smoke — git init/commit, git log, diff/rollback 경로 전부 성공 (docker exec, 비루트 agk 사용자)"
     },
     {
       "id": "AC-5",
