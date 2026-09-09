@@ -33,6 +33,13 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+### 2026-09-09 · UI-01 구현·병합 (23/33)
+
+- **UI-01 구현** (worktree `Ssak-Ai-ui-01`, 브랜치 `codex/ui-01-route-a11y-gate`): accessibility.spec.ts를 hash URL에서 실제 BrowserRouter 16-route × desktop/mobile 게이트로 재작성. 각 case가 URL pathname + 페이지 고유 marker를 검증하고, route 로드 실패는 axe와 독립 실패. 결과 JSON/screenshot을 route/viewport별 저장.
+- **a11y 결함 수정**: 스크롤 영역 키보드 접근(텔레메트리 바), form label 누락(설정 예산/한도, 플러그인 토글), progressbar 접근 이름(고지 카드), nested-interactive(git 파일 행), 대비 7종 — 기본 accent `#7c6aef→#9b87f2`(4.73→6.54:1), `text-dim`(2.11→4.92:1), muted badge, spec-key/model-id, empty-state opacity 제거, accent 배경 버튼 흰→어두운 텍스트.
+- **검증**: 실측 게이트 33/33 passed (진행 32→27→10→6→0 위반), tsc 0 errors, lint 0 errors, 백엔드 전체 회귀 5,632 passed (TRN-02 cancel 1건은 단독 실행 15/15 통과의 타이밍 플레이크).
+- **현재 진행**: **23/33 DONE** (기존 22 + UI-01).
+
 ### 2026-09-08 · REL-01 구현·병합 (22/33)
 
 - **REL-01 검증·고정** (worktree `Ssak-Ai-rel-01`, 브랜치 `codex/rel-01-sbom-order`): 기존 release_sbom 파이프라인이 올바른 순서(generate→build→verify→publish)를 갖고 있어 구현 변경 없이 계약을 테스트로 고정. **실측 검증**: uv build → clean venv ×2 (wheel/sdist) 설치 → import/CLI smoke 성공, release_sbom verify 성공(실패 시 exit 2), SBOM component set == uv.lock runtime closure (61=61).

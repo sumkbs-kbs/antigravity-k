@@ -48,7 +48,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | REL-01 | DONE | rel_01_impl | r1 리뷰 대기 | codex/rel-01-sbom-order (병합) | — | `.omo/evidence/commercial-ga-100/REL-01/` | GA-00 |
 | REL-02 | TODO |  |  |  |  |  | GA-00 |
 | REL-03 | TODO |  |  |  |  |  | REL-01, REL-02 |
-| UI-01 | TODO |  |  |  |  |  | GA-00 |
+| UI-01 | DONE | ui_01_impl | r1 리뷰 대기 | codex/ui-01-route-a11y-gate (병합) | `cda84dc` | `.omo/evidence/commercial-ga-100/UI-01/` | GA-00 |
 | UI-02 | TODO |  |  |  |  |  | UI-01 |
 | QLT-01 | TODO |  |  |  |  |  | 모든 기능 lane |
 | OBS-01 | TODO |  |  |  |  |  | QLT-01 |
@@ -330,12 +330,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## UI-01 · 실제 route gate
 
-- [ ] 16개 실제 BrowserRouter URL 목록이 있다.
-- [ ] 각 case가 pathname과 route marker를 검증한다.
-- [ ] desktop/mobile viewport를 모두 실행한다.
-- [ ] load/API error가 독립 실패로 처리된다.
-- [ ] axe critical/serious 0을 hard gate로 사용한다.
-- [ ] route/viewport별 JSON과 screenshot이 저장된다.
+- [x] 16개 실제 BrowserRouter URL 목록이 있다. — App.tsx 15 route + /plugins/hello-world, 스펙 고정 테스트
+- [x] 각 case가 pathname과 route marker를 검증한다. — URL pathname + 페이지 고유 marker 16종
+- [x] desktop/mobile viewport를 모두 실행한다. — 1280×800 / 390×844
+- [x] load/API error가 독립 실패로 처리된다. — marker assertion이 axe와 별도 (실측 분리 보고 확인)
+- [x] axe critical/serious 0을 hard gate로 사용한다. — 실측 33/33 passed, exit 0
+- [x] route/viewport별 JSON과 screenshot이 저장된다. — outputDir/a11y/<viewport>/<route>.json|.png
 
 ## UI-02 · 접근성과 keyboard
 
