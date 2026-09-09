@@ -23,9 +23,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install only essential runtime utilities.
-# git is not included in the runtime image to reduce attack surface.
+# git: Vault(위키 저장소) create/commit/read 기능이 런타임에 git을 실행한다 (REL-02).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Stage 2: Builder (all deps, used for building artifacts only) ──
@@ -41,12 +42,18 @@ RUN pip install --upgrade pip \
     && pip install --target="/install" ".[rag]"
 
 # ─── Stage 3: Dashboard Build ───────────────────────────────────
-FROM node:20-alpine AS dashboard-builder
+# REL-02: 단일 package manager = pnpm (pnpm-lock.yaml이 단일 진실원).
+# frozen install로 lockfile과 package.json의 불일치를 빌드 시점에 차단한다.
+# pnpm 11은 node:sqlite builtin이 필요해 node:22-alpine 기반을 사용한다.
+FROM node:22-alpine AS dashboard-builder
 
 WORKDIR /app/dashboard
+RUN npm install -g pnpm@11.3.0 && pnpm --version
+COPY dashboard/pnpm-lock.yaml dashboard/package.json dashboard/pnpm-workspace.yaml ./
+# CI=true: 비 TTY 환경에서 pnpm의 모듈 디렉터리 퍼지 확인 프롬프트 방지
+RUN CI=true pnpm install --frozen-lockfile
 COPY dashboard/ ./
-
-RUN npm ci && npm run build
+RUN pnpm run build
 
 # ─── Stage 4: Runtime ───────────────────────────────────────────
 FROM base AS runtime
@@ -68,7 +75,8 @@ RUN pip install --no-deps "." \
     && rm -rf /root/.cache
 
 # Copy dashboard build from builder
-COPY --from=dashboard-builder /app/dashboard/dist/ ./src/antigravity_k/dashboard_dist/
+# REL-02: Vite outDir === wheel package-data === 이 COPY 경로 (src/antigravity_k/dashboard_dist)
+COPY --from=dashboard-builder /app/src/antigravity_k/dashboard_dist/ ./src/antigravity_k/dashboard_dist/
 
 # Create data directories owned by the non-root user.
 RUN mkdir -p vault_data logs data \
