@@ -51,7 +51,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | UI-01 | DONE | ui_01_impl | r1 리뷰 대기 | codex/ui-01-route-a11y-gate (병합) | `cda84dc` | `.omo/evidence/commercial-ga-100/UI-01/` | GA-00 |
 | UI-02 | DONE | ui_02_impl | r1 리뷰 대기 | codex/ui-02-accessibility (병합) | `7d33f23` | `.omo/evidence/commercial-ga-100/UI-02/` | UI-01 |
 | QLT-01 | DONE | qlt_01_impl | r1 리뷰 대기 | codex/m1-task-events (직접 커밋) | `7685103` | `.omo/evidence/commercial-ga-100/QLT-01/` | 모든 기능 lane |
-| OBS-01 | TODO |  |  |  |  |  | QLT-01 |
+| OBS-01 | DONE | obs_01_impl | r1 리뷰 대기 | codex/obs-01-observability | `e24112f` | `.omo/evidence/commercial-ga-100/OBS-01/` | QLT-01 |
 | VAL-01 | TODO |  |  |  |  |  | QLT-01, REL-03 |
 | VAL-02 | TODO |  |  |  |  |  | QLT-01 |
 | DOC-01 | TODO |  |  |  |  |  | 기능·운영 lane |
@@ -361,12 +361,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## OBS-01 · 운영 준비
 
-- [ ] request/project/task/conversation correlation ID가 연결된다.
-- [ ] 압축/auth/registry/vault/task/provider 핵심 metric이 있다.
-- [ ] readiness가 실제 필수 dependency를 검사한다.
-- [ ] SLO와 alert threshold/owner/runbook이 있다.
-- [ ] backup/restore rehearsal이 성공했다.
-- [ ] DB corruption/orphan worktree/project migration rehearsal이 성공했다.
+- [x] request/project/task/conversation correlation ID가 연결된다.
+- [x] 압축/auth/registry/vault/task/provider 핵심 metric이 있다.
+- [x] readiness가 실제 필수 dependency를 검사한다.
+- [x] SLO와 alert threshold/owner/runbook이 있다.
+- [x] backup/restore rehearsal이 성공했다.
+- [x] DB corruption/orphan worktree/project migration rehearsal이 성공했다.
 
 ## VAL-01 · 실제 통합 staging
 

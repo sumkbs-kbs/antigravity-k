@@ -882,3 +882,15 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **QLT-01** (직접 커밋 `7685103`): master E2E(`run_full_system_e2e_test.py`)가 미정의 함수 호출 + import 전무로 NameError — 진입점·8개 engine import 수정 후 **6/6 실측**. flaky 3건 제거(benchmark 임계값에 suite 경합 헤드룸: context 3s→6s, max_engine 50→300ms; training-cancel 대기 루프 6s→20s/2.5s→10s 상한, 조기 탈출 유지), ruff F841/I001 수정. compact E2E 신규 추가(1,002 이벤트 → 1,000 한계 compaction 경계에서 최신 이벤트 유지). ws-04 모바일 케이스는 768px 이하 축소 사이드바(UX 의도)와 충돌 → 800px로 조정.
 - **실측**: backend 5,708 passed × 3회 연속, playwright 147 passed × 3회 연속, vitest 749 passed, ruff/mypy/tsc/eslint exit 0.
 - **현재 진행**: **28/33 DONE**.
+
+### 2026-09-09 · OBS-01 구현·병합 (29/33)
+
+- **OBS-01 구현** (worktree `Ssak-Ai-obs-01`, 브랜치 `codex/obs-01-observability`, 커밋 `e24112f`):
+  - **operation correlation** — `operational_metrics.py` 신규: correlation 미들웨어가 `http.request.started/completed/failed`를 구조화 로그로 남기고, `log_operation_event`가 바인딩된 RequestExecutionContext의 project/task/conversation/session/model을 같은 JSON 줄에 자동 주입 (구조화 로그 한 줄로 operation 흐름 추적).
+  - **readiness probe** — `GET /api/ready` (공개): task_db/registry/writable_storage/model_manager를 격리 검사, not_ready→503 계약. `/health`(liveness)와 분리.
+  - **도메인 metric 6계열** — `ssak_context_compactions_total` / `ssak_auth_events_total` / `ssak_registry_writes_total` / `ssak_vault_commits_total` / `ssak_task_transition_conflicts_total` / `ssak_provider_failures_total` (모두 outcome 단일 label, 기존 RED/LLM 계열 유지). conversation_store·auth_routes·project_registry·vault·task_state_store·model_manager에 계측 연동.
+  - **DR 리허설** — `scripts/dr_rehearsal.py`: backup/restore(registry 파손→.bak 복구+손상본 격리), db_corruption(SQLite 파손→감지→quarantine→재초기화), project_migration(루트 이동→path 갱신→활성 전환) 3개 시나리오 임시 디렉터리 실측 all_ok=true.
+  - **문서** — 09_OPERATION_GUIDE에 SLO·경보 임계·owner·first-response runbook 6건, 재해 복구 절차 추가. "현재 운영 제한"에서 alerting rehearsal/backup restore 항목 제거 (리허설 완료).
+- **실측**: OBS-01 스위트 11건 + 인접 172건 + 병합 후 재확인 175 passed. 전체 회귀 5,696 passed(1 실패는 worktree 로컬 registry 환경 아티팩트 — 복구 후 개별 3 passed), ruff/mypy 470 files clean.
+- **병합**: `785b0f8` (baseline, --no-ff).
+- **현재 진행**: **29/33 DONE**. 잔여: VAL-01, VAL-02, DOC-01, RC-01.
