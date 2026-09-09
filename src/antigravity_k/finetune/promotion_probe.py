@@ -44,10 +44,18 @@ class MlxFusedArtifactProbe:
             if not isinstance(module, MlxModule):
                 return _failed(target, "MLX runtime API is incompatible.")
             loaded = module.load(path_or_hf_repo=str(target.output_path))
+            # chat template 프롬프트 — raw completion 모드에서는 chat-tuned 모델이
+            # 첫 토큰으로 EOS를 낼 수 있어 max_tokens=1이 빈 출력이 된다 (VAL-01 실측).
+            tokenizer = loaded[1]
+            prompt = tokenizer.apply_chat_template(
+                [{"role": "user", "content": "Return OK."}],
+                add_generation_prompt=True,
+                tokenize=False,
+            )
             output = module.generate(
                 model=loaded[0],
-                tokenizer=loaded[1],
-                prompt="Return OK.",
+                tokenizer=tokenizer,
+                prompt=prompt,
                 max_tokens=1,
                 sampler=make_mlx_sampler(0.0),
             )

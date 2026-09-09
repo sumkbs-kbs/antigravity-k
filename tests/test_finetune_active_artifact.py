@@ -160,6 +160,31 @@ def _write_fake_mlx(root: Path) -> Path:
     return module_root
 
 
+def _write_fake_mlx_chat(root: Path) -> Path:
+    """MlxFusedArtifactProbe가 chat template 프롬프트를 쓰는 대응 fake (VAL-01)."""
+    module_root = root / "fake-runtime-chat"
+    module_root.mkdir()
+    _ = (module_root / "mlx_lm.py").write_text(
+        "\n".join(
+            (
+                "class _Tok:",
+                "    def apply_chat_template(self, messages, add_generation_prompt=False, tokenize=False):",
+                "        return '<chat>' + messages[0]['content']",
+                "",
+                "def load(*, path_or_hf_repo, revision=None, adapter_path=None):",
+                "    return object(), _Tok()",
+                "",
+                "def generate(model, tokenizer, *, prompt, max_tokens, sampler):",
+                "    assert prompt.startswith('<chat>')  # chat template 프롬프트 계약",
+                "    return 'probe-ok'",
+                "",
+            ),
+        ),
+        encoding="utf-8",
+    )
+    return module_root
+
+
 def test_promotion_writes_validated_active_pointer_atomically(tmp_path: Path) -> None:
     artifact_path = _write_artifact(tmp_path, "candidate")
     state_path = tmp_path / "active.json"
@@ -346,7 +371,7 @@ def test_promote_cli_and_rollback_cli_use_real_entrypoint(tmp_path: Path) -> Non
         recipe_sha256="b" * 64,
         evaluation_sha256="c" * 64,
     )
-    runtime = _write_fake_mlx(tmp_path)
+    runtime = _write_fake_mlx_chat(tmp_path)
     command = [
         sys.executable,
         "-m",
