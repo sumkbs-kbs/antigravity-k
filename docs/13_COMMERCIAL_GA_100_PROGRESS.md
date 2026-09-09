@@ -33,12 +33,12 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
-### 2026-09-09 · REL-02 구현·병합 (24/33)
+### 2026-09-09 · REL-02 구현·병합 (23/33)
 
 - **REL-02 구현** (worktree `Ssak-Ai-rel-02`, 브랜치 `codex/rel-02-container-contract`): 단일 매니저 pnpm 11.3.0 고정(packageManager + CI + Docker 3중 일치), npm식 overrides를 pnpm-workspace.yaml로 이전(pnpm 11은 package.json의 pnpm.* 미읽기), Docker dashboard-builder를 npm ci → pnpm frozen 전환(node:22-alpine — pnpm 11은 node:sqlite 필요), COPY 경로를 실제 Vite outDir로 수정, 런타임 git 포함 + entrypoint fail-fast.
 - **근본 원인 디버깅**: Docker frozen 실패는 pnpm-workspace.yaml이 lockfile 레이어에 COPY되지 않은 것이 원인(overrides 불일치로 표면화) — 첫 번째 COPY에 추가해 해결.
 - **검증**: clean frozen install(로컬+Docker), docker build 98s 성공, health/dashboard 200, Vault git smoke(uid 1001), restart 후 유지. 계약 테스트 12건 + 대시보드 749 passed.
-- **현재 진행**: **24/33 DONE** (기존 23 + REL-02).
+- **현재 진행**: **23/33 DONE** (기존 22 + REL-02).
 
 ### 2026-09-09 · UI-01 구현·병합 (23/33)
 
