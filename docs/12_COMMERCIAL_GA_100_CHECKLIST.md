@@ -49,7 +49,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | REL-02 | DONE | rel_02_impl | r1 리뷰 대기 | codex/rel-02-container-contract (병합) | `c15ec3e` | `.omo/evidence/commercial-ga-100/REL-02/` | GA-00 |
 | REL-03 | DONE | rel_03_impl | r1 리뷰 대기 | codex/rel-03-supply-chain-audit (병합) | `26ae62e` | `.omo/evidence/commercial-ga-100/REL-03/` | REL-01, REL-02 |
 | UI-01 | DONE | ui_01_impl | r1 리뷰 대기 | codex/ui-01-route-a11y-gate (병합) | `cda84dc` | `.omo/evidence/commercial-ga-100/UI-01/` | GA-00 |
-| UI-02 | TODO |  |  |  |  |  | UI-01 |
+| UI-02 | DONE | ui_02_impl | r1 리뷰 대기 | codex/ui-02-accessibility (병합) | `7d33f23` | `.omo/evidence/commercial-ga-100/UI-02/` | UI-01 |
 | QLT-01 | TODO |  |  |  |  |  | 모든 기능 lane |
 | OBS-01 | TODO |  |  |  |  |  | QLT-01 |
 | VAL-01 | TODO |  |  |  |  |  | QLT-01, REL-03 |
@@ -341,13 +341,13 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## UI-02 · 접근성과 keyboard
 
-- [ ] contrast token이 WCAG AA를 만족한다.
-- [ ] settings/plugins input에 programmatic label이 있다.
-- [ ] wiki heading order가 올바르다.
-- [ ] main landmark가 화면당 하나다.
-- [ ] visible focus와 keyboard order가 올바르다.
-- [ ] 16 route × 2 viewport axe가 0건이다.
-- [ ] project/chat/settings/plugin/Cmd+K keyboard workflow가 통과한다.
+- [x] contrast token이 WCAG AA를 만족한다. — axe color-contrast(wcag2aa) 포함 hard gate 33건 통과
+- [x] settings/plugins input에 programmatic label이 있다. — axe label 규칙(wcag2a) 위반 0 실측
+- [x] wiki heading order가 올바르다. — WikiSidebar h3→h2 수정, 재측정 0건
+- [x] main landmark가 화면당 하나다. — JobOperationsPage 자체 <main>을 named <section>으로 강등, landmark 위반 6건→0
+- [x] visible focus와 keyboard order가 올바르다. — keyboard-workflows gate: computed outline/box-shadow 검증(WCAG 2.4.7) 통과
+- [x] 16 route × 2 viewport axe가 0건이다. — accessibility-hard-gate: UI-01(critical/serious)을 **전 impact 0**으로 강화, 33건 통과
+- [x] project/chat/settings/plugin/Cmd+K keyboard workflow가 통과한다. — Cmd+K 팔레트, sidebar NavLink Enter 탐색, visible focus 4건 통과
 
 ## QLT-01 · 전체 품질 gate
 

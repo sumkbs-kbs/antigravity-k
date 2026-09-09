@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 26 |
+| 완료 | 27 |
 | 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | REL-03 DONE (26/33) — 다음 레인: UI-02, 이후 후반 게이트 QLT-01 → OBS-01 → VAL-01/02 → DOC-01 → RC-01 |
+| 현재 작업 | UI-02 DONE (27/33) — 후반 게이트: QLT-01 → OBS-01 → VAL-01/02 → DOC-01 → RC-01 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -868,3 +868,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **설계 결정**: license 정책 리터럴을 소스에 두면 baseline prohibited-marker 스캐너가 위반 판정 — `THIRD_PARTY_PROVENANCE.toml`의 `prohibited_spdx`를 단일 진실원으로 읽도록 변경.
 - **병합**: `75e7aad` (baseline, --no-ff). 병합 후 release 스위트 45건 + gate 재실행 통과.
 - **현재 진행**: **26/33 DONE**.
+
+### 2026-09-09 · UI-02 구현·병합 (27/33)
+
+- **UI-02 구현** (worktree `Ssak-Ai-ui-02`, 브랜치 `codex/ui-02-accessibility`, 커밋 `7d33f23`): axe 전체 인벤토리(15 route × 2 viewport)에서 기선 위반 10건 발견·수정 — heading-order 4건(WikiSidebar h3→h2, hello-world h4→h3), landmark 중복 main 6건(JobOperationsPage의 페이지 레벨 `<main>` 3개 return path를 aria-label 명시 `<section>`으로 강등). 신규 gate 3종: `accessibility-hard-gate`(16 route × 2 viewport **전 impact 0** hard gate 33건 — UI-01은 critical/serious만 검사), `keyboard-workflows`(Cmd+K/sidebar Enter/visible focus 4건), `accessibility-inventory`(위반 리포터).
+- **E2E 인증 인프라**: hermetic no-auth backend가 SEC-01 fail-closed에서 익명 허용되려면 `AGK_SEC_DEV_NO_PIN_ALLOW=1` 명시 필요 — spec이 직접 설정(같은 문 통과). SPA 부팅 후 리스너 장착 대기는 aside visible로 해결.
+- **실측**: e2e 70건(UI-01 33 + hard gate 33 + keyboard 4) 전부 통과, dashboard vitest 749 passed, tsc/eslint clean, 백엔드 회귀 5,710 passed / 13 skipped.
+- **병합**: `9784c82` (baseline, --no-ff). 병합 후 desktop-context/e2e-smoke 재확인 통과.
+- **현재 진행**: **27/33 DONE**. 후반 게이트 QLT-01부터.
