@@ -33,7 +33,7 @@ const WikiSidebar: React.FC<Props> = ({
     <div className="wiki-sidebar glass-panel">
       {/* Header */}
       <div className="wiki-sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottom: '1px solid var(--glass-border)' }}>
-        <h3 style={{ fontSize: 14, margin: 0 }}>📚 Wiki</h3>
+        <h2 style={{ fontSize: 14, margin: 0 }}>📚 Wiki</h2>
         <div style={{ display: 'flex', gap: 4 }}>
           <button className="icon-btn" style={{ fontSize: 12, padding: '4px 8px' }} onClick={onOpenVaultModal} title="Vault 폴더 변경">📂</button>
           <button className="icon-btn" style={{ fontSize: 12, padding: '4px 8px' }} onClick={onOpenNewModal} title="새 문서 생성">+</button>

@@ -114,12 +114,12 @@ export function JobOperationsPage(): ReactElement {
   };
 
   if (loading && health === null) {
-    return <main className="page-container job-operations-page" aria-busy="true"><p className="job-operations-loading">Loading job operations…</p></main>;
+    return <section className="page-container job-operations-page" aria-busy="true" aria-label="Job operations"><p className="job-operations-loading">Loading job operations…</p></section>;
   }
 
   if (health === null) {
     return (
-      <main className="page-container job-operations-page">
+      <section className="page-container job-operations-page" aria-label="Job operations">
         <section className="glass-panel job-operations-error" role="alert">
           <h1>Job Operations</h1>
           <p>{error ?? 'The job operations snapshot could not be loaded.'}</p>
@@ -127,12 +127,12 @@ export function JobOperationsPage(): ReactElement {
             Retry loading
           </button>
         </section>
-      </main>
+      </section>
     );
   }
 
   return (
-    <main className="page-container job-operations-page">
+    <section className="page-container job-operations-page" aria-label="Job operations">
       <header className="job-operations-header">
         <div>
           <p className="hero-eyebrow">JOB OPERATIONS</p>
@@ -205,6 +205,6 @@ export function JobOperationsPage(): ReactElement {
           )}
         </div>
       </section>
-    </main>
+    </section>
   );
 }
