@@ -47,7 +47,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | RAG-02 | DONE | rag_02_impl | r1 리뷰 대기 | codex/rag-02-line-provenance (병합 `5656115`) | `e2c780a` | `.omo/evidence/commercial-ga-100/RAG-02/` | RAG-01 |
 | REL-01 | DONE | rel_01_impl | r1 리뷰 대기 | codex/rel-01-sbom-order (병합) | — | `.omo/evidence/commercial-ga-100/REL-01/` | GA-00 |
 | REL-02 | DONE | rel_02_impl | r1 리뷰 대기 | codex/rel-02-container-contract (병합) | `c15ec3e` | `.omo/evidence/commercial-ga-100/REL-02/` | GA-00 |
-| REL-03 | TODO |  |  |  |  |  | REL-01, REL-02 |
+| REL-03 | DONE | rel_03_impl | r1 리뷰 대기 | codex/rel-03-supply-chain-audit (병합) | `26ae62e` | `.omo/evidence/commercial-ga-100/REL-03/` | REL-01, REL-02 |
 | UI-01 | DONE | ui_01_impl | r1 리뷰 대기 | codex/ui-01-route-a11y-gate (병합) | `cda84dc` | `.omo/evidence/commercial-ga-100/UI-01/` | GA-00 |
 | UI-02 | TODO |  |  |  |  |  | UI-01 |
 | QLT-01 | TODO |  |  |  |  |  | 모든 기능 lane |
@@ -323,12 +323,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## REL-03 · 공급망 audit
 
-- [ ] exact Python production lock을 감사한다.
-- [ ] exact frontend production lock을 감사한다.
-- [ ] high/critical 미해결이 0건이다.
-- [ ] license/prohibited package gate가 artifact를 검사한다.
-- [ ] 예외에 owner/근거/만료/대체 통제가 있다.
-- [ ] 예외 만료 시 CI가 실패한다.
+- [x] exact Python production lock을 감사한다. — pip-audit 전체 venv 실측 (chromadb 4건 상류 fix 미출시)
+- [x] exact frontend production lock을 감사한다. — pnpm audit --prod (frozen lockfile): advisory 0건
+- [x] high/critical 미해결이 0건이다. — 예외 레지스트리 판정 후 unresolved 0 (chromadb는 임베디드 클라이언트 전용, 서버 모드 미사용 대체 통제)
+- [x] license/prohibited package gate가 artifact를 검사한다. — license_gate_verdict on release SBOM, 204 packages 통과 (PEP 639 메타데이터 판독, marker-allowed 보고)
+- [x] 예외에 owner/근거/만료/대체 통제가 있다. — config/audit-exceptions.json (4요소 스키마 필수, chromadb 4건 만료 2026-12-08)
+- [x] 예외 만료 시 CI가 실패한다. — 만료 예외 주입 실측 exit 1 (deny-by-default)
 
 ## UI-01 · 실제 route gate
 

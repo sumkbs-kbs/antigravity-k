@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 18 |
+| 완료 | 26 |
 | 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | SEC-03/TRN-01 DONE — 다음 레인: EVO-01, RAG-01, REL-01, UI-01 |
+| 현재 작업 | REL-03 DONE (26/33) — 다음 레인: UI-02, 이후 후반 게이트 QLT-01 → OBS-01 → VAL-01/02 → DOC-01 → RC-01 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -860,3 +860,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 작업 상태: `.omo/boulder.json`
 - task별 증거: `.omo/evidence/commercial-ga-100/<task-id>/`
 - 최초 전체 감사: `/Users/mr.k/.codex/visualizations/2026/09/05/01a0702e-6390-7442-9827-fefa19bb4921/ssak-audit/`
+
+### 2026-09-09 · REL-03 구현·병합 (26/33)
+
+- **REL-03 구현** (worktree `Ssak-Ai-rel-03`, 브랜치 `codex/rel-03-supply-chain-audit`, 커밋 `26ae62e`): `audit_exceptions.py` — 예외 레지스트리(owner/근거/만료/대체 통제 4요소 필수, 만료=gate 실패 deny-by-default) + license/prohibited package gate. `scripts/supply_chain_audit.py` — pip-audit/pnpm-audit 출력 정규화·판정 CLI (exit 0/1/2). `config/audit-exceptions.json` — chromadb 4건 예외 등록 (상류 fix 미출시, 임베디드 PersistentClient 전용 = 서버 모드 미사용 대체 통제, 만료 2026-12-08). `release_sbom.py` — Python 컴포넌트 license를 설치 메타데이터에서 판독 (PEP 639 License-Expression 우선).
+- **실측**: pip-audit 전체 venv — chromadb 1.5.9 CVE 4건(서버 모드 취약) 외 0건; pnpm audit --prod 0건; license gate 204 packages 통과; 만료 예외 주입 시 exit 1 실측.
+- **설계 결정**: license 정책 리터럴을 소스에 두면 baseline prohibited-marker 스캐너가 위반 판정 — `THIRD_PARTY_PROVENANCE.toml`의 `prohibited_spdx`를 단일 진실원으로 읽도록 변경.
+- **병합**: `75e7aad` (baseline, --no-ff). 병합 후 release 스위트 45건 + gate 재실행 통과.
+- **현재 진행**: **26/33 DONE**.
