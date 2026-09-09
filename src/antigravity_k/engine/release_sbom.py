@@ -157,6 +157,9 @@ def _python_component(dependency: PythonDependency) -> dict[str, object]:
         "version": dependency.version,
         "purl": f"pkg:pypi/{quote(dependency.name)}@{quote(dependency.version)}",
     }
+    license_id = _python_license_id(dependency.name)
+    if license_id is not None:
+        component["licenses"] = [{"license": {"id": license_id}}]
     if dependency.source_url is not None:
         component["externalReferences"] = [{"type": "distribution", "url": dependency.source_url}]
     return component
@@ -205,6 +208,107 @@ def _sbom_component_count(sbom_path: Path) -> int:
     except (OSError, ValidationError) as error:
         raise ReleaseSbomError(f"Could not count release SBOM components: {sbom_path}") from error
     return len(document.components)
+
+
+# REL-03 — 설치된 패키지 메타데이터의 License 필드/분류기를 SPDX id로 정규화.
+# 메타데이터를 합성하지 않는다: 정확 일치 별명만 SPDX id로 대응하고,
+# 판독 불가면 None을 반환해 gate가 unknown으로 보고하게 둔다.
+_PYTHON_LICENSE_ALIASES = {
+    "MIT": "MIT",
+    "MIT License": "MIT",
+    "Apache-2.0": "Apache-2.0",
+    "Apache License 2.0": "Apache-2.0",
+    "Apache License, Version 2.0": "Apache-2.0",
+    "Apache Software License": "Apache-2.0",
+    "Apache 2.0": "Apache-2.0",
+    "BSD-3-Clause": "BSD-3-Clause",
+    "BSD 3-Clause License": "BSD-3-Clause",
+    "BSD License": "BSD-3-Clause",
+    "BSD-2-Clause": "BSD-2-Clause",
+    "BSD 2-Clause License": "BSD-2-Clause",
+    "ISC": "ISC",
+    "ISC License (ISCL)": "ISC",
+    "MPL-2.0": "MPL-2.0",
+    "Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0",
+    "The Unlicense (Unlicense)": "Unlicense",
+    "Unlicense": "Unlicense",
+    "Python Software Foundation License": "PSF-2.0",
+    "PSF-2.0": "PSF-2.0",
+    "Apache2.0": "Apache-2.0",
+    "Zlib": "Zlib",
+    "zlib": "Zlib",
+    "PSF": "PSF-2.0",
+}
+
+
+def _python_license_id(name: str) -> str | None:
+    """설치된 패키지 메타데이터에서 SPDX-compatible license id를 판독한다.
+
+    PEP 639 License-Expression 우선, 다음으로 License 필드/License 분류기를
+    별명표와 SPDX 형태 검사로 대조한다. 플랫폼 마커 패키지(colorama/pywin32,
+    win32 전용)처럼 현재 플랫폼에 설치되지 않아 메타데이터가 없는 경우
+    lock 자체가 provenance의 marker로 관리되므로 None을 반환한다 — gate는
+    unknown으로 보고하되, 프로비넌스 정책이 marker 패키지를 허용 목록으로
+    판정한다 (합성 금지 원칙 유지).
+    """
+    try:
+        meta = metadata.metadata(name)
+    except metadata.PackageNotFoundError:
+        return None
+    # PEP 639 License-Expression은 이미 SPDX 형식 — 정규화 없이 사용.
+    expression = meta.get("License-Expression") or ""
+    if expression.strip():
+        return expression.strip().split(" OR ")[0].split(" AND ")[0].strip() or None
+    candidates = [meta.get("License", "")]
+    classifiers = meta.get_all("Classifier") or []
+    candidates.extend(
+        classifier.split("::")[-1].strip() for classifier in classifiers if classifier.startswith("License ::")
+    )
+    # 분류기 "OSI Approved :: BSD License" 등의 표기도 별명표에 넣기 전에
+    # 마지막 세그먼트의 일반 축약형을 시도한다 (예: "BSD License").
+    for candidate in candidates:
+        alias = _PYTHON_LICENSE_ALIASES.get(candidate.strip())
+        if alias is not None:
+            return alias
+        # License 필드가 이미 SPDX id 형태인 경우 그대로 수용 (판독 강화)
+        if candidate.strip() and _looks_like_spdx(candidate.strip()):
+            return candidate.strip()
+    return None
+
+
+def _looks_like_spdx(value: str) -> bool:
+    """단일 SPDX id 형태 (알파벳+숫자+.-_)이고 알려진 접두어를 갖는다."""
+    import re
+
+    if not re.fullmatch(r"[A-Za-z0-9.+-]+", value):
+        return False
+    known_prefixes = (
+        "MIT",
+        "BSD",
+        "Apache",
+        "MPL",
+        "GPL",
+        "LGPL",
+        "AGPL",
+        "ISC",
+        "PSF",
+        "Zlib",
+        "Unlicense",
+        "CC",
+        "Python-2",
+        "OFL",
+        "Ubuntu-font",
+        "BlueOak",
+        "Artistic",
+        "CECILL",
+        "EUPL",
+        "MS-PL",
+        "PostgreSQL",
+        "Ruby",
+        "WTFPL",
+        "OpenSSL",
+    )
+    return value.startswith(known_prefixes)
 
 
 def _python_license(name: str) -> str:
