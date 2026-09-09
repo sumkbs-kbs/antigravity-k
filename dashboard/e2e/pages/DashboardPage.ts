@@ -157,9 +157,9 @@ export class DashboardPage {
     await this.pinSubmit.click();
   }
 
-  /** Navigate directly to a page via hash route `/#!{path}`. */
+  /** Navigate directly to a page via real BrowserRouter pathname (UI-01: hash URL 제거). */
   async gotoPage(path: string): Promise<void> {
-    await this.page.goto(`/#!/${path.replace(/^\//, '')}`);
+    await this.page.goto(`/${path.replace(/^\/+/, '')}`.replace(/\/$/, '') || '/');
     await this.page.waitForLoadState('domcontentloaded');
     await this.page.waitForTimeout(500);
   }

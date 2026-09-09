@@ -180,6 +180,7 @@ const SessionDisclosurePanel: React.FC = () => {
                 <div
                   className="limit-gauge"
                   role="progressbar"
+                  aria-label={`${limit.label} 사용률 ${Math.min(100, Math.round(limit.usage_percent))}%`}
                   aria-valuenow={Math.min(100, Math.round(limit.usage_percent))}
                   aria-valuemin={0}
                   aria-valuemax={100}

@@ -259,14 +259,15 @@ const SettingsPage: React.FC = () => {
                 <div className="settings-row-title">💰 일일 예산 (USD)</div>
                 <div className="settings-row-hint">초과 시 LLM 호출 차단</div>
               </div>
-                  <input type="number" className="text-input settings-row-input-narrow" value={dailyBudget} onChange={e => dispatch({ type: 'setDailyBudget', value: e.target.value })} />
+                  {/* UI-01 (axe label): number 입력에 접근 가능한 이름 제공 */}
+                  <input type="number" aria-label="일일 예산 (USD)" className="text-input settings-row-input-narrow" value={dailyBudget} onChange={e => dispatch({ type: 'setDailyBudget', value: e.target.value })} />
             </div>
             <div className="settings-row">
               <div className="settings-row-label">
                 <div className="settings-row-title">⏱ 시간당 액션 한도</div>
                 <div className="settings-row-hint">분당 호출 수 제한</div>
               </div>
-                  <input type="number" className="text-input settings-row-input-narrow" value={hourlyLimit} onChange={e => dispatch({ type: 'setHourlyLimit', value: e.target.value })} />
+                  <input type="number" aria-label="시간당 액션 한도" className="text-input settings-row-input-narrow" value={hourlyLimit} onChange={e => dispatch({ type: 'setHourlyLimit', value: e.target.value })} />
             </div>
           </div>
         </GlassPanel>

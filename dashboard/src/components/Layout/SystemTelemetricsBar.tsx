@@ -105,7 +105,8 @@ export const SystemTelemetricsBar: React.FC = () => {
       </div>
 
       {/* ── Row 2: Telemetrics Telemetry Stats ───────────────────── */}
-      <div className="telemetrics-sub-row">
+      {/* UI-01 (axe scrollable-region-focusable): 가로 스크롤 영역을 키보드 접근 가능하게 */}
+      <div className="telemetrics-sub-row" tabIndex={0} aria-label="시스템 텔레메트리 상세 지표">
         <div className="telemetrics-stat-item">
           <span className="telemetrics-stat-label">BUILD:</span>
           <span className="telemetrics-stat-val">v0.8.0-RC</span>
