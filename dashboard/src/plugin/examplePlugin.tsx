@@ -35,7 +35,7 @@ const HelloWorldPanel: React.FC = () => {
           </div>
         </div>
         <div className="hello-plugin-info glass-panel">
-          <h4>How to Use</h4>
+          <h3>How to Use</h3>
           <ol style={{ lineHeight: 2, paddingLeft: 20, margin: 0 }}>
             <li><code>pluginRegistry.register(plugin)</code> -- register a plugin</li>
             <li>Panel link appears in sidebar automatically</li>
