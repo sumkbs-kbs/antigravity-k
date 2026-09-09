@@ -77,6 +77,9 @@ docker-compose*.yml
 # Dashboard build
 dashboard/dist/
 dashboard/node_modules/
+
+# build 잔재 — 추적하지 않는다 (재빌드시마다 유동 hash)
+dashboard/tsconfig.tsbuildinfo
 .artifacts/
 
 # Vault/secret storage
