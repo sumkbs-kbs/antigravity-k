@@ -894,3 +894,14 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **실측**: OBS-01 스위트 11건 + 인접 172건 + 병합 후 재확인 175 passed. 전체 회귀 5,696 passed(1 실패는 worktree 로컬 registry 환경 아티팩트 — 복구 후 개별 3 passed), ruff/mypy 470 files clean.
 - **병합**: `785b0f8` (baseline, --no-ff).
 - **현재 진행**: **29/33 DONE**. 잔여: VAL-01, VAL-02, DOC-01, RC-01.
+
+### 2026-09-09 · VAL-01 staging 실측·병합 (30/33)
+
+- **VAL-01 구현** (worktree `Ssak-Ai-val-01`, 브랜치 `codex/val-01-staging`, 커밋 `4d3c939`):
+  - `scripts/val01_staging.py` — staging 12개 시나리오를 machine-readable artifact로 기록:
+    AC-1 Ollama 4건(streaming 실측 chunk_count=7, error 명확 실패, cancel 즉시 종료, tool registry 25개), AC-2 Chroma 5건(index/restart/reindex/delete/citation), AC-3 실제 학습 lifecycle 3건(MLX Qwen2.5-0.5B 4bit — split→train 5 iters/checkpoint 5개→resume(--resume-adapter-file)→fuse→MLX base/tuned evaluate→probe PASSED).
+  - **제품 결함 발견·수정**: `MlxFusedArtifactProbe`가 raw completion 프롬프트 + max_tokens=1로 생성해, chat-tuned 모델이 첫 토큰으로 EOS를 내면 융합 모델이 정상이어도 promotion이 실패 — chat template 프롬프트로 수정.
+  - AC-4 artifact.json: 시나리오별 ok/latency_ms/detail/failure_mode.
+- **실측**: staging 12/12 passed, finetune/trn 스위트 100 passed, 전체 5,695 passed(1 실패는 worktree registry 환경 아티팩트 — 복구 후 3 passed), ruff/mypy clean.
+- **병합**: `b57317a` (baseline, --no-ff). 병합 후 finetune 스위트 67 passed.
+- **현재 진행**: **30/33 DONE**. 잔여: VAL-02, DOC-01, RC-01.

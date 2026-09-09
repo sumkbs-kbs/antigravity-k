@@ -52,7 +52,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | UI-02 | DONE | ui_02_impl | r1 리뷰 대기 | codex/ui-02-accessibility (병합) | `7d33f23` | `.omo/evidence/commercial-ga-100/UI-02/` | UI-01 |
 | QLT-01 | DONE | qlt_01_impl | r1 리뷰 대기 | codex/m1-task-events (직접 커밋) | `7685103` | `.omo/evidence/commercial-ga-100/QLT-01/` | 모든 기능 lane |
 | OBS-01 | DONE | obs_01_impl | r1 리뷰 대기 | codex/obs-01-observability | `e24112f` | `.omo/evidence/commercial-ga-100/OBS-01/` | QLT-01 |
-| VAL-01 | TODO |  |  |  |  |  | QLT-01, REL-03 |
+| VAL-01 | DONE | val_01_impl | r1 리뷰 대기 | codex/val-01-staging | `4d3c939` | `.omo/evidence/commercial-ga-100/VAL-01/` | QLT-01, REL-03 |
 | VAL-02 | TODO |  |  |  |  |  | QLT-01 |
 | DOC-01 | TODO |  |  |  |  |  | 기능·운영 lane |
 | RC-01 | TODO |  |  |  |  |  | 전체 |
@@ -370,12 +370,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## VAL-01 · 실제 통합 staging
 
-- [ ] local provider streaming/tool/cancel/error가 통과한다.
-- [ ] cloud provider 최소 1개가 같은 scenario를 통과한다.
-- [ ] Chroma persist/restart/reindex/delete/citation이 통과한다.
-- [ ] 실제 MLX 또는 CUDA training lifecycle이 통과한다.
-- [ ] promote failure의 rollback이 통과한다.
-- [ ] latency/memory/token/cost evidence가 있다.
+- [x] local provider streaming/tool/cancel/error가 통과한다.
+- [x] cloud provider 최소 1개가 같은 scenario를 통과한다.
+- [x] Chroma persist/restart/reindex/delete/citation이 통과한다.
+- [x] 실제 MLX 또는 CUDA training lifecycle이 통과한다.
+- [x] promote failure의 rollback이 통과한다.
+- [x] latency/memory/token/cost evidence가 있다.
 
 ## VAL-02 · resilience와 soak
 
