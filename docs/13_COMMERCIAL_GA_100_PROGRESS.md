@@ -944,3 +944,22 @@ tags: [commercialization, progress, evidence, multi-agent]
   - checklist DOC-01 7/7 체크.
 - **병합**: `dfc3f14` (baseline, --no-ff).
 - **현재 진행**: **32/33 DONE**. 잔여: RC-01.
+
+### 2026-09-09 · RC-01 release candidate gate (33/33 — 완료)
+
+- **Candidate SHA 고정**: `2ae967ad7c57513de9b6d3f8e1753e1a5be243b9` (branch `codex/rc-01-gate`)
+- **12개 gate 실측 (동일 SHA)**:
+  | Gate | 결과 |
+  |---|---|
+  | Backend 전체 | 5,699 passed, 13 skipped |
+  | mypy / ruff | 470 files 0 errors / all passed |
+  | Frontend tsc / vitest / eslint / build | 0 errors / 749 passed / 0 errors / built |
+  | VAL-01 staging (provider/RAG/학습) | 12/12 all_ok |
+  | VAL-02 staging (동시성/kill -9/부하/soak) | 6/6 all_pass |
+  | DR 리허설 (backup/corruption/migration) | all_ok=true |
+  | Container (ssak-ai:rc-01) | build OK + health 200 + PIN login 200 |
+  | Rollback rehearsal | worktree checkout prev SHA 성공 |
+- **Release manifest**: wheel sha256 `daa3f308…`, sdist `fda2e80f…`, SBOM `a1ac7f67…`,
+  image id `sha256:3e15f1d9…` — `.omo/evidence/commercial-ga-100/RC-01/` 등록.
+- **판정**: checklist RC-01 13/13 체크, rubric 100/100, **GO** (READINESS_REPORT.md §6).
+- **완료**: GA-100 plan 전체 **33/33 DONE**.
