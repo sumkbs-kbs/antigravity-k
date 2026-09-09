@@ -54,8 +54,10 @@ const PluginCard: React.FC<{ id: string }> = ({ id }) => {
           <span className="plugin-card-version">v{plugin.manifest.version}</span>
         </div>
         <label className="plugin-toggle">
+          {/* UI-01 (axe label): 토글 입력에 접근 가능한 이름 제공 */}
           <input
             type="checkbox"
+            aria-label={`${plugin.manifest.name} 플러그인 활성화`}
             checked={enabled}
             onChange={handleToggle}
           />

@@ -59,7 +59,13 @@ const FileRow: React.FC<FileRowProps> = React.memo(({ file, onStage, onUnstage, 
   const isUntracked = file.x === '?' || file.y === '?';
 
   return (
-    <div className="git-file-row" onClick={() => onShowDiff(file.file_path)} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onShowDiff(file.file_path); } }}>
+    <div
+      className="git-file-row"
+      onClick={() => onShowDiff(file.file_path)}
+      tabIndex={0}
+      aria-label={`${file.file_path} diff 보기`}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onShowDiff(file.file_path); } }}
+    >
       <div className="git-file-statuses">
         {isStaged && <StatusBadge status={file.staged_status} />}
         {isUnstaged && <StatusBadge status={file.unstaged_status} />}

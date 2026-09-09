@@ -28,7 +28,7 @@
   --text-primary: #eef0eb;
   --text-secondary: #a6aca1;
   --text-muted: #8b949e; /* WCAG AA on dark sidebar (≥4.5:1 vs #0d0f0d/#050605) */
-  --text-dim: #41483e;
+  --text-dim: #79816f; /* UI-01 (axe color-contrast): #080908 배경 위 4.9:1 — #41483e(2.1:1)에서 상향 */
 
   /* Accent - Warm Amber / Gold (TERMINAL-7 signature) */
   --accent-color: #e5a93b;
@@ -389,6 +389,7 @@ html, body {
   font-size: 10px;
   letter-spacing: 0.06em;
   background: #080a08;
+  /* UI-01 (axe scrollable-region-focusable): 스크롤 영역은 키보드 포커스 가능해야 한다 */
   overflow-x: auto;
   white-space: nowrap;
 }
@@ -2092,7 +2093,8 @@ html, body {
 .glass-btn.primary {
   background: var(--accent-color);
   border-color: var(--accent-color);
-  color: #fff;
+  /* UI-01 (axe color-contrast): accent 위 흰 텍스트 2.9:1 → 어두운 텍스트 6.5:1 */
+  color: #0d0f0d;
 }
 .glass-btn.primary:hover {
   opacity: 0.9;
@@ -6403,7 +6405,8 @@ html, body {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-muted);
+  /* UI-01 (axe color-contrast): 오버레이 배경 위 대비 마진 확보 */
+  color: var(--text-primary);
   font-size: 12px;
   opacity: 0.5;
 }
@@ -6480,9 +6483,10 @@ html, body {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  color: var(--text-muted);
+  /* UI-01 (axe color-contrast): opacity 0.5가 4.5:1 미달 — 불투명 명시색 */
+  color: var(--text-secondary);
   font-size: 12px;
-  opacity: 0.5;
+  opacity: 1;
   background: rgba(0,0,0,0.15);
   border-radius: 10px;
   border: 1px solid var(--glass-border);
@@ -6594,9 +6598,10 @@ html, body {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  color: var(--text-muted);
+  /* UI-01 (axe color-contrast): opacity 0.5가 4.5:1 미달 — 불투명 명시색 */
+  color: var(--text-secondary);
   font-size: 11px;
-  opacity: 0.5;
+  opacity: 1;
 }
 
 .agent-timeline-event {
@@ -6802,7 +6807,10 @@ html, body {
 
 .history-file-empty-hint {
   font-size: 10px;
-  opacity: 0.6;
+  /* UI-01 (axe color-contrast): text-muted(6.3:1)에 opacity를 곱하면 4.5:1 미달 —
+     불투명 명시 색상으로 4.5:1+ 확보 */
+  color: var(--text-secondary);
+  opacity: 1;
 }
 
 .history-file-item {
@@ -7209,7 +7217,9 @@ html, body {
 
 .snapshot-diff-empty-hint {
   font-size: 11px;
-  opacity: 0.6;
+  /* UI-01 (axe color-contrast): opacity 곱 대비 미달 — 불투명 명시색 */
+  color: var(--text-secondary);
+  opacity: 1;
 }
 
 /* ═══ Phase 9: Plugin System ═══════════════════════════════ */
@@ -9077,7 +9087,8 @@ html, body {
 
 .status-badge.muted {
   background: rgba(86,95,137,0.15);
-  color: #7a86a8;
+  /* UI-01 (axe color-contrast): 배경 #0d0f0d 위 4.5:1 이상 확보 */
+  color: #9aa5c9;
 }
 
 .server-config-grid {
@@ -9931,7 +9942,8 @@ html, body {
 .model-id {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--text-dim);
+  /* UI-01 (axe color-contrast): 카드 배경 위 4.5:1+ 확보 */
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -10108,7 +10120,8 @@ html, body {
 
 .unsloth-btn-primary {
   background: var(--accent-color);
-  color: #fff;
+  /* UI-01 (axe color-contrast): accent 위 흰 텍스트 2.9:1 → 어두운 텍스트 6.5:1 */
+  color: #0d0f0d;
   border: none;
   border-radius: 8px;
   padding: 10px 18px;
@@ -10388,7 +10401,8 @@ html, body {
 
 .hub-cat-btn.active {
   background: var(--accent-color);
-  color: #fff;
+  /* UI-01 (axe color-contrast): accent 위 흰 텍스트는 2.9:1로 부족 — 어두운 텍스트로 6.5:1 확보 */
+  color: #0d0f0d;
   border-color: var(--accent-color);
 }
 
@@ -10558,7 +10572,8 @@ html, body {
 .spec-key {
   font-size: 9px;
   font-weight: 600;
-  color: var(--text-dim);
+  /* UI-01 (axe color-contrast): badge 배경 위 4.5:1 경계 실패 방지 */
+  color: var(--text-secondary);
   text-transform: uppercase;
 }
 
@@ -10642,7 +10657,8 @@ html, body {
 
 .hub-action-btn.swap {
   background: var(--accent-color);
-  color: #fff;
+  /* UI-01 (axe color-contrast): accent 위 흰 텍스트 2.9:1 → 어두운 텍스트 6.5:1 */
+  color: #0d0f0d;
   border: none;
 }
 
