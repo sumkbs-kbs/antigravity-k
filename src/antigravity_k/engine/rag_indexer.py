@@ -50,6 +50,25 @@ MAX_CHUNK_CHARS = 3000  # ~750 tokens
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
 
+_CITATION_RANGE_RE = re.compile(
+    r"\[citation:(?P<id>[^\]\s:]+):(?P<start>\d+)-(?P<end>\d+)\]",
+)
+
+
+def _citation_line_ranges(response: str, source_id: str) -> list[tuple[int, int]]:
+    """응답에서 특정 source_id에 붙은 :start-end 범위들을 추출한다."""
+    return [
+        (int(m.group("start")), int(m.group("end")))
+        for m in _CITATION_RANGE_RE.finditer(response)
+        if m.group("id") == source_id
+    ]
+
+
+def _normalize_citation_id(raw: str) -> str:
+    """[citation:id]와 [citation:id:12-20]을 같은 id로 정규화한다."""
+    return re.sub(r":\d+-\d+$", "", raw)
+
+
 def _as_record(value: object) -> dict[str, object]:
     return cast(dict[str, object], value) if isinstance(value, dict) else {}
 
@@ -295,6 +314,10 @@ class RAGIndexer:
             logger.exception("Unhandled exception")
             return 0
 
+        # RAG-02 — CRLF 입력의 라인 계산 일관성: 개행을 LF로 정규화한다.
+        # (원본 파일은 수정하지 않고, 청킹/라인 계산에만 정규화된 텍스트를 쓴다.)
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
+
         self._file_hashes[rel_path] = hashlib.md5(content.encode()).hexdigest()
 
         # 기존 청크 삭제
@@ -407,23 +430,47 @@ class RAGIndexer:
         results: list[dict[str, object]],
         require_citation: bool = True,
     ) -> dict[str, object]:
-        cited: list[str] = list(dict.fromkeys(re.findall(r"\[citation:([^\]\s]+)\]", response or "")))
+        cited: list[str] = list(
+            dict.fromkeys(
+                _normalize_citation_id(raw) for raw in re.findall(r"\[citation:([^\]\s]+)\]", response or "")
+            ),
+        )
         eligible: dict[str, str] = {}
+        eligible_line_ranges: dict[str, tuple[int, int] | None] = {}
         for result in results:
             provenance = _as_record(result.get("provenance"))
             source_id = provenance.get("source_id") or result.get("id")
             if source_id:
                 eligible[str(source_id)] = str(provenance.get("freshness", "unknown"))
+                start = provenance.get("start_line")
+                end = provenance.get("end_line")
+                eligible_line_ranges[str(source_id)] = (
+                    (int(start), int(end)) if isinstance(start, int) and isinstance(end, int) else None
+                )
+
+        # RAG-02 — citation 뒤 :start-end line range를 검증한다.
+        #   [citation:<id>:12-20]  → provenance의 start_line/end_line과 일치해야
+        #   [citation:<id>]        → range 없음 (범위 검증 대상 아님)
+        range_mismatch: list[str] = []
+        for source_id in cited:
+            expected = eligible_line_ranges.get(source_id)
+            if expected is None:
+                continue  # unknown/unverified로 이미 분류됨
+            start, end = expected
+            for lo, hi in _citation_line_ranges(response or "", source_id):
+                if lo > hi or lo != start or hi != end:
+                    range_mismatch.append(f"{source_id}:{lo}-{hi}")
 
         unknown = [source_id for source_id in cited if source_id not in eligible]
         unverified = [source_id for source_id in cited if source_id in eligible and eligible[source_id] != "fresh"]
         missing_citation = bool(results) and require_citation and not cited
         return {
-            "valid": not unknown and not unverified and not missing_citation,
+            "valid": not unknown and not unverified and not missing_citation and not range_mismatch,
             "required": bool(results) and require_citation,
             "cited": cited,
             "unknown": unknown,
             "unverified": unverified,
+            "range_mismatch": range_mismatch,
             "missing_citation": missing_citation,
         }
 
@@ -833,14 +880,22 @@ class RAGIndexer:
 
         for match in self._TABLE_BLOCK_RE.finditer(content):
             # 테이블 이전의 일반 텍스트 → 헤딩 기반 청킹
-            prose = content[cursor : match.start()].strip()
+            raw_prose = content[cursor : match.start()]
+            prose = raw_prose.strip()
             if prose:
-                chunks.extend(self._chunk_markdown_prose(rel_path, prose, cursor))
+                abs_start = content[:cursor].count("\n") + 1
+                chunks.extend(
+                    self._chunk_markdown_prose(rel_path, prose, raw_prose, abs_start),
+                )
 
             # 테이블 블록 → 통째로 하나의 청크
-            table_block = match.group(0).strip()
+            raw_block = match.group(0)
+            table_block = raw_block.strip()
             if table_block:
-                line_offset = content[: match.start()].count("\n") + 1
+                # RAG-02 — raw_block은 선행 "\n"을 포함할 수 있다(파일 시작 "^" 앵커
+                # 제외). 첫 행의 absolute line은 블록 본문 시작 지점에서 센다.
+                block_body_start = match.start() + (1 if raw_block.startswith("\n") else 0)
+                line_offset = content[:block_body_start].count("\n") + 1
                 table_lines = table_block.count("\n") + 1
                 chunks.append(
                     CodeChunk(
@@ -858,9 +913,13 @@ class RAGIndexer:
             cursor = match.end()
 
         # 마지막 테이블 이후의 텍스트
-        trailing = content[cursor:].strip()
+        raw_trailing = content[cursor:]
+        trailing = raw_trailing.strip()
         if trailing:
-            chunks.extend(self._chunk_markdown_prose(rel_path, trailing, cursor))
+            abs_start = content[:cursor].count("\n") + 1
+            chunks.extend(
+                self._chunk_markdown_prose(rel_path, trailing, raw_trailing, abs_start),
+            )
 
         return chunks if chunks else self._chunk_generic(rel_path, content)
 
@@ -868,19 +927,37 @@ class RAGIndexer:
         self,
         rel_path: str,
         prose: str,
-        _char_offset: int = 0,
+        prose_source: str = "",
+        abs_start_line: int = 1,
     ) -> list[CodeChunk]:
         """Markdown 산문(비-테이블) 텍스트를 헤딩 기준으로 분할합니다.
 
         RAG-01: 반복 heading("## 개요"가 문서에 3번)도 고유 ID를 갖도록
         정규화된 heading 경로 + 섹션 ordinal을 ID 원료로 사용한다.
+
+        RAG-02: ``prose_source``는 strip 전 원문 조각, ``abs_start_line``은
+        그 조각이 원문에서 시작하는 1-based absolute line이다. 라인 계산은
+        strip 전 기준으로 수행해, 표 뒤 산문·빈 줄 등 어떤 입력이어도
+        start_line/end_line이 원문 absolute line과 일치한다. 인자 생략 시
+        ``prose`` 자체가 원문 전체로 간주된다 (하위 호환).
         """
+        prose_source = prose_source or prose
         chunks: list[CodeChunk] = []
         current_section = ""
         current_title = "intro"
         section_start = 1
         section_ordinal = 0
         used_ids: set[str] = set()
+
+        # RAG-02 — strip 전 원문 위치에서 absolute line number를 직접 계산한다.
+        # 각 prose 라인의 absolute line = abs_start_line + (strip으로 사라진
+        # 선행 개행 수) + (0-based 라인 인덱스). 마지막 라인의 개행은 라인
+        # 종결자로 취급한다 (개행이 있으면 다음 "빈" 라인을 가리키지 않음).
+        leading_newlines = len(prose_source) - len(prose_source.lstrip("\n"))
+        prose_lines = prose.split("\n")
+        if prose_lines and prose_lines[-1] == "":
+            prose_lines.pop()  # strip된 prose는 후행 개행을 갖지 않는다 — 방어
+        last_line_abs = abs_start_line + leading_newlines + len(prose_lines) - 1
 
         def _emit(end_line: int) -> None:
             nonlocal section_ordinal
@@ -898,23 +975,23 @@ class RAGIndexer:
                 node_type="text_section",
                 node_name=current_title,
                 content=current_section[:MAX_CHUNK_CHARS],
-                start_line=section_start,
+                start_line=abs_start_line + leading_newlines + section_start - 1,
                 end_line=end_line,
             )
             used_ids.add(chunk.chunk_id)
             chunks.append(chunk)
             section_ordinal += 1
 
-        for i, line in enumerate(prose.split("\n"), 1):
+        for i, line in enumerate(prose_lines, 1):
             if line.startswith("#"):
-                _emit(i - 1)
+                _emit(abs_start_line + leading_newlines + i - 2)  # 이전 라인 (0행은 스킵)
                 current_title = line.lstrip("#").strip()[:60]
                 current_section = line + "\n"
                 section_start = i
             else:
                 current_section += line + "\n"
 
-        _emit(len(prose.split("\n")))
+        _emit(last_line_abs)
 
         return chunks
 
