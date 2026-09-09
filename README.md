@@ -46,6 +46,8 @@
 | 🌍 **다국어 지원** | `i18n.py` / `locales/{ko,en,ja}.json` | 환경변수 `AGK_LANG` |
 | 📝 **구조화된 로깅** | `logging_setup.py` (JSON, rotation, audit) | `AGK_LOG_LEVEL`, `data/logs/` |
 | 💰 **비용 제어** | `engine/cost_guard.py:CostGuard` / `engine/model_manager.py:UsageTracker` | `AGK_DAILY_BUDGET_USD`, `AGK_HOURLY_ACTION_LIMIT` |
+| 🔄 **프로젝트 전환** | `engine/project_registry.py` (flock 원자적 저장) / `api/routes/` | `POST /api/projects/switch`, `GET /api/workspace/context` |
+| 🗜 **대화 컴팩트** | `engine/conversation_store.py` (revision CAS + 프로세스간 flock) | `POST /v1/conversations/compact`, `POST /v1/conversations/append` |
 
 ## 빠른 시작
 
@@ -75,14 +77,14 @@ uv run agk doctor
 uv run agk model list
 
 # 5. (선택) 대시보드 빌드
-cd dashboard && npm ci && npm run build && cd ..
+cd dashboard && pnpm install --frozen-lockfile && pnpm run build && cd ..
 ```
 
 ### 실행
 
 ```bash
-# API 서버 실행
-uv run agk serve --host 127.0.0.1 --port 8000
+# API 서버 실행 (기본 포트 8400 — AGK_SERVER_PORT로 변경 가능)
+uv run agk serve --host 127.0.0.1 --port 8400
 
 # 기본 Qwen3.8 로컬 에이전트 실행
 uv run agk run "현재 프로젝트의 테스트 실패 원인을 요약해줘" --model qwen3.8
@@ -101,7 +103,7 @@ make smoke-cli
 
 # 대시보드 개발 서버 (별도 터미널)
 make dev-dashboard
-# 또는: cd dashboard && npm run dev
+# 또는: cd dashboard && pnpm install --frozen-lockfile && pnpm run dev
 ```
 
 프로젝트 메모리 별칭은 현재 workspace의 `.antigravity/memory/project_aliases.json`에 저장된다. 실행 중인 agent process에는 다음 시작부터 적용되며, `uv run agk memory alias-remove primary_store`로 제거할 수 있다.
@@ -158,7 +160,7 @@ Ssak-Ai/
 
 | 계층 | 기술 | 역할 |
 |:---|---:|:---|
-| 추론 엔진 | Ollama / MLX / LM Studio | Qwen3.6 36B 기본, 직접 MLX 및 OpenAI 호환 로컬 서버 |
+| 추론 엔진 | Ollama / MLX / LM Studio | Qwen3.8 27B 기본 (config.yaml `qwen3.8`), 직접 MLX 및 OpenAI 호환 로컬 서버 |
 | 비전 | mlx-vlm | 멀티모달 이미지/문서 분석 |
 | 벡터 DB | ChromaDB | 로컬 임베딩 저장/검색 |
 | 코드 인덱싱 | AST + RAGIndexer | 소스 코드 그래프 인덱싱 |
@@ -188,7 +190,7 @@ make coverage      # 커버리지 리포트
 # 빌드
 make build         # pip 패키지 빌드
 make docker-build  # Docker 이미지 빌드
-docker compose up -d  # Docker Compose로 실행 (권장)
+docker run -d --name antigravity-k -p 8000:8000 -v $(PWD)/vault_data:/app/vault_data antigravity-k:latest  # 컨테이너 실행 (compose 파일은 vllm 전용만 존재)
 
 # 정리
 make clean         # 빌드 아티팩트 정리
@@ -198,9 +200,9 @@ make pre-commit    # Pre-commit 훅 설치 및 실행
 ## API 문서
 
 서버 실행 후:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
+- **Swagger UI**: http://localhost:8400/docs
+- **ReDoc**: http://localhost:8400/redoc
+- **OpenAPI JSON**: http://localhost:8400/openapi.json
 
 ## 환경 변수
 

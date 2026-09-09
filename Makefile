@@ -49,8 +49,8 @@ dev: ## Start the development server with hot reload
 doctor: ## Run environment diagnostic (checks deps, config, ports, vault)
 	@$(PYTHON) -m antigravity_k.cli doctor
 
-dev-dashboard: ## Start the dashboard dev server
-	cd dashboard && npm run dev
+dev-dashboard: ## Start the dashboard dev server (pnpm pinned — packageManager)
+	cd dashboard && pnpm install --frozen-lockfile && pnpm run dev
 
 # ─── Linting & Formatting ─────────────────────────────────────────
 
