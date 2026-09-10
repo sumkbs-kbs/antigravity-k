@@ -85,8 +85,8 @@ class StoreKnowledgeTool(BaseTool):
             self._vector_store = cast(
                 _VectorStoreLike,
                 VectorStore(
-                persist_directory=db_path,
-                collection_name="agent_knowledge",
+                    persist_directory=db_path,
+                    collection_name="agent_knowledge",
                 ),
             )
         return self._vector_store
@@ -206,8 +206,8 @@ class SearchKnowledgeTool(BaseTool):
             self._vector_store = cast(
                 _VectorStoreLike,
                 VectorStore(
-                persist_directory=db_path,
-                collection_name="agent_knowledge",
+                    persist_directory=db_path,
+                    collection_name="agent_knowledge",
                 ),
             )
         return self._vector_store

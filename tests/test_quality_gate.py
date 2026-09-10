@@ -125,7 +125,7 @@ class TestRepetitionFalsePositive:
         row = "| 구성 요소 | 상세 설명 내용은 이렇게 충분히 길게 작성됩니다 |"
         sep = "|---|---|"
         section = f"## 섹션\n\n{row}\n{sep}\n{row}\n{row}\n\n"
-        summary = ("# 요약\n\n" + section * 4 + "\n" + "마무리 문단입니다. " * 10)
+        summary = "# 요약\n\n" + section * 4 + "\n" + "마무리 문단입니다. " * 10
         score, issues = QualityGate()._check_repetition(summary)
         assert score == 1.0
         assert issues == []

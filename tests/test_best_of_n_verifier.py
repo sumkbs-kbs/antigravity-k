@@ -207,6 +207,7 @@ class TestModelManagerWiring:
 
     def test_disabled_config_falls_back_to_plain_generate(self):
         mgr = self._make_manager({"enabled": False})
+
         def generate_plain(_prompt: str, _target: str, **_kw: object) -> str:
             return "plain-answer"
 
@@ -216,6 +217,7 @@ class TestModelManagerWiring:
     def test_syntax_error_candidates_are_skipped(self):
         mgr = self._make_manager({"enabled": True, "n_samples": 2})
         outputs = iter(["```python\ndef broken(:\n```", "```python\nok = True\n```"])
+
         def generate_candidate(_prompt: str, _target: str, **_kw: object) -> str:
             return next(outputs)
 

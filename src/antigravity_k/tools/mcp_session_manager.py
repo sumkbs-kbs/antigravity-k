@@ -220,7 +220,7 @@ class MCPSessionManager:
 
         try:
             read, write = await stack.enter_async_context(
-                    sse_client(
+                sse_client(
                     url,
                     headers=headers,
                     timeout=timeout,

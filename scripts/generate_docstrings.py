@@ -111,7 +111,6 @@ class _OpenAICompletions(Protocol):
     def create(self, **kwargs: object) -> _OpenAIResponse: ...
 
 
-
 class _OpenAIChat(Protocol):
     completions: _OpenAICompletions
 

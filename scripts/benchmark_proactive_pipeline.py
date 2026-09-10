@@ -118,6 +118,7 @@ class BenchmarkResult:
 def timer() -> Generator[Callable[[], float], None, None]:
     """밀리초 단위 타이머 컨텍스트 매니저. elapsed_ms를 yield."""
     start = time.perf_counter()
+
     def elapsed() -> float:
         return (time.perf_counter() - start) * 1000
 
@@ -512,8 +513,10 @@ def benchmark_max_engine(project_root: str, iteration: int) -> BenchmarkSample:
     setattr(qa_orch, "manager", mgr)
     mgr_generate = cast(object, getattr(mgr, "generate"))
     setattr(mgr_generate, "return_value", "SELECTED: 1\nREASON: Best output")
+
     def _qa_model(_role: str) -> str:
         return "qa-model"
+
     setattr(qa_orch, "_get_model_for_role", _qa_model)
     select_best = cast(Callable[..., int], getattr(engine, "_select_best"))
 
@@ -806,6 +809,7 @@ def main():
     try:
         _ = sys.path.insert(0, project_root)
         from antigravity_k.engine.code_tree_indexer import CodeTreeIndexer
+
         _ = CodeTreeIndexer
     except ImportError as e:
         print(f"⚠️  antigravity_k 패키지 import 실패: {e}")

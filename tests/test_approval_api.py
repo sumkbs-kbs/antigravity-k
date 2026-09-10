@@ -106,9 +106,7 @@ class TestResolveApproval:
     def test_approve(self, client: TestClient, monkeypatch: MonkeyPatch) -> None:
         manager = _FakeManager()
         manager.resolve_result = True
-        manager.request = ApprovalRequest(
-            "req-1", "write_file", {}, status=ApprovalStatus.APPROVED
-        )
+        manager.request = ApprovalRequest("req-1", "write_file", {}, status=ApprovalStatus.APPROVED)
         _install_manager(monkeypatch, manager)
 
         response = client.post("/api/approval/req-1/resolve", json={"decision": "approve"})

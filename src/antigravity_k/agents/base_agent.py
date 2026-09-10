@@ -152,11 +152,11 @@ class BaseAgent:
                 if generate_method is not None:
                     response = str(
                         generate_method(
-                        prompt=messages[-1]["content"] if messages else "",
-                        target=self.model_id,
-                        raw_messages=messages,
-                        max_tokens=2048,
-                        temperature=0.7,
+                            prompt=messages[-1]["content"] if messages else "",
+                            target=self.model_id,
+                            raw_messages=messages,
+                            max_tokens=2048,
+                            temperature=0.7,
                         )
                     )
                 else:

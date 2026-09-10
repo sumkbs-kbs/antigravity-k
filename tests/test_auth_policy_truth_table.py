@@ -268,9 +268,9 @@ class TestSinglePolicyConsistency:
         import antigravity_k.api.auth_routes as auth_routes
 
         src = inspect.getsource(auth_routes.authenticate_request)
-        assert (
-            "get_shared_auth_policy" in src
-        ), "authenticate_request는 공유 AuthPolicy를 통해 평가해야 한다 (SEC-01 단일 정책)"
+        assert "get_shared_auth_policy" in src, (
+            "authenticate_request는 공유 AuthPolicy를 통해 평가해야 한다 (SEC-01 단일 정책)"
+        )
         assert hasattr(auth_policy, "get_shared_auth_policy")
 
     def test_ws_gate_delegates_to_shared_policy(self) -> None:

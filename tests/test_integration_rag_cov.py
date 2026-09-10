@@ -101,7 +101,9 @@ class TestOrchestratorRAGIntegration:
         )
 
         orch = _orchestrator()
-        _ = setattr(orch, "_rag_indexer", _RagIndexerDouble("<relevant_code>\ndef vault_init(): pass\n</relevant_code>"))
+        _ = setattr(
+            orch, "_rag_indexer", _RagIndexerDouble("<relevant_code>\ndef vault_init(): pass\n</relevant_code>")
+        )
 
         gen = context_enrich_handler(ctx, orch)
         _consume_optional_output(gen)
@@ -124,11 +126,17 @@ class TestOrchestratorRAGIntegration:
         orch = _orchestrator()
         _ = setattr(orch, "_rag_indexer", rag_indexer)
         manager = MagicMock()
-        _ = setattr(manager, "long_context_plan", MagicMock(return_value={
-            "strategy": "retrieval_fallback",
-            "retrieval_mode": "long_context",
-            "candidate_pool": 64,
-        }))
+        _ = setattr(
+            manager,
+            "long_context_plan",
+            MagicMock(
+                return_value={
+                    "strategy": "retrieval_fallback",
+                    "retrieval_mode": "long_context",
+                    "candidate_pool": 64,
+                }
+            ),
+        )
         _ = setattr(orch, "manager", manager)
 
         context_enrich_handler(ctx, orch)
@@ -170,38 +178,44 @@ class TestOrchestratorRAGIntegration:
             def search(self, query: str, n_results: int = 5) -> list[dict[str, object]]:
                 # "oauth 토큰 검증" 쿼리가 들어오면, 타겟 청크를 상위 5개 안에 포함시킴 (단순 텍스트 매칭 시뮬레이션)
                 if "oauth" in query.lower() or "토큰" in query:
-                    return cast(list[dict[str, object]], cast(object, [
-                        {
-                            "id": "chunk_1",
-                            "text": "...",
-                            "metadata": {"source": "a.py"},
-                        },
-                        {
-                            "id": "chunk_2",
-                            "text": "...",
-                            "metadata": {"source": "b.py"},
-                        },
-                        {
-                            "id": "target_chunk",
-                            "text": target_chunk.content,
-                            "metadata": {
-                                "source": target_chunk.file_path,
-                                "node_name": target_chunk.node_name,
-                                "start_line": target_chunk.start_line,
-                                "end_line": target_chunk.end_line,
-                            },
-                        },
-                        {
-                            "id": "chunk_3",
-                            "text": "...",
-                            "metadata": {"source": "c.py"},
-                        },
-                        {
-                            "id": "chunk_4",
-                            "text": "...",
-                            "metadata": {"source": "d.py"},
-                        },
-                    ][:n_results]))
+                    return cast(
+                        list[dict[str, object]],
+                        cast(
+                            object,
+                            [
+                                {
+                                    "id": "chunk_1",
+                                    "text": "...",
+                                    "metadata": {"source": "a.py"},
+                                },
+                                {
+                                    "id": "chunk_2",
+                                    "text": "...",
+                                    "metadata": {"source": "b.py"},
+                                },
+                                {
+                                    "id": "target_chunk",
+                                    "text": target_chunk.content,
+                                    "metadata": {
+                                        "source": target_chunk.file_path,
+                                        "node_name": target_chunk.node_name,
+                                        "start_line": target_chunk.start_line,
+                                        "end_line": target_chunk.end_line,
+                                    },
+                                },
+                                {
+                                    "id": "chunk_3",
+                                    "text": "...",
+                                    "metadata": {"source": "c.py"},
+                                },
+                                {
+                                    "id": "chunk_4",
+                                    "text": "...",
+                                    "metadata": {"source": "d.py"},
+                                },
+                            ][:n_results],
+                        ),
+                    )
                 return []
 
         indexer = RAGIndexer(project_root="/tmp", vector_store=cast(object, MockVectorStore()))
@@ -343,6 +357,7 @@ class TestOrchestratorCoVIntegration:
 
     def test_cov_verify_revises_with_local_manager(self):
         from antigravity_k.engine.state_graph import StateContext
+
         manager = _CovManagerDouble()
         original_output = "초안 답변입니다. " * 20
         ctx = StateContext(
@@ -427,7 +442,9 @@ class TestStateGraphCoVWiring:
         assert getattr(ctx, "_loop_back") is True
 
         # 3. 조건부 엣지 함수 검증
-        decision_fn = cast(Callable[..., object], _private_mapping(graph, "_conditional_edges")[AgentState.QUALITY_CHECK])
+        decision_fn = cast(
+            Callable[..., object], _private_mapping(graph, "_conditional_edges")[AgentState.QUALITY_CHECK]
+        )
         next_state = decision_fn(ctx)
 
         assert next_state == AgentState.AGENT_EXECUTE

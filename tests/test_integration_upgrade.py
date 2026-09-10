@@ -39,6 +39,7 @@ class _ToolBatchInstaller(Protocol):
 class _SkillToolValidator(Protocol):
     def __call__(self, tool_registry: ToolRegistry) -> dict[str, list[str]]: ...
 
+
 # ═══════════════ A) AppConfig 통합 테스트 ═══════════════
 
 

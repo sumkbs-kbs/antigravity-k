@@ -153,7 +153,7 @@ def validate_hyperparameters(
             raise HyperparameterValidationError(f"{key}: {high} 이하여야 합니다 (got {ivalue})")
         if key in _UNSLOTH_ONLY_KEYS and backend_norm == "mlx":
             raise HyperparameterValidationError(
-                f"{key}: mlx 백엔드는 미지원 option입니다 (unsloth 전용). " "mlx에서는 iterations로 환산해 주세요."
+                f"{key}: mlx 백엔드는 미지원 option입니다 (unsloth 전용). mlx에서는 iterations로 환산해 주세요."
             )
         normalized[key] = ivalue
     return normalized

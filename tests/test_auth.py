@@ -145,7 +145,9 @@ def test_extract_bearer_token():
     assert extract_bearer_token("Bearer ") is None
 
 
-def test_authenticate_request_rejects_pin_header_without_pbkdf2(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_authenticate_request_rejects_pin_header_without_pbkdf2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """SEC-02: middleware는 X-Access-Pin 헤더로 PBKDF2를 실행하지 않는다.
 
     hash 전용 서버(plaintext PIN 부재)에서 헤더 PIN은 무시된다 — fail-closed로

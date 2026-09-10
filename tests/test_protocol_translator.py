@@ -29,16 +29,12 @@ def _extract_content(t: ProtocolTranslator, content: object) -> str | list[Paylo
     return method(content)
 
 
-def _route_request(
-    t: ProtocolTranslator, name: str, body: dict[str, object], fmt: APIFormat
-) -> RequestPayload:
+def _route_request(t: ProtocolTranslator, name: str, body: dict[str, object], fmt: APIFormat) -> RequestPayload:
     method = cast(Callable[[dict[str, object], APIFormat], object], getattr(t, name))
     return cast(RequestPayload, method(body, fmt))
 
 
-def _route_response(
-    t: ProtocolTranslator, name: str, body: dict[str, object], fmt: APIFormat
-) -> ResponsePayload:
+def _route_response(t: ProtocolTranslator, name: str, body: dict[str, object], fmt: APIFormat) -> ResponsePayload:
     method = cast(Callable[[dict[str, object], APIFormat], object], getattr(t, name))
     return cast(ResponsePayload, method(body, fmt))
 
@@ -283,11 +279,15 @@ class TestProtocolTranslator:
     # ─── 라우팅 메서드 직접 테스트 ───────────────────────────────────
 
     def test_to_internal_request_openai(self, t: ProtocolTranslator):
-        result = _route_request(t, "_to_internal_request", {"messages": [{"role": "user", "content": "Hi"}]}, APIFormat.OPENAI)
+        result = _route_request(
+            t, "_to_internal_request", {"messages": [{"role": "user", "content": "Hi"}]}, APIFormat.OPENAI
+        )
         assert "messages" in result
 
     def test_to_internal_request_anthropic(self, t: ProtocolTranslator):
-        result = _route_request(t, "_to_internal_request", {"messages": [{"role": "user", "content": "Hi"}]}, APIFormat.ANTHROPIC)
+        result = _route_request(
+            t, "_to_internal_request", {"messages": [{"role": "user", "content": "Hi"}]}, APIFormat.ANTHROPIC
+        )
         assert "messages" in result
 
     def test_to_internal_request_unknown(self, t: ProtocolTranslator):
@@ -295,11 +295,15 @@ class TestProtocolTranslator:
         assert result == {"foo": "bar"}
 
     def test_from_internal_request_openai(self, t: ProtocolTranslator):
-        result = _route_request(t, "_from_internal_request", {"messages": [{"role": "user", "content": "Hi"}]}, APIFormat.OPENAI)
+        result = _route_request(
+            t, "_from_internal_request", {"messages": [{"role": "user", "content": "Hi"}]}, APIFormat.OPENAI
+        )
         assert "model" in result
 
     def test_from_internal_request_anthropic(self, t: ProtocolTranslator):
-        result = _route_request(t, "_from_internal_request", {"messages": [{"role": "user", "content": "Hi"}]}, APIFormat.ANTHROPIC)
+        result = _route_request(
+            t, "_from_internal_request", {"messages": [{"role": "user", "content": "Hi"}]}, APIFormat.ANTHROPIC
+        )
         assert "model" in result
 
     def test_from_internal_request_unknown(self, t: ProtocolTranslator):
@@ -307,14 +311,18 @@ class TestProtocolTranslator:
         assert result == {"foo": "bar"}
 
     def test_to_internal_response_openai(self, t: ProtocolTranslator):
-        result = _route_response(t, "_to_internal_response",
+        result = _route_response(
+            t,
+            "_to_internal_response",
             {"choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}], "usage": {}},
             APIFormat.OPENAI,
         )
         assert result["content"] == "hi"
 
     def test_to_internal_response_anthropic(self, t: ProtocolTranslator):
-        result = _route_response(t, "_to_internal_response",
+        result = _route_response(
+            t,
+            "_to_internal_response",
             {"content": [{"type": "text", "text": "hi"}], "usage": {}},
             APIFormat.ANTHROPIC,
         )

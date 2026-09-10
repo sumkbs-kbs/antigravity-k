@@ -111,8 +111,7 @@ CONTEXT_PATTERNS: list[SecretPattern] = [
         "Discord bot token",
         re.compile(
             r"(?:discord|bot|DISCORD_TOKEN|BOT_TOKEN|token)\s*[=:]\s*[\"']?"
-            +
-            r"([A-Za-z0-9]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,})",
+            + r"([A-Za-z0-9]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,})",
         ),
     ),
 ]

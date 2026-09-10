@@ -73,6 +73,7 @@ def _set_do_generate(manager: ModelManager, callback: _GenerateCallback) -> None
 def _quality_gate(harness: BenchmarkHarness) -> QualityGate:
     return cast(QualityGate, getattr(harness, "_quality_gate"))
 
+
 WEAK_RESPONSE = "모르겠습니다. 잘 모르겠습니다."  # 신뢰도 매우 낮음
 STRONG_RESPONSE = (
     "### 분석\n피보나치 수열 함수입니다.\n\n"
@@ -101,6 +102,7 @@ def _make_manager() -> tuple[ModelManager, ModelRouter]:
         "light": ModelProfile(name="light", repo="t", role="test", estimated_memory_gb=1),
         "heavy": ModelProfile(name="heavy", repo="t", role="test", estimated_memory_gb=1),
     }
+
     def get_model(name: str) -> ModelProfile | None:
         return profiles.get(name)
 

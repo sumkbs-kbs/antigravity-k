@@ -110,9 +110,12 @@ class TestSubagentSpawner:
             factory = cast(_MockMethod, MockOrch)
             mock_orch_instance = _configure_orchestrator(factory.return_value, ["result from agent"])
 
-            results = await _spawn_parallel(spawner, [
-                [{"task": "test task", "tools": ["read_file"]}],
-            ][0])
+            results = await _spawn_parallel(
+                spawner,
+                [
+                    [{"task": "test task", "tools": ["read_file"]}],
+                ][0],
+            )
 
             assert len(results) == 1
             assert "Sub-Agent #0 Result" in results[0]
@@ -133,12 +136,15 @@ class TestSubagentSpawner:
             factory = cast(_MockMethod, MockOrch)
             factory.side_effect = [make_orch(), make_orch()]
 
-            results = await _spawn_parallel(spawner, [
+            results = await _spawn_parallel(
+                spawner,
                 [
-                    {"task": "task A"},
-                    {"task": "task B"},
-                ],
-            ][0])
+                    [
+                        {"task": "task A"},
+                        {"task": "task B"},
+                    ],
+                ][0],
+            )
 
             assert len(results) == 2
             assert "Sub-Agent #0" in results[0]
@@ -157,12 +163,15 @@ class TestSubagentSpawner:
             factory = cast(_MockMethod, MockOrch)
             factory.side_effect = [good_orch, RuntimeError("Task crashed")]
 
-            results = await _spawn_parallel(spawner, [
+            results = await _spawn_parallel(
+                spawner,
                 [
-                    {"task": "good task"},
-                    {"task": "bad task"},
-                ],
-            ][0])
+                    [
+                        {"task": "good task"},
+                        {"task": "bad task"},
+                    ],
+                ][0],
+            )
 
             assert len(results) == 2
             assert "success" in results[0]
@@ -179,9 +188,12 @@ class TestSubagentSpawner:
             factory = cast(_MockMethod, MockOrch)
             _ = _configure_orchestrator(factory.return_value, ["ok"])
 
-            _ = await _spawn_parallel(spawner, [
-                [{"task": "no tools specified"}],
-            ][0])
+            _ = await _spawn_parallel(
+                spawner,
+                [
+                    [{"task": "no tools specified"}],
+                ][0],
+            )
 
             # OrchestratorAgent가 생성되었는지 확인
             factory.assert_called_once()
@@ -243,7 +255,9 @@ class TestSubagentSpawner:
     @pytest.mark.asyncio
     async def test_spawn_sync_rejects_a_running_event_loop_before_creating_work(self, spawner: SubagentSpawner) -> None:
         current_loop = asyncio.get_running_loop()
-        with mock.patch.object(spawner, "spawn_parallel", return_value=current_loop.create_future()) as spawn_parallel_raw:
+        with mock.patch.object(
+            spawner, "spawn_parallel", return_value=current_loop.create_future()
+        ) as spawn_parallel_raw:
             spawn_parallel = cast(_MockMethod, spawn_parallel_raw)
             with pytest.raises(RuntimeError, match="await spawn_parallel"):
                 _ = _spawn(spawner, "task", ["tool"])

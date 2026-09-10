@@ -110,9 +110,7 @@ def memory_save_handler(ctx: StateContext, orch: _OrchestratorLike) -> Generator
         _amp_se = amplification_section(orch, "self_evolution").get("enabled")
         config = cast(dict[str, object], _raw_cfg) if isinstance(_raw_cfg, dict) else {}
         raw_self_evolution = config.get("self_evolution")
-        self_evolution = (
-            cast(dict[str, object], raw_self_evolution) if isinstance(raw_self_evolution, dict) else {}
-        )
+        self_evolution = cast(dict[str, object], raw_self_evolution) if isinstance(raw_self_evolution, dict) else {}
         _sec_enabled = bool(self_evolution.get("auto_modify", False))
         if _amp_se is not None:
             _sec_enabled = bool(_amp_se)

@@ -211,9 +211,7 @@ def test_agent_model_defaults_prioritize_local_qwen():
 
 @pytest.mark.parametrize("request_model", [AutonomousQARequest, TDDGenerateRequest])
 @pytest.mark.parametrize("max_iterations", [0, 11])
-def test_autonomous_loop_iteration_budget_is_bounded(
-    request_model: Callable[..., object], max_iterations: int
-) -> None:
+def test_autonomous_loop_iteration_budget_is_bounded(request_model: Callable[..., object], max_iterations: int) -> None:
     payload: dict[str, object] = {"max_iterations": max_iterations}
     if request_model is TDDGenerateRequest:
         payload["prompt"] = "write a test"
@@ -222,9 +220,7 @@ def test_autonomous_loop_iteration_budget_is_bounded(
         _ = request_model(**payload)
 
 
-def test_agent_fs_write_and_read_are_limited_to_project_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_agent_fs_write_and_read_are_limited_to_project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
     monkeypatch.setattr(config.paths, "project_root", project_root)
@@ -273,9 +269,7 @@ def test_agent_shell_blocks_dangerous_commands():
     assert response.status_code == 403
 
 
-def test_agent_shell_uses_sandbox_runner_and_clamps_timeout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_agent_shell_uses_sandbox_runner_and_clamps_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config.paths, "project_root", tmp_path)
     calls: dict[str, object] = {}
 
@@ -304,9 +298,7 @@ def test_agent_shell_uses_sandbox_runner_and_clamps_timeout(
     assert execute_call["timeout"] == config.security.max_execution_time
 
 
-def test_agent_shell_rejects_cwd_outside_project_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_agent_shell_rejects_cwd_outside_project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
     outside = tmp_path / "outside"

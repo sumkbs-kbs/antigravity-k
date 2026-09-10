@@ -275,7 +275,9 @@ def create_command(
         write_manifest(output_path, manifest)
     except ArtifactProvenanceError as error:
         _exit_with_error(error)
-    typer.echo(json.dumps({"artifact_count": len(manifest.artifacts), "manifest": str(output_path), "status": "created"}))
+    typer.echo(
+        json.dumps({"artifact_count": len(manifest.artifacts), "manifest": str(output_path), "status": "created"})
+    )
 
 
 @app.command("verify")

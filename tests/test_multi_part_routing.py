@@ -52,9 +52,6 @@ class TestMultiPartRouting:
         pipeline_items = cast(list[object], pipeline_value)
         pipeline = [cast(dict[str, object], item) for item in pipeline_items]
         assert len(pipeline) == 3
-        assert all(
-            "첫 번째" not in str(s.get("task", "")) or "번째" in str(s.get("task", ""))
-            for s in pipeline
-        )
+        assert all("첫 번째" not in str(s.get("task", "")) or "번째" in str(s.get("task", "")) for s in pipeline)
         descriptions = [str(s["task"]) for s in pipeline]
         assert descriptions == ["첫 번째", "두 번째", "세 번째"]

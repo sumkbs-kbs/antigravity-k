@@ -248,7 +248,7 @@ def list_local_models(
             recommended_default = cast(str, local_models[0]["id"])
 
     message = (
-        f"본 PC에서 {len(local_models)}개의 실제 로컬 모델(실행 중: {len(running_models)}개, 캐시/다운로드됨: {len(local_models)-len(running_models)}개)이 감지되었습니다."
+        f"본 PC에서 {len(local_models)}개의 실제 로컬 모델(실행 중: {len(running_models)}개, 캐시/다운로드됨: {len(local_models) - len(running_models)}개)이 감지되었습니다."
         if local_models
         else "본 PC에서 실행 중이거나 다운로드된 로컬 모델을 찾을 수 없습니다."
     )

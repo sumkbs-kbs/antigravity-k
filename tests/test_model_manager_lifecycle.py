@@ -62,6 +62,7 @@ def mock_registry() -> MagicMock:
         "model-b": _profile("model-b"),
         "model-c": _profile("model-c", role="coding"),
     }
+
     def get_model(value: object) -> ModelProfile | None:
         return profiles.get(cast(str, value))
 
@@ -99,9 +100,7 @@ class TestModelLifecycle:
         loader = _private_mock(setup_manager, "_load_mlx_model")
         assert loader.call_count == 1
 
-    def test_load_unknown_model_raises_with_registered_names(
-        self, setup_manager: ModelManager
-    ):
+    def test_load_unknown_model_raises_with_registered_names(self, setup_manager: ModelManager):
         with pytest.raises(ValueError) as excinfo:
             _ = setup_manager.load("no-such-model")
 
@@ -362,7 +361,9 @@ class TestProviderDelegation:
         )
         setup_manager.router.register_combo(critic)
 
-        resolved = cast(list[str], _private_call(setup_manager, "_available_combo_or_models")("critic-pair", ["fallback-x"]))
+        resolved = cast(
+            list[str], _private_call(setup_manager, "_available_combo_or_models")("critic-pair", ["fallback-x"])
+        )
 
         assert resolved == ["model-b", "model-c"]
 
@@ -526,6 +527,7 @@ class TestStatusSurface:
     ):
         local_profile = _profile("lmstudio-model")
         local_profile.provider = "lmstudio"
+
         def get_local_model(value: object) -> ModelProfile | None:
             return local_profile if value == "lmstudio-model" else None
 

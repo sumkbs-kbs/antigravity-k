@@ -216,6 +216,7 @@ class TestQuietHours:
         setattr(hb, "datetime", FakeDT)
         try:
             executed: list[str] = []
+
             def executor(title: str) -> object:
                 executed.append(title)
                 return None

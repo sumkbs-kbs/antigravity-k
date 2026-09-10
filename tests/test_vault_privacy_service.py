@@ -58,6 +58,7 @@ def test_vault_redact_restores_derivatives_when_commit_fails(
     vault, note = _seed_vault(tmp_path, "rollback-secret")
     vault.sync_rag = True
     vault.vector_store = MagicMock()
+
     def no_op(*_args: object) -> list[object]:
         return []
 

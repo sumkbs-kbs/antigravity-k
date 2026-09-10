@@ -8,6 +8,7 @@ from typing import Final, Protocol, runtime_checkable
 
 logger = logging.getLogger("antigravity_k.engine.embeddings")
 
+
 @runtime_checkable
 class _EmbeddingModel(Protocol):
     def encode(self, sentences: list[str], *, convert_to_numpy: bool) -> Sequence[Sequence[float]]: ...

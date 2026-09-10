@@ -134,7 +134,7 @@ def run_frontier_tests():
 
     print("\n" + "=" * 70)
     print(
-        f"🏆 Final Frontier Amplification Score: {passed_count}/{total_tests} ({(passed_count/total_tests)*100:.0f}%)"
+        f"🏆 Final Frontier Amplification Score: {passed_count}/{total_tests} ({(passed_count / total_tests) * 100:.0f}%)"
     )
     print("=" * 70)
     return passed_count == total_tests

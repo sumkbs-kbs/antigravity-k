@@ -153,19 +153,21 @@ def memory_client() -> Iterator[tuple[TestClient, _MemoryManagerDouble]]:
     from antigravity_k.api.server import app
     from antigravity_k.config import config
 
-    fake_manager = _MemoryManagerDouble([
-        (
-            MemoryFact(
-                key="identity:name",
-                value="Alice",
-                source="global",
-                scope="global",
-                authority=MemoryFactAuthority.DURABLE_IDENTITY,
-                observed_at=1000.0,
+    fake_manager = _MemoryManagerDouble(
+        [
+            (
+                MemoryFact(
+                    key="identity:name",
+                    value="Alice",
+                    source="global",
+                    scope="global",
+                    authority=MemoryFactAuthority.DURABLE_IDENTITY,
+                    observed_at=1000.0,
+                ),
+                81.25,
             ),
-            81.25,
-        ),
-    ])
+        ]
+    )
     with patch("antigravity_k.api.routes.system_api._get_memory_manager", return_value=fake_manager):
         with TestClient(app) as client:
             if config.security.access_pin:

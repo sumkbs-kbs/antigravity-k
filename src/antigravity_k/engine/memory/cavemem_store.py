@@ -163,9 +163,7 @@ class CavememStore:
                     records.append(
                         {
                             "id": row["id"] if isinstance(row["id"], int) else 0,
-                            "session_id": row["session_id"]
-                            if isinstance(row["session_id"], str)
-                            else "",
+                            "session_id": row["session_id"] if isinstance(row["session_id"], str) else "",
                             "content": row["content"] if isinstance(row["content"], str) else "",
                             "compressed_content": row["compressed_content"]
                             if isinstance(row["compressed_content"], str)

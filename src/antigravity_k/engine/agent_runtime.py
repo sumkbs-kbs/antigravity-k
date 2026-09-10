@@ -381,7 +381,9 @@ class AgentRuntime:
         output = self.task_runner.get_output(task_id) if self.task_runner is not None and state == "done" else ""
         error = status.get("error", "")
         try:
-            _ = recorder(task_id, state, output if isinstance(output, str) else "", error if isinstance(error, str) else "")
+            _ = recorder(
+                task_id, state, output if isinstance(output, str) else "", error if isinstance(error, str) else ""
+            )
         except Exception:
             logger.exception("[AgentRuntime] persistent agency task result recording failed")
 

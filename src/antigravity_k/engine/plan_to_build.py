@@ -461,8 +461,7 @@ class PlanToBuildPipeline:
                     "score": 0.0,
                     "task_count": 0,
                     "message": (
-                        f"Plan 아티팩트 '{plan_file}'를 찾을 수 없습니다. "
-                        f"artifacts/{plan_file} 경로를 확인하세요."
+                        f"Plan 아티팩트 '{plan_file}'를 찾을 수 없습니다. artifacts/{plan_file} 경로를 확인하세요."
                     ),
                     "details": {"missing_file": True},
                     "duration_ms": (datetime.now() - start).total_seconds() * 1000,

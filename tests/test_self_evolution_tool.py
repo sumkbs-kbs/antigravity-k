@@ -42,6 +42,7 @@ def _score_to_grade(score: float) -> str:
     score_to_grade = cast(Callable[[float], str], getattr(SelfRewardEvaluator, "_score_to_grade"))
     return score_to_grade(score)
 
+
 # ═══════════════════════════════════════════════════════════════════
 # SelfRewardEvaluator tests
 # ═══════════════════════════════════════════════════════════════════

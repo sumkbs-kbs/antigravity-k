@@ -56,7 +56,7 @@ def run_bulletproof_benchmark():
         score += 1
 
     print("\n" + "=" * 80)
-    print(f"🏆 BULLETPROOF SHIELD SCORE: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🏆 BULLETPROOF SHIELD SCORE: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 80)
     return score == total
 

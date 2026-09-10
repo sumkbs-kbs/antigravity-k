@@ -107,8 +107,7 @@ class TestShouldLearn:
 
     def test_question_with_two_triggers_and_length(self, learner: AutonomousLearner):
         task = (
-            "api와 library를 어떻게 연결하나요? "
-            "두 패키지의 호환성과 설정 방법을 포함해서 충분히 긴 질문을 덧붙입니다."
+            "api와 library를 어떻게 연결하나요? 두 패키지의 호환성과 설정 방법을 포함해서 충분히 긴 질문을 덧붙입니다."
         )
         assert learner.should_learn(task) is True
 
@@ -118,9 +117,7 @@ class TestShouldLearn:
 
 class TestAnalyzeKnowledgeGap:
     def test_llm_success_uses_managed_model_target(self):
-        manager = _FakeManager(
-            response='[{"topic":"Managed API","reason":"검증","search_queries":["managed api"]}]'
-        )
+        manager = _FakeManager(response='[{"topic":"Managed API","reason":"검증","search_queries":["managed api"]}]')
         learner = AutonomousLearner(model_manager=manager)
 
         gaps = learner.analyze_knowledge_gap("최신 API 문서를 조사해줘")

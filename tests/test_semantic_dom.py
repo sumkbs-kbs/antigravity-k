@@ -26,6 +26,7 @@ def _parse_element(parser: SemanticDOMParser, ref: str, raw: Mapping[str, object
     parser_fn = cast(Callable[[str, Mapping[str, object]], ElementInfo], getattr(parser, "_parse_element"))
     return parser_fn(ref, raw)
 
+
 # ── BoundingBox ────────────────────────────────────────────────────────
 
 

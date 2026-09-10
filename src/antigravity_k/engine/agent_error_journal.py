@@ -345,9 +345,9 @@ status: "open"
 ```
 
 - **System Environment**:
-  - Python: `{record.environment.get('python_version')}`
-  - Ssak-Ai: `{record.environment.get('antigravity_k_version')}`
-  - OS: `{record.environment.get('os_platform')}`
+  - Python: `{record.environment.get("python_version")}`
+  - Ssak-Ai: `{record.environment.get("antigravity_k_version")}`
+  - OS: `{record.environment.get("os_platform")}`
 
 ---
 

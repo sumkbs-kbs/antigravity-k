@@ -76,8 +76,7 @@ CREDENTIAL_FIELDS: Final[set[str]] = {
 }
 
 CREDENTIAL_FIELD_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(?:access|refresh|client|bearer|auth|api|private|public|signing|session)"
-    + r"(?:Token|Key|Secret|Password)$",
+    r"(?:access|refresh|client|bearer|auth|api|private|public|signing|session)" + r"(?:Token|Key|Secret|Password)$",
 )
 CREDENTIAL_PLACEHOLDER: Final[str] = "[STRIPPED_BY_SCANNER]"
 CREDENTIAL_SENSITIVE_BASENAMES: Final[set[str]] = {

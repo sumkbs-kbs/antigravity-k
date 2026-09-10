@@ -710,7 +710,9 @@ class SkillInstaller:
                     mcp_config: dict[str, object] = {"mcpServers": {}}
                     if mcp_json_path.exists():
                         try:
-                            mcp_config = _as_mapping(cast(object, json.loads(mcp_json_path.read_text(encoding="utf-8"))))
+                            mcp_config = _as_mapping(
+                                cast(object, json.loads(mcp_json_path.read_text(encoding="utf-8")))
+                            )
                         except json.JSONDecodeError:
                             warnings.append(".mcp.json 파싱 실패 — 덮어씁니다")
 
@@ -778,7 +780,9 @@ class SkillInstaller:
                         mcp_config = {"mcpServers": {}}
                         if mcp_json_path.exists():
                             try:
-                                mcp_config = _as_mapping(cast(object, json.loads(mcp_json_path.read_text(encoding="utf-8"))))
+                                mcp_config = _as_mapping(
+                                    cast(object, json.loads(mcp_json_path.read_text(encoding="utf-8")))
+                                )
                             except json.JSONDecodeError:
                                 warnings.append(".mcp.json 파싱 실패 — 덮어씁니다")
 
@@ -865,19 +869,19 @@ class SkillInstaller:
                 agk = _as_mapping(pkg_json.get("antigravityK"))
                 mcp = _as_mapping(agk.get("mcp"))
                 if mcp.get("serverId") == validation.mcp_server_id:
-                        # mcp 필드에 command/args/env가 포함되어 있으면 저장
-                        mcp_config: dict[str, object] = {}
-                        command = _as_text(mcp.get("command"))
-                        if command:
-                            mcp_config["command"] = command
-                        args = _as_str_list(mcp.get("args"))
-                        if args:
-                            mcp_config["args"] = args
-                        env = _as_mapping(mcp.get("env"))
-                        if env:
-                            mcp_config["env"] = env
-                        if mcp_config:
-                            meta["mcp_config"] = mcp_config
+                    # mcp 필드에 command/args/env가 포함되어 있으면 저장
+                    mcp_config: dict[str, object] = {}
+                    command = _as_text(mcp.get("command"))
+                    if command:
+                        mcp_config["command"] = command
+                    args = _as_str_list(mcp.get("args"))
+                    if args:
+                        mcp_config["args"] = args
+                    env = _as_mapping(mcp.get("env"))
+                    if env:
+                        mcp_config["env"] = env
+                    if mcp_config:
+                        meta["mcp_config"] = mcp_config
         except (json.JSONDecodeError, OSError):
             logger.warning("[SkillInstaller] 스킬 설치 단계 실패 (non-critical)", exc_info=True)
 

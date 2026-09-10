@@ -104,7 +104,7 @@ class AgenticTechRadar:
                     "inside a constrained sandbox with explicit imports and tool bridges."
                 ),
                 current_status=(
-                    "Ssak-Ai has PermissionGate and shell/file tools, but no " "separate code-action sandbox contract."
+                    "Ssak-Ai has PermissionGate and shell/file tools, but no separate code-action sandbox contract."
                 ),
                 recommendation=(
                     "Add a CodeAction lane that requires sandbox root, import allowlist, "

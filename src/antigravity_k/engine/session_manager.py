@@ -290,7 +290,9 @@ class SessionManager:
                         messages = data_dict.get("messages", [])
                         working_memory = data_dict.get("working_memory", {})
                         deleted += len(cast(list[object], messages)) if isinstance(messages, list) else 0
-                        deleted += len(cast(dict[object, object], working_memory)) if isinstance(working_memory, dict) else 0
+                        deleted += (
+                            len(cast(dict[object, object], working_memory)) if isinstance(working_memory, dict) else 0
+                        )
                 session_path.unlink()
             self._current_session = None
             self._session_id = None

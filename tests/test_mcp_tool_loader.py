@@ -75,6 +75,7 @@ class _WarningLogger:
     def info(self, *args: object, **kwargs: object) -> None:
         del args, kwargs
 
+
 # ─── Helper functions (pure) ─────────────────────────────────────────
 
 

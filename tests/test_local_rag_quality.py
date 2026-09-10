@@ -140,7 +140,9 @@ def test_audit_rag_fixture_flags_expected_sources_without_query_evidence(tmp_pat
     # Given: one expected source shares the query vocabulary and one does not.
     source_dir = tmp_path / "src"
     source_dir.mkdir()
-    _ = (source_dir / "context_artifact_recall.py").write_text("def recall_context_artifact(): pass\n", encoding="utf-8")
+    _ = (source_dir / "context_artifact_recall.py").write_text(
+        "def recall_context_artifact(): pass\n", encoding="utf-8"
+    )
     _ = (source_dir / "rag_indexer.py").write_text("def index_project(): pass\n", encoding="utf-8")
     case = RAGGoldenCase(
         "identifier-recall",

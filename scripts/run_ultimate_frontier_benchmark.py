@@ -133,7 +133,7 @@ def run_ultimate_benchmark():
         print("  ❌ Failed speculative branch")
 
     print("\n" + "=" * 75)
-    print(f"🏆 ULTIMATE FRONTIER SCORE: {passed}/{total} ({(passed/total)*100:.0f}%)")
+    print(f"🏆 ULTIMATE FRONTIER SCORE: {passed}/{total} ({(passed / total) * 100:.0f}%)")
     print("=" * 75)
     return passed == total
 

@@ -136,7 +136,9 @@ def test_local_model_review_rejects_non_structured_output() -> None:
 
 def test_local_model_review_accepts_percent_risk_scores() -> None:
     provider = LocalModelApprovalReviewProvider(
-        lambda _prompt: '{"decision":"approve","risk_score":10,"reason_codes":["READ_ONLY_OPERATION"],"rationale":"읽기 전용"}',
+        lambda _prompt: (
+            '{"decision":"approve","risk_score":10,"reason_codes":["READ_ONLY_OPERATION"],"rationale":"읽기 전용"}'
+        ),
         model_name="qwen3.8:27b",
     )
 

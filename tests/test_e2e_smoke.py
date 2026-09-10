@@ -67,9 +67,9 @@ def test_health_returns_version():
     resp = requests.get(health_url, timeout=10, headers=HEADERS)
     data = resp.json()
     # version 필드 또는 model 필드가 있어야 함
-    assert any(
-        k in data for k in ("version", "model", "engine")
-    ), f"Missing version info in health response: {data.keys()}"
+    assert any(k in data for k in ("version", "model", "engine")), (
+        f"Missing version info in health response: {data.keys()}"
+    )
 
 
 # ─── API 라우트 검증 ────────────────────────────────────────────────

@@ -262,5 +262,5 @@ def test_tracked_events_have_no_dead_subscriptions() -> None:
     """
     unknown = set(events.TRACKED_EVENTS) - FRONTEND_WS_EVENTS - set(WS_EVENT_PUBLISHERS)
     assert unknown == set(), (
-        f"발행자도 소비자도 없는 죽은 구독: {sorted(unknown)} — " "발행자를 연결하거나 TRACKED_EVENTS에서 제거할 것"
+        f"발행자도 소비자도 없는 죽은 구독: {sorted(unknown)} — 발행자를 연결하거나 TRACKED_EVENTS에서 제거할 것"
     )

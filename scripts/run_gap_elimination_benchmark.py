@@ -59,7 +59,7 @@ def run_gap_elimination_benchmark():
         score += 1
 
     print("\n" + "=" * 80)
-    print(f"🏆 GAP ELIMINATION SCORE: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🏆 GAP ELIMINATION SCORE: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 80)
     return score == total
 

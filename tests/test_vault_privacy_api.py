@@ -301,9 +301,7 @@ def test_vault_redact_replaces_rag_and_wiki_derivatives(
     vault.sync_rag = True
     vault.vector_store = MagicMock()
     vault.chunker = MagicMock()
-    _mock_method(vault.chunker, "chunk_document").return_value = [
-        {"id": "safe", "text": "<REDACTED>", "metadata": {}}
-    ]
+    _mock_method(vault.chunker, "chunk_document").return_value = [{"id": "safe", "text": "<REDACTED>", "metadata": {}}]
     wiki = MagicMock()
     from antigravity_k.knowledge import wiki as wiki_module
 

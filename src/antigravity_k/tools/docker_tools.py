@@ -103,7 +103,11 @@ class DockerBashCommandTool(BaseTool):
         image_value = kwargs.get("image", "ubuntu:latest")
         image = image_value if isinstance(image_value, str) else "ubuntu:latest"
         timeout_value = kwargs.get("timeout_seconds", 30)
-        timeout = float(timeout_value) if isinstance(timeout_value, (int, float)) and not isinstance(timeout_value, bool) else 30.0
+        timeout = (
+            float(timeout_value)
+            if isinstance(timeout_value, (int, float)) and not isinstance(timeout_value, bool)
+            else 30.0
+        )
 
         if not command:
             return "Error: command is required."

@@ -32,9 +32,7 @@ def score_fact(fact: MemoryFact, now: float | None = None) -> float:
     authority = _AUTHORITY_BASE.get(fact.authority, _DEFAULT_AUTHORITY_BASE)
     age_days = max(0.0, (now - fact.observed_at) / 86400.0)
     recency: float = _RECENCY_WEIGHT * pow(0.5, age_days / _HALF_LIFE_DAYS)
-    specificity = _SPECIFICITY_WEIGHT * (
-        min(len(fact.value), _MAX_SPECIFICITY_CHARS) / _MAX_SPECIFICITY_CHARS
-    )
+    specificity = _SPECIFICITY_WEIGHT * (min(len(fact.value), _MAX_SPECIFICITY_CHARS) / _MAX_SPECIFICITY_CHARS)
     return authority + recency + specificity
 
 

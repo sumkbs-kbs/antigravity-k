@@ -215,9 +215,7 @@ def ui_status_line(record: CompressTelemetryRecord) -> str:
         before = record.usage_before_pct
         after = record.usage_after_pct
         if before is not None and after is not None:
-            return (
-                f"\n📦 **[Context Compress · success]** " f"{before:.0f}% → {after:.0f}%{strategy_bit}{digest_bit}\n\n"
-            )
+            return f"\n📦 **[Context Compress · success]** {before:.0f}% → {after:.0f}%{strategy_bit}{digest_bit}\n\n"
         return f"\n📦 **[Context Compress · success]**{strategy_bit}{digest_bit}\n\n"
     if record.outcome == "degraded":
         return (

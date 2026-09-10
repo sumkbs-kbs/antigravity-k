@@ -118,7 +118,9 @@ def collect_observations(plan: ComparisonPlan, scorer: ScoreProvider) -> tuple[F
                 )
             )
             gap = frontier.score - local.score
-            print(f"repeat={repetition + 1} case={case.id} local={local.score:.3f} frontier={frontier.score:.3f} gap={gap:+.3f}")
+            print(
+                f"repeat={repetition + 1} case={case.id} local={local.score:.3f} frontier={frontier.score:.3f} gap={gap:+.3f}"
+            )
     return tuple(observations)
 
 

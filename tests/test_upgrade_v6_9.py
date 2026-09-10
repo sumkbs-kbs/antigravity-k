@@ -243,9 +243,7 @@ class TestGoalRunnerAutoVerify:
             assert "passed" in check
             assert "return_code" in check
 
-    def test_missing_verifier_command_is_unverified(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ):
+    def test_missing_verifier_command_is_unverified(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         import subprocess
         from unittest.mock import Mock
 
@@ -292,9 +290,7 @@ class TestMemoryProviderIntegration:
             def add_turn(self, *, role: str, content: str) -> None:
                 _ = role, content
 
-            def start_session(
-                self, project_path: str | None = None, resume: bool = True
-            ) -> str:
+            def start_session(self, project_path: str | None = None, resume: bool = True) -> str:
                 _ = project_path, resume
                 return "test-session"
 

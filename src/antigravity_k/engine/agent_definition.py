@@ -254,8 +254,7 @@ def default_agent_spawn_contract() -> AgentSpawnContract:
                 name="WORKER",
                 role="WORKER",
                 system_prompt=(
-                    "You are a focused sub-agent. Complete the task efficiently and "
-                    "return only the essential result."
+                    "You are a focused sub-agent. Complete the task efficiently and return only the essential result."
                 ),
                 allowed_tools=DEFAULT_WORKER_TOOLS,
             ),

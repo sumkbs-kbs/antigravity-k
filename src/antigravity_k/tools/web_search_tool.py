@@ -532,7 +532,9 @@ class WebSearchTool(BaseTool):
 
                 raw_data = cast(object, resp.json())
                 data = _object_dict(raw_data)
-                items = _list_value(cast(object, raw_data)) if isinstance(raw_data, list) else _list_value(data.get("data"))
+                items = (
+                    _list_value(cast(object, raw_data)) if isinstance(raw_data, list) else _list_value(data.get("data"))
+                )
                 if not items:
                     items = _list_value(data.get("results"))
 

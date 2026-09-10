@@ -51,8 +51,8 @@ def _base_orch(*, config: object | None = None) -> MagicMock:
         "prompt_str",
         [{"role": "user", "content": "hi"}],
     )
-    orch._rebuild_prompt.side_effect = (
-        lambda system, tools, skills, messages: f"System: {system}\n{skills}\n{tools}\nAssistant: "
+    orch._rebuild_prompt.side_effect = lambda system, tools, skills, messages: (
+        f"System: {system}\n{skills}\n{tools}\nAssistant: "
     )
     ctx = MagicMock()
     ctx.tool_guardrail = MagicMock()
@@ -234,11 +234,7 @@ def test_f3_after_fit_locals_updated_rebuild_does_not_reexpand_system() -> None:
 
     # Step-1: stream returns a tool call so loop continues; step-2: text only.
     tool_xml = (
-        "<tool_call>\n"
-        "<function=run_bash_command>\n"
-        "<parameter=command>echo hi</parameter>\n"
-        "</function>\n"
-        "</tool_call>"
+        "<tool_call>\n<function=run_bash_command>\n<parameter=command>echo hi</parameter>\n</function>\n</tool_call>"
     )
     orch.manager.stream_generate.side_effect = [
         iter([tool_xml]),

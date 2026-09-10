@@ -74,9 +74,7 @@ def main() -> None:
     if not isinstance(raw_data, list):
         raise ValueError("Input JSON must contain a list of records")
     data: list[DatasetEntry] = [
-        cast(DatasetEntry, entry)
-        for entry in cast(list[object], raw_data)
-        if isinstance(entry, Mapping)
+        cast(DatasetEntry, entry) for entry in cast(list[object], raw_data) if isinstance(entry, Mapping)
     ]
 
     print(f"Converting {len(data)} records...")

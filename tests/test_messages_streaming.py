@@ -63,9 +63,9 @@ async def test_stream_generate_async_yields_without_buffering() -> None:
     assert list(received_times) != []
     # 첫 청크는 전체 소요시간의 절반 이전에 도착해야 한다 (버퍼링 시 마지막에 몰림)
     total = received_times[-1]
-    assert (
-        received_times[0] < total * 0.75
-    ), f"첫 청크가 너무 늦음: first={received_times[0]:.3f}s, total={total:.3f}s — 버퍼링 의심"
+    assert received_times[0] < total * 0.75, (
+        f"첫 청크가 너무 늦음: first={received_times[0]:.3f}s, total={total:.3f}s — 버퍼링 의심"
+    )
 
 
 @pytest.mark.asyncio
@@ -104,9 +104,9 @@ async def test_stream_events_first_delta_arrives_before_generation_completes() -
 
     assert first_delta_at is not None, "text_delta가 전혀 전송되지 않음"
     # 기존 가짜 스트리밍이면 첫 delta가 total과 거의 같다 (마지막에 몰아서 전송)
-    assert (
-        first_delta_at < total * 0.7
-    ), f"첫 delta({first_delta_at:.3f}s)가 total({total:.3f}s)에 근접 — 여전히 버퍼링 스트리밍"
+    assert first_delta_at < total * 0.7, (
+        f"첫 delta({first_delta_at:.3f}s)가 total({total:.3f}s)에 근접 — 여전히 버퍼링 스트리밍"
+    )
 
 
 @pytest.mark.asyncio

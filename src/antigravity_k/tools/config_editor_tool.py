@@ -77,8 +77,7 @@ class ConfigEditorTool(BaseTool):
                 "target_key": {
                     "type": "string",
                     "description": (
-                        "If update_agent_map, the agent role (e.g. 'WORKER'). If update_swarm, "
-                        + "the combo name."
+                        "If update_agent_map, the agent role (e.g. 'WORKER'). If update_swarm, " + "the combo name."
                     ),
                 },
                 "model_category": {

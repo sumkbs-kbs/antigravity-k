@@ -107,16 +107,19 @@ def test_ollama_native_tools_are_sent_and_emitted_as_tool_call():
                 provider.stream_generate(
                     _loaded_model(),
                     "read README",
-                    tools=cast(list[dict[str, object]], [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": "read_file",
-                                "description": "Read a file",
-                                "parameters": {"type": "object", "properties": {}},
+                    tools=cast(
+                        list[dict[str, object]],
+                        [
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "read_file",
+                                    "description": "Read a file",
+                                    "parameters": {"type": "object", "properties": {}},
+                                },
                             },
-                        },
-                    ]),
+                        ],
+                    ),
                 ),
             )
 

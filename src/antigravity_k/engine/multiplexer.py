@@ -13,8 +13,7 @@ _MAX_PARALLEL_GOALS = 32
 
 
 class AgentRuntime(Protocol):
-    def goal_contract(self, objective: str, context: Mapping[str, object] | None = None) -> object:
-        ...
+    def goal_contract(self, objective: str, context: Mapping[str, object] | None = None) -> object: ...
 
 
 class Multiplexer:

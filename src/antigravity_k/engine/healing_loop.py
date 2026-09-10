@@ -22,8 +22,7 @@ logger = logging.getLogger("antigravity_k.harness")
 
 
 class _AccessibilityLike(Protocol):
-    async def snapshot(self) -> Mapping[str, object] | None:
-        ...
+    async def snapshot(self) -> Mapping[str, object] | None: ...
 
 
 class _PageLike(Protocol):
@@ -117,9 +116,7 @@ class HealingLoop:
                     message=_as_str(result_msg, "OK") if result_msg else "OK",
                     healed=healed,
                     heal_details=(
-                        f"Attempt {attempt + 1}: {_as_str(context.get('heal_strategy'), 'N/A')}"
-                        if healed
-                        else None
+                        f"Attempt {attempt + 1}: {_as_str(context.get('heal_strategy'), 'N/A')}" if healed else None
                     ),
                 )
             except Exception as e:

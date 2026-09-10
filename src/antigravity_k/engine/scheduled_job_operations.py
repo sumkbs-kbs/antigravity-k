@@ -109,13 +109,17 @@ class ScheduledJobOperations:
         current = (now or utc_now()).astimezone(UTC)
         _ = self._service.reconcile_runs(now=current)
         with self._connection() as connection:
-            job_rows = cast(list[sqlite3.Row], connection.execute(
-                "SELECT status, COUNT(*) AS count FROM scheduled_jobs GROUP BY status"
-            ).fetchall())
-            run_rows = cast(list[sqlite3.Row], connection.execute(
-                "SELECT status, delivery_status, started_at FROM scheduled_job_runs ORDER BY started_at DESC LIMIT ?",
-                (active_policy.run_window,),
-            ).fetchall())
+            job_rows = cast(
+                list[sqlite3.Row],
+                connection.execute("SELECT status, COUNT(*) AS count FROM scheduled_jobs GROUP BY status").fetchall(),
+            )
+            run_rows = cast(
+                list[sqlite3.Row],
+                connection.execute(
+                    "SELECT status, delivery_status, started_at FROM scheduled_job_runs ORDER BY started_at DESC LIMIT ?",
+                    (active_policy.run_window,),
+                ).fetchall(),
+            )
         jobs = {str(_row_value(row, "status")): int(str(_row_value(row, "count"))) for row in job_rows}
         succeeded = sum(str(_row_value(row, "status")) == "succeeded" for row in run_rows)
         failed = sum(str(_row_value(row, "status")) == "failed" for row in run_rows)
@@ -205,10 +209,13 @@ class ScheduledJobOperations:
 
     def _run_state(self, run_id: str) -> _RunState | None:
         with self._connection() as connection:
-            row = cast(sqlite3.Row | None, connection.execute(
-                "SELECT job_id, status FROM scheduled_job_runs WHERE run_id = ?",
-                (run_id,),
-            ).fetchone())
+            row = cast(
+                sqlite3.Row | None,
+                connection.execute(
+                    "SELECT job_id, status FROM scheduled_job_runs WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone(),
+            )
         if row is None:
             return None
         return _RunState(job_id=str(_row_value(row, "job_id")), status=str(_row_value(row, "status")))
@@ -221,11 +228,16 @@ class ScheduledJobOperations:
                 + "(source_run_id, job_id, retry_run_id, created_at) VALUES (?, ?, NULL, ?)",
                 (source_run_id, job_id, now.isoformat()),
             )
-            row = cast(sqlite3.Row | None, connection.execute(
-                "SELECT retry_run_id FROM scheduled_job_retries WHERE source_run_id = ?",
-                (source_run_id,),
-            ).fetchone())
-        retry_run_id = None if row is None or _row_value(row, "retry_run_id") is None else str(_row_value(row, "retry_run_id"))
+            row = cast(
+                sqlite3.Row | None,
+                connection.execute(
+                    "SELECT retry_run_id FROM scheduled_job_retries WHERE source_run_id = ?",
+                    (source_run_id,),
+                ).fetchone(),
+            )
+        retry_run_id = (
+            None if row is None or _row_value(row, "retry_run_id") is None else str(_row_value(row, "retry_run_id"))
+        )
         return _RetryClaim(created=cursor.rowcount == 1, retry_run_id=retry_run_id)
 
     def _bind_retry(self, source_run_id: str, retry_run_id: str) -> None:

@@ -36,22 +36,18 @@ class _CallRecord(Protocol):
 class _MockCall(Protocol):
     call_args: _CallRecord | None
 
-    def assert_not_called(self) -> None:
-        ...
+    def assert_not_called(self) -> None: ...
 
-    def assert_called_once(self) -> None:
-        ...
+    def assert_called_once(self) -> None: ...
 
 
 class _AwaitMockCall(Protocol):
     await_args: _CallRecord
     await_args_list: Sequence[_CallRecord]
 
-    def assert_not_called(self) -> None:
-        ...
+    def assert_not_called(self) -> None: ...
 
-    def assert_awaited_once_with(self, *args: object, **kwargs: object) -> None:
-        ...
+    def assert_awaited_once_with(self, *args: object, **kwargs: object) -> None: ...
 
 
 class _ManagerMocks(Protocol):

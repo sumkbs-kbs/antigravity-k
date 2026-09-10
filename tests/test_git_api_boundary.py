@@ -38,9 +38,7 @@ def _resolve_repo_file(file_path: str, cwd: str) -> str:
     return resolver(file_path, cwd)
 
 
-def test_git_helper_rejects_working_directory_outside_project(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_git_helper_rejects_working_directory_outside_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
     outside = tmp_path / "outside"
@@ -53,9 +51,7 @@ def test_git_helper_rejects_working_directory_outside_project(
     assert error.value.status_code == 403
 
 
-def test_git_helper_resolves_relative_path_inside_project(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_git_helper_resolves_relative_path_inside_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project_root = tmp_path / "project"
     repo = project_root / "repo"
     repo.mkdir(parents=True)
@@ -76,9 +72,7 @@ def test_git_helper_resolves_relative_path_inside_project(
     assert kwargs["check"] is False
 
 
-def test_git_file_path_rejects_escape_from_repository(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_git_file_path_rejects_escape_from_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
     monkeypatch.setattr(config.paths, "project_root", project_root)

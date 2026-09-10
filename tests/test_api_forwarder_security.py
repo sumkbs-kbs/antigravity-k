@@ -55,7 +55,9 @@ def _request_with_pin(pin: str | None) -> Request:
     )
 
 
-def test_public_forwarder_requires_pin_on_http_and_accepts_valid_pin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_public_forwarder_requires_pin_on_http_and_accepts_valid_pin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     module = _load_forwarder()
     monkeypatch.setenv("AGK_SEC_ACCESS_PIN", "strong-forwarder-pin")
     monkeypatch.setenv("AGK_SEC_PIN_HASH_FILE", str(tmp_path / "auth-hash"))

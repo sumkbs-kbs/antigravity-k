@@ -121,6 +121,7 @@ class TestDockerCwdConfinement:
 
     def test_cwd_inside_project_root_is_accepted(self):
         runner = SandboxRunner(project_root="/tmp/proj", enabled=True)
+
         def fake_run_limited_process(*_args: object, **_kwargs: object) -> tuple[int, str, str, bool]:
             return 0, "ok", "", False
 

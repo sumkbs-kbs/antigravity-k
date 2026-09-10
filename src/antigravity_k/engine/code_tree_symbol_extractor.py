@@ -7,17 +7,13 @@ from .code_tree_indexer_models import FileSymbols
 RE_PY_FUNCTION = re.compile(r"^(?:async\s+)?def\s+([a-zA-Z_]\w*)\s*\(", re.MULTILINE)
 RE_PY_CLASS = re.compile(r"^class\s+([a-zA-Z_]\w*)\s*", re.MULTILINE)
 RE_PY_IMPORT = re.compile(r"^(?:from\s+([.\w]+)\s+)?import\s+(.+)$", re.MULTILINE)
-_RE_JS_FN = re.compile(
-    r"(?:^|\n)\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+\*?\s*([a-zA-Z_$]\w*)\s*\("
-)
+_RE_JS_FN = re.compile(r"(?:^|\n)\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+\*?\s*([a-zA-Z_$]\w*)\s*\(")
 _RE_JS_ARROW = re.compile(
     r"(?:^|\n)\s*(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$]\w*)\s*=\s*(?:async\s+)?"
     + r"(?:function\(|\([^)]*\)\s*=>|[a-zA-Z_$]\w*\s*=>)"
 )
 _RE_GO_FN = re.compile(r"(?:^|\n)\s*func\s+(?:\([^)]*\)\s+)?([a-zA-Z_]\w*)\s*\(")
-_RE_RS_FN = re.compile(
-    r"(?:^|\n)\s*(?:pub\s+)?(?:unsafe\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*[\(<]"
-)
+_RE_RS_FN = re.compile(r"(?:^|\n)\s*(?:pub\s+)?(?:unsafe\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*[\(<]")
 _RE_OO_FN = re.compile(
     r"(?:^|\n)\s*(?:public|private|protected|static|final|abstract|synchronized|override|virtual)?"
     + r"(?:\s+\w+)*\s+([a-zA-Z_]\w*)\s*\("
@@ -26,18 +22,14 @@ _RE_SWIFT_FN = re.compile(
     r"(?:^|\n)\s*(?:public|private|internal|fileprivate|static|override|mutating|async)?"
     + r"\s*func\s+([a-zA-Z_]\w*)\s*\("
 )
-_RE_PHP_FN = re.compile(
-    r"(?:^|\n)\s*(?:public|private|protected|static|abstract)?\s*function\s+([a-zA-Z_]\w*)\s*\("
-)
+_RE_PHP_FN = re.compile(r"(?:^|\n)\s*(?:public|private|protected|static|abstract)?\s*function\s+([a-zA-Z_]\w*)\s*\(")
 _RE_RB_FN = re.compile(r"(?:^|\n)\s*def\s+(?:self\.)?([a-zA-Z_]\w*(?:[?!])?)\s")
 _RE_CPP_EXACT = re.compile(
     r"(?:^|\n)\s*(?:const\s+)?(?:static\s+)?(?:inline\s+)?(?:virtual\s+)?"
     + r"(?:void|int|char|bool|float|double|long|short|unsigned|size_t|ssize_t|auto|string|vector|map|set|list|unique_ptr|shared_ptr|FILE|ssize_t)"
     + r"\s+(?:[*&]\s+)?([a-zA-Z_]\w*)\s*\("
 )
-RE_COMMON_CLASS = re.compile(
-    r"(?:^|\n)\s*(?:export\s+)?(?:abstract\s+)?(?:open\s+)?class\s+([a-zA-Z_$]\w*)"
-)
+RE_COMMON_CLASS = re.compile(r"(?:^|\n)\s*(?:export\s+)?(?:abstract\s+)?(?:open\s+)?class\s+([a-zA-Z_$]\w*)")
 RE_INTERFACE = re.compile(r"(?:^|\n)\s*(?:export\s+)?(?:interface|trait|protocol)\s+([a-zA-Z_$]\w*)")
 
 _RE_FN_MAP: dict[tuple[str, ...], list[re.Pattern[str]]] = {

@@ -75,7 +75,7 @@ _INSTRUCTION_OVERRIDE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 # 사용자 입력에서 가짜 제어 마크업 — HIGH 탐지
 _OVERRIDE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    * _INSTRUCTION_OVERRIDE_PATTERNS,
+    *_INSTRUCTION_OVERRIDE_PATTERNS,
     (_PROTOCOL_MARKUP, "fake_tool_markup"),
 ]
 

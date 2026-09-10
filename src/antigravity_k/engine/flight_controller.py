@@ -137,9 +137,7 @@ class AutonomousFlightController:
             turn += 1
 
             # 감독기 개입 소비: 예약된 STALL이 있으면 이 턴은 강제 재계획 턴으로 쓴다.
-            boundary: BoundaryResult = self.enforcer.check_tool_boundary(
-                "flight_step", {"turn": turn}
-            )
+            boundary: BoundaryResult = self.enforcer.check_tool_boundary("flight_step", {"turn": turn})
             if not boundary.get("allowed", True) and boundary.get("stall"):
                 reason = boundary["reason"]
                 stall_interventions.append(reason)

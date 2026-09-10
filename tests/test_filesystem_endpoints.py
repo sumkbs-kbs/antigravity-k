@@ -137,10 +137,12 @@ class TestMkdirDelete:
 class TestWriteReadRename:
     def test_write_creates_parent_dirs_then_read_roundtrip(self, client: TestClient, workspace: Path) -> None:
         _ = workspace
-        write_body = _json(client.post(
-            "/api/fs/write",
-            json={"path": "deep/nested/file.txt", "content": "본문 내용"},
-        ))
+        write_body = _json(
+            client.post(
+                "/api/fs/write",
+                json={"path": "deep/nested/file.txt", "content": "본문 내용"},
+            )
+        )
 
         assert write_body["ok"] is True
         read_body = _json(client.get("/api/fs/read", params={"file": "deep/nested/file.txt"}))

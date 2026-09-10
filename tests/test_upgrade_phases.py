@@ -30,6 +30,7 @@ def _rule_based_check(cov: ChainOfVerification, task: str, response: str) -> lis
     checker = cast(Callable[[str, str], list[str]], getattr(cov, "_rule_based_check"))
     return checker(task, response)
 
+
 # ─── Phase A: RAG Indexer Tests ──────────────────────────────────
 
 
@@ -67,6 +68,7 @@ class Foo:
 
     def test_format_context_returns_xml_block(self):
         """format_context should produce <relevant_code> XML when results exist."""
+
         @final
         class _VectorStoreDouble:
             persist_directory: str = "/tmp"
@@ -215,29 +217,33 @@ class TestExternalBrainAutoDelegation:
         )
 
         # Simulate 3 consecutive failures
-        setattr(loop, "_step_history", [
-            {
-                "tool": "write_file",
-                "grade": "F",
-                "passed": False,
-                "issues": ["구문 오류"],
-                "timestamp": "t1",
-            },
-            {
-                "tool": "write_file",
-                "grade": "F",
-                "passed": False,
-                "issues": ["파일 없음"],
-                "timestamp": "t2",
-            },
-            {
-                "tool": "edit_file",
-                "grade": "F",
-                "passed": False,
-                "issues": ["권한 거부"],
-                "timestamp": "t3",
-            },
-        ])
+        setattr(
+            loop,
+            "_step_history",
+            [
+                {
+                    "tool": "write_file",
+                    "grade": "F",
+                    "passed": False,
+                    "issues": ["구문 오류"],
+                    "timestamp": "t1",
+                },
+                {
+                    "tool": "write_file",
+                    "grade": "F",
+                    "passed": False,
+                    "issues": ["파일 없음"],
+                    "timestamp": "t2",
+                },
+                {
+                    "tool": "edit_file",
+                    "grade": "F",
+                    "passed": False,
+                    "issues": ["권한 거부"],
+                    "timestamp": "t3",
+                },
+            ],
+        )
 
         result = await loop.adapt_strategy("파일 수정 작업", None)
         # Should at least attempt adaptation (2+ failures)
@@ -249,15 +255,20 @@ class TestExternalBrainAutoDelegation:
         from antigravity_k.engine.cognitive_loop import CognitiveLoop
 
         loop = CognitiveLoop(project_root="/tmp")
-        setattr(loop, "_step_history", [
-            {
-                "tool": "a",
-                "grade": "F",
-                "passed": False,
-                "issues": ["err"],
-                "timestamp": "t",
-            },
-        ] * 3)
+        setattr(
+            loop,
+            "_step_history",
+            [
+                {
+                    "tool": "a",
+                    "grade": "F",
+                    "passed": False,
+                    "issues": ["err"],
+                    "timestamp": "t",
+                },
+            ]
+            * 3,
+        )
 
         result = await loop.adapt_strategy("task", None)
         # Without external_brain_router, should fall through to normal adaptation

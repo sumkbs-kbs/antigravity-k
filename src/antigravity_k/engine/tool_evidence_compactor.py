@@ -42,9 +42,7 @@ def _compact_match(match: re.Match[str], max_evidence_chars: int) -> str | None:
         head_chars = max_evidence_chars * 3 // 5
         tail_chars = max_evidence_chars - head_chars
         omitted_chars = len(evidence) - max_evidence_chars
-        compacted_evidence = (
-            f"{evidence[:head_chars]}\n" f"...[{omitted_chars} chars omitted]...\n" f"{evidence[-tail_chars:]}"
-        )
+        compacted_evidence = f"{evidence[:head_chars]}\n...[{omitted_chars} chars omitted]...\n{evidence[-tail_chars:]}"
 
     metadata_text = json.dumps(
         metadata,

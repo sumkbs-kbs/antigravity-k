@@ -103,7 +103,7 @@ class TestNoProgressWindow:
         enforcer = HarnessEnforcer()
         for i in range(5):
             enforcer.record_outcome(
-                failed=True, error_text=f"distinct error {i}: {['alpha','beta','gamma','delta','epsilon'][i]}"
+                failed=True, error_text=f"distinct error {i}: {['alpha', 'beta', 'gamma', 'delta', 'epsilon'][i]}"
             )
         res = enforcer.check_tool_boundary("run_command", {"command": "make test"})
         assert res["allowed"] is False

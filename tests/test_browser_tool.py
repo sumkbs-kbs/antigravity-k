@@ -211,7 +211,9 @@ class TestBrowserToolExecute:
 
         assert "Navigated" in result
         assert "Test Page" in result
-        _mock_method(page, "goto").assert_called_once_with("http://example.com", wait_until="networkidle", timeout=15000)
+        _mock_method(page, "goto").assert_called_once_with(
+            "http://example.com", wait_until="networkidle", timeout=15000
+        )
 
     def test_execute_click_with_selector(self, mock_setup: tuple[MagicMock, MagicMock]):
         _, page = mock_setup

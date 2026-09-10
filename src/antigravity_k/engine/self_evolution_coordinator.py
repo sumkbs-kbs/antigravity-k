@@ -214,9 +214,8 @@ class EvolutionResult:
         if self.success and self.evaluation_state == "regression_rejected":
             return f"⚠️ [{self.mutation_domain.value}] 적용됐으나 실측 회귀 — promotion 거절"
         if self.success and self.improvement is None:
-            return (
-                f"🔬 [{self.mutation_domain.value}] 적용 완료 — 평가 대기"
-                " (기대 Δ{:+.2f}, 실측 미확정)".format(self.expected_improvement)
+            return f"🔬 [{self.mutation_domain.value}] 적용 완료 — 평가 대기 (기대 Δ{{:+.2f}}, 실측 미확정)".format(
+                self.expected_improvement
             )
         if self.success and self.improvement is not None:
             return f"✅ [{self.mutation_domain.value}] 실측 개선 확인 (Δ{self.improvement:+.2f})"
@@ -1245,9 +1244,7 @@ class SelfEvolutionCoordinator:
             ),
             # EVO-02 — 평가 대기/완료 구분 노출
             "pending_evaluations": sum(
-                1
-                for h in self._history
-                if h.result.success and h.result.evaluation_state == "pending_evaluation"
+                1 for h in self._history if h.result.success and h.result.evaluation_state == "pending_evaluation"
             ),
         }
 
@@ -1297,9 +1294,7 @@ class SelfEvolutionCoordinator:
         }
         result.benchmark_provenance = {
             "suite": suite,
-            "env_hash": hashlib.sha256(
-                json.dumps(env_fingerprint, sort_keys=True).encode("utf-8")
-            ).hexdigest()[:16],
+            "env_hash": hashlib.sha256(json.dumps(env_fingerprint, sort_keys=True).encode("utf-8")).hexdigest()[:16],
             "evaluated_at": time.time(),
         }
 

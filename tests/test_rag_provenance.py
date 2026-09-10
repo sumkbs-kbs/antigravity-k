@@ -11,11 +11,7 @@ class RecordingVectorStore:
         self.chunks: list[dict[str, object]] = []
 
     def delete_file_chunks(self, file_path: str) -> None:
-        self.chunks = [
-            chunk
-            for chunk in self.chunks
-            if _metadata(chunk).get("source") != file_path
-        ]
+        self.chunks = [chunk for chunk in self.chunks if _metadata(chunk).get("source") != file_path]
 
     def upsert_chunks(self, chunks: Sequence[Mapping[str, object]]) -> None:
         self.chunks.extend(dict(chunk) for chunk in chunks)

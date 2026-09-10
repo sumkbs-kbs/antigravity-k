@@ -14,8 +14,7 @@ from antigravity_k.engine.vault import VaultEngine
 logger = logging.getLogger(__name__)
 
 
-class _ManagerInput(Protocol):
-    ...
+class _ManagerInput(Protocol): ...
 
 
 @final

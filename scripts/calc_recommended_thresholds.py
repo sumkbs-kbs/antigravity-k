@@ -208,6 +208,7 @@ def _run_max_engine_total() -> None:
     setattr(engine, "_run_worker", run_worker)
     mock_orch = MagicMock()
     mock_orch.manager = mgr
+
     def model_for_role(_role: object) -> str:
         return "qa-model"
 
@@ -256,6 +257,7 @@ def _run_max_engine_selector() -> None:
     engine = MaxModeEngine(mgr)
     qa_orch = MagicMock()
     qa_orch.manager = mgr
+
     def model_for_role(_role: object) -> str:
         return "qa-model"
 
@@ -315,7 +317,7 @@ def _make_rag_project(tmpdir: str) -> None:
         full_path = os.path.join(tmpdir, rel_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         with open(full_path, "w", encoding="utf-8") as f:
-                _ = f.write(content)
+            _ = f.write(content)
 
 
 def _run_rag_total() -> None:

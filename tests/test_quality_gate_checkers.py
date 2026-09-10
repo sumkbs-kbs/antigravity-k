@@ -72,7 +72,9 @@ class TestInternalTagLeak:
 
 class TestLanguageContamination:
     def test_japanese_contamination_detected(self, gate: QualityGate) -> None:
-        score, issues = run_checker(gate, "_check_language_contamination", "설명입니다。アップグレードできます、확인してください。")
+        score, issues = run_checker(
+            gate, "_check_language_contamination", "설명입니다。アップグレードできます、확인してください。"
+        )
 
         assert score < 1.0
         assert any("일본어" in i for i in issues)
@@ -125,13 +127,17 @@ class TestMarkdownStandards:
         assert issues == []
 
     def test_carousel_syntax_error_detected(self, gate: QualityGate) -> None:
-        score, issues = run_checker(gate, "_check_antigravity_markdown_standards", "<!-- slide -->\n내용뿐인 잘못된 선언")
+        score, issues = run_checker(
+            gate, "_check_antigravity_markdown_standards", "<!-- slide -->\n내용뿐인 잘못된 선언"
+        )
 
         assert score < 1.0
         assert any("Carousel" in i for i in issues)
 
     def test_backtick_file_link_flagged(self, gate: QualityGate) -> None:
-        score, issues = run_checker(gate, "_check_antigravity_markdown_standards", "[`src/main.py`](file://src/main.py) 참고")
+        score, issues = run_checker(
+            gate, "_check_antigravity_markdown_standards", "[`src/main.py`](file://src/main.py) 참고"
+        )
 
         assert score < 1.0
         assert any("백틱" in i for i in issues)

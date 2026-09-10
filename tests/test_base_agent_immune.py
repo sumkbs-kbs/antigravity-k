@@ -44,7 +44,9 @@ def _call_kwargs(method: _MockMethod) -> Mapping[str, object]:
     return call_args.kwargs
 
 
-def _run(agent: BaseAgent, context: str, model_manager: object | None = None, tools: list[_ToolDouble] | None = None) -> str:
+def _run(
+    agent: BaseAgent, context: str, model_manager: object | None = None, tools: list[_ToolDouble] | None = None
+) -> str:
     run = cast(object, getattr(agent, "run"))
     runner = cast(Callable[..., str], run)
     return runner(context, model_manager=model_manager, tools=cast(object, tools))

@@ -27,11 +27,7 @@ class PersistentFakeStore:
         self._chunks.extend(chunks)
 
     def delete_file_chunks(self, source: str) -> None:
-        self._chunks = [
-            chunk
-            for chunk in self._chunks
-            if chunk.get("metadata", {}).get("source") != source
-        ]
+        self._chunks = [chunk for chunk in self._chunks if chunk.get("metadata", {}).get("source") != source]
 
     def get_chunks(self) -> list[Chunk]:
         return list(self._chunks)

@@ -62,8 +62,8 @@ def _base_orch(*, config: object | None = None, prompt: str = "prompt_str") -> M
         prompt,
         [{"role": "user", "content": "hi"}],
     )
-    orch._rebuild_prompt.side_effect = (
-        lambda system, tools, skills, messages: f"System: {system}\n{skills}\n{tools}\nAssistant: "
+    orch._rebuild_prompt.side_effect = lambda system, tools, skills, messages: (
+        f"System: {system}\n{skills}\n{tools}\nAssistant: "
     )
     ctx = MagicMock()
     ctx.tool_guardrail = MagicMock()

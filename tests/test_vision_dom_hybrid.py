@@ -50,6 +50,7 @@ def _judge_page_state(hybrid: VisionDOMHybrid, analysis: HybridAnalysis) -> str:
     judge = cast(Callable[[HybridAnalysis], str], getattr(hybrid, "_judge_page_state"))
     return judge(analysis)
 
+
 # ═══════════════════════════════════════════════════════════════════
 # Obstacle dataclass tests
 # ═══════════════════════════════════════════════════════════════════

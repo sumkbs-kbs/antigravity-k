@@ -50,7 +50,9 @@ class PlanGuard:
 
         """
         self.strict_mode: bool = strict_mode
-        self._compiled_patterns: list[re.Pattern[str]] = [re.compile(p, re.IGNORECASE) for p in self.DESTRUCTIVE_PATTERNS]
+        self._compiled_patterns: list[re.Pattern[str]] = [
+            re.compile(p, re.IGNORECASE) for p in self.DESTRUCTIVE_PATTERNS
+        ]
 
     def evaluate_tool_call(
         self,

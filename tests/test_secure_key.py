@@ -874,9 +874,9 @@ class TestCliKeyRotateE2E:
         )
 
         # Step 3: CLI 출력 검증
-        assert (
-            result.returncode == 0
-        ), f"CLI failed (rc={result.returncode}):\n  stdout: {result.stdout}\n  stderr: {result.stderr}"
+        assert result.returncode == 0, (
+            f"CLI failed (rc={result.returncode}):\n  stdout: {result.stdout}\n  stderr: {result.stderr}"
+        )
         assert "마스터 키 순환 완료" in result.stdout, f"Expected success message in stdout:\n{result.stdout}"
         assert "재암호화된 서비스: 1개" in result.stdout, f"Expected '1 service' in stdout:\n{result.stdout}"
 

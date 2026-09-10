@@ -81,7 +81,15 @@ class LocalProviderCapabilityProbe(ProviderProbeRuntime):
         )
         try:
             payload = self._request_json(request)
-        except (EgressPolicyError, HTTPError, URLError, OSError, TimeoutError, ValidationError, json.JSONDecodeError) as exc:
+        except (
+            EgressPolicyError,
+            HTTPError,
+            URLError,
+            OSError,
+            TimeoutError,
+            ValidationError,
+            json.JSONDecodeError,
+        ) as exc:
             return self._unavailable(profile, "ollama:/api/show", exc)
 
         raw_capabilities = payload.get("capabilities", [])
@@ -110,7 +118,15 @@ class LocalProviderCapabilityProbe(ProviderProbeRuntime):
         request = urllib.request.Request(f"{api_base}/models", headers=self._headers(api_key))
         try:
             payload = self._request_json(request)
-        except (EgressPolicyError, HTTPError, URLError, OSError, TimeoutError, ValidationError, json.JSONDecodeError) as exc:
+        except (
+            EgressPolicyError,
+            HTTPError,
+            URLError,
+            OSError,
+            TimeoutError,
+            ValidationError,
+            json.JSONDecodeError,
+        ) as exc:
             return self._unavailable(profile, "lmstudio:/v1/models", exc)
 
         entries = payload.get("data", [])

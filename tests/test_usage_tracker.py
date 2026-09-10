@@ -22,6 +22,7 @@ def _approx(expected: float, *, rel: float | None = None) -> object:
         return approx(expected)
     return approx(expected, rel=rel)
 
+
 # ─── 픽스처 ─────────────────────────────────────────────────────────
 
 

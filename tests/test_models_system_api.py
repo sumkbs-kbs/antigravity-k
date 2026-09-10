@@ -112,7 +112,9 @@ def _fake_manager() -> _FakeManager:
 
 
 class TestModelsApi:
-    def test_health_reports_version_and_backend_shape(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_health_reports_version_and_backend_shape(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         manager = _FakeManager({"m1": {}})
         monkeypatch.setattr(models_api, "get_model_manager", lambda: manager)
         monkeypatch.setattr(models_api, "get_orchestrator", lambda: None)
@@ -128,10 +130,12 @@ class TestModelsApi:
         runtime = _FakeRuntime()
         monkeypatch.setattr(models_api, "get_agent_runtime", lambda: runtime)
 
-        body = _json(client.post(
-            "/api/agent/wake",
-            json={"event_type": "lint_error", "payload": {"file": "a.py"}},
-        ))
+        body = _json(
+            client.post(
+                "/api/agent/wake",
+                json={"event_type": "lint_error", "payload": {"file": "a.py"}},
+            )
+        )
 
         assert body["status"] == "woken"
         assert body["task_id"] == "task_777"
@@ -239,6 +243,7 @@ class TestSystemStatusRestart:
     ) -> None:
         monkeypatch.chdir(tmp_path)
         denied = HTTPException(status_code=403, detail="denied")
+
         def deny(*args: object, **kwargs: object) -> None:
             _ = (args, kwargs)
             raise denied
@@ -256,6 +261,7 @@ class TestSystemStatusRestart:
         tmp_path: Path,
     ) -> None:
         monkeypatch.chdir(tmp_path)
+
         def allow(*args: object, **kwargs: object) -> None:
             _ = (args, kwargs)
 

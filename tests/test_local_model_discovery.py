@@ -309,6 +309,7 @@ def test_llamacpp_capability_probe_uses_its_openai_models_endpoint() -> None:
         provider="llama.cpp",
         api_base="http://127.0.0.1:8080/v1",
     )
+
     def get_provider_config(_provider: str) -> dict[str, object]:
         return {}
 

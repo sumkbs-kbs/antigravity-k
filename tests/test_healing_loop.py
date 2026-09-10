@@ -59,6 +59,7 @@ def _record_heal(loop: HealingLoopV2, original: str, info: Mapping[str, object])
     recorder = cast(Callable[[str, Mapping[str, object]], None], getattr(loop, "_record_heal"))
     recorder(original, info)
 
+
 # ─── TestIntent fixture ──────────────────────────────────────────
 
 

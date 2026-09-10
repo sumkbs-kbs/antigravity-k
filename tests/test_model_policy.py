@@ -108,4 +108,3 @@ def test_large_local_models_are_not_rejected_by_parameter_cap() -> None:
     decision = policy.decide(large_local)
     assert decision.allowed is True
     assert decision.reason == "eligible"
-

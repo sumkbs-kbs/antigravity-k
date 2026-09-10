@@ -176,6 +176,7 @@ class TestManagerIntegration:
             role="reasoning",
             estimated_memory_gb=1,
         )
+
         def get_model(name: str):
             return profile if name == profile.name else None
 
@@ -188,11 +189,17 @@ class TestManagerIntegration:
 
     def test_generate_decomposed_runs_each_step(self):
         manager = self._manager()
-        _replace_method(manager, "_task_decomposition_config", MagicMock(side_effect=lambda: {
-            "enabled": True,
-            "min_steps": 2,
-            "max_steps": 6,
-        }))
+        _replace_method(
+            manager,
+            "_task_decomposition_config",
+            MagicMock(
+                side_effect=lambda: {
+                    "enabled": True,
+                    "min_steps": 2,
+                    "max_steps": 6,
+                }
+            ),
+        )
         _replace_method(manager, "_self_consistency_config", MagicMock(side_effect=lambda: {"enabled": False}))
 
         call_count = 0
@@ -249,11 +256,17 @@ class TestManagerIntegration:
 
     def test_simple_task_skips_decomposition_cost(self):
         manager = self._manager()
-        _replace_method(manager, "_task_decomposition_config", MagicMock(side_effect=lambda: {
-            "enabled": True,
-            "min_steps": 2,
-            "max_steps": 6,
-        }))
+        _replace_method(
+            manager,
+            "_task_decomposition_config",
+            MagicMock(
+                side_effect=lambda: {
+                    "enabled": True,
+                    "min_steps": 2,
+                    "max_steps": 6,
+                }
+            ),
+        )
         _replace_method(manager, "_self_consistency_config", MagicMock(side_effect=lambda: {"enabled": False}))
         _replace_method(manager, "_do_generate", MagicMock(return_value="plain"))
         out = manager.generate_decomposed("안녕", "qwen3.6:latest")
@@ -263,11 +276,17 @@ class TestManagerIntegration:
 
     def test_later_steps_receive_previous_outputs(self):
         manager = self._manager()
-        _replace_method(manager, "_task_decomposition_config", MagicMock(side_effect=lambda: {
-            "enabled": True,
-            "min_steps": 2,
-            "max_steps": 6,
-        }))
+        _replace_method(
+            manager,
+            "_task_decomposition_config",
+            MagicMock(
+                side_effect=lambda: {
+                    "enabled": True,
+                    "min_steps": 2,
+                    "max_steps": 6,
+                }
+            ),
+        )
         _replace_method(manager, "_self_consistency_config", MagicMock(side_effect=lambda: {"enabled": False}))
 
         call_count = 0

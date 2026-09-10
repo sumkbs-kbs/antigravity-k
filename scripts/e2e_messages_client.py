@@ -190,7 +190,7 @@ if tool_block:
     )
     data2 = res2.json()
     text2 = next((b["text"] for b in data2.get("content", []) if b.get("type") == "text"), "")
-    print(f"  second turn HTTP {res2.status_code} ({time.time()-t1:.1f}s), stop_reason={data2.get('stop_reason')}")
+    print(f"  second turn HTTP {res2.status_code} ({time.time() - t1:.1f}s), stop_reason={data2.get('stop_reason')}")
     print(f"  final text: {text2[:150]!r}")
     ok2 = res2.status_code == 200 and data2.get("stop_reason") == "end_turn" and len(text2) > 0
     record("tool-result second turn", ok2, f"end_turn with {len(text2)} chars")

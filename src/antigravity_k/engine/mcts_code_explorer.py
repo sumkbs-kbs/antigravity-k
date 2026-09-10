@@ -39,9 +39,7 @@ class MCTSCodeExplorer:
     """Explores branching code solutions using Monte Carlo Tree Search."""
 
     def __init__(self, root_state: str, max_iterations: int = 10) -> None:
-        self.root: MCTSNode = MCTSNode(
-            node_id="root", patch_description="Initial State", code_state=root_state
-        )
+        self.root: MCTSNode = MCTSNode(node_id="root", patch_description="Initial State", code_state=root_state)
         self.max_iterations: int = max_iterations
 
     def search_best_trajectory(

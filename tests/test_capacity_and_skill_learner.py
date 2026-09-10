@@ -33,6 +33,7 @@ class FakeModelManager:
         self.generate_calls.append((prompt, target, kwargs))
         return self.generated
 
+
 # ─── CapacityCheckpoint: 컨텍스트 예산 ───────────────────────────
 
 

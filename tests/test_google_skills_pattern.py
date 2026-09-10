@@ -24,6 +24,7 @@ def _extract_section_list(body: str, section: str) -> list[str]:
     extractor = cast(Callable[[str, str], list[str]], getattr(SkillsRegistry, "_extract_section_list"))
     return extractor(body, section)
 
+
 # ── 픽스처: Google Skills 스타일 스킬 폴더 생성 ──────────────────────
 
 

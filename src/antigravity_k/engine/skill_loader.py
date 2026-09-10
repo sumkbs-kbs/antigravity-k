@@ -35,6 +35,7 @@ class SkillMetadata(TypedDict):
     is_global: bool
     source: str
 
+
 # ─── 상수 ─────────────────────────────────────────────────────────────
 
 MARKET_DIR_NAME = "market"

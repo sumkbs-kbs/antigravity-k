@@ -116,6 +116,7 @@ def _install_httpx(
     _FakeAsyncClient.error = error
     monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
 
+
 # ---------------------------------------------------------------------------
 # FixStatus enum
 # ---------------------------------------------------------------------------
@@ -460,11 +461,11 @@ class TestCollectPerformance:
         engine = AutonomousQAEngine()
         page = _FakePage(
             {
-            "dom_content_loaded_ms": 350,
-            "load_complete_ms": 800,
-            "first_contentful_paint_ms": 200,
-            "dom_nodes": 123,
-            "js_heap_mb": 45,
+                "dom_content_loaded_ms": 350,
+                "load_complete_ms": 800,
+                "first_contentful_paint_ms": 200,
+                "dom_nodes": 123,
+                "js_heap_mb": 45,
             }
         )
 

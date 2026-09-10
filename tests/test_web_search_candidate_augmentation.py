@@ -134,6 +134,7 @@ def test_sync_tool_rewrites_full_low_relevance_results_and_promotes_rescue():
     jina_queries: list[str] = []
 
     with pytest.MonkeyPatch.context() as patcher:
+
         def jina_search(query: str) -> list[SearchTuple]:
             jina_queries.append(query)
             return relevant if "official" in query else []

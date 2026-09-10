@@ -75,6 +75,7 @@ def _find_skill_dir(publisher: SkillPublisher, skill_name: str) -> Path | None:
     method = cast(Callable[[str], Path | None], getattr(publisher, "_find_skill_dir"))
     return method(skill_name)
 
+
 # ─── Fixtures ────────────────────────────────────────────────────────
 
 

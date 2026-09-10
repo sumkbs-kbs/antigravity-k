@@ -54,6 +54,7 @@ def _make_registry() -> ModelRegistry:
             provider="openrouter",
         ),
     }
+
     def get_profile(name: str) -> ModelProfile | None:
         return profiles.get(name)
 
@@ -75,12 +76,16 @@ def test_router_selects_only_20b_or_larger_evaluator():
 
 def test_router_prefers_configured_large_evaluator():
     registry = _make_registry()
-    setattr(registry, "_raw", {
-        "router": {
-            "confidence_evaluator_model": "heavy-72b",
-            "confidence_evaluator_min_params_b": 20,
-        }
-    })
+    setattr(
+        registry,
+        "_raw",
+        {
+            "router": {
+                "confidence_evaluator_model": "heavy-72b",
+                "confidence_evaluator_min_params_b": 20,
+            }
+        },
+    )
     router = ModelRouter(registry)
 
     selected = router.select_confidence_evaluator()

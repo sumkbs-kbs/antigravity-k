@@ -35,12 +35,18 @@ def _tracker_is_available(manager: ModelManager, model_name: str) -> bool:
 
 
 def _load_mlx_model(manager: ModelManager, profile: ModelProfile) -> tuple[object, object]:
-    loader = cast(Callable[[ModelManager, ModelProfile], tuple[object, object]], getattr(ModelManager, "_load_mlx_model"))
+    loader = cast(
+        Callable[[ModelManager, ModelProfile], tuple[object, object]], getattr(ModelManager, "_load_mlx_model")
+    )
     return loader(manager, profile)
 
 
-def _suppress_model_thinking(manager: ModelManager, model_name: str, messages: list[dict[str, str]]) -> list[dict[str, str]]:
-    suppress = cast(Callable[[str, list[dict[str, str]]], list[dict[str, str]]], getattr(manager, "_suppress_model_thinking"))
+def _suppress_model_thinking(
+    manager: ModelManager, model_name: str, messages: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    suppress = cast(
+        Callable[[str, list[dict[str, str]]], list[dict[str, str]]], getattr(manager, "_suppress_model_thinking")
+    )
     return suppress(model_name, messages)
 
 
@@ -139,24 +145,29 @@ def test_stream_generate_records_local_qwen_capability_trace(
         estimated_memory_gb=24.0,
     )
     get_model = _mock_attr(mock_registry, "get_model")
+
     def get_qwen(name: object) -> ModelProfile | None:
         return qwen if cast(str, name) == qwen.name else None
 
     get_model.side_effect = get_qwen
     capability_probe = cast(object, getattr(manager, "_capability_probe"))
-    setattr(capability_probe, "observe", MagicMock(
-        return_value={
-            "model": qwen.name,
-            "provider": "ollama",
-            "is_local": True,
-            "native_tool_calling": "supported",
-            "runtime_status": "available",
-            "source": "ollama:/api/show",
-            "detail": "test",
-            "reported_capabilities": ["tools"],
-            "reported_model_count": 0,
-        },
-    ))
+    setattr(
+        capability_probe,
+        "observe",
+        MagicMock(
+            return_value={
+                "model": qwen.name,
+                "provider": "ollama",
+                "is_local": True,
+                "native_tool_calling": "supported",
+                "runtime_status": "available",
+                "source": "ollama:/api/show",
+                "detail": "test",
+                "reported_capabilities": ["tools"],
+                "reported_model_count": 0,
+            },
+        ),
+    )
     tracer = AgentTracer()
     monkeypatch.setattr("antigravity_k.engine.tracing.get_tracer", lambda: tracer)
     setattr(manager, "_do_stream_generate", MagicMock(return_value=iter(["streamed ", "answer"])))
@@ -190,6 +201,7 @@ def test_stream_generate_records_local_qwen_failure_trace(
         estimated_memory_gb=24.0,
     )
     get_model = _mock_attr(mock_registry, "get_model")
+
     def get_qwen(name: object) -> ModelProfile | None:
         return qwen if cast(str, name) == qwen.name else None
 
@@ -330,16 +342,19 @@ def test_generate_collective_combo_runs_council(setup_manager: ModelManager) -> 
             strategy=RouteStrategy.FALLBACK,
         )
     )
-    _set_registry_raw(manager, {
-        "collective_intelligence": {
-            "min_participants": 2,
-            "max_proposers": 2,
-            "max_critics": 1,
-            "critic_combo": "critic-swarm",
-            "arbiter_combo": "supreme-court",
-            "expose_trace": True,
-        }
-    })
+    _set_registry_raw(
+        manager,
+        {
+            "collective_intelligence": {
+                "min_participants": 2,
+                "max_proposers": 2,
+                "max_critics": 1,
+                "critic_combo": "critic-swarm",
+                "arbiter_combo": "supreme-court",
+                "expose_trace": True,
+            }
+        },
+    )
 
     def do_generate_side_effect(loaded: LoadedModel, prompt: str, **_kwargs: object) -> str:
         if "최종 합성" in prompt:
@@ -366,12 +381,15 @@ def test_generate_collective_combo_runs_council(setup_manager: ModelManager) -> 
 
 def test_get_target_for_role_prefers_agent_model_combo(setup_manager: ModelManager) -> None:
     manager = setup_manager
-    _set_registry_raw(manager, {
-        "agent_models": {
-            "WORKER": "coding-swarm",
-            "default": "collective-council",
-        }
-    })
+    _set_registry_raw(
+        manager,
+        {
+            "agent_models": {
+                "WORKER": "coding-swarm",
+                "default": "collective-council",
+            }
+        },
+    )
 
     assert manager.get_target_for_role("WORKER", default_role="coding") == "coding-swarm"
     assert manager.get_target_for_role("QA") == "collective-council"
@@ -432,6 +450,7 @@ def test_explicit_mlx_profile_bypasses_global_api_mode(
     model = object()
     tokenizer = object()
     monkeypatch.setattr(platform, "system", lambda: "Darwin")
+
     def fake_import_module(_name: str) -> SimpleNamespace:
         def fake_load(_repo: str) -> tuple[object, object]:
             return model, tokenizer

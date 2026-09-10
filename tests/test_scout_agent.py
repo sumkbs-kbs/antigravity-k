@@ -63,7 +63,9 @@ def scout_agent(mock_model_manager: ModelManagerDouble, mock_tool_registry: mock
 class TestScoutAgent:
     """Tests for ScoutAgent class."""
 
-    def test_init(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble, mock_tool_registry: mock.MagicMock) -> None:
+    def test_init(
+        self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble, mock_tool_registry: mock.MagicMock
+    ) -> None:
         """초기화 시 model_manager와 tool_registry가 설정되어야 함."""
         assert scout_agent.model_manager is mock_model_manager
         assert scout_agent.tool_registry is mock_tool_registry
@@ -75,7 +77,9 @@ class TestScoutAgent:
         assert "llama-4" in result or "영입" in result
         mock_model_manager.generate.assert_called_once()
 
-    def test_propose_json_with_code_block(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
+    def test_propose_json_with_code_block(
+        self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble
+    ) -> None:
         """JSON이 코드 블록(```json ... ```)으로 감싸져 있어도 파싱되어야 함."""
         mock_model_manager.generate.return_value = (
             '```json\n{\n    "propose_add": {\n        "name": "qwen-2.5:latest",\n'
@@ -117,7 +121,9 @@ class TestScoutAgent:
         result = scout_agent.propose_model_scout("safe AI")
         assert "propose" in result.lower() or "claude" in result
 
-    def test_propose_model_scout_low_memory(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
+    def test_propose_model_scout_low_memory(
+        self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble
+    ) -> None:
         """메모리 요구사항이 시스템 RAM의 80% 미만이면 정상 제안."""
         mock_model_manager.generate.return_value = json.dumps(
             {
@@ -138,7 +144,9 @@ class TestScoutAgent:
                 result = scout_agent.propose_model_scout("small model")
                 assert "ScoutAgent" in result
 
-    def test_propose_high_memory_no_config(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
+    def test_propose_high_memory_no_config(
+        self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble
+    ) -> None:
         """config.yaml이 없으면 기본 메모리 128GB로 계산되어야 함."""
         mock_model_manager.generate.return_value = json.dumps(
             {
@@ -156,7 +164,9 @@ class TestScoutAgent:
             # 200 > 128*0.8 = 102.4 이므로 HardwareAnalystAgent로 넘어감
             assert "HardwareAnalyst" in result
 
-    def test_propose_model_scout_api_error(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
+    def test_propose_model_scout_api_error(
+        self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble
+    ) -> None:
         """API 에러 시 적절한 오류 메시지를 반환해야 함."""
         mock_model_manager.generate.side_effect = RuntimeError("API connection failed")
         result = scout_agent.propose_model_scout("test")
@@ -168,7 +178,9 @@ class TestScoutAgent:
         result = scout_agent.propose_model_scout("test")
         assert "failed" in result.lower() or "Error" in result or "error" in result
 
-    def test_propose_json_extract_no_code_block(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
+    def test_propose_json_extract_no_code_block(
+        self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble
+    ) -> None:
         """코드 블록 없이 순수 JSON만 반환되어도 파싱되어야 함."""
         mock_model_manager.generate.return_value = (
             '{"propose_add": {"name": "test:latest", "repo": "test/repo",'

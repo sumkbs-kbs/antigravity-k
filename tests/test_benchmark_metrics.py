@@ -200,9 +200,7 @@ class TestHarnessTaskCalibration:
         assert len(only_b.outcomes) == 1
         assert only_b.outcomes[0].success is False
 
-    def test_calibration_updater_receives_metrics_for_eligible_outcomes(
-        self, harness: BenchmarkHarness
-    ) -> None:
+    def test_calibration_updater_receives_metrics_for_eligible_outcomes(self, harness: BenchmarkHarness) -> None:
         eligible = _outcome("e1", calibration_eligible=True)
         ineligible = _outcome("n1", calibration_eligible=False)
         _ = harness.record_task_outcome(eligible)

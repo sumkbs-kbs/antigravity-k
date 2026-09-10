@@ -11,8 +11,7 @@ from antigravity_k.tools.cowork_delegate import CoworkDelegateTool
 
 
 class _ExecutableTool(Protocol):
-    def execute(self, **kwargs: object) -> object:
-        ...
+    def execute(self, **kwargs: object) -> object: ...
 
 
 def test_write_artifact():
@@ -44,9 +43,7 @@ def test_cowork_delegate():
     tool = CoworkDelegateTool(project_root=os.getcwd(), model_manager=manager)
     result = cast(
         str,
-        cast(_ExecutableTool, tool).execute(
-            prompt="Please write a quick summary of what you are.", use_worktree=True
-        ),
+        cast(_ExecutableTool, tool).execute(prompt="Please write a quick summary of what you are.", use_worktree=True),
     )
     print("Result:", result)
     assert "[COWORK DELEGATED]" in result
