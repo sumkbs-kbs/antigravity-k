@@ -57,6 +57,5 @@
   - 프로덕션 Vite 번들 무결점 빌드 완료 (`pnpm build`, 1.52s).
 - **로컬 에이전트 인프라 & UI 통합**:
   - 4방향 태스크 분류 및 다양성 프로브 기반 Adaptive Stability를 갖춘 `UnifiedAgent`와 Ssak-Search 기반 웹 그라운딩이 코어 및 대시보드 UI(`⚡ Adaptive` 모드 토글, 실행 배지)에 완전 연동됨.
-  - 실전 코딩 평가 스위트(`tests/evals/real_coding/`) 이식 및 회귀 테스트 100% 통과.
+    - 실전 코딩 평가 스위트(`tests/evals/real_coding/`) 8개 전 도메인 이식 및 오프라인 검증 하네스(`test_real_coding_harness.py`, 11 tests) 100% 통과.
 - **최종 판정**: **상용화 준비도 100% 달성 및 General Availability (GA) 정식 출시 준비 완료 (GA READY)**.
-

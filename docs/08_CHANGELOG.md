@@ -16,7 +16,7 @@
 
 ### Dashboard UI Integration & Real Coding Evaluation Suite
 - **대시보드 UI 연동**: `PlanToggleBar.tsx`에 `⚡ Adaptive` 토글 버튼을 추가하고, `ChatMessage.tsx`에 `assistant-agent-meta` 배지(`⚡ adaptive`, `🌐 web`, `🗺️ graphify`, `✅ passed`/`❌ failed`, 스텝 수, 소요 시간)를 시각화했다. `ChatPage.tsx`에서 Adaptive 모드 시 `askAgent`를 통해 작업을 수행하도록 바인딩했다. Vitest 전체 70개 파일 750개 테스트를 100% 통과했다.
-- **실전 코딩 평가 스위트 이식**: `tests/evals/real_coding/`에 `unified_tasks.py`, `hard_composite_tasks.py`, `stability_eval.py` 및 CI 회귀용 `test_real_coding_harness.py`를 구축했다. 23개 전수 테스트를 1.76초에 통과했다.
+- **실전 코딩 평가 스위트 완결**: `tests/evals/real_coding/`에 8개 전 도메인 평가 스위트(`automation`, `composite`, `multi_dependency`, `swe`, `tasks/repair`, `unified`, `web_grounded`, `scale`)와 CI 회귀용 `test_real_coding_harness.py`를 구축했다. 11개 단위 테스트를 0.33초에 100% 통과(PASS)하고 Ruff 린트 0 errors를 달성했다.
 - **릴리즈 & 공급망 무결성**: 77개 릴리즈/공급망 테스트 전수 통과, Vite 프로덕션 빌드 1.52초 무결점 생성, Mypy 478개 소스 파일 0 errors, ESLint 0 errors를 달성했다.
 
 ## 2026-08-13

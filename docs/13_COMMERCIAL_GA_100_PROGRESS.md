@@ -33,6 +33,24 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+### 2026-09-10 · 실전 코딩 벤치마크 및 다중 도메인 평가 스위트 완결 (Track 2 Full Port & Harness 11 Tests Green)
+
+- **8개 도메인 실전 코딩 벤치마크 스위트 전수 이식 (`tests/evals/real_coding/`)**:
+  - `automation_tasks.py` & `automation_eval.py`: CLI/스크립트 환경 내 파일 처리 및 시스템 자동화 태스크.
+  - `composite_eval.py`: 복합 다단계 코딩 과제 종합 평가 파이프라인.
+  - `multi_dependency_tasks.py` & `multi_dependency_eval.py`: 다중 모듈 의존성 및 서드파티 패키지 연계 태스크.
+  - `swe_tasks.py` & `swe_eval.py`: 실제 소프트웨어 엔지니어링 버그 수정 및 풀 리퀘스트 시나리오.
+  - `tasks.py` & `repair_eval.py`: 코드 복구 및 리팩토링 검증.
+  - `unified_eval.py`: UnifiedAgent 4방향 라우팅 및 적응형 모드 평가기.
+  - `web_grounded_tasks.py` & `web_grounded_eval.py`: 웹 검색 기반 질문 답변 및 외부 지식 그라운딩 QA.
+  - `scale_tasks.py`, `scale_eval.py`, `scale_hybrid_eval.py`: 대규모 컨텍스트 및 하이브리드 검색 기반 스케일 벤치마크.
+- **오프라인 CI 검증 하네스 확장 (`test_real_coding_harness.py`)**:
+  - 8개 벤치마크 태스크 세트의 데이터 스키마 무결성 검증.
+  - `UnifiedResult`, `CompositeResult`, `QAResult` 등 요약기(Summarizer) 및 판정 로직 검증.
+  - AST-parsing Graphify 컨텍스트 모킹을 통한 초고속 오프라인 테스트 (11/11 tests passed in 0.33s).
+  - Ruff 린트 및 포맷팅 검사 통과 (0 errors).
+- **커밋**: `328a16f` (`feat(evals): complete real coding evaluation harness and benchmark tasks`).
+
 ### 2026-09-10 · 대시보드 UI 연동 (Track 1), 실전 코딩 평가 스위트 이식 (Track 2) 및 GA 릴리즈 패키징 (Track 3)
 
 - **대시보드 UI 연동 (Track 1)**:

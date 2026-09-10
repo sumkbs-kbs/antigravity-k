@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **UnifiedAgent & Adaptive Stability**: 4-way task classification routing (`explore`, `web`, `code`, `answer`), 2-sample diversity probing, AST-based Graphify code intelligence retrieval, Headroom context compression, and isolated pytest bytecode execution.
 - **Ssak-Search Grounding**: Cloudflare Pages external search integration (`SsakSearchClient`) and BaseTool implementation (`SsakSearchTool`).
 - **Dashboard Adaptive Mode Integration**: `⚡ Adaptive` mode toggle in `PlanToggleBar`, `assistant-agent-meta` badges in `ChatMessage`, and seamless `POST /api/agent/ask` dispatch in `ChatPage`.
-- **Real Coding Evaluation Suite**: Ported `unified_tasks.py`, `hard_composite_tasks.py`, `stability_eval.py`, and offline CI harness `test_real_coding_harness.py` under `tests/evals/real_coding/`.
+- **Real Coding Evaluation Suite**: Ported full 8-domain benchmark suites (`automation`, `composite`, `multi_dependency`, `swe`, `tasks/repair`, `unified`, `web_grounded`, `scale`) and offline CI harness `test_real_coding_harness.py` (11 tests passed in 0.33s) under `tests/evals/real_coding/`.
 - Complete Train-to-Serve loop: LoRA adapter weight fusing via `mlx_lm.fuse`, Modelfile generation, GGUF export compatibility, Ollama registration, and `agk fuse-and-serve` CLI command with auto-discovery in `LocalModelDiscovery` (Phase 23)
 - Auto-split datasets into mlx-lm train/valid directory layout (`mlx_dataset/train.jsonl` + `valid.jsonl`) in `LoRAPipeline.apply_recipe` when `platform="mlx"`, with fallback record reuse for small datasets (Phase 23 P2)
 - Pre-commit hooks configuration (ruff, mypy, trailing-whitespace, etc.)
