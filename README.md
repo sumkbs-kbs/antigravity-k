@@ -32,6 +32,7 @@
 | 🌍 **다국어 지원** | 한국어/English/日本語 인터페이스 |
 | 📝 **구조화된 로깅** | JSON 기반 로깅 + 일별 로테이션 + 감사 로그 |
 | 💰 **비용 제어** | 일일 예산, 시간당 Rate Limit, 모델별 과금 추정 |
+| 🏆 **상용화 준비도 (GA-100)** | 33/33 전 과제 완료, DR 4종 리허설, 8개 도메인 실전 코딩 벤치마크 검증 |
 
 ## 기능↔구현 매트릭스
 
@@ -50,6 +51,7 @@
 | 💰 **비용 제어** | `engine/cost_guard.py:CostGuard` / `engine/model_manager.py:UsageTracker` | `AGK_DAILY_BUDGET_USD`, `AGK_HOURLY_ACTION_LIMIT` |
 | 🔄 **프로젝트 전환** | `engine/project_registry.py` (flock 원자적 저장) / `api/routes/` | `POST /api/projects/switch`, `GET /api/workspace/context` |
 | 🗜 **대화 컴팩트** | `engine/conversation_store.py` (revision CAS + 프로세스간 flock) | `POST /v1/conversations/compact`, `POST /v1/conversations/append` |
+| 🏆 **상용화 GA-100 & 실전 평가** | `docs/11_COMMERCIAL_GA_100_PLAN.md` / `tests/evals/real_coding/` / `scripts/dr_rehearsal.py` | `docs/12_COMMERCIAL_GA_100_CHECKLIST.md`, `make check` |
 
 ## 빠른 시작
 
