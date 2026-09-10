@@ -105,12 +105,18 @@ function statusFor(eventType: string): ExecutionStatus {
   if (normalized === 'context.compress.halted') return 'failed';
   if (normalized === 'context.compress.degraded') return 'degraded';
   if (normalized === 'context.compress.succeeded') return 'completed';
+  if (normalized === 'context.compress.skipped') return 'completed';
   // Substring heuristics — 'succeed' matches both success and succeeded.
   if (normalized.includes('compress') && normalized.includes('halt')) return 'failed';
   if (normalized.includes('degrad')) return 'degraded';
   if (normalized.includes('fail') || normalized.includes('error')) return 'failed';
   if (normalized.includes('cancel')) return 'cancelled';
-  if (normalized.includes('complete') || normalized.includes('finish') || normalized.includes('succeed')) {
+  if (
+    normalized.includes('complete') ||
+    normalized.includes('finish') ||
+    normalized.includes('succeed') ||
+    normalized.includes('skip')
+  ) {
     return 'completed';
   }
   if (normalized.includes('approval') || normalized.includes('wait') || normalized.includes('block')) {

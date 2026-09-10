@@ -1433,6 +1433,7 @@ class ToolLoopEngine:
                 from antigravity_k.engine.context_compress_observability import (
                     ComponentTokenSnapshot,
                     CompressTelemetryRecord,
+                    decide_post_compress_policy,
                     ui_status_line,
                 )
 
@@ -1458,16 +1459,16 @@ class ToolLoopEngine:
                 )
 
                 if compress_failed:
-                    outcome_name = "degraded"
+                    outcome_name = decide_post_compress_policy(compress_failed=True, over_hard_limit=False)
                     self.telemetry.compress_degraded += 1
                 elif (compress_attempt is not None and compress_attempt.compressed) or _fit_compressed:
-                    outcome_name = "success"
+                    outcome_name = decide_post_compress_policy(compress_failed=False, over_hard_limit=False)
                 else:
                     outcome_name = "noop"
 
                 if outcome_name != "noop":
                     record = CompressTelemetryRecord(
-                        outcome=outcome_name,  # type: ignore[arg-type]
+                        outcome=outcome_name,
                         trigger="tool_loop",
                         strategy=strategy,
                         digest=digest,
@@ -1505,6 +1506,7 @@ class ToolLoopEngine:
                     ComponentTokenSnapshot,
                     CompressFailureCode,
                     CompressTelemetryRecord,
+                    decide_post_compress_policy,
                     ui_status_line,
                 )
 
@@ -1512,12 +1514,19 @@ class ToolLoopEngine:
                 # must halt before stream_generate (never send unchecked / over-limit prompts).
                 self.telemetry.compress_halted += 1
                 failure_code = CompressFailureCode.STILL_OVER_LIMIT.value
+                is_budget_enforce_failed = False
                 if isinstance(budget_error, PromptBudgetEnforcementError):
                     failure_code = CompressFailureCode.BUDGET_ENFORCE_FAILED.value
+                    is_budget_enforce_failed = True
                 elif isinstance(budget_error, OversizedPromptComponentError):
                     failure_code = CompressFailureCode.OVERSIZED_COMPONENT.value
+                halt_outcome = decide_post_compress_policy(
+                    compress_failed=True,
+                    over_hard_limit=True,
+                    budget_enforce_failed=is_budget_enforce_failed,
+                )
                 halt_record = CompressTelemetryRecord(
-                    outcome="halted",
+                    outcome=halt_outcome,
                     trigger="tool_loop",
                     strategy=(compress_attempt.strategy if compress_attempt is not None else None),
                     digest=(compress_attempt.digest if compress_attempt is not None else None),

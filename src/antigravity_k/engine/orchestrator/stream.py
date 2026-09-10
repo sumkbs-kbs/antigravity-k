@@ -419,6 +419,7 @@ def run_stream(
         CompressFailureCode,
         CompressTelemetryRecord,
         ElapsedTimer,
+        decide_post_compress_policy,
         ui_status_line,
     )
 
@@ -442,8 +443,9 @@ def run_stream(
             e,
             exc_info=True,
         )
+        outcome = decide_post_compress_policy(compress_failed=True, over_hard_limit=False)
         record = CompressTelemetryRecord(
-            outcome="degraded",
+            outcome=outcome,
             trigger="stream_pre",
             strategy=traj_strategy,
             digest=None,
@@ -474,8 +476,9 @@ def run_stream(
             context_compacted = context_compacted or compressed_messages != messages
             messages = compressed_messages
             after_tokens = float(ctx_compressor.usage_percent(messages))
+            outcome = decide_post_compress_policy(compress_failed=False, over_hard_limit=False)
             record = CompressTelemetryRecord(
-                outcome="success",
+                outcome=outcome,
                 trigger="stream_pre",
                 strategy=strategy,
                 digest=None,
@@ -503,8 +506,9 @@ def run_stream(
             e,
             exc_info=True,
         )
+        outcome = decide_post_compress_policy(compress_failed=True, over_hard_limit=False)
         record = CompressTelemetryRecord(
-            outcome="degraded",
+            outcome=outcome,
             trigger="stream_pre",
             strategy="adaptive:GENERAL",
             digest=None,

@@ -154,6 +154,21 @@ describe('CTX-03 compress outcome status mapping', () => {
         payload: { outcome: 'halted', failure_code: 'still_over_limit' },
         created_at: '2026-09-06T00:00:02Z',
       }),
+      TaskEventSchema.parse({
+        sequence: 4,
+        schema_version: 2,
+        task_id: 'task-a',
+        step_id: 'compress-skip',
+        agent_id: null,
+        parent_id: null,
+        tool_call_id: null,
+        approval_id: null,
+        resource_job_id: null,
+        correlation_id: null,
+        event_type: 'context.compress.skipped',
+        payload: { outcome: 'skipped' },
+        created_at: '2026-09-06T00:00:03Z',
+      }),
     ];
 
     const projection = projectTaskExecution(taskA, events);
@@ -161,12 +176,15 @@ describe('CTX-03 compress outcome status mapping', () => {
       'completed',
       'degraded',
       'failed',
+      'completed',
     ]);
     // F1: succeeded must not fall through to unknown (includes('success') misses 'succeeded')
     expect(projection.checklist[0]?.status).not.toBe('unknown');
     expect(projection.checklist[0]?.status).toBe('completed');
     expect(projection.checklist[1]?.status).toBe('degraded');
     expect(projection.checklist[2]?.status).toBe('failed');
+    expect(projection.checklist[3]?.status).not.toBe('unknown');
+    expect(projection.checklist[3]?.status).toBe('completed');
   });
 
   it('DAT-01: authoritative store status wins over contradictory terminal events', () => {

@@ -9,9 +9,11 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useFileStore } from '../../stores/fileStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { getFileIcon } from '../../utils/fileIcons';
 import {
   createProjectIdentityHeaders,
+  isIdentityCurrent,
   withProjectIdentitySearchParams,
 } from '../../api/projectIdentity';
 
@@ -68,12 +70,14 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = React.memo(({ name, path, isDi
 
   const handleClick = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
+    const capturedEpoch = useProjectStore.getState().switchEpoch;
     if (isDir) {
       toggleExpanded(path);
       if (!isExpanded && children === null) {
         setLoadingChildren(true);
         try {
           const items = await loadDirectory(path);
+          if (!isIdentityCurrent(capturedEpoch)) return;
           setChildren(items);
         } finally {
           setLoadingChildren(false);
@@ -84,6 +88,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = React.memo(({ name, path, isDi
         const res = await fetch(withProjectIdentitySearchParams(`/api/fs/read?file=${encodeURIComponent(path)}`), {
           headers: createProjectIdentityHeaders(),
         });
+        if (!isIdentityCurrent(capturedEpoch)) return;
         if (!res.ok) {
           let detail = `HTTP ${res.status}`;
           try {
@@ -96,12 +101,14 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = React.memo(({ name, path, isDi
           return;
         }
         const data: unknown = await res.json();
+        if (!isIdentityCurrent(capturedEpoch)) return;
         if (isRecord(data) && typeof data.content === 'string') {
           openFile(path, name, data.content);
         } else {
           addToast('파일 읽기 실패: 알 수 없는 오류', 'error');
         }
       } catch (err) {
+        if (!isIdentityCurrent(capturedEpoch)) return;
         addToast(`파일 읽기 오류: ${err instanceof Error ? err.message : String(err)}`, 'error');
       }
     }

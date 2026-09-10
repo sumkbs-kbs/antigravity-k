@@ -698,14 +698,43 @@ def get_model_manager() -> ModelManager:
     return model_manager
 
 
-def get_vault_engine() -> VaultEngine | None:
+def get_vault_engine(
+    *,
+    project_id: str | None = None,
+    project_root: str | None = None,
+) -> VaultEngine | None:
     """Retrieve vault engine.
 
-    Returns:
-        VaultEngine | None: The vaultengine | none result.
-
+    Returns the project-scoped VaultEngine when a RequestExecutionContext is active
+    or explicit project parameters are given (WS-03 isolation); falls back to the
+    ambient process-level vault engine otherwise.
     """
     global vault_engine
+
+    # 1. Active RequestExecutionContext or explicit parameters (WS-03 project isolation)
+    try:
+        from antigravity_k.api.project_binding import get_bound_request_execution_context
+
+        ctx = get_bound_request_execution_context()
+        if ctx is not None:
+            runtime = acquire_project_runtime(
+                project_id=project_id or ctx.project_id,
+                project_root=project_root or ctx.canonical_project_root,
+            )
+            if runtime.vault_engine is not None:
+                return runtime.vault_engine
+    except Exception:
+        logger.debug("Project-scoped vault resolution via RequestExecutionContext skipped", exc_info=True)
+
+    if project_id or project_root:
+        try:
+            runtime = acquire_project_runtime(project_id=project_id, project_root=project_root)
+            if runtime.vault_engine is not None:
+                return runtime.vault_engine
+        except Exception:
+            logger.debug("Project-scoped vault resolution via parameters skipped", exc_info=True)
+
+    # 2. Ambient process fallback (backward compatibility)
     if vault_engine is None:
         vault_path = os.environ.get("ANTIGRAVITY_VAULT_PATH", "./vault_data")
         try:

@@ -18,6 +18,7 @@ from antigravity_k.api.dependencies import (
     get_scheduled_job_service,
     get_session_manager,
     get_slash_registry,
+    get_vault_engine,
     reset_runtime_dependencies,
 )
 from antigravity_k.api.project_binding import (
@@ -471,3 +472,31 @@ def test_scheduled_job_service_is_project_scoped(projects: tuple[Path, Path, str
     assert svc_b is not svc_a
     assert svc_b is rt_b.scheduled_job_service
     assert svc_b.submit_agent == rt_b.agent_runtime.submit_task
+
+
+def test_vault_engine_is_project_scoped(projects: tuple[Path, Path, str, str]) -> None:
+    """WS-03 residual: get_vault_engine resolves project-scoped vault when context is bound."""
+    project_a, project_b, id_a, id_b = projects
+    _bind(id_a, project_a, "vault-a1")
+    vault_a1 = get_vault_engine()
+    rt_a = acquire_project_runtime()
+    assert vault_a1 is not None
+    assert vault_a1 is rt_a.vault_engine
+
+    _bind(id_b, project_b, "vault-b")
+    vault_b = get_vault_engine()
+    rt_b = acquire_project_runtime()
+    assert vault_b is not None
+    assert vault_b is not vault_a1
+    assert vault_b is rt_b.vault_engine
+
+    # Switch back to A
+    _bind(id_a, project_a, "vault-a2")
+    vault_a2 = get_vault_engine()
+    assert vault_a2 is vault_a1
+    assert vault_a2 is rt_a.vault_engine
+
+    # Unbound explicit parameters
+    reset_bound_request_execution_context()
+    assert get_vault_engine(project_id=id_a, project_root=str(project_a)) is rt_a.vault_engine
+    assert get_vault_engine(project_id=id_b, project_root=str(project_b)) is rt_b.vault_engine
