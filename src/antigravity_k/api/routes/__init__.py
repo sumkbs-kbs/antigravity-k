@@ -9,6 +9,7 @@ from fastapi import APIRouter
 
 from . import agency_api, artifact_api
 from .agent_activity import router as agent_activity_router
+from .agent_ask import router as agent_ask_router
 from .agent_stream_api import router as agent_stream_router
 from .agent_tools import router as agent_tools_router
 from .approval_api import router as approval_router
@@ -73,6 +74,7 @@ api_router.include_router(agent_tools_router, tags=["agent_tools"])
 api_router.include_router(agency_router, tags=["agency"])
 api_router.include_router(evolution_router, tags=["agent_tools"])
 api_router.include_router(agent_activity_router, tags=["agent_activity"])
+api_router.include_router(agent_ask_router, tags=["agent"])
 api_router.include_router(workspace_links_router, tags=["workspaces"])
 api_router.include_router(workspace_services_router, tags=["workspaces"])
 api_router.include_router(remote_pairing_router, tags=["remote"])

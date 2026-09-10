@@ -554,3 +554,8 @@ cost:
 computer_use:
   enabled: true
   hitl_required: true
+agent:
+  default_entry: unified
+  headroom: true
+  max_repairs: 2
+  adaptive: true

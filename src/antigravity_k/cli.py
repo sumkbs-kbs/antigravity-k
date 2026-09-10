@@ -1394,6 +1394,55 @@ def tui(
         raise typer.Exit(code=1) from e
 
 
+# ─── Ask (Unified Agent) Command ────────────────────────────────────────────
+
+
+@app.command()
+def ask(
+    task: Annotated[str, typer.Argument(help="Task or question for the unified agent.")],
+    model: Annotated[str | None, typer.Option("--model", "-m", help="Override model id.")] = None,
+    test: Annotated[
+        str | None,
+        typer.Option("--test", "-t", help="Path to a pytest file to verify code tasks (enables adaptive repair)."),
+    ] = None,
+    no_adaptive: Annotated[bool, typer.Option("--no-adaptive", help="Disable adaptive stability routing.")] = False,
+) -> None:
+    """Run the unified agent: explores code, searches web, writes/fixes code, or answers."""
+    from pathlib import Path
+
+    from antigravity_k.engine.model_manager import ModelManager
+    from antigravity_k.engine.model_registry import ModelRegistry
+    from antigravity_k.engine.unified_agent import UnifiedAgent
+
+    registry = ModelRegistry()
+    target_model = model or registry.defaults.reasoning or registry.defaults.coding
+    if target_model is None:
+        console.print("[red]No reasoning or coding model configured.[/red]")
+        raise typer.Exit(code=1)
+    test_code = None
+    if test:
+        test_path = Path(test)
+        if not test_path.is_file():
+            console.print(f"[red]Test file not found: {test}[/red]")
+            raise typer.Exit(code=1)
+        test_code = test_path.read_text(encoding="utf-8")
+    agent = UnifiedAgent(ModelManager(registry).generate, target_model, project_root=Path.cwd())
+    mode_tag = "adaptive" if (test_code and not no_adaptive) else "standard"
+    console.print(f"[cyan]SSAK-AI unified agent[/cyan] (model={target_model}, mode={mode_tag})\n")
+    outcome = agent.run(task, test_code=test_code, adaptive=bool(test_code) and not no_adaptive)
+    tools = []
+    if outcome.used_web:
+        tools.append("web")
+    if outcome.used_graphify:
+        tools.append("graphify")
+    if outcome.passed is not None:
+        tools.append("passed" if outcome.passed else "failed")
+    console.print(
+        f"[dim]tools=[{','.join(tools) or '-'}] steps={len(outcome.steps)} {outcome.total_seconds:.1f}s[/dim]\n"
+    )
+    console.print(outcome.answer)
+
+
 # ─── Market Commands ────────────────────────────────────────────────────────
 
 
