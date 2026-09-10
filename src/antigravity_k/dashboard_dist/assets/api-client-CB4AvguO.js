@@ -9,7 +9,7 @@ var Lr=Object.defineProperty;var Yt=e=>{throw TypeError(e)};var Mr=(e,t,n)=>t in
             })));
           }
         }
-
+        
         if (${P}.value === undefined) {
           if (${L} in input) {
             newResult[${L}] = undefined;
@@ -17,7 +17,7 @@ var Lr=Object.defineProperty;var Yt=e=>{throw TypeError(e)};var Mr=(e,t,n)=>t in
         } else {
           newResult[${L}] = ${P}.value;
         }
-
+        
       `):$e?y.write(`
         if (${P}.issues.length) {
           payload.issues = payload.issues.concat(${P}.issues.map(iss => ({
@@ -25,7 +25,7 @@ var Lr=Object.defineProperty;var Yt=e=>{throw TypeError(e)};var Mr=(e,t,n)=>t in
             path: iss.path ? [${L}, ...iss.path] : [${L}]
           })));
         }
-
+        
         if (${P}.value === undefined) {
           if (${L} in input) {
             newResult[${L}] = undefined;
@@ -33,7 +33,7 @@ var Lr=Object.defineProperty;var Yt=e=>{throw TypeError(e)};var Mr=(e,t,n)=>t in
         } else {
           newResult[${L}] = ${P}.value;
         }
-
+        
       `):y.write(`
         const ${P}_present = ${L} in input;
         if (${P}.issues.length) {
