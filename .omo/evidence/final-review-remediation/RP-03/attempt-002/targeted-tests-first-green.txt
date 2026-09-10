@@ -1,0 +1,97 @@
+.......F.FFF                                                             [100%]
+=================================== FAILURES ===================================
+_ TestCommitReverification.test_symlink_swap_after_preflight_cannot_redirect_write _
+
+self = <tests.test_fr03_transaction_containment.TestCommitReverification object at 0x1112dd450>
+root = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1881/test_symlink_swap_after_prefli0/project')
+outside = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1881/test_symlink_swap_after_prefli0/outside')
+
+    def test_symlink_swap_after_preflight_cannot_redirect_write(self, root: Path, outside: Path) -> None:
+        engine = AtomicTransactionEngine(root)
+        victim = root / "victim.py"
+        victim.write_text("ORIG\n", encoding="utf-8")
+        engine.stage_file_patch("victim.py", "NEW\n")
+
+>       real_write = engine._write_content
+                     ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'AtomicTransactionEngine' object has no attribute '_write_content'
+
+tests/test_fr03_transaction_containment.py:106: AttributeError
+___________ TestRollbackFidelity.test_nth_write_failure_restores_all ___________
+
+self = <tests.test_fr03_transaction_containment.TestRollbackFidelity object at 0x1112dd6d0>
+root = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1881/test_nth_write_failure_restore0/project')
+
+    def test_nth_write_failure_restores_all(self, root: Path) -> None:
+        engine = AtomicTransactionEngine(root)
+        engine.stage_file_patch("existing.py", "CHANGED = 1\n")
+        engine.stage_file_patch("newfile.py", "CREATED = 1\n")
+        engine.stage_file_patch("empty.py", "filled = True\n")
+
+>       with self._fail_on(engine, "newfile.py"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_fr03_transaction_containment.py:149:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.test_fr03_transaction_containment.TestRollbackFidelity object at 0x1112dd6d0>
+engine = <antigravity_k.engine.atomic_transaction_engine.AtomicTransactionEngine object at 0x113cf9f50>
+target_name = 'newfile.py'
+
+    def _fail_on(self, engine: AtomicTransactionEngine, target_name: str):
+        """Return a patcher making write_text raise for the named target."""
+>       real_write = engine._write_content
+                     ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'AtomicTransactionEngine' object has no attribute '_write_content'
+
+tests/test_fr03_transaction_containment.py:134: AttributeError
+_______ TestRollbackFidelity.test_foreign_edit_reported_not_overwritten ________
+
+self = <tests.test_fr03_transaction_containment.TestRollbackFidelity object at 0x111276190>
+root = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1881/test_foreign_edit_reported_not0/project')
+
+    def test_foreign_edit_reported_not_overwritten(self, root: Path) -> None:
+        engine = AtomicTransactionEngine(root)
+        engine.stage_file_patch("existing.py", "CHANGED\n")
+        engine.stage_file_patch("newfile.py", "CREATED\n")
+
+>       real_write = engine._write_content
+                     ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'AtomicTransactionEngine' object has no attribute '_write_content'
+
+tests/test_fr03_transaction_containment.py:169: AttributeError
+_____________ TestRollbackFidelity.test_mode_preserved_on_rollback _____________
+
+self = <tests.test_fr03_transaction_containment.TestRollbackFidelity object at 0x111276c40>
+root = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1881/test_mode_preserved_on_rollbac0/project')
+
+    def test_mode_preserved_on_rollback(self, root: Path) -> None:
+        engine = AtomicTransactionEngine(root)
+        target = root / "existing.py"
+        os.chmod(target, 0o600)
+        engine.stage_file_patch("existing.py", "CHANGED\n")
+        engine.stage_file_patch("boom.py", "x = 1\n")
+
+>       with self._fail_on(engine, "boom.py"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_fr03_transaction_containment.py:195:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.test_fr03_transaction_containment.TestRollbackFidelity object at 0x111276c40>
+engine = <antigravity_k.engine.atomic_transaction_engine.AtomicTransactionEngine object at 0x113cfa850>
+target_name = 'boom.py'
+
+    def _fail_on(self, engine: AtomicTransactionEngine, target_name: str):
+        """Return a patcher making write_text raise for the named target."""
+>       real_write = engine._write_content
+                     ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'AtomicTransactionEngine' object has no attribute '_write_content'
+
+tests/test_fr03_transaction_containment.py:134: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_fr03_transaction_containment.py::TestCommitReverification::test_symlink_swap_after_preflight_cannot_redirect_write
+FAILED tests/test_fr03_transaction_containment.py::TestRollbackFidelity::test_nth_write_failure_restores_all
+FAILED tests/test_fr03_transaction_containment.py::TestRollbackFidelity::test_foreign_edit_reported_not_overwritten
+FAILED tests/test_fr03_transaction_containment.py::TestRollbackFidelity::test_mode_preserved_on_rollback
+4 failed, 8 passed in 0.39s

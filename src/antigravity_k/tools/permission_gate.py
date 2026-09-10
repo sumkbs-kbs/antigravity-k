@@ -136,7 +136,8 @@ class PermissionGate:
             )
 
         # 2. 위험 명령 차단 (Bash/Shell 도구) + absolute/escape path policy (WS-02 F2)
-        if tool_name in ("run_bash_command", "bash"):
+        # run_persistent_command도 동일 shell 경로 검사 대상이다 (FR-02/RP-02).
+        if tool_name in ("run_bash_command", "bash", "run_persistent_command"):
             raw_command = args.get("command")
             command = raw_command if isinstance(raw_command, str) else ""
             if self._is_dangerous_command(command):

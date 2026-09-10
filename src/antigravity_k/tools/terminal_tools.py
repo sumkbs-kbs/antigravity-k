@@ -31,12 +31,16 @@ def _wait_seconds(kwargs: Mapping[str, object], key: str = "wait_ms", default: i
     return default / 1000.0
 
 
-def build_sandbox_argv(command: str) -> tuple[list[str], Path] | None:
+def build_sandbox_argv(command: str, project_root: str | None = None) -> tuple[list[str], Path] | None:
     """모델 제공 명령을 seatbelt 샌드박스 argv로 래핑한다.
 
     config의 security.sandbox_enabled가 true이고 macOS sandbox-exec을 쓸 수
-    있으면 (argv, profile_path)를 반환하고, 아니면 None(기존 raw 경로 유지)을
-    반환한다. profile 파일은 호출자가 프로세스 종료 후 삭제해야 한다.
+    있으면 (argv, profile_path)를 반환하고, 아니면 None을 반환한다.
+    profile 파일은 호출자가 프로세스 종료 후 삭제해야 한다.
+
+    ``project_root``는 요청 스코프 루트다. 생략하면 config의 전역 루트로
+    폴백하되, 권한 판정에 쓰인 루트와 실행 프로파일의 루트가 같아야 한다
+    (FR-02/RP-02: 판정 root == 실행 root).
 
     이 헬퍼가 필요한 이유: system_tools의 단발 execute는 SandboxRunner로
     샌드박스되지만, persistent terminal/PTY 같은 장수명 프로세스는
@@ -57,15 +61,21 @@ def build_sandbox_argv(command: str) -> tuple[list[str], Path] | None:
     if _platform.system() != "Darwin" or _shutil.which("sandbox-exec") is None:
         return None
 
+    root = project_root or str(getattr(app_config.paths, "project_root", "."))
+    from ..engine.sandbox import _python_runtime_read_paths
+
     runner = SandboxRunner(
-        project_root=str(getattr(app_config.paths, "project_root", ".")),
+        project_root=root,
         enabled=True,
         network=getattr(app_config.security, "sandbox_network", "none"),
+        # FR-02: 사용자 트리/공유 임시 디렉토리 읽기와 root 밖 쓰기를 차단한다.
+        restrict_reads=True,
+        read_allow_paths=[root, *_python_runtime_read_paths()],
     )
     try:
         profile_text = runner.build_seatbelt_profile()
     except Exception:
-        logger.exception("seatbelt 프로파일 생성 실패 — raw 실행으로 폴백")
+        logger.exception("seatbelt 프로파일 생성 실패 — 실행 거부")
         return None
 
     fd = tempfile.NamedTemporaryFile(mode="w", suffix=".sb", prefix="agk_term_", delete=False, encoding="utf-8")
@@ -99,32 +109,30 @@ class PersistentTerminalManager:
     def create_terminal(self, command: str, cwd: str) -> str:
         term_id = str(uuid.uuid4())[:8]
 
-        wrapped = build_sandbox_argv(command)
+        wrapped = build_sandbox_argv(command, project_root=cwd)
         profile_path: Path | None = None
-        if wrapped is not None:
-            argv, profile_path = wrapped
-            process = subprocess.Popen(
-                argv,
-                shell=False,
-                cwd=cwd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
+        if wrapped is None:
+            # FR-02/RP-02: sandbox를 보장할 수 없으면 raw shell 실행을 하지 않는다.
+            raise RuntimeError(
+                "Persistent terminal requires an available OS sandbox "
+                "(security.sandbox_enabled=true and sandbox-exec); raw host execution is disabled."
             )
-            logger.info("[terminal %s] sandboxed execution enabled", term_id)
-        else:
-            process = subprocess.Popen(
-                command,
-                shell=True,
-                cwd=cwd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            )
+        argv, profile_path = wrapped
+        # FR-02: 부모 os.environ/provider 시크릿을 상속하지 않는 최소 환경.
+        from ..engine.sandbox import _minimal_child_env
+
+        process = subprocess.Popen(
+            argv,
+            shell=False,
+            cwd=cwd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            env=_minimal_child_env(os.path.realpath(os.path.abspath(cwd))),
+        )
+        logger.info("[terminal %s] sandboxed execution enabled", term_id)
         # Using non-blocking IO for stdout/stderr would be better, but for simplicity:
         stdout = process.stdout
         stderr = process.stderr
@@ -426,23 +434,26 @@ class InteractivePTYTool(BaseTool):
             if InteractivePTYTool._active_pid:
                 self._cleanup_session()
 
-            wrapped = build_sandbox_argv(command)
+            from .tool_path import effective_project_root
+
+            wrapped = build_sandbox_argv(command, project_root=effective_project_root())
+            if wrapped is None:
+                # FR-02/RP-02: sandbox를 보장할 수 없으면 PTY raw exec를 하지 않는다.
+                return (
+                    "Error: interactive PTY requires an available OS sandbox "
+                    "(security.sandbox_enabled=true and sandbox-exec); raw host execution is disabled."
+                )
             pid, fd = pty.fork()
             if pid == 0:
                 # Child process
-                import shlex
-                import sys
-
                 try:
-                    if wrapped is not None:
-                        argv, _profile_path = wrapped
-                        os.execvp(argv[0], argv)
-                    else:
-                        cmd_args = shlex.split(command)
-                        os.execvp(cmd_args[0], cmd_args)
+                    argv, _profile_path = wrapped
+                    os.execvp(argv[0], argv)
                 except Exception as e:
                     logger.exception("Unhandled exception")
                     print(f"Exec failed: {e}")
+                    import sys
+
                     sys.exit(1)
             else:
                 # Parent process

@@ -41,6 +41,9 @@ def _record(name: str, fn: Any) -> ScenarioRecord:
     start = time.time()
     try:
         detail = fn() or {}
+        false_details = [key for key, value in detail.items() if value is False]
+        if false_details:
+            raise AssertionError(f"false boolean detail: {', '.join(false_details)}")
         record = ScenarioRecord(name, True, latency_ms=round((time.time() - start) * 1000, 1), detail=detail)
     except Exception as exc:  # noqa: BLE001 — staging은 실패도 기록한다
         record = ScenarioRecord(
@@ -120,16 +123,38 @@ def scenario_ollama_cancel() -> dict[str, Any]:
 
 
 def scenario_ollama_tool_loop() -> dict[str, Any]:
-    """로컬 모델 + tool loop — tool registry가 로컬 모델 컨텍스트에서 초기화된다.
+    """로컬 모델 + tool loop — 실제 tool 실행이 로컬 컨텍스트에서 성공한다.
 
-    LLM이 도구를 선택해야 하는 실제 루프는 비결정적이므로, ToolsetManager가
-    config.yaml에서 toolset을 resolve하고 활성 tool 목록을 제공하는지 검증한다.
+    FR-06/RP-11(R11-06): tool registry 목록 조회만으로 실행 성공으로 계산하지
+    않는다. 활성 tool 목록과 함께 권한 경계를 통한 실제 read_file 실행이
+    성공하는지 검증한다.
     """
+    import tempfile
+    from pathlib import Path
+
     from antigravity_k.engine.toolset_manager import ToolsetManager
+    from antigravity_k.tools.system_tools import ReadFileTool
+    from antigravity_k.tools.tool_registry import ToolRegistry
 
     manager = ToolsetManager.from_config(None)
     tools = manager.get_active_tools()
-    return {"active_tool_count": len(tools), "sample": tools[:5]}
+
+    executed_ok = False
+    executed_tool = ""
+    with tempfile.TemporaryDirectory(prefix="val01-tool-") as td:
+        probe = Path(td) / "probe.txt"
+        probe.write_text("local tool execution ok", encoding="utf-8")
+        registry = ToolRegistry(project_root=td)
+        _ = registry.install(ReadFileTool())
+        permission, result = registry.execute_with_permission(
+            "read_file", {"file_path": "probe.txt"}, objective="staging tool execution"
+        )
+        executed_ok = permission.name == "ALLOW" and "local tool execution ok" in str(result)
+        executed_tool = "read_file"
+
+    if not executed_ok:
+        raise AssertionError(f"real tool execution did not succeed in local context ({executed_tool})")
+    return {"active_tool_count": len(tools), "sample": tools[:5], "executed_tool": executed_tool}
 
 
 # ---------------------------------------------------------------------------
@@ -138,11 +163,15 @@ def scenario_ollama_tool_loop() -> dict[str, Any]:
 
 
 def _make_chunks(prefix: str, count: int) -> list[dict[str, object]]:
+    # metadata 스키마는 rag_indexer의 실제 인덱싱 경로와 동일해야 한다:
+    # VectorStore.delete_file_chunks_strict는 where={"source": file_path}로
+    # 삭제하므로 "source" 키가 없으면 삭제가 silent no-op이 된다 (FR-07).
     return [
         {
             "id": f"{prefix}-chunk-{i}",
             "text": f"{prefix} 문서 내용 {i} — 스테이징 테스트 청크",
             "metadata": {
+                "source": f"{prefix}/doc{i}.md",
                 "file_path": f"{prefix}/doc{i}.md",
                 "source_id": f"{prefix}/doc{i}.md",
                 "start_line": 1,
@@ -151,6 +180,12 @@ def _make_chunks(prefix: str, count: int) -> list[dict[str, object]]:
         }
         for i in range(count)
     ]
+
+
+def _count_source_chunks(store: Any, source: str) -> int:
+    """Backend readback: where 필터로 해당 source의 실제 chunk 수를 센다."""
+    payload = store._require_collection().get(where={"source": source})
+    return len(payload.get("ids") or [])
 
 
 def _chroma_scenarios(tmp_root: Path) -> list[ScenarioRecord]:
@@ -163,8 +198,11 @@ def _chroma_scenarios(tmp_root: Path) -> list[ScenarioRecord]:
         store = VectorStore(str(persist_dir), collection_name="val01")
         store.upsert_chunks(_make_chunks("val01", 6))
         stats = store.get_stats()
+        indexed = _count_source_chunks(store, "val01/doc0.md")
         store.close()
-        return {"stats": stats}
+        if indexed != 1:
+            raise AssertionError(f"target source not indexed: {indexed} chunks")
+        return {"stats": stats, "target_source_chunks": indexed}
 
     records.append(_record("chroma_index", _index))
 
@@ -173,33 +211,75 @@ def _chroma_scenarios(tmp_root: Path) -> list[ScenarioRecord]:
         store = VectorStore(str(persist_dir), collection_name="val01")
         stats = store.get_stats()
         results = store.search("스테이징 테스트 청크", n_results=3)
+        count = stats.get("count")
         store.close()
+        # 통계 키는 실제 스키마(count)로 확인한다 — None이면 성공 근거로 쓰지 않는다.
+        if not isinstance(count, int) or count < 6:
+            raise AssertionError(f"restart lost chunks: stats={stats}")
         if not results:
             raise AssertionError("no results after restart")
-        return {"chunk_count_after_restart": stats.get("chunk_count"), "search_hits": len(results)}
+        return {"chunk_count_after_restart": count, "search_hits": len(results)}
 
     records.append(_record("chroma_restart_survives", _restart))
 
     def _reindex() -> dict[str, Any]:
         store = VectorStore(str(persist_dir), collection_name="val01")
+        # control: 삭제 대상과 다른 문서가 인덱싱돼 있는지 먼저 확인
+        control_before = _count_source_chunks(store, "val01/doc3.md")
         store.delete_file_chunks("val01/doc0.md")
+        remaining_target = _count_source_chunks(store, "val01/doc0.md")
         store.upsert_chunks(_make_chunks("val01", 6))
+        reindexed = _count_source_chunks(store, "val01/doc0.md")
+        control_after = _count_source_chunks(store, "val01/doc3.md")
         results = store.search("문서 내용 0", n_results=2)
         store.close()
-        if not results:
-            raise AssertionError("reindexed chunk not searchable")
-        return {"reindexed_hits": len(results)}
+        # 삭제→재인덱스가 실제로 일어났는지 backend readback으로 판정한다.
+        if control_before < 1:
+            raise AssertionError("control source missing before reindex")
+        if remaining_target != 0:
+            raise AssertionError(f"delete before reindex was a no-op: {remaining_target} chunks left")
+        if reindexed != 1:
+            raise AssertionError(f"reindex did not restore target: {reindexed} chunks")
+        if control_after < 1:
+            raise AssertionError("control source lost during reindex")
+        return {
+            "remaining_target_after_delete": remaining_target,
+            "reindexed_target_chunks": reindexed,
+            "control_chunks_before": control_before,
+            "control_chunks_after": control_after,
+            "search_hits": len(results),
+        }
 
     records.append(_record("chroma_reindex", _reindex))
 
     def _delete() -> dict[str, Any]:
         store = VectorStore(str(persist_dir), collection_name="val01")
-        before = store.get_stats().get("chunk_count")
-        store.delete_file_chunks("val01/doc1.md")
-        results = store.search("문서 내용 1", n_results=5)
+        # target/control 별도 source를 인덱싱한다 — 삭제 판정은 검색 히트가
+        # 아니라 backend where-readback으로 한다 (FR-07 false-green 제거).
+        store.upsert_chunks(_make_chunks("del_target", 2))
+        store.upsert_chunks(_make_chunks("del_control", 2))
+        target_before = _count_source_chunks(store, "del_target/doc0.md")
+        control_before = _count_source_chunks(store, "del_control/doc0.md")
+        if target_before < 1 or control_before < 1:
+            store.close()
+            raise AssertionError(f"precondition failed: target={target_before} control={control_before}")
+        store.delete_file_chunks("del_target/doc0.md")
+        target_after = _count_source_chunks(store, "del_target/doc0.md")
+        control_after = _count_source_chunks(store, "del_control/doc0.md")
+        # 보조 관찰: 의미 판별이 어려운 검색 히트는 판정에 쓰지 않는다.
+        hits = store.search("del_target 문서 내용 0", n_results=5)
         store.close()
-        deleted = not results
-        return {"chunk_count_before": before, "deleted_file_unsearchable": deleted}
+        if target_after != 0:
+            raise AssertionError(f"target source still present after delete: {target_after} chunks")
+        if control_after < 1:
+            raise AssertionError("control source vanished — delete removed too much")
+        return {
+            "target_chunks_before": target_before,
+            "target_chunks_after": target_after,
+            "control_chunks_before": control_before,
+            "control_chunks_after": control_after,
+            "search_hits_after_delete": len(hits),
+        }
 
     records.append(_record("chroma_delete", _delete))
 
@@ -210,11 +290,19 @@ def _chroma_scenarios(tmp_root: Path) -> list[ScenarioRecord]:
         store = VectorStore(str(persist_dir), collection_name="val01")
         results = store.search("문서 내용 2", n_results=1)
         store.close()
-        meta = results[0]["metadata"] if results else {}
+        if not results:
+            raise AssertionError("no search results for citation scenario")
+        meta = results[0]["metadata"]
+        if not isinstance(meta, dict):
+            raise AssertionError("citation result metadata is not a mapping")
         source_id = str(meta.get("source_id", ""))
         normalized = _normalize_citation_id(source_id)
         response = f"답이다 [citation:{source_id}:1-2] [citation:{source_id}]"
         ranges = _citation_line_ranges(response, source_id)
+        if not ranges:
+            raise AssertionError(f"citation ranges not matched for source_id={source_id!r}")
+        if not normalized:
+            raise AssertionError("citation id normalization produced empty id")
         return {
             "source_id": source_id,
             "normalized": normalized,
@@ -346,14 +434,14 @@ def _training_lifecycle(tmp_root: Path) -> list[ScenarioRecord]:
                 id="s1",
                 category="staging",
                 prompt="스테이징 질문 1에 답해.",
-                expected_keywords=["스테이징"],
+                expected_keywords=("스테이징",),
                 forbidden_for_training=True,
             ),
             EvaluationCase(
                 id="s2",
                 category="staging",
                 prompt="스테이징 질문 2에 답해.",
-                expected_keywords=["스테이징"],
+                expected_keywords=("스테이징",),
                 forbidden_for_training=True,
             ),
         ]
@@ -390,6 +478,34 @@ def _training_lifecycle(tmp_root: Path) -> list[ScenarioRecord]:
 # ---------------------------------------------------------------------------
 
 
+# FR-07/RP-06: 필수 시나리오. 실행되지 않은 필수 시나리오는 FAIL이다 —
+# 빈 목록 all([])=true 로 승인하지 않는다.
+REQUIRED_SCENARIOS: tuple[str, ...] = (
+    "ollama_suite_or_any_ollama_scenario",
+    "chroma_index",
+    "chroma_restart_survives",
+    "chroma_reindex",
+    "chroma_delete",
+    "chroma_citation",
+    "train_recipe_and_checkpoint",
+    "train_resume_from_checkpoint",
+    "fuse_and_promote",
+)
+
+
+def _missing_required(scenario_names: list[str]) -> list[str]:
+    ollama_covered = any(name.startswith("ollama_") for name in scenario_names)
+    missing: list[str] = []
+    for required in REQUIRED_SCENARIOS:
+        if required == "ollama_suite_or_any_ollama_scenario":
+            if not ollama_covered:
+                missing.append("ollama scenarios (server not running — NOT_RUN)")
+            continue
+        if required not in scenario_names:
+            missing.append(required)
+    return missing
+
+
 def run_staging(output: Path) -> dict[str, Any]:
     import tempfile
 
@@ -406,7 +522,7 @@ def run_staging(output: Path) -> dict[str, Any]:
             ScenarioRecord(
                 "ollama_suite",
                 False,
-                failure_mode="Ollama 서버(127.0.0.1:11434) 미기동 — staging 요건 미충족",
+                failure_mode="Ollama 서버(127.0.0.1:11434) 미기동 — staging 요건 미충족 (NOT_RUN)",
             ).to_dict(),
         )
 
@@ -417,6 +533,7 @@ def run_staging(output: Path) -> dict[str, Any]:
             scenarios.append(r.to_dict())
 
     failures = [s for s in scenarios if not s["ok"]]
+    missing = _missing_required([str(s["scenario"]) for s in scenarios])
     artifact = {
         "task": "VAL-01",
         "executed_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -426,6 +543,7 @@ def run_staging(output: Path) -> dict[str, Any]:
             "total": len(scenarios),
             "passed": len(scenarios) - len(failures),
             "failed": len(failures),
+            "missing_required": missing,
             "failure_modes": [s["failure_mode"] for s in failures],
         },
     }
@@ -444,7 +562,7 @@ def main() -> int:
     artifact = run_staging(args.output)
     summary = artifact["summary"]
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0 if summary["failed"] == 0 else 1
+    return 0 if summary["failed"] == 0 and not summary["missing_required"] else 1
 
 
 if __name__ == "__main__":

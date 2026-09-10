@@ -1,0 +1,17 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.12, pytest-9.1.1, pluggy-1.6.0 -- /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+configfile: pyproject.toml
+plugins: cov-7.1.0, asyncio-1.4.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 6 items
+
+tests/test_fr01_agent_execution_isolation.py::TestSandboxBoundary::test_external_sentinel_read_denied PASSED [ 16%]
+tests/test_fr01_agent_execution_isolation.py::TestSandboxBoundary::test_external_write_denied PASSED [ 33%]
+tests/test_fr01_agent_execution_isolation.py::TestSandboxBoundary::test_shared_tmp_access_denied PASSED [ 50%]
+tests/test_fr01_agent_execution_isolation.py::TestSandboxBoundary::test_loopback_egress_denied PASSED [ 66%]
+tests/test_fr01_agent_execution_isolation.py::TestSandboxBoundary::test_timeout_kills_process_group PASSED [ 83%]
+tests/test_fr01_agent_execution_isolation.py::TestSandboxBoundary::test_output_quota_truncates PASSED [100%]
+
+============================== 6 passed in 5.90s ===============================

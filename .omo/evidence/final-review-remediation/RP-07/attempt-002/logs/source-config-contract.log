@@ -1,0 +1,1 @@
+{'source_bytes_equal': True, 'root_bytes': 19374, 'bundled_bytes': 19374, 'agent_defaults': {'default_entry': 'unified', 'headroom': True, 'max_repairs': 2, 'adaptive': True}}

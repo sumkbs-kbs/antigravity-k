@@ -1,0 +1,73 @@
+{
+  "scenario": "persistent_chroma_healthy",
+  "all_ok": true,
+  "records": [
+    {
+      "scenario": "chroma_index",
+      "ok": true,
+      "latency_ms": 202.1,
+      "detail": {
+        "stats": {
+          "available": true,
+          "persist_directory": "/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/rp06-healthy-l83qxt6b/chroma-persist",
+          "count": 6
+        },
+        "target_source_chunks": 1
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "chroma_restart_survives",
+      "ok": true,
+      "latency_ms": 98.4,
+      "detail": {
+        "chunk_count_after_restart": 6,
+        "search_hits": 3
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "chroma_reindex",
+      "ok": true,
+      "latency_ms": 205.3,
+      "detail": {
+        "remaining_target_after_delete": 0,
+        "reindexed_target_chunks": 1,
+        "control_chunks_before": 1,
+        "control_chunks_after": 1,
+        "search_hits": 2
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "chroma_delete",
+      "ok": true,
+      "latency_ms": 243.4,
+      "detail": {
+        "target_chunks_before": 1,
+        "target_chunks_after": 0,
+        "control_chunks_before": 1,
+        "control_chunks_after": 1,
+        "search_hits_after_delete": 5
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "chroma_citation",
+      "ok": true,
+      "latency_ms": 79.7,
+      "detail": {
+        "source_id": "val01/doc2.md",
+        "normalized": "val01/doc2.md",
+        "ranges": [
+          [
+            1,
+            2
+          ]
+        ],
+        "citation_matched": true
+      },
+      "failure_mode": ""
+    }
+  ]
+}

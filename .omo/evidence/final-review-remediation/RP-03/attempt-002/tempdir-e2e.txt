@@ -1,0 +1,1 @@
+{"sentinel_sha256_unchanged": true, "source": "antigravity_k.engine.atomic_transaction_engine", "swap_committed": false, "swap_error": "Transaction aborted: target path rejected for `victim.py`: Tool path escapes project root: victim.py", "tempdir_cleanup": true, "traversal_rejected": true, "two_file_commit": true}

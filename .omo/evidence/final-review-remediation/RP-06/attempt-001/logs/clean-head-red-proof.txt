@@ -1,0 +1,15 @@
+Using CPython 3.13.12 interpreter at: /Users/mr.k/miniforge3/bin/python3
+Creating virtual environment at: .venv
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import importlib.util, json, sys, tempfile; from pathlib import Path; p=Path("scripts/val01_staging.py"); s=importlib.util.spec_from_file_location("clean_val01", p); m=importlib.util.module_from_spec(s); sys.modules[s.name]=m; s.loader.exec_module(m); d=Path(tempfile.mkdtemp(prefix="rp06-clean-run-")); rows=[x.to_dict() for x in m._chroma_scenarios(d)]; print(json.dumps({"worktree": str(Path.cwd()), "delete": next(x for x in rows if x["scenario"]=="chroma_delete"), "rows": rows}, ensure_ascii=False, indent=2))
+                                                                                                                                                                                                                                                                                                                                               ~~~~~~~~~~~~~~~~~~~^^^
+  File "/private/tmp/rp06-clean-head.a7yjyG/scripts/val01_staging.py", line 157, in _chroma_scenarios
+    from antigravity_k.engine.vector_store import VectorStore
+  File "/private/tmp/rp06-clean-head.a7yjyG/src/antigravity_k/engine/__init__.py", line 4, in <module>
+    from .model_manager import ModelManager
+  File "/private/tmp/rp06-clean-head.a7yjyG/src/antigravity_k/engine/model_manager.py", line 23, in <module>
+    from ..tools.egress_policy import safe_urlopen
+  File "/private/tmp/rp06-clean-head.a7yjyG/src/antigravity_k/tools/egress_policy.py", line 12, in <module>
+    import httpx
+ModuleNotFoundError: No module named 'httpx'

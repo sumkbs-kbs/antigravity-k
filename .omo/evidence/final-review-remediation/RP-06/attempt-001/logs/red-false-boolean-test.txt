@@ -1,0 +1,20 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ TestRecordSemantics.test_false_detail_bool_marks_failure ___________
+
+self = <tests.test_fr07_staging_verdicts.TestRecordSemantics object at 0x104407d90>
+val01 = <module 'val01_staging_under_test' from '/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py'>
+
+    def test_false_detail_bool_marks_failure(self, val01: ModuleType) -> None:
+        def sneaky() -> dict[str, bool]:
+            return {"deleted_file_unsearchable": False}
+
+        record = val01._record("sneaky", sneaky)
+>       assert record.ok is False
+E       AssertionError: assert True is False
+E        +  where True = ScenarioRecord(scenario='sneaky', ok=True, latency_ms=0.0, detail={'deleted_file_unsearchable': False}, failure_mode='').ok
+
+tests/test_fr07_staging_verdicts.py:99: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_fr07_staging_verdicts.py::TestRecordSemantics::test_false_detail_bool_marks_failure
+1 failed in 0.46s

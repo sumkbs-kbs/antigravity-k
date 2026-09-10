@@ -15,6 +15,7 @@ import time
 import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal, Mapping
@@ -179,11 +180,38 @@ class ConversationStore:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
+    def _refresh_latest(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
+        """FR-05/RP-05: 캐시를 디스크 진실 원천과 동기화한 뒤 반환한다.
+
+        ``self._lock``과 ``_cross_process_lock``을 이미 보유한 상태에서만
+        호출한다. 파일이 삭제됐으면 캐시도 무효화한다(삭제된 대화를 되살리지
+        않는다). 손상된 JSON은 기존 계약(예외 삼킴+로그, 캐시 유지)을 따른다.
+        """
+        key = (project_id, conversation_id)
+        path = self._path_for(project_id, conversation_id)
+        if not path.is_file():
+            self._records.pop(key, None)
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                self._records.pop(key, None)
+                return None
+            disk_record = ConversationRecord.from_dict(data)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            logger.exception(
+                "Failed to load conversation %s/%s",
+                project_id,
+                conversation_id,
+            )
+            self._records.pop(key, None)
+            return None
+        self._records[key] = disk_record
+        return disk_record
+
     def get_revision(self, *, project_id: str, conversation_id: str) -> int | None:
-        with self._lock:
-            record = self._records.get((project_id, conversation_id))
-            if record is None:
-                record = self._load(project_id, conversation_id)
+        with self._lock, self._cross_process_lock():
+            record = self._refresh_latest(project_id, conversation_id)
             return None if record is None else record.revision
 
     def compare_and_set(
@@ -194,9 +222,13 @@ class ConversationStore:
         expected_revision: int,
         next_revision: int,
     ) -> bool:
-        """Bare revision CAS (no message mutation). Prefer append/compact."""
-        with self._lock:
-            record = self._ensure_loaded(project_id, conversation_id)
+        """Bare revision CAS (no message mutation). Prefer append/compact.
+
+        FR-05/RP-05: CAS 평가와 persist가 프로세스 간 critical section
+        안에서 디스크 최신 상태를 대상으로 이뤄진다.
+        """
+        with self._lock, self._cross_process_lock():
+            record = self._refresh_latest(project_id, conversation_id)
             if record is None:
                 if expected_revision != 0:
                     return False
@@ -218,8 +250,11 @@ class ConversationStore:
     # ── Reads ───────────────────────────────────────────────────────────
 
     def get(self, *, project_id: str, conversation_id: str) -> ConversationRecord | None:
-        with self._lock:
-            return self._ensure_loaded(project_id, conversation_id)
+        # FR-05/RP-05: 모든 공개 읽기는 프로세스 간 lock 아래 디스크 최신
+        # 상태로 갱신한다(다른 worker의 append/compact을 즉시 관찰).
+        with self._lock, self._cross_process_lock():
+            record = self._refresh_latest(project_id, conversation_id)
+            return None if record is None else deepcopy(record)
 
     def get_or_create(
         self,
@@ -228,9 +263,13 @@ class ConversationStore:
         conversation_id: str,
         expected_revision: int = 0,
     ) -> ConversationRecord:
-        """Return existing record or create at revision 0 when expected is 0."""
-        with self._lock:
-            record = self._ensure_loaded(project_id, conversation_id)
+        """Return existing record or create at revision 0 when expected is 0.
+
+        FR-05/RP-05: 최신 revision 비교와 신규 persist가 같은 프로세스 간
+        critical section 안에서 이뤄진다.
+        """
+        with self._lock, self._cross_process_lock():
+            record = self._refresh_latest(project_id, conversation_id)
             if record is not None:
                 if record.revision != expected_revision:
                     raise StaleConversationRevisionError(
@@ -242,7 +281,7 @@ class ConversationStore:
                             "current_revision": record.revision,
                         },
                     )
-                return record
+                return deepcopy(record)
             if expected_revision != 0:
                 raise ConversationNotFoundError(
                     detail=f"Conversation not found: {conversation_id}",
@@ -259,11 +298,11 @@ class ConversationStore:
             )
             self._records[(project_id, conversation_id)] = record
             self._persist(record)
-            return record
+            return deepcopy(record)
 
     def snapshot(self, *, project_id: str, conversation_id: str) -> ConversationSnapshot:
-        with self._lock:
-            record = self._ensure_loaded(project_id, conversation_id)
+        with self._lock, self._cross_process_lock():
+            record = self._refresh_latest(project_id, conversation_id)
             if record is None:
                 raise ConversationNotFoundError(
                     detail=f"Conversation not found: {conversation_id}",
@@ -302,9 +341,7 @@ class ConversationStore:
         # 디스크 최신 상태를 재적재한 뒤 CAS를 평가한다 (stale 메모리 캐시로
         # 인한 침묵 덮어쓰기 방지).
         with self._lock, self._cross_process_lock():
-            record = self._ensure_loaded(project_id, conversation_id)
-            if record is not None:
-                self._reload_from_disk(project_id, conversation_id, record)
+            record = self._refresh_latest(project_id, conversation_id)
             if record is None:
                 if not create_if_missing or expected_revision != 0:
                     if expected_revision != 0:
@@ -381,9 +418,7 @@ class ConversationStore:
         retain_tail = max(0, int(retain_tail))
 
         with self._lock, self._cross_process_lock():
-            record = self._ensure_loaded(project_id, conversation_id)
-            if record is not None:
-                self._reload_from_disk(project_id, conversation_id, record)
+            record = self._refresh_latest(project_id, conversation_id)
             if record is None:
                 raise ConversationNotFoundError(
                     detail=f"Conversation not found: {conversation_id}",
@@ -448,8 +483,8 @@ class ConversationStore:
         new_conversation_id: str | None = None,
     ) -> ConversationSnapshot:
         """Fork conversation at current (or expected) revision into a new id at revision 0."""
-        with self._lock:
-            source = self._ensure_loaded(project_id, source_conversation_id)
+        with self._lock, self._cross_process_lock():
+            source = self._refresh_latest(project_id, source_conversation_id)
             if source is None:
                 raise ConversationNotFoundError(
                     detail=f"Conversation not found: {source_conversation_id}",
@@ -548,28 +583,6 @@ class ConversationStore:
         tmp.write_text(payload, encoding="utf-8")
         os.replace(tmp, path)
 
-    def _reload_from_disk(self, project_id: str, conversation_id: str, current: ConversationRecord) -> None:
-        """VAL-02: flock 아래 디스크 최신 상태를 현재 캐시에 반영한다.
-
-        다른 프로세스가 revision을 앞당겼으면(expected보다 크면) 현재 CAS는 stale
-        가 되므로 StaleConversationRevisionError가 뜨도록 캐시를 갱신한다.
-        """
-        path = self._path_for(project_id, conversation_id)
-        if not path.is_file():
-            return
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                disk_record = ConversationRecord.from_dict(data)
-                if disk_record.revision > current.revision:
-                    current.revision = disk_record.revision
-                    current.messages = disk_record.messages
-                    current.summary = disk_record.summary
-                    current.retained_message_ids = disk_record.retained_message_ids
-                    current.updated_at = disk_record.updated_at
-        except Exception:
-            logger.exception("Failed to reload conversation %s/%s", project_id, conversation_id)
-
     def _load(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
         path = self._path_for(project_id, conversation_id)
         if not path.is_file():
@@ -598,32 +611,34 @@ class ConversationStore:
             self._records.clear()
 
 
-_STORE: ConversationStore | None = None
-_STORE_LOCK = threading.Lock()
+_store_singleton: ConversationStore | None = None
+_store_lock = threading.Lock()
 
 
 def get_conversation_store() -> ConversationStore:
     """Process-wide authoritative conversation store singleton."""
-    global _STORE
-    with _STORE_LOCK:
-        if _STORE is None:
-            _STORE = ConversationStore()
-        return _STORE
+    global _store_singleton
+    with _store_lock:
+        if _store_singleton is None:
+            _store_singleton = ConversationStore()
+        return _store_singleton
 
 
 def reset_conversation_store_for_tests(store: ConversationStore | None = None) -> ConversationStore:
     """Replace the singleton (tests only)."""
-    global _STORE
+    global _store_singleton
     import tempfile
 
-    with _STORE_LOCK:
+    with _store_lock:
         if store is not None:
-            _STORE = store
+            _store_singleton = store
         elif os.environ.get("AGK_CONVERSATION_STORE_DIR"):
-            _STORE = ConversationStore(storage_dir=Path(os.environ["AGK_CONVERSATION_STORE_DIR"]) / "conversations")
+            _store_singleton = ConversationStore(
+                storage_dir=Path(os.environ["AGK_CONVERSATION_STORE_DIR"]) / "conversations"
+            )
         else:
-            _STORE = ConversationStore(storage_dir=tempfile.mkdtemp(prefix="agk-conv-"))
-        return _STORE
+            _store_singleton = ConversationStore(storage_dir=tempfile.mkdtemp(prefix="agk-conv-"))
+        return _store_singleton
 
 
 __all__ = [

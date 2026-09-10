@@ -1,0 +1,11 @@
+PYTHONPATH=src uv run --no-sync python .omo/evidence/final-review-remediation/RP-04/attempt-002/manual-qa-driver.py
+
+[RSI Sandbox] AST 실패: owned.py: invalid syntax (<unknown>, line 1)
+[Meta-Architect] 샌드박스 검증 실패: owned.py -> {'ast': <ValidationResult.FAIL: 'fail'>}
+[RSI Sandbox] 수정 중 오류, 소유 쓰기 롤백 시작: Meta-Architect macromutation failed validation. Rolling back.
+[Meta-Architect] 실행 중 롤백됨
+Traceback (most recent call last):
+  File "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/meta_architect.py", line 251, in execute_proposal
+    raise Exception("Meta-Architect macromutation failed validation. Rolling back.")
+Exception: Meta-Architect macromutation failed validation. Rolling back.
+{"dirty_preserved": true, "execute_proposal": false, "git_status_has_dirty_B": true, "git_status_has_untracked_C": true, "owned_restored": true, "source_rsi_sandbox": "antigravity_k.engine.rsi_sandbox", "temp_repo_removed": true, "untracked_preserved": true}

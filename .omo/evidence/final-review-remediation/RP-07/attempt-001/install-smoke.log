@@ -1,0 +1,13 @@
+temp_root=/tmp/rp07-installed.SqwmN6
+Using CPython 3.13.12 interpreter at: /Users/mr.k/miniforge3/bin/python3
+Creating virtual environment at: /tmp/rp07-installed.SqwmN6/venv
+Activate with: source /tmp/rp07-installed.SqwmN6/venv/bin/activate
+Resolved 64 packages in 276ms
+Prepared 1 package in 38ms
+Uninstalled 1 package in 1ms
+Installed 1 package in 6ms
+ - antigravity-k==0.1.0 (from file:///Users/mr.k/program/coding/ssak_comp/Ssak-Ai)
+ + antigravity-k==0.1.0 (from file:///Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dist/antigravity_k-0.1.0-py3-none-any.whl)
+Traceback (most recent call last):
+  File "<stdin>", line 8, in <module>
+ModuleNotFoundError: No module named 'yaml'

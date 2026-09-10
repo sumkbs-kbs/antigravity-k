@@ -1,0 +1,2 @@
+^Dmanual fixture cleanup: PASS
+diff-check: PASS

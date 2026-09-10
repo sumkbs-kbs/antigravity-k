@@ -340,10 +340,27 @@ def scenario_kill_recovery(workdir: Path, events: int = 50) -> dict[str, Any]:
         and len(evs) > 0  # kill 전 최소 1건은 커밋되어야 의미 있는 복구 검증
     )
     resumed = reopened.prepare_resume(task_id) if rec is not None else False
-    resumed_events = (
-        reopened.list_execution_events(task_id, after_sequence=sequences[-1]) if resumed and sequences else []
-    )
-    _ = resumed_events
+    # FR-06/RP-11(R11-08): 재개 요청만으로 끝내지 않는다 — 재시작 worker가
+    # task를 최종 완료로 이끌고, 완료된 task의 재이행(중복 부작용)이 거부되는지까지.
+    final_done = False
+    duplicate_side_effect_rejected = False
+    if resumed:
+        try:
+            # prepare_resume은 task를 "resuming"으로 둔다 — 재시작 worker는
+            # resuming → running → done으로 최종 완료시킨다.
+            _ = reopened.transition(task_id, "running", expected_status="resuming")
+            _ = reopened.transition(task_id, "done", output="recovered", expected_status="running")
+            final_done = reopened.get_task(task_id)["status"] == "done"
+        except Exception:
+            final_done = False
+        try:
+            # 완료된 task를 다시 running으로 전환하려는 시도는 거부돼야 한다.
+            _ = reopened.transition(task_id, "running", expected_status="done")
+            duplicate_side_effect_rejected = False
+        except Exception:
+            duplicate_side_effect_rejected = True
+    post_sequences = [e["sequence"] for e in reopened.list_execution_events(task_id)]
+    post_unique = len(post_sequences) == len(set(post_sequences))
     return {
         "scenario": "SC-4-kill-9-recovery",
         "killed_with_sigkill": killed,
@@ -352,7 +369,10 @@ def scenario_kill_recovery(workdir: Path, events: int = 50) -> dict[str, Any]:
         "sequence_unique": unique,
         "task_status_after_kill": rec["status"] if rec else None,
         "prepare_resume_ok": resumed,
-        "pass": bool(recovered and resumed),
+        "resumed_task_completed": final_done,
+        "duplicate_side_effect_rejected": duplicate_side_effect_rejected,
+        "post_recovery_sequences_unique": post_unique,
+        "pass": bool(recovered and resumed and final_done and duplicate_side_effect_rejected and post_unique),
     }
 
 
@@ -407,16 +427,22 @@ def scenario_load_latency(workdir: Path, ops: int = 300) -> dict[str, Any]:
 
 
 def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
+    from antigravity_k.engine.conversation_store import ConversationStore
     from antigravity_k.engine.task_state_store import TaskStateStore
 
     db_path = str(workdir / "soak.db")
     store = TaskStateStore(db_path)
     store.initialize()
+    conv_store = ConversationStore(storage_dir=workdir / "soak-conversations")
     rss_samples: list[float] = []
+    fd_samples: list[int] = []
     ops = 0
+    conv_ops = 0
     errors = 0
-    deadline = time.time() + seconds
+    started = time.time()
+    deadline = started + seconds
     i = 0
+    conv_rev = 0
     while time.time() < deadline:
         tid = f"soak-{i}"
         try:
@@ -426,10 +452,27 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
             ops += 1
         except Exception:
             errors += 1
+        # FR-06/RP-11(R11-07): DB 루프만이 아니라 conversation 작업 부하 포함.
+        try:
+            snap = conv_store.append(
+                project_id="soak",
+                conversation_id="soak-conv",
+                expected_revision=conv_rev,
+                role="user",
+                content=f"soak turn {i}",
+            )
+            conv_rev = snap.revision
+            conv_ops += 1
+        except Exception:
+            errors += 1
         i += 1
         if i % 50 == 0:
             rss_samples.append(_rss_mb())
+            fd_samples.append(_fd_count())
+    # FR-06/RP-11: 실측 종료 시각 — 요청값이 아니라 실제로 흘린 시간을 기록한다.
+    actual_duration = round(time.time() - started, 3)
     growth = (rss_samples[-1] - rss_samples[0]) if len(rss_samples) >= 2 else 0.0
+    fd_growth = (fd_samples[-1] - fd_samples[0]) if len(fd_samples) >= 2 else 0
     # orphan worktree: 이 스크립트는 repo 내 worktree를 만들지 않는다 — 관측만
     orphan_wt = subprocess.run(  # noqa: S603
         ["git", "worktree", "list"], cwd=REPO_ROOT, capture_output=True, text=True
@@ -438,18 +481,42 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
     lock_ok = True
     try:
         _ = store.list_tasks(limit=1)
+        _ = conv_store.get_revision(project_id="soak", conversation_id="soak-conv")
     except Exception:
         lock_ok = False
+    # conversation CAS 불변: 성공 append 수와 최종 revision이 정확히 일치해야 한다.
+    final_rev = conv_store.get_revision(project_id="soak", conversation_id="soak-conv")
+    conv_consistent = final_rev == conv_rev
+    conv_record = conv_store.get(project_id="soak", conversation_id="soak-conv")
+    conv_message_count = len(conv_record.messages) if conv_record else -1
     return {
         "scenario": "SC-6-soak",
-        "duration_s": seconds,
+        "requested_duration_s": seconds,
+        "duration_s": actual_duration,
+        "actual_duration_s": actual_duration,
         "completed_ops": ops,
+        "conversation_ops": conv_ops,
+        "conversation_revision": final_rev,
+        "conversation_message_count": conv_message_count,
+        "conversation_append_equality": conv_consistent,
         "errors": errors,
         "rss_samples_mb": [round(r, 1) for r in rss_samples],
         "rss_growth_mb": round(growth, 1),
+        "fd_samples": fd_samples,
+        "fd_growth": fd_growth,
         "orphan_worktrees": orphan_wt,
         "db_accessible_after": lock_ok,
-        "pass": errors == 0 and growth <= RSS_LEAK_THRESHOLD_MB and orphan_wt == 0 and lock_ok,
+        "pass": (
+            errors == 0
+            and growth <= RSS_LEAK_THRESHOLD_MB
+            and fd_growth <= FD_LEAK_THRESHOLD
+            and orphan_wt == 0
+            and lock_ok
+            and conv_consistent
+            and conv_message_count == conv_ops
+            # 실측 시간이 요청의 90% 미만이면 soak가 조기 종료됐다 — 실패.
+            and actual_duration >= seconds * 0.9
+        ),
     }
 
 
@@ -461,6 +528,10 @@ SCENARIOS = {
     "SC-5": scenario_load_latency,
     "SC-6": scenario_soak,
 }
+
+# FR-06/RP-11(R11-04): 필수 시나리오. 실행되지 않은 필수 시나리오는
+# all([])==True 로 승인되지 않는다.
+REQUIRED_SCENARIOS: tuple[str, ...] = ("SC-1", "SC-2", "SC-3", "SC-4", "SC-5", "SC-6")
 
 
 def main() -> int:
@@ -504,7 +575,13 @@ def main() -> int:
             result = {"scenario": key, "pass": False, "error": f"{type(exc).__name__}: {exc}"}
         report["scenarios"].append(result)
 
-    report["all_pass"] = all(s.get("pass") for s in report["scenarios"])
+    executed = {s.get("scenario", "") for s in report["scenarios"]}
+    missing_required = [key for key in REQUIRED_SCENARIOS if key not in executed and key not in only]
+    report["missing_required"] = missing_required
+    # FR-06/RP-11: 빈 실행 목록(all([]) == True) 또는 필수 누락은 PASS가 아니다.
+    report["all_pass"] = (
+        bool(report["scenarios"]) and not missing_required and all(s.get("pass") for s in report["scenarios"])
+    )
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     if args.output:
         Path(args.output).write_text(rendered + "\n", encoding="utf-8")

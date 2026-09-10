@@ -1,0 +1,33 @@
+{
+  "task_id": "VAL-02",
+  "generated_at": "2026-09-10T22:45:21Z",
+  "workdir": "/tmp/rp11_val02c",
+  "thresholds": {
+    "p95_ms": 500.0,
+    "p99_ms": 1000.0,
+    "error_rate_max": 0.0,
+    "fd_leak_max": 5,
+    "rss_leak_mb": 64.0
+  },
+  "scenarios": [
+    {
+      "scenario": "SC-1-task-cas-race",
+      "workers": 8,
+      "tasks": 32,
+      "total_wins": 32,
+      "terminal_contradictions": 0,
+      "cross_owner_leak": 0,
+      "unexpected_errors": 0,
+      "elapsed_s": 0.98,
+      "pass": true
+    }
+  ],
+  "missing_required": [
+    "SC-2",
+    "SC-3",
+    "SC-4",
+    "SC-5",
+    "SC-6"
+  ],
+  "all_pass": false
+}

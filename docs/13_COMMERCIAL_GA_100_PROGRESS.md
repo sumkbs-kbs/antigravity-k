@@ -1,6 +1,9 @@
 ---
 title: Ssak-Ai 상용화 준비도 100% 진행 기록
 status: completed
+final_review_status: request_changes
+final_review_sha: 8794aaecabf5664a7ee560b104e0115d915aabb7
+final_review_report: docs/qa/2026-09-10/FINAL_REVIEW.md
 started_at: 2026-09-05T21:43:58+09:00
 baseline_commit: 35104f4fde5da718f2dd3048dfb1b51a225c23d7
 plan: docs/11_COMMERCIAL_GA_100_PLAN.md
@@ -1070,3 +1073,52 @@ tags: [commercialization, progress, evidence, multi-agent]
   - `scripts/dr_rehearsal.py` 4개 재해 복구 시나리오(backup_restore, db_corruption, orphan_worktrees, project_migration) 100% 통과.
   - `tests/test_worktree_orphan_sweep.py`, `tests/test_evo02_measured_evaluation.py`, `tests/test_rag02_line_provenance.py` 35/35 통과.
   - `ruff` / `mypy` 0 errors.
+
+
+### 2026-09-10 · 사용자 완료 후 최종 독립 검토: REQUEST CHANGES
+
+- **검토 대상**: `8794aaecabf5664a7ee560b104e0115d915aabb7`. 사용자 요청에 따라 작성자 구분 없이 현재 구현·실행·계획 충족 여부를 검토했다. 제품 코드 수정이나 커밋은 하지 않았다.
+- **판정**: 다섯 검토 영역 모두 FAIL. 기존 `33/33 DONE`은 구현 완료 기록으로 보존하되, 현 SHA의 상용화 100% 및 GO 승인은 확인되지 않았다.
+- **높은 영향 결함**: agent ask의 host 직접 코드 실행, shell 환경변수 경로 우회, transaction 경로 이탈, RSI 전체 트리 rollback, worker 간 오래된 대화 캐시/revision 수용. 번들 기본 설정 불일치 테스트도 독립 재현했다.
+- **출시 증거 누락**: 이전 candidate 이후 실 코드 변경, cloud provider 미실행, 8시간 요구 대비 60초 soak, Chroma 삭제 검증의 false-green, review-pending metadata/문서 상태 충돌.
+- **검증 결과**: QA 실행자 기준 frontend 750 tests/typecheck/build 통과(lint 30 warnings), backend 집중 검사 196 passed/1 failed. Root 재검사에서 동일 번들 설정 테스트 1 failed. 다른 focused 검사 결과는 보고서에 구분 기록했고 중복 합산하지 않았다.
+- **핵심 사용자 시나리오**: 프로젝트 전환 및 browser-origin compact API 성공을 QA 실행자가 보고했으나 원본 action log가 누락돼 증거 한계를 명시했다. 선택 폴더 파일→실 provider prompt 및 자동/수동 압축 UI 전체 경로는 추가 검증 필요.
+- **상세 결과·재작업 체크리스트**: [FINAL_REVIEW.md](qa/2026-09-10/FINAL_REVIEW.md). 영역별 5개 보고서·스크린샷·재현 스크립트·실패 원문을 같은 폴더에 보존했다. `.omo/start-work/ledger.jsonl`에 각 lane/SHA/판정을 기록했다.
+- **다음 순서**: FR-01~05 안전성/정합성 → FR-07/10 검증기·설정 → FR-08 문서/승인 → FR-06/09 최종 SHA의 전체 gate·실 provider·8시간 soak·산출물 → 독립 재검토.
+
+
+### 2026-09-10 · 최종 검토 개선 개발계획서·인계 체크리스트 작성
+
+- 사용자 요청에 따라 하위 모델/타 에이전트가 작은 작업 단위로 이어받을 수 있는 [상세 개발계획서](14_FINAL_REVIEW_REMEDIATION_PLAN.md)와 [실행 체크리스트](15_FINAL_REVIEW_REMEDIATION_CHECKLIST.md)를 작성했다.
+- FR-01~10과 폴더/압축 E2E 증거 공백을 필수 RP-00~14(15개), 선택 RP-15(1개)로 매핑했다. 171개 세부 체크박스는 모두 미완료로 시작한다.
+- 각 작업의 실제 파일/심볼, 수정 순서, 소유권, 선행 조건, 정상·실패 시나리오, 검증 명령, 독립 승인 기준, 원문 증거/재개 양식을 포함했다.
+- Sandbox 공용 함수, path resolver, RSI take_snapshot, ConversationStore locking, VAL-02 CLI 옵션을 graph로 확인했고 신규 테스트는 기존 파일과 구분했다.
+- 이번 작업은 계획 문서 작성이며 제품 결함 수정이나 테스트 실행 완료를 의미하지 않는다. 현재 필수 작업 완료는 0/15이고 최종 리뷰 REQUEST_CHANGES 판정은 유지한다.
+- 다음 작업자는 두 문서를 읽고 RP-00의 기준·환경·배정 기록부터 시작한다.
+
+### 2026-09-10 · 개선 개발 작업 재개 및 기존 변경 인수
+
+- 현재 HEAD `8794aaecabf5664a7ee560b104e0115d915aabb7`와 작업 트리를 다시 확인했다. 사용자가 진행한 RP-01~05 제품·테스트 변경과 RP-06 변경, 기존 `vault_data`, 리뷰 문서를 보존했다.
+- RP-01~05는 작성된 metadata의 자기 보고 상태인 `REVIEW`, RP-06은 코드·테스트 변경만 확인된 `IN_PROGRESS`로 원장에 반영했다. 독립 검토 전에는 DONE으로 올리지 않는다.
+- `.omo/plans/final-review-remediation.md` 실행 mirror와 Boulder work `final-review-remediation-20260910`을 만들고 활성화했다. 이전 GA-100 work는 구현 이력으로 `completed` 처리했다.
+- RP-00 attempt-002에 실제 시스템 Python과 uv Python을 분리해 환경·현재 dirty 범위·증거 규칙을 기록하고 독립 검토 `rp00_verify`를 시작했다.
+- 다음 단계는 기존 변경을 덮어쓰지 않고 RP-01~06을 작업별로 독립 재현·검토해 부족한 부분만 보완하는 것이다.
+- RP-00은 초기 attempt 001/002의 증거 부족을 실패 이력으로 보존한 뒤 attempt-003에서 원문 dirty snapshot·환경·FR 상태·담당 파일·명령 출력·redaction 기록을 보강했다. 독립 검토 `rp00_verify`가 R00-01~07을 모두 재현해 `CONFIRMED`; RP-00을 DONE으로 전환했다.
+- RP-01/02, RP-03, RP-04, RP-05, RP-06, RP-07을 기존 사용자 변경 인수 상태로 병렬 배정했다. 공용 sandbox/path 파일은 한 작업자에게 묶고 나머지는 겹치지 않는 파일 소유권으로 분리했다. 각 작업자는 clean HEAD red 증거, 현재 구현의 실 표면 QA, 원문 로그, 정리 영수증을 남긴 뒤 REVIEW만 요청하며 조정자가 독립 검토를 별도로 실행한다.
+
+### 2026-09-10 21:03 KST · RP-01~07 사용량 제한 인계 및 재배정
+
+- 최초 배정한 `rp01_rp02_executor`, `rp03_executor`, `rp04_executor`, `rp05_executor`, `rp06_executor`, `rp07_executor`는 모두 계정 사용량 제한으로 종료됐다. 이 종료를 구현 실패 판정으로 과장하지 않고, 공유 작업 트리에 남은 코드·테스트·증거를 그대로 보존했다.
+- 잔여 산출물을 확인한 결과 RP-01/02/05 디버그 저널과 RP-07 build/install/model-registry 로그가 존재하며, RP-03/04/06은 독립 검토 가능한 증거 팩이 아직 완성되지 않았다.
+- 충돌을 줄이기 위해 재배정을 `rp01_retry`, `rp02_retry`, `rp03_retry`, `rp04_retry`, `rp05_retry`, `rp06_rp07_retry`로 세분화했다. 각 담당자는 기존 dirty 변경을 인수하고 타 담당자 변경을 되돌리지 않으며, 자기 소유 파일과 증거 디렉터리만 보완한다.
+- 상태는 모두 `IN_PROGRESS`를 유지한다. 테스트 통과 보고만으로 DONE 처리하지 않고, 원문 명령 로그·실 표면 QA·handoff가 완성된 후 별도 독립 검토가 PASS한 항목만 승격한다.
+- RP-06은 false boolean detail을 fail-closed 처리하고 focused pytest 9건, 실제 Chroma 정상·no-op delete 음성·CLI nonzero 시나리오를 attempt-002에 기록해 `REVIEW`로 전환했다. 독립 검토자는 `rp06_verify`다.
+- RP-07은 source/bundled 설정 계약, model registry 31건, 새 wheel/sdist 리소스 포함, 저장소 밖 격리 설치와 `agk --help`를 attempt-002에 기록해 `REVIEW`로 전환했다. 독립 검토자는 `rp07_verify`다. YAML `agent` 블록의 직접 소비 여부는 이 작업 범위 밖의 잔여 관찰로 보존한다.
+
+### 2026-09-11 · 최종 검토 개선(remediation) 진행: RP-01~09 구현·실측 완료
+
+- **문서**: [개선 계획](./14_FINAL_REVIEW_REMEDIATION_PLAN.md) · [실행 체크리스트](./15_FINAL_REVIEW_REMEDIATION_CHECKLIST.md) · [증거 인덱스](./ga/final-review-remediation.md). 증거 원문은 `.omo/evidence/final-review-remediation/RP-XX/attempt-NNN/`에 보존.
+- **완료(REVIEW, 독립 검토 이연)**: FR-01 sandbox 격리+fail-closed 실측, FR-02 shell 확장/redirection 우회 차단+sentinel 불변, FR-03 transaction no-follow 보강+TOCTOU 재현, FR-04 소유권 기반 RSI 복구, FR-05 최신 읽기/CAS+aliasing·fork 폐쇄, FR-07 Chroma false-green 제거(실측 VAL-01 12 passed·exit 0), FR-10 config 바이트 동일+격리 wheel 설치, 폴더→provider payload 결정적 회귀(마커 포함/배제), 압축 store+API 종단간(초기 제약 보존 제품 결함 1건 수정 `context_summary.py`).
+- **환경 교정**: `.venv`의 stale site-packages 사본(형제 checkout 발)이 소스를 가리던 문제를 editable 재설치로 해소. attempt-002 작업자들의 결과 불일치 원인.
+- **잔여**: 실 브라우저 QA(RP-08/09 수동 tier), 후보 SHA 고정 후 전체 gate·실 provider·28,800초 soak·배포 산출물(RP-11~13), 독립 재검토(RP-14). 법무/개인정보 승인은 미취득(BLOCKED_EXTERNAL)으로 최종 GO blocker 유지.
+- **상태 규칙**: 위 REVIEW 항목은 구현·실측 완료일 뿐 폐쇄가 아니다. 독립 검토 PASS 전 FR 폐쇄로 기록하지 않는다.

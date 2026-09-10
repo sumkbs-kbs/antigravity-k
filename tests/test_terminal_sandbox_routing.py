@@ -20,6 +20,7 @@ def test_returns_wrapped_argv_when_enabled_on_darwin(monkeypatch: pytest.MonkeyP
     import platform
 
     if platform.system() != "Darwin":
+
         def which_stub(name: str) -> str | None:
             return "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None
 
@@ -51,9 +52,7 @@ def _assert_wrapped(monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], Path]:
     return result
 
 
-def test_persistent_terminal_uses_sandbox_when_enabled(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_persistent_terminal_uses_sandbox_when_enabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import platform as _platform
 
     if _platform.system() != "Darwin":
@@ -71,13 +70,10 @@ def test_persistent_terminal_uses_sandbox_when_enabled(
     assert term_id not in manager.terminals
 
 
-def test_persistent_terminal_raw_path_when_disabled(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_persistent_terminal_refused_when_disabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """FR-02/RP-02: sandbox를 보장할 수 없으면 raw host 실행이 없다."""
     monkeypatch.setattr(app_config.security, "sandbox_enabled", False)
     manager = PersistentTerminalManager()
-    term_id = manager.create_terminal("echo raw-check", str(tmp_path))
-    process = manager.terminals[term_id]
-    assert isinstance(process.args, str) or (isinstance(process.args, list) and process.args[-1] != "-c")
-    _ = process.wait(timeout=15)
-    _ = manager.get_output(term_id)
+    with pytest.raises(RuntimeError, match="raw host execution is disabled"):
+        _ = manager.create_terminal("echo raw-check", str(tmp_path))
+    assert manager.terminals == {}

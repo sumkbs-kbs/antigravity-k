@@ -1,0 +1,7 @@
+^DDENIED shell path escape: echo PWNED >/tmp/sentinel (Tool path escapes project root: /tmp/sentinel)
+deny: echo PWNED >/tmp/sentinel
+DENIED shell path escape: echo PWNED >/Users/mr.k/sentinel (Tool path escapes project root: /Users/mr.k/sentinel)
+deny: echo PWNED >/Users/mr.k/sentinel
+allow: echo ok >out.txt
+DENIED shell path escape: echo PWNED >/tmp/sentinel (Tool path escapes project root: /tmp/sentinel)
+DENIED shell path escape: echo PWNED >/Users/mr.k/sentinel (Tool path escapes project root: /Users/mr.k/sentinel)

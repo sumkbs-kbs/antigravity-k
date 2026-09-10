@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import time
@@ -23,6 +22,7 @@ from antigravity_k.engine.optimizers.graphify_builder import (
     build_graph,
     hybrid_retrieve,
 )
+from antigravity_k.engine.sandbox import run_sandboxed_argv
 from antigravity_k.tools.ssak_search_client import search as web_search
 
 _TASK_CLASSIFY = (
@@ -179,6 +179,53 @@ class UnifiedAgent:
         outcome.steps.append(AgentStep("web+ssak-search", f"{len(ctx)} chars context"))
         return outcome
 
+    def _run_test_suite(self, workdir: Path) -> tuple[bool, str]:
+        """Run ``test_solution.py`` inside the mandatory OS sandbox.
+
+        Returns ``(passed, feedback)``. Backend unavailability, execution
+        refusal and timeouts all surface as failure — there is no host-process
+        fallback for user/model generated code.
+        """
+        argv = [
+            sys.executable,
+            "-B",
+            "-m",
+            "pytest",
+            "-x",
+            "-q",
+            "--tb=short",
+            "-o",
+            "pythonpath=.",
+            "-p",
+            "no:cacheprovider",
+            "test_solution.py",
+        ]
+        home = workdir / ".sandbox-home"
+        tmpdir = workdir / ".sandbox-tmp"
+        home.mkdir(exist_ok=True)
+        tmpdir.mkdir(exist_ok=True)
+        env = {
+            "PATH": f"{os.path.dirname(sys.executable)}:/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": str(home),
+            "TMPDIR": str(tmpdir),
+            "PYTHONPATH": str(workdir),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        }
+        result = run_sandboxed_argv(argv, cwd=str(workdir), timeout=15, env=env)
+        combined = (result.stdout or "") + (result.stderr or "")
+        notes: list[str] = []
+        if result.error:
+            notes.append(f"[sandbox] {result.error}")
+        if result.timed_out:
+            notes.append("[sandbox] test execution timed out")
+        if not result.sandboxed:
+            notes.append("[sandbox] execution did not run under OS sandbox")
+        detail = combined[-2000:]
+        if notes:
+            detail = detail + "\n" + "\n".join(notes)
+        return result.success and not notes, detail
+
     def _run_code(
         self,
         task: str,
@@ -207,31 +254,12 @@ class UnifiedAgent:
                 if test_code:
                     (workdir / "solution.py").write_text(code, encoding="utf-8")
                     (workdir / "test_solution.py").write_text(test_code, encoding="utf-8")
-                    result = subprocess.run(
-                        [
-                            sys.executable,
-                            "-B",
-                            "-m",
-                            "pytest",
-                            "-x",
-                            "-q",
-                            "--tb=short",
-                            "-o",
-                            "pythonpath=.",
-                            "test_solution.py",
-                        ],
-                        cwd=workdir,
-                        capture_output=True,
-                        text=True,
-                        timeout=15,
-                        env={**os.environ, "PYTHONPATH": str(workdir), "PYTHONDONTWRITEBYTECODE": "1"},
-                    )
-                    if result.returncode == 0:
+                    passed, combined = self._run_test_suite(workdir)
+                    if passed:
                         outcome.passed = True
                         outcome.steps.append(AgentStep(f"code+repair({attempt})", "passed"))
                         return outcome
-                    combined = result.stdout + result.stderr
-                    feedback = combined[-2000:]
+                    feedback = combined
                     outcome.steps.append(AgentStep(f"code+repair({attempt})", "failed, retrying"))
                 else:
                     outcome.passed = True
@@ -273,32 +301,14 @@ class UnifiedAgent:
                 code = _extract_code(raw)
                 (workdir / "solution.py").write_text(code, encoding="utf-8")
                 (workdir / "test_solution.py").write_text(test_code, encoding="utf-8")
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-B",
-                        "-m",
-                        "pytest",
-                        "-x",
-                        "-q",
-                        "--tb=short",
-                        "-o",
-                        "pythonpath=.",
-                        "test_solution.py",
-                    ],
-                    cwd=workdir,
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                    env={**os.environ, "PYTHONPATH": str(workdir), "PYTHONDONTWRITEBYTECODE": "1"},
-                )
-                if result.returncode == 0:
+                passed, combined = self._run_test_suite(workdir)
+                if passed:
                     normalized = re.sub(r"\s+", " ", code).strip()[:600]
                     passing_codes.append(normalized)
                     outcome.answer = code
                     outcome.steps.append(AgentStep(f"consistency({sample},{attempt})", "passed"))
                     break
-                feedback = (result.stdout + result.stderr)[-2000:]
+                feedback = combined
             else:
                 outcome.steps.append(AgentStep(f"consistency({sample})", "no pass"))
         if passing_codes:

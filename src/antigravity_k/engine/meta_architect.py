@@ -224,11 +224,11 @@ class MetaArchitect:
             with sandbox.safe_mutation(f"meta_architect_{proposal.proposal_id}"):
                 all_passed = True
 
-                # 1. 파일 임시 덮어쓰기
+                # 1. 파일 임시 덮어쓰기 — FR-04/RP-04: 소유권 기록 쓰기
+                #    (safe_mutation 실패 시 이 파일만 preimage로 복구된다)
                 for filename, new_code in proposal.modifications.items():
                     path = os.path.join(self._engine_dir, filename)
-                    with open(path, "w", encoding="utf-8") as f:
-                        _ = f.write(new_code)
+                    sandbox.write_owned(path, new_code)
 
                 # 2. 샌드박스 일괄 검증
                 for filename, new_code in proposal.modifications.items():

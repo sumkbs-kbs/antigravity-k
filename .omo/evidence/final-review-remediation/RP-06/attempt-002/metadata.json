@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-06",
+  "attempt": 2,
+  "status": "REVIEW",
+  "owner": "rp06_rp07_retry",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tree_clean_before_run": false,
+  "changed_files": [
+    "scripts/val01_staging.py",
+    "tests/test_fr07_staging_verdicts.py"
+  ],
+  "required_scenarios": [
+    "persistent_chroma_healthy",
+    "persistent_chroma_noop_delete",
+    "fail_closed_cli"
+  ],
+  "scenario_results": [
+    {
+      "id": "persistent_chroma_healthy",
+      "required": true,
+      "expected": "index/restart/reindex/delete/citation all pass with delete target readback 0 and control retained",
+      "observed": "all_ok=true; chroma_delete target_chunks_after=0 and control_chunks_after=1",
+      "verdict": "PASS",
+      "artifact_paths": ["logs/manual-chroma-healthy.json"]
+    },
+    {
+      "id": "persistent_chroma_noop_delete",
+      "required": true,
+      "expected": "no-op delete fails reindex and delete scenarios",
+      "observed": "chroma_reindex and chroma_delete both returned AssertionError",
+      "verdict": "PASS",
+      "artifact_paths": ["logs/manual-chroma-noop-negative.json"]
+    },
+    {
+      "id": "fail_closed_cli",
+      "required": true,
+      "expected": "missing required scenario makes CLI exit 1",
+      "observed": "missing_required=[chroma_delete], CLI_EXIT_CODE=1",
+      "verdict": "PASS",
+      "artifact_paths": ["logs/manual-cli-fail-closed.log"]
+    }
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": "PENDING_INDEPENDENT_REVIEW",
+  "blocked_reason": null
+}

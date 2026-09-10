@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-02",
+  "attempt": 1,
+  "status": "REVIEW",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "changed_files": [
+    "src/antigravity_k/tools/tool_path.py",
+    "src/antigravity_k/tools/permission_gate.py",
+    "src/antigravity_k/tools/terminal_tools.py",
+    "src/antigravity_k/tools/system_tools.py",
+    "tests/test_fr02_shell_execution_boundary.py (new)",
+    "tests/test_terminal_sandbox_routing.py (contract updated: raw fallback -> fail-closed)",
+    "tests/test_command_execution_boundary.py (contract updated: no raw fallback)"
+  ],
+  "required_scenarios": [
+    {"id": "home-expansion-denied", "required": true, "expected": "$HOME/${HOME}/quoted tokens denied lexically", "observed": "ToolPathError via expandvars+resolve; gate DENY for run_bash_command and run_persistent_command", "verdict": "PASS"},
+    {"id": "substitution-denied", "required": true, "expected": "$(...) and backtick denied", "observed": "ToolPathError 'statically unresolvable commands are denied'", "verdict": "PASS"},
+    {"id": "redirection-in-root-ok", "required": true, "expected": ">file and > file inside root allowed", "observed": "lexical allow; sandbox write succeeds", "verdict": "PASS"},
+    {"id": "sandbox-write-boundary", "required": true, "expected": "external sentinel hash unchanged for absolute/symlink/glob/$VAR writes", "observed": "all sentinel digests unchanged after real seatbelt runs (previously /private/var/folders write allow let escapes through — reproduced then fixed with restrict_reads profile)", "verdict": "PASS"},
+    {"id": "child-python-blocked", "required": true, "expected": "child interpreter cannot write outside root", "observed": "CHILD_BLOCKED printed; sentinel digest unchanged", "verdict": "PASS"},
+    {"id": "normal-in-root-success", "required": true, "expected": "in-root writes incl. spaces succeed", "observed": "'space dir/out file.txt' written ok", "verdict": "PASS"},
+    {"id": "no-raw-fallback", "required": true, "expected": "sandbox unavailable => refusal, no host exec", "observed": "persistent terminal raises; run_bash_command returns explicit refusal error; PTY refuses", "verdict": "PASS"},
+    {"id": "request-root-pinned", "required": true, "expected": "profile root == permission root", "observed": "build_sandbox_argv(project_root=request root); profile contains realpath(root)", "verdict": "PASS"},
+    {"id": "minimal-env", "required": true, "expected": "no parent env inheritance", "observed": "terminal Popen and system_tools use _minimal_child_env; provider secrets no longer passed", "verdict": "PASS"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "Behavior change: with security.sandbox_enabled=false (or on non-Darwin without sandbox-exec), run_bash_command / run_persistent_command / interactive_pty now refuse execution instead of falling back to raw host shell. This follows plan RP-02 ('제한을 보장할 수 없으면 명령을 거부하고 raw fallback을 사용하지 않는다'); deployments relying on the old fallback must enable the sandbox backend.",
+    "env_var-based provider secrets are no longer injected into bash tool children (by design, FR-01/RP-02 minimal env).",
+    "Independent review (R02-10) deferred to RP-14."
+  ]
+}

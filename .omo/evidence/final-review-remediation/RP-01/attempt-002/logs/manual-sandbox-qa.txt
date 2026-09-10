@@ -1,0 +1,7 @@
+RESULT agent_normal_passed=True
+RESULT parent_secret_absent=True
+RESULT external_read_blocked=True
+RESULT external_write_blocked=True
+RESULT loopback_egress_blocked=True
+RESULT output_quota_enforced=True
+RESULT synthetic_sentinel_cleanup=True

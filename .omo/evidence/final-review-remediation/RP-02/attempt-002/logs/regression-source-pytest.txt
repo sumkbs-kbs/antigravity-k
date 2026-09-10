@@ -1,0 +1,22 @@
+^D................................................................F....... [ 76%]
+......................                                                   [100%]
+=================================== FAILURES ===================================
+______ TestDockerCwdConfinement.test_cwd_inside_project_root_is_accepted _______
+
+self = <tests.test_sandbox_isolation.TestDockerCwdConfinement object at 0x1082e6990>
+
+    def test_cwd_inside_project_root_is_accepted(self):
+        runner = SandboxRunner(project_root="/tmp/proj", enabled=True)
+        def fake_run_limited_process(*_args: object, **_kwargs: object) -> tuple[int, str, str, bool]:
+            return 0, "ok", "", False
+
+        setattr(runner, "_run_limited_process", fake_run_limited_process)
+        result = cast(SandboxResult, _call_private(runner, "_execute_docker", "pwd", 60, None, "/tmp/proj/sub"))
+>       assert result.success
+E       AssertionError: assert False
+E        +  where False = SandboxResult(success=False, stdout='', stderr='', return_code=-1, timed_out=False, sandboxed=True, output_truncated=False, error='Working directory must remain inside the project root.').success
+
+tests/test_sandbox_isolation.py:129: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_sandbox_isolation.py::TestDockerCwdConfinement::test_cwd_inside_project_root_is_accepted
+1 failed, 93 passed in 9.98s

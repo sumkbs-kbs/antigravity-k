@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-10",
+  "attempt": 1,
+  "status": "REVIEW",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "changed_files": [
+    "docs/ga/final-review-remediation.md (new — FR→RP→evidence index)",
+    "README.md (final-review status row)",
+    "docs/13_COMMERCIAL_GA_100_PROGRESS.md (remediation progress section)",
+    ".omo/plans/ssak-ai-commercial-ga-100-checklist.md (review-status banner)"
+  ],
+  "required_scenarios": [
+    {"id": "evidence-index", "required": true, "expected": "every DONE/REVIEW row linked to raw evidence", "observed": "docs/ga/final-review-remediation.md maps FR-01..FR-10 + folder/compaction gaps to attempt dirs, raw logs, and remaining gates", "verdict": "PASS"},
+    {"id": "history-preserved", "required": true, "expected": "past records kept, current state distinguished", "observed": "33/33 kept as implementation history; README/13/mirror all state request-changes + remediation in progress", "verdict": "PASS"},
+    {"id": "official-mirror-sync", "required": true, "expected": "official checklist and .omo mirror consistent", "observed": "mirror banner links remediation ledger; states mirror DONE must not be read as release approval", "verdict": "PASS"},
+    {"id": "scores-separated", "required": true, "expected": "no evidence-free 100; baseline/current/target distinction", "observed": "no new score minted; documents keep 53 baseline and refuse to copy it as current", "verdict": "PASS"},
+    {"id": "support-scope-honest", "required": true, "expected": "no Experimental→Supported promotion without gates", "observed": "GA_SUPPORT_MATRIX untouched; index explicitly states no row promoted by remediation", "verdict": "PASS"},
+    {"id": "approvals-blocked-external", "required": true, "expected": "legal/privacy/license approvals remain blockers", "observed": "index BLOCKED_EXTERNAL section; GA_CLAIMS_AND_REVIEW_REGISTER already gate-mapped (verified unchanged)", "verdict": "PASS"},
+    {"id": "readme-consistency", "required": true, "expected": "README matches readiness/progress/claims", "observed": "README table now carries final-review row linking report/plan/index", "verdict": "PASS"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "R10-06 (handover of actual legal/privacy approval artifacts) not done — requires human owners; remains BLOCKED_EXTERNAL and a final-GO blocker.",
+    "R10-09 independent documentation review deferred to RP-14.",
+    "docs/12 checklist and readiness report were reviewed for consistency but not modified beyond what docs/13/README/mirror carry; any residual stale phrasing found at RP-14 will be fixed then."
+  ]
+}

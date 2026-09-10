@@ -1,0 +1,25 @@
+1 .M N... 100644 100644 100644 122a2723e447912189d10014824a9ad345063548 122a2723e447912189d10014824a9ad345063548 .omo/start-work/ledger.jsonl
+1 .M N... 100644 100644 100644 3545aad549eed35680628c594509ffd1da90cd28 3545aad549eed35680628c594509ffd1da90cd28 docs/13_COMMERCIAL_GA_100_PROGRESS.md
+1 .M N... 100644 100644 100644 af74b5d8972df24c7fc5901a3c7e694558f8522d af74b5d8972df24c7fc5901a3c7e694558f8522d scripts/val01_staging.py
+1 .M N... 100644 100644 100644 52910f00b5a22b867303ec260da2d9cfdf1dc4ec 52910f00b5a22b867303ec260da2d9cfdf1dc4ec src/antigravity_k/engine/atomic_transaction_engine.py
+1 .M N... 100644 100644 100644 850788f36db6b2fabb567c5775cbf83d762e1f1e 850788f36db6b2fabb567c5775cbf83d762e1f1e src/antigravity_k/engine/conversation_store.py
+1 .M N... 100644 100644 100644 3b7e349ef7231b15458b16985da1c18cb37ea638 3b7e349ef7231b15458b16985da1c18cb37ea638 src/antigravity_k/engine/meta_architect.py
+1 .M N... 100644 100644 100644 99db4adeb369dda42138547eea8b9935e0d92012 99db4adeb369dda42138547eea8b9935e0d92012 src/antigravity_k/engine/rsi_sandbox.py
+1 .M N... 100644 100644 100644 9905a90f20e788e1a6416e9a80f4a70c5ca67f59 9905a90f20e788e1a6416e9a80f4a70c5ca67f59 src/antigravity_k/engine/sandbox.py
+1 .M N... 100644 100644 100644 535975a44b1b89065a0287f5c3f0f22a2fef2b02 535975a44b1b89065a0287f5c3f0f22a2fef2b02 src/antigravity_k/engine/unified_agent.py
+1 .M N... 100644 100644 100644 dbbc9cddd10b4004b069c8a277ae55da9462092d dbbc9cddd10b4004b069c8a277ae55da9462092d src/antigravity_k/tools/permission_gate.py
+1 .M N... 100644 100644 100644 37bf9f585893f1d6ea85c3dfa5229a38c6a1f174 37bf9f585893f1d6ea85c3dfa5229a38c6a1f174 src/antigravity_k/tools/system_tools.py
+1 .M N... 100644 100644 100644 130f670471775ba6e64d1c0dcb86920916f16220 130f670471775ba6e64d1c0dcb86920916f16220 src/antigravity_k/tools/terminal_tools.py
+1 .M N... 100644 100644 100644 1f63d93c6e520f0671ed3a6031ea1c72d7341ca1 1f63d93c6e520f0671ed3a6031ea1c72d7341ca1 src/antigravity_k/tools/tool_path.py
+1 .M N... 100644 100644 100644 234cae54bbe0fc775652b009ddf25c6350878fe7 234cae54bbe0fc775652b009ddf25c6350878fe7 tests/test_command_execution_boundary.py
+1 .M N... 100644 100644 100644 fe23c3f76d0abd994ac920bf502a2fbeffe174a9 fe23c3f76d0abd994ac920bf502a2fbeffe174a9 tests/test_terminal_sandbox_routing.py
+1 .M S.M. 160000 160000 160000 464708c0036e95d1ad9817fad3975315c16a5e1d 464708c0036e95d1ad9817fad3975315c16a5e1d vault_data
+? docs/14_FINAL_REVIEW_REMEDIATION_PLAN.md
+? docs/15_FINAL_REVIEW_REMEDIATION_CHECKLIST.md
+? docs/qa/2026-09-10/
+? tests/test_fr01_agent_execution_isolation.py
+? tests/test_fr02_shell_execution_boundary.py
+? tests/test_fr03_transaction_containment.py
+? tests/test_fr04_mutation_rollback_isolation.py
+? tests/test_fr05_conversation_authoritative_reads.py
+? tests/test_fr07_staging_verdicts.py

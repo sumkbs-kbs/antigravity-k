@@ -1,0 +1,6 @@
+{"argv":["uv","run","--no-sync","pytest","-q","tests/test_model_registry.py"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/model-registry-pytest.log"}
+{"argv":["uv","build","--out-dir",".omo/evidence/final-review-remediation/RP-07/attempt-002/artifacts"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/uv-build.log"}
+{"argv":["shasum","-a","256","artifacts/*"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.omo/evidence/final-review-remediation/RP-07/attempt-002","exit_code":0,"stdout_stderr":"logs/artifact-sha256.log"}
+{"argv":["uv","venv","/tmp/rp07-isolated.<random>/venv"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/isolated-install-smoke.log"}
+{"argv":["uv","pip","install","--python","/tmp/rp07-isolated.<random>/venv/bin/python","artifacts/antigravity_k-0.1.0-py3-none-any.whl"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/isolated-install-smoke.log"}
+{"argv":["/tmp/rp07-isolated.<random>/venv/bin/agk","--help"],"cwd":"/tmp/rp07-isolated.<random>/outside","exit_code":0,"stdout_stderr":"logs/isolated-install-smoke.log"}

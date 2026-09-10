@@ -1,0 +1,8 @@
+{
+  "scenario": "persistent_chroma_noop_delete",
+  "failed_scenarios": {
+    "chroma_reindex": "AssertionError: delete before reindex was a no-op: 1 chunks left",
+    "chroma_delete": "AssertionError: target source still present after delete: 1 chunks"
+  },
+  "negative_control_detected": true
+}

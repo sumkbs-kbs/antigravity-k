@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-03",
+  "attempt": 2,
+  "status": "REVIEW",
+  "owner": "rp03_retry",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "tree_clean_before_run": false,
+  "changed_files": [
+    "src/antigravity_k/engine/atomic_transaction_engine.py",
+    "tests/test_fr03_transaction_containment.py"
+  ],
+  "note": "metadata reconstructed 2026-09-10 by coordinator session after attempt-002 executor left VERIFICATION.md only; content below mirrors VERIFICATION.md rows.",
+  "required_scenarios": [
+    {"id": "stage-containment", "required": true, "expected": "traversal/outside-absolute/outside-symlink/symlink-parent new leaf rejected", "observed": "13 passed source-loaded suite", "verdict": "PASS", "artifact": "targeted-tests.txt"},
+    {"id": "symlink-swap-toctou", "required": true, "expected": "resolve-to-write swap cannot redirect write outside root", "observed": "no-follow safe-open implementation; node passed 5/5 repeat runs", "verdict": "PASS", "artifact": "toctou-repeat.txt"},
+    {"id": "rollback-fidelity", "required": true, "expected": "originals restored, empty file kept, new file removed, unrelated untouched, foreign edit preserved", "observed": "3 adversarial nodes passed", "verdict": "PASS", "artifact": "adversarial-scenarios.txt"},
+    {"id": "e2e-driver", "required": true, "expected": "traversal_rejected, swap_committed=false, sentinel hash unchanged, two-file commit, tempdir cleanup", "observed": "all five true in JSON", "verdict": "PASS", "artifact": "tempdir-e2e.txt"},
+    {"id": "static-checks", "required": true, "expected": "ruff + basedpyright clean on owned files", "observed": "All checks passed; 0 errors (test-fixture warnings only)", "verdict": "PASS", "artifacts": ["ruff.txt", "basedpyright.txt"]}
+  ],
+  "commands_log": "raw/",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "Executor noted plain `uv run` resolved the installed baseline package during this attempt (stale site-packages snapshot); green results used PYTHONPATH=src. The stale-install issue has since been fixed by reinstalling the project editable into .venv (recorded in RP-00 environment note).",
+    "Independent review (R03-10) deferred to RP-14."
+  ]
+}

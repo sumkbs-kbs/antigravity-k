@@ -210,6 +210,7 @@ _APPLY_PATCH_PATH_PREFIXES: tuple[str, ...] = (
 )
 
 _SHELL_ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SHELL_REDIRECTION_OPERATORS: frozenset[str] = frozenset({">", ">>", "<", "<>"})
 
 
 def extract_apply_patch_paths(patch_text: str) -> list[str]:
@@ -285,7 +286,10 @@ def _is_shell_escape_path_candidate(token: str) -> bool:
     """True when a shell token may reference a filesystem path outside cwd semantics."""
     if not token or token.startswith("-"):
         return False
-    expanded = os.path.expanduser(token)
+    # expandvars first: ``$HOME/x`` and ``${HOME}/x`` must resolve to the real
+    # absolute path before the containment check, otherwise the lexical pass
+    # would pass a token that the shell later expands outside the root (FR-02).
+    expanded = os.path.expandvars(os.path.expanduser(token))
     normalized = _normalize_separators(expanded)
     if os.path.isabs(normalized):
         return True
@@ -300,31 +304,57 @@ def iter_shell_escape_path_candidates(command: str) -> list[str]:
     if not command or not str(command).strip():
         return []
     try:
-        tokens = shlex.split(str(command), posix=os.name != "nt")
+        lexer = shlex.shlex(str(command), posix=os.name != "nt", punctuation_chars="|&;<>")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
     except ValueError:
         tokens = str(command).split()
 
     out: list[str] = []
     seen: set[str] = set()
-    for tok in tokens:
+    for index, tok in enumerate(tokens):
         if not tok:
             continue
         if _SHELL_ENV_ASSIGN_RE.match(tok):
             continue
-        if not _is_shell_escape_path_candidate(tok):
+        candidate = tok
+        if tok in _SHELL_REDIRECTION_OPERATORS:
+            if index + 1 >= len(tokens):
+                continue
+            candidate = tokens[index + 1]
+        if not _is_shell_escape_path_candidate(candidate):
             continue
-        if tok in seen:
+        if candidate in seen:
             continue
-        seen.add(tok)
-        out.append(tok)
+        seen.add(candidate)
+        out.append(candidate)
     return out
 
 
+_SHELL_SUBSTITUTION_RE = re.compile(r"\$\(|`")
+
+
 def assert_shell_command_paths_in_root(command: str, project_root: str) -> None:
-    """Raise ``ToolPathError`` if the command references a path outside ``project_root``."""
+    """Raise ``ToolPathError`` if the command references a path outside ``project_root``.
+
+    Command substitution (``$(...)`` / backticks) is rejected outright: its
+    result cannot be resolved statically, so the boundary cannot be argued from
+    token inspection alone. The OS sandbox remains the executing boundary; this
+    check provides the fast, explicit denial.
+    """
+    if _SHELL_SUBSTITUTION_RE.search(str(command or "")):
+        raise ToolPathError(
+            "Shell command uses command substitution; statically unresolvable commands are denied",
+            raw_path=str(command)[:200],
+            project_root=project_root,
+        )
     root_real = os.path.realpath(os.path.abspath(project_root))
     for raw in iter_shell_escape_path_candidates(command):
-        resolve_tool_path(raw, root_real)
+        # Resolve the *expanded* form: ``resolve_tool_path`` itself performs no
+        # variable expansion, so ``$HOME/x`` must be expanded here or it would
+        # be treated as an in-root relative path (FR-02).
+        expanded = os.path.expandvars(os.path.expanduser(raw))
+        resolve_tool_path(expanded, root_real)
 
 
 def rewrite_tool_args(

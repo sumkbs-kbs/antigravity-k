@@ -5,8 +5,6 @@ import os
 import subprocess
 from typing import Any, Protocol, TypeAlias, cast, final, override
 
-from antigravity_k.engine.limited_process_runner import LimitedProcessRunner
-
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
@@ -350,39 +348,15 @@ class RunBashCommandTool(BaseTool):
         logger.info("Executing approved command: %s", command)
 
         try:
-            from ..engine.provider_manager import get_provider_manager
-
-            pm = get_provider_manager()
-            env_vars = os.environ.copy()
-            env_vars.update(pm.get_provider_env())
-
             # WS-02: explicit project cwd (rewritten by ToolRegistry); never ambient process cwd.
             from .tool_path import effective_project_root
 
             raw_cwd = kwargs.get("cwd")
             cwd = str(raw_cwd) if isinstance(raw_cwd, str) and raw_cwd.strip() else effective_project_root()
 
-            # P2-1: 샌드박스 적용 — config의 sandbox_enabled가 true면 OS 수준 격리
-            sandbox_result = self._run_with_sandbox(command, env_vars, cwd=cwd)
-            if sandbox_result is not None:
-                return sandbox_result
-
-            # 폴백: 일반 subprocess (샌드박스 비활성화 시)
-            result = LimitedProcessRunner(max_output_bytes=1_000_000).run(
-                command,
-                shell=True,
-                timeout=60,
-                env=env_vars,
-                cwd=cwd,
-            )
-            output = result.stdout
-            if result.stderr:
-                output += f"\nSTDERR:\n{result.stderr}"
-            # Surface a non-zero exit code so the model can definitively detect failure
-            # and trigger a correction — inferring it from stderr content is unreliable.
-            if result.return_code != 0:
-                output = f"[exit_code={result.return_code}]\n" + output
-            return output if output else "Command executed successfully with no output."
+            # FR-02/RP-02: 모델 제공 shell 명령은 항상 OS sandbox에서 실행한다.
+            # sandbox를 보장할 수 없으면 명령을 거부하며 raw host 실행이 없다.
+            return self._run_with_sandbox(command, cwd=cwd)
         except subprocess.TimeoutExpired:
             return "Error: Command timed out after 60 seconds."
         except Exception as e:
@@ -392,32 +366,44 @@ class RunBashCommandTool(BaseTool):
     def _run_with_sandbox(
         self,
         command: str,
-        env_vars: dict[str, str],
         *,
         cwd: str | None = None,
-    ) -> str | None:
-        """샌드박스가 활성화된 경우 SandboxRunner로 실행 (P2-1).
+    ) -> str:
+        """모델 제공 shell 명령을 OS sandbox로 실행하거나 거부한다 (P2-1, FR-02/RP-02).
 
         Returns:
-            결과 문자열 (샌드박스 적용 시), None (비활성화 시 — 호출자가 폴백)
+            결과 문자열. sandbox 비활성/백엔드 부재는 거부 오류 문자열이며
+            raw host 실행 폴백은 존재하지 않는다.
         """
         try:
             from ..config import config as app_config
-            from ..engine.sandbox import SandboxRunner
+            from ..engine.sandbox import SandboxRunner, _minimal_child_env
             from .tool_path import effective_project_root
 
             sandbox_enabled = getattr(app_config.security, "sandbox_enabled", False)
             if not sandbox_enabled:
-                return None  # 샌드박스 비활성 — 폴백
+                return (
+                    "Error: run_bash_command requires an enabled OS sandbox "
+                    "(security.sandbox_enabled=true); raw host execution is disabled."
+                )
 
             project_cwd = cwd or effective_project_root(str(app_config.paths.project_root))
+            from ..engine.sandbox import _python_runtime_read_paths
+
             runner = SandboxRunner(
                 project_root=project_cwd,
                 enabled=True,
                 network=getattr(app_config.security, "sandbox_network", "none"),
                 timeout=60,
+                # FR-02: 사용자 트리/공유 임시 디렉토리 읽기와 root 밖 쓰기를 차단한다.
+                restrict_reads=True,
+                read_allow_paths=[project_cwd, *_python_runtime_read_paths()],
             )
-            result = runner.execute(command, env=env_vars, cwd=project_cwd)
+            # 최소 자식 환경: 부모 os.environ/provider 시크릿을 상속하지 않는다.
+            child_env = _minimal_child_env(runner.project_root)
+            result = runner.execute(command, env=child_env, cwd=project_cwd)
+            if not result.sandboxed:
+                return "Error: sandbox could not be applied; raw host execution is disabled."
             output = result.stdout
             if result.stderr:
                 output += f"\nSTDERR:\n{result.stderr}"
@@ -426,8 +412,7 @@ class RunBashCommandTool(BaseTool):
             if not result.success:
                 output_part = result.error or result.stderr or "Sandbox execution failed."
                 return f"[exit_code={result.return_code}]\n{output_part}"
-            tag = " [sandboxed]" if result.sandboxed else ""
-            return (output if output else "Command executed successfully.") + tag
+            return (output if output else "Command executed successfully.") + " [sandboxed]"
         except Exception:
             logger.exception("Sandbox execution failed")
             return "Error: sandbox execution failed; raw execution is disabled."

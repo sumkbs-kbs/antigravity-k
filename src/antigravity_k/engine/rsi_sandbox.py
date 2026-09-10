@@ -118,6 +118,17 @@ class MutationRecord:
 
 
 @dataclass
+class OwnedPreimage:
+    """소유한 쓰기 대상 1개의 수정 전 상태 (FR-04/RP-04)."""
+
+    path: str
+    existed: bool
+    content: bytes
+    mode: int | None
+    last_owned_write: bytes | None = None
+
+
+@dataclass
 class SnapshotInfo:
     """스냅샷 정보."""
 
@@ -126,6 +137,7 @@ class SnapshotInfo:
     timestamp: float
     files_captured: list[str]
     benchmark_baseline: float = 0.0
+    owned_preimages: dict[str, OwnedPreimage] = field(default_factory=dict)
 
 
 # ─── 메인 샌드박스 ───────────────────────────────────────────────────
@@ -158,6 +170,9 @@ class RSISandbox:
         self._verify_fn: Callable[[str], str] | None = verify_fn  # LLM 검증 함수
         self._mutation_log: list[MutationRecord] = []
         self._snapshots: list[SnapshotInfo] = []
+        # FR-04/RP-04: 활성 mutation이 소유한 preimage 기록.
+        self._active_preimages: dict[str, OwnedPreimage] | None = None
+        self._active_snapshot: SnapshotInfo | None = None
         self._load_audit_log()
 
     # ─── 불변 파일 보호 ──────────────────────────────────────────
@@ -204,54 +219,114 @@ class RSISandbox:
     # ─── 스냅샷 관리 ─────────────────────────────────────────────
 
     def take_snapshot(self, label: str = "") -> SnapshotInfo:
-        """현재 상태의 Git 스냅샷을 생성합니다."""
+        """현재 상태의 소유권 스냅샷을 생성합니다.
+
+        FR-04/RP-04: 스냅샷은 mutation이 소유할 파일의 preimage만 담는다.
+        tracked file 전체 목록은 소유권 목록이 아니므로 복구에 쓰지 않는다.
+        """
         snapshot_id = f"rsi_{int(time.time())}_{label or 'auto'}"
-
-        # Git stash 또는 임시 커밋
         git_commit = self._get_current_commit()
-
-        # 핵심 파일 목록 캡처
-        engine_dir = os.path.join(self._root, "src", "antigravity_k", "engine")
-        files = []
-        if os.path.exists(engine_dir):
-            files = [f for f in os.listdir(engine_dir) if f.endswith(".py")]
 
         snapshot = SnapshotInfo(
             snapshot_id=snapshot_id,
             git_commit=git_commit,
             timestamp=time.time(),
-            files_captured=files,
+            files_captured=[],
+            # Live reference: write_owned이 컨텍스트 진행 중 추가하는 소유
+            # preimage가 이 스냅샷의 복구 집합에 그대로 반영돼야 한다.
+            owned_preimages=self._active_preimages if self._active_preimages is not None else {},
         )
         self._snapshots.append(snapshot)
 
         logger.info(
-            "[RSI Sandbox] 스냅샷 생성: %s (commit: %s, files: %s)",
+            "[RSI Sandbox] 스냅샷 생성: %s (commit: %s, owned: %s)",
             snapshot_id,
             git_commit[:8],
-            len(files),
+            len(snapshot.owned_preimages),
         )
         return snapshot
 
-    def rollback_to(self, snapshot: SnapshotInfo) -> bool:
-        """특정 스냅샷으로 롤백합니다."""
-        try:
-            result = subprocess.run(
-                ["git", "checkout", snapshot.git_commit, "--", "."],
-                cwd=self._root,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
+    def _capture_preimage(self, path: Path) -> OwnedPreimage:
+        if path.exists():
+            return OwnedPreimage(
+                path=str(path),
+                existed=True,
+                content=path.read_bytes(),
+                mode=path.stat().st_mode & 0o7777,
             )
-            if result.returncode == 0:
-                logger.info("[RSI Sandbox] 롤백 완료: %s", snapshot.snapshot_id)
-                return True
-            else:
-                logger.error("[RSI Sandbox] 롤백 실패: %s", result.stderr)
-                return False
-        except Exception:
-            logger.exception("[RSI Sandbox] 롤백 오류")
-            return False
+        return OwnedPreimage(path=str(path), existed=False, content=b"", mode=None)
+
+    def rollback_to(self, snapshot: SnapshotInfo) -> bool:
+        """소유한 쓰기만 이전 상태로 복구합니다 (FR-04/RP-04).
+
+        전체 트리를 되돌리는 ``git checkout <commit> -- .`` /
+        ``reset --hard`` / ``clean -fd``는 다른 에이전트와 사용자의 변경을
+        덮어쓰므로 사용하지 않는다. 소유한 쓰기가 없으면 아무것도 하지 않는다.
+        """
+        restored = 0
+        conflicts: list[str] = []
+        for pre in snapshot.owned_preimages.values():
+            path = Path(pre.path)
+            try:
+                if pre.last_owned_write is None:
+                    # 이 스냅샷이 소유한 쓰기가 없던 경로 — 복구 대상 아님.
+                    continue
+                if not path.exists():
+                    # ours 쓰기 후 누군가 파일을 삭제한 경우: 원본이 있었다면
+                    # 복원하고, 없었다면(신규 파일) 삭제 상태를 유지한다.
+                    if pre.existed:
+                        path.write_bytes(pre.content)
+                        if pre.mode is not None:
+                            path.chmod(pre.mode)
+                        restored += 1
+                    continue
+                current = path.read_bytes()
+                if current != pre.last_owned_write:
+                    # ours 마지막 쓰기와 다르다 = 다른 작업자가 변경했다.
+                    # 그 변경을 보존하고 충돌로 기록한다.
+                    conflicts.append(pre.path)
+                    continue
+                if pre.existed:
+                    path.write_bytes(pre.content)
+                    if pre.mode is not None:
+                        path.chmod(pre.mode)
+                else:
+                    path.unlink()
+                restored += 1
+            except OSError as exc:
+                logger.error("[RSI Sandbox] 복구 실패 %s: %s", pre.path, exc)
+                conflicts.append(pre.path)
+
+        if conflicts:
+            logger.warning(
+                "[RSI Sandbox] 롤백 완료: %s (복구 %s건, 외부 변경 보존 %s건)",
+                snapshot.snapshot_id,
+                restored,
+                len(conflicts),
+            )
+        else:
+            logger.info("[RSI Sandbox] 롤백 완료: %s (복구 %s건)", snapshot.snapshot_id, restored)
+        return True
+
+    def write_owned(self, path: str | os.PathLike[str], content: str, *, encoding: str = "utf-8") -> None:
+        """``safe_mutation`` 컨텍스트 안에서 소유할 파일 쓰기.
+
+        컨텍스트 밖에서 호출되면 일반 쓰기로 동작한다(소유권 기록 없음).
+        """
+        target = Path(path)
+        if self._active_snapshot is not None and self._active_preimages is not None:
+            key = str(target)
+            pre = self._active_preimages.get(key)
+            if pre is None:
+                pre = self._capture_preimage(target)
+                self._active_preimages[key] = pre
+            payload = content.encode(encoding)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+            pre.last_owned_write = payload
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _ = target.write_text(content, encoding=encoding)
 
     # ─── 3중 검증 게이트 ─────────────────────────────────────────
 
@@ -408,17 +483,27 @@ class RSISandbox:
 
         사용법:
             with sandbox.safe_mutation("prompt_optimization"):
-                # 수정 작업 수행
-                # 실패 시 자동 롤백
+                sandbox.write_owned(path, new_code)  # 소유할 쓰기만 이 경로로
+                # 검증 실패 시 소유한 쓰기만 이전 상태로 복구된다.
+
+        FR-04/RP-04: 복구는 이 컨텍스트가 소유한 쓰기로 한정된다. 다른
+        에이전트/사용자의 dirty·untracked 변경과 이 컨텍스트 밖의 파일은
+        절대 되돌리지 않는다. ``write_owned``를 거치지 않은 쓰기는 소유하지
+        않으므로 복구 대상이 아니다.
         """
+        self._active_preimages = {}
         snapshot = self.take_snapshot(label)
+        self._active_snapshot = snapshot
         try:
             yield snapshot
             logger.info("[RSI Sandbox] 안전 수정 완료: %s", label)
         except Exception as e:
-            logger.error("[RSI Sandbox] 수정 중 오류, 롤백 시작: %s", e)
+            logger.error("[RSI Sandbox] 수정 중 오류, 소유 쓰기 롤백 시작: %s", e)
             _ = self.rollback_to(snapshot)
             raise
+        finally:
+            self._active_snapshot = None
+            self._active_preimages = None
 
     # ─── 변이 기록 ───────────────────────────────────────────────
 

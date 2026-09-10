@@ -1,0 +1,3 @@
+PYTHONPATH=src uv run --no-sync ruff check src/antigravity_k/engine/rsi_sandbox.py src/antigravity_k/engine/meta_architect.py tests/test_fr04_mutation_rollback_isolation.py
+
+All checks passed!

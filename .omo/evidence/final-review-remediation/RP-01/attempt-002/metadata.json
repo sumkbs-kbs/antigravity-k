@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-01",
+  "attempt": 2,
+  "status": "REVIEW",
+  "owner": "rp01_retry",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "platform": "macOS 26.6.2 (25G83), Python 3.13.12, sandbox-exec=/usr/bin/sandbox-exec, Docker 29.7.2",
+  "implementation_hashes": {
+    "src/antigravity_k/engine/sandbox.py": "89a05c49be677e450dbc7874a2ecdf004729b67678ca5ebdf73344e8bcd873ae",
+    "src/antigravity_k/engine/unified_agent.py": "6cabaf6689b401aa424c8ab106f18954387393b940af947a606231a2ac084573",
+    "tests/test_fr01_agent_execution_isolation.py": "c23618431070ca5b9028af47f0c283af5048806965080d9dfe94d676dd673f91"
+  },
+  "criteria": [
+    {"id":"R01-01","scenario":"API agent_ask reaches UnifiedAgent.run then both code routes","invocation":"codebase-memory graph attempt then source-import focused regression","observable":"44 passed; API and agent tests execute","artifact":"logs/focused-regression-source-import-final.txt","verdict":"PASS"},
+    {"id":"R01-02","scenario":"single and consistency code paths share _run_test_suite","invocation":"PYTHONPATH=src uv run --no-sync pytest -vv tests/test_fr01_agent_execution_isolation.py::TestAgentTestSuiteExecution","observable":"test_single_path_uses_sandbox_and_reports PASSED and test_consistency_path_uses_sandbox_and_reports PASSED","artifact":"logs/agent-paths-verbose.txt","verdict":"PASS"},
+    {"id":"R01-03","scenario":"missing sandbox-exec fails closed before user code can write","invocation":"same AgentTestSuiteExecution command","observable":"test_backend_unavailable_fails_closed_without_execution PASSED; marker absent","artifact":"logs/agent-paths-verbose.txt","verdict":"PASS"},
+    {"id":"R01-04","scenario":"parent synthetic secret is absent from model pytest child","invocation":"uv run --no-sync python manual_sandbox_qa.py","observable":"RESULT parent_secret_absent=True","artifact":"logs/manual-sandbox-qa.txt","verdict":"PASS"},
+    {"id":"R01-05","scenario":"normal solution passes and failed pytest remains failed","invocation":"AgentTestSuiteExecution verbose command","observable":"test_passing_solution_passes PASSED; test_failing_solution_reports_failure PASSED","artifact":"logs/agent-paths-verbose.txt","verdict":"PASS"},
+    {"id":"R01-06","scenario":"external user-tree sentinel read and write are denied","invocation":"SandboxBoundary verbose command and manual_sandbox_qa.py","observable":"four sentinel tests PASSED; manual RESULT external_read_blocked=True and external_write_blocked=True","artifact":"logs/sandbox-boundaries-verbose.txt; logs/manual-sandbox-qa.txt","verdict":"PASS"},
+    {"id":"R01-07","scenario":"loopback listener receives no sandboxed egress","invocation":"manual_sandbox_qa.py","observable":"RESULT loopback_egress_blocked=True","artifact":"logs/manual-sandbox-qa.txt","verdict":"PASS"},
+    {"id":"R01-08","scenario":"timeout terminates descendant group and output quota truncates","invocation":"timeout test repeated three times; SandboxBoundary verbose command","observable":"three timeout runs passed in 5.35-5.37s; quota test PASSED","artifact":"logs/timeout-repeatability.txt; logs/sandbox-boundaries-verbose.txt","verdict":"PASS"},
+    {"id":"RP01-extra","scenario":"Docker backend accepts canonicalized cwd inside root and denies outside cwd","invocation":"PYTHONPATH=src uv run --no-sync pytest -q tests/test_sandbox_isolation.py::TestDockerCwdConfinement","observable":"2 passed","artifact":"logs/rp02-source-import-docker-cwd-green.txt","verdict":"PASS"},
+    {"id":"R01-09","scenario":"focused existing and new regressions from source import","invocation":"PYTHONPATH=src uv run --no-sync pytest -q tests/test_agent_ask_api.py tests/test_unified_agent.py tests/test_sandbox.py tests/test_fr01_agent_execution_isolation.py tests/test_sandbox_isolation.py::TestDockerCwdConfinement","observable":"44 passed, 1 warning","artifact":"logs/focused-regression-source-import-final.txt","verdict":"PASS"}
+  ],
+  "adversarial_classes": {
+    "malformed_input":"not applicable: no new parser",
+    "prompt_injection":"not applicable: synthetic generated code only; no external text is consumed",
+    "cancel_resume":"not applicable: no resumable flow",
+    "stale_state":"not applicable: each QA workspace is a TemporaryDirectory",
+    "dirty_worktree":"PASS: tests ran against dirty shared checkout without reset/stash; tested SHA is marked dirty",
+    "hung_long_command":"PASS: timeout descendant test passed three independent runs",
+    "flaky_test":"PASS: timeout cleanup ran three times with the same pass result",
+    "misleading_success_output":"PASS: result.success, marker absence, listener hits, and sentinel bytes are asserted",
+    "interruption":"PASS: LimitedProcessRunner process-group path is exercised by timeout descendant test"
+  },
+  "cleanup": {
+    "disposable_worktree":"removed; logs/cleanup.txt",
+    "temporary_sentinel":"TemporaryDirectory cleanup confirmed by manual QA result",
+    "background_jobs":"none retained"
+  },
+  "independent_review": "PENDING: RP-14/security reviewer must inspect source diff and rerun artifacts; this executor does not self-approve R01-10."
+}

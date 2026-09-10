@@ -1,0 +1,10 @@
+git HEAD: 8794aaecabf5664a7ee560b104e0115d915aabb7
+branch: codex/m1-task-events
+system Python: 3.9.6
+uv-managed Python: 3.13.12
+uv: 0.11.8
+Node: v22.23.1
+pnpm: 11.3.0
+host: Darwin arm64, kernel 25.6.0
+sandbox backend: /usr/bin/sandbox-exec
+Docker client/server: 29.7.2 / 29.7.2

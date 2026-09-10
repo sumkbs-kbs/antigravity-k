@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-01",
+  "attempt": 1,
+  "status": "REVIEW",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "tree_clean_before_run": false,
+  "changed_files": [
+    "src/antigravity_k/engine/sandbox.py",
+    "src/antigravity_k/engine/unified_agent.py",
+    "tests/test_fr01_agent_execution_isolation.py (new)"
+  ],
+  "required_scenarios": [
+    {"id": "normal-code-passes", "required": true, "expected": "passing pytest suite reports passed=True under real seatbelt", "observed": "1 passed in 0.00s via _run_test_suite", "verdict": "PASS"},
+    {"id": "failing-pytest-reflected", "required": true, "expected": "failing suite reports passed=False with assert detail", "observed": "passed=False, assert detail in feedback", "verdict": "PASS"},
+    {"id": "single-and-consistency-paths", "required": true, "expected": "both paths route through sandbox", "observed": "_run_code and _run_code_consistent both call _run_test_suite -> run_sandboxed_argv; tests green", "verdict": "PASS"},
+    {"id": "backend-unavailable-fail-closed", "required": true, "expected": "no execution when sandbox-exec missing", "observed": "PATH=/nonexistent-bin -> success=False, stdout empty, error 'sandbox-exec is unavailable'", "verdict": "PASS"},
+    {"id": "external-sentinel-read-denied", "required": true, "expected": "user-tree sentinel unreadable", "observed": "READ_BLOCKED PermissionError from user-tree temp sentinel", "verdict": "PASS"},
+    {"id": "external-write-denied", "required": true, "expected": "no write outside project root", "observed": "escape.txt not created; shared /tmp write blocked", "verdict": "PASS"},
+    {"id": "shared-tmp-read-denied", "required": true, "expected": "/tmp shared files unreadable", "observed": "READ_BLOCKED + WRITE_BLOCKED on /tmp sentinel", "verdict": "PASS"},
+    {"id": "fake-secret-not-inherited", "required": true, "expected": "parent FAKE_SECRET invisible to child", "observed": "child env value CLEAN / NOT_PRESENT", "verdict": "PASS"},
+    {"id": "loopback-egress-denied", "required": true, "expected": "network none enforced", "observed": "create_connection failed rc=1; listener got no connection", "verdict": "PASS"},
+    {"id": "timeout-kills-group", "required": true, "expected": "grandchild terminated on timeout", "observed": "timed_out=True; pgrep for sleep marker empty", "verdict": "PASS"},
+    {"id": "output-quota", "required": true, "expected": "output truncation flag set", "observed": "output_truncated=True with 100k stdout", "verdict": "PASS"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "macOS 26 seatbelt: subpath-scoped read allow triggers SIGABRT during interpreter load; workaround is allow-all-reads + deny user tree + deny /tmp-family + targeted re-allow (see implementation.md). System-file reads (/etc, /var/folders of same user) remain permitted; write boundary and user-tree read boundary are enforced.",
+    "Independent security review (R01-10 second half) deferred to RP-14."
+  ]
+}

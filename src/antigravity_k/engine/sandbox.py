@@ -23,13 +23,29 @@ import os
 import platform
 import shlex
 import subprocess
+import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from antigravity_k.engine.limited_process_runner import LimitedProcessRunner
 
 logger = logging.getLogger("antigravity_k.sandbox")
+
+
+def _user_tree_denied_root() -> str | None:
+    """Return the directory whose subtree should be unreadable in restricted mode.
+
+    On a multi-user layout this is the parent of HOME (e.g. ``/Users``) so other
+    accounts are covered as well; otherwise HOME itself.
+    """
+    home = os.path.expanduser("~")
+    if not home or home == "/":
+        return None
+    parent = os.path.dirname(home.rstrip("/"))
+    if parent and parent not in ("", "/"):
+        return parent
+    return home
 
 
 @dataclass
@@ -53,12 +69,19 @@ def run_sandboxed_argv(
     timeout: float,
     env: Mapping[str, str] | None = None,
     max_output_bytes: int = 1_000_000,
+    extra_read_paths: Sequence[str] = (),
 ) -> SandboxResult:
     """Execute model-generated code through the mandatory OS sandbox.
 
     This boundary deliberately has no raw-process fallback. A verifier must fail
     closed when seatbelt/Docker is unavailable instead of executing generated code
     with the parent process privileges.
+
+    Read access is restricted to the working directory, the Python interpreter
+    runtime that must execute the code, explicit ``extra_read_paths`` and the
+    system runtime locations in ``_RESTRICTED_SYSTEM_READ_PATHS``. The parent's
+    ``os.environ`` is never inherited: ``env=None`` falls back to a minimal
+    environment so caller secrets cannot leak into generated-code processes.
     """
     if not args:
         return SandboxResult(
@@ -68,21 +91,55 @@ def run_sandboxed_argv(
             error="Sandbox execution requires a non-empty argv.",
         )
 
-    workspace = os.path.abspath(cwd)
+    workspace = os.path.realpath(os.path.abspath(cwd))
     effective_timeout = max(1, math.ceil(timeout))
+    read_paths = [workspace, *_python_runtime_read_paths(), *extra_read_paths]
+    effective_env: dict[str, str] = dict(env) if env is not None else _minimal_child_env(workspace)
     runner = SandboxRunner(
         project_root=workspace,
         enabled=True,
         network="none",
         timeout=effective_timeout,
         max_output_bytes=max_output_bytes,
+        restrict_reads=True,
+        read_allow_paths=read_paths,
     )
     return runner.execute(
         shlex.join(args),
         timeout=effective_timeout,
-        env=env,
+        env=effective_env,
         cwd=workspace,
     )
+
+
+def _python_runtime_read_paths() -> list[str]:
+    """Return interpreter locations a sandboxed Python needs to boot.
+
+    conda/venv interpreters live under the user HOME, so only these exact
+    prefixes are allow-listed instead of the whole HOME directory.
+    """
+    paths = {sys.prefix, sys.base_prefix, os.path.dirname(os.path.abspath(sys.executable))}
+    return sorted(p for p in paths if p)
+
+
+def _minimal_child_env(workspace: str) -> dict[str, str]:
+    """Default child environment when the caller does not supply one.
+
+    No os.environ inheritance: only what a bare Python process needs. The
+    interpreter's own bin directory stays first on PATH so callers that spawn
+    ``python3``/``pytest`` by name keep resolving to the project environment.
+    """
+    home = os.path.join(workspace, ".sandbox-home")
+    tmpdir = os.path.join(workspace, ".sandbox-tmp")
+    os.makedirs(home, exist_ok=True)
+    os.makedirs(tmpdir, exist_ok=True)
+    interpreter_bin = os.path.dirname(os.path.abspath(sys.executable))
+    return {
+        "PATH": f"{interpreter_bin}:/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": home,
+        "TMPDIR": tmpdir,
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
 
 
 class SandboxRunner:
@@ -102,6 +159,8 @@ class SandboxRunner:
         max_output_bytes: int = 1_000_000,
         max_memory_mb: int = 2_048,
         max_processes: int = 64,
+        restrict_reads: bool = False,
+        read_allow_paths: Sequence[str] = (),
     ):
         """Initialize the SandboxRunner.
 
@@ -110,15 +169,22 @@ class SandboxRunner:
             enabled: 샌드박스 활성화 여부
             network: 네트워크 모드 (none/proxy/all)
             timeout: 기본 타임아웃 (초)
+            restrict_reads: True면 읽기를 명시적 허용 경로로 제한한다.
+                False(기본)는 기존 호출자 호환을 위해 전체 읽기를 허용한다.
+            read_allow_paths: restrict_reads=True일 때 추가로 읽기를 허용할 경로.
 
         """
-        self.project_root: str = os.path.abspath(project_root)
+        self.project_root: str = os.path.realpath(os.path.abspath(project_root))
         self.enabled: bool = enabled
         self.network: str = network
         self.timeout: int = timeout
         self.max_output_bytes: int = max(1, max_output_bytes)
         self.max_memory_mb: int = max(128, max_memory_mb)
         self.max_processes: int = max(1, max_processes)
+        self.restrict_reads: bool = restrict_reads
+        self.read_allow_paths: tuple[str, ...] = tuple(
+            os.path.realpath(os.path.abspath(p)) for p in read_allow_paths if p
+        )
         self._platform: str = platform.system()
 
     def execute(
@@ -242,22 +308,43 @@ class SandboxRunner:
           - /tmp, /var/tmp: 읽기/쓰기 (빌드 산출물)
           - 네트워크: config에 따라 차단 또는 허용
           - fork/exec: 허용 (명령 실행 필요)
+          - restrict_reads=True면 읽기를 시스템 런타임과 명시적 허용
+            경로로 제한해 사용자 비밀 파일 접근을 차단한다.
         """
         root = self.project_root
         allow_net = self.network != "none"
 
         # (deny default)가 네트워크도 포함해 전부 차단하므로, 허용 모드에서는
-        # 명시적 allow가 없으면 실제로는 항상 차단된다
+        # 명시적 allow가 없으면 실상 항상 차단된다
         network_policy = "(allow network*)\n;; network allowed" if allow_net else "(deny network*)\n;; network blocked"
 
-        return f"""(version 1)
-(deny default)
-(allow process-fork)
-(allow process-exec)
-(allow signal (target self))
-(allow sysctl-read)
-(allow file-read*)
-;; 프로젝트 디렉토리 쓰기 허용
+        if self.restrict_reads:
+            # 실험적으로 검증된 macOS 26 동작: subpath 기반 좁은 read allow는
+            # 인터프리터 로딩 단계에서 SIGABRT를 유발한다. 대신 전체 읽기 허용
+            # 뒤에 사용자 트리/공유 임시 디렉토리 deny를 두고, 필요한 경로만
+            # 다시 허용한다. seatbelt는 같은 구체성에서 나중에 오는 규칙을
+            # 우선 적용하므로 deny 이후의 allow가 재허용으로 동작한다.
+            denied_roots = []
+            user_tree = _user_tree_denied_root()
+            if user_tree:
+                denied_roots.append(user_tree)
+            # 다른 프로세스의 임시 파일(시크릿 포함 가능) 격리
+            denied_roots.extend(["/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"])
+            read_rules = ["(allow file-read*)"]
+            for denied in denied_roots:
+                read_rules.append(f'(deny file-read* (subpath "{denied}"))')
+            # 재허용: 작업 디렉토리/런타임/호출자 지정 경로가 차단 트리
+            # 안에 있더라도 정확히 그 prefix만 다시 연다.
+            for p in dict.fromkeys([root, *self.read_allow_paths]):
+                read_rules.append(f'(allow file-read* (literal "{p}"))')
+                read_rules.append(f'(allow file-read* (subpath "{p}"))')
+            read_section = "\n".join(read_rules)
+            # restrict 모드: 쓰기도 root만. /tmp, /var/folders 전체 쓰기 허용 제거.
+            write_section = f'(allow file-write* (subpath "{root}"))\n(allow file-write* (literal "/dev/null"))'
+        else:
+            read_section = "(allow file-read*)"
+            cache_section = f'(allow file-write* (subpath "{os.path.expanduser("~/.cache")}"))'
+            write_section = f""";; 프로젝트 디렉토리 쓰기 허용
 (allow file-write* (subpath "{root}"))
 ;; 임시 디렉토리 (빌드 산출물)
 (allow file-write* (subpath "/tmp"))
@@ -266,7 +353,16 @@ class SandboxRunner:
 (allow file-write* (subpath "/private/var/folders"))
 (allow file-write* (literal "/dev/null"))
 ;; 사용자 캐시 (pip, npm 등)
-(allow file-write* (subpath "{os.path.expanduser("~/.cache")}"))
+{cache_section}"""
+
+        return f"""(version 1)
+(deny default)
+(allow process-fork)
+(allow process-exec)
+(allow signal (target self))
+(allow sysctl-read)
+{read_section}
+{write_section}
 {network_policy}
 """
 
@@ -282,7 +378,8 @@ class SandboxRunner:
         working_dir = "/workspace"
         if cwd:
             try:
-                relative_cwd = os.path.relpath(cwd, self.project_root)
+                canonical_cwd = os.path.realpath(os.path.abspath(cwd))
+                relative_cwd = os.path.relpath(canonical_cwd, self.project_root)
             except ValueError:
                 relative_cwd = ".."
             if relative_cwd == ".." or relative_cwd.startswith(f"..{os.sep}"):

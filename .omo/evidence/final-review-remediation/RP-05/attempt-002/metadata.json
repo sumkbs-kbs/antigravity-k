@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-05",
+  "attempt": 2,
+  "status": "REVIEW",
+  "owner": "rp05_retry",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "tree_clean_before_run": false,
+  "changed_files": [
+    "src/antigravity_k/engine/conversation_store.py",
+    "tests/test_fr05_conversation_authoritative_reads.py"
+  ],
+  "note": "metadata reconstructed 2026-09-10 by coordinator session; attempt-002 executor completed the fix and red/green proof (debug-journal.md) but was cut off before writing this file.",
+  "required_scenarios": [
+    {"id": "no-cache-aliasing", "required": true, "expected": "get()/get_or_create() return detached records; caller edits cannot corrupt store cache", "observed": "red proof recorded revision 99 aliasing; green returns detached copies (4 passed source-loaded)", "verdict": "PASS", "artifact": "red-focused.txt"},
+    {"id": "corrupt-payload-no-stale-reuse", "required": true, "expected": "invalid disk payload does not resurrect cached record as authoritative", "observed": "cache invalidated on invalid disk state; green 4 passed", "verdict": "PASS", "artifact": "green-focused.txt"},
+    {"id": "stale-fork-conflict", "required": true, "expected": "fork() refreshes under thread+process lock; stale expected revision rejected", "observed": "cached process rejects stale fork after remote append (green)", "verdict": "PASS", "artifact": "green-focused.txt"},
+    {"id": "focused-family", "required": true, "expected": "full FR-05 family incl. process races green on current tree", "observed": "coordinator rerun after editable reinstall: 84 passed across FR-01..07 suites incl. this file", "verdict": "PASS", "artifact": "logs/ (coordinator rerun recorded in commands.jsonl)"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "Every public read still re-reads disk under flock (correctness first; caching deferred per plan).",
+    "R05-11 explicit API-worker replay remains partially covered via tests/test_conversation_api_ctx01.py; full worker-process replay planned in RP-12.",
+    "Independent review (R05-12) deferred to RP-14."
+  ]
+}

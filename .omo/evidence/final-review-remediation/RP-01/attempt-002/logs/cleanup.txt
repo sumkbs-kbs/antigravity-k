@@ -1,0 +1,4 @@
+CLEANUP disposable-red-worktree=removed
+worktree /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+HEAD 8794aaecabf5664a7ee560b104e0115d915aabb7
+branch refs/heads/codex/m1-task-events

@@ -41,10 +41,15 @@ def summarize_messages(old_messages: list[Message], summarize_fn: Summarizer | N
         and message.get("content", "")
         and compact_structured_tool_response(message.get("content", "")) is None
     ]
+    header = f"[대화 요약 — {len(old_messages)}개 메시지 압축]"
     if preserved_evidence:
-        return "\n".join(preserved_evidence)
+        # FR-09/RP-09: 초기 사용자 결정(제약·요구)도 evidence와 함께 보존한다.
+        # evidence만 남기면 대화의 핵심 결정사항이 요약에서 사라진다.
+        if key_messages:
+            return "\n".join([header, *key_messages[:5], *preserved_evidence])
+        return "\n".join([header, *preserved_evidence])
     if key_messages:
-        return "\n".join([f"[대화 요약 — {len(old_messages)}개 메시지 압축]", *key_messages[:5]])
+        return "\n".join([header, *key_messages[:5]])
     return f"[System Note: {len(old_messages)} older messages were pruned for context efficiency. The agent has already explored previous steps.]"
 
 

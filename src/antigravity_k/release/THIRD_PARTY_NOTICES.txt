@@ -37,7 +37,7 @@ Python dependencies (uv.lock):
 - platformdirs 4.10.0 — license metadata unavailable
 - prometheus-client 0.26.0 — license metadata unavailable
 - psutil 6.1.1 — BSD-3-Clause
-- pycparser 3.0 — BSD-3-Clause
+- pycparser 3.0 — license metadata unavailable
 - pydantic 2.13.4 — license metadata unavailable
 - pydantic-core 2.46.4 — license metadata unavailable
 - pydantic-settings 2.15.0 — license metadata unavailable

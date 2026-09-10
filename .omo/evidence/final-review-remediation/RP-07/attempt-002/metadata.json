@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-07",
+  "attempt": 2,
+  "status": "REVIEW",
+  "owner": "rp06_rp07_retry",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tree_clean_before_run": false,
+  "changed_files": ["src/antigravity_k/config.yaml"],
+  "required_scenarios": ["source_config_equality", "fresh_wheel_and_sdist", "isolated_wheel_install"],
+  "scenario_results": [
+    {
+      "id": "source_config_equality",
+      "required": true,
+      "expected": "root and bundled config bytes match and carry the documented agent defaults",
+      "observed": "source_bytes_equal=true; default_entry=unified; headroom=true; max_repairs=2; adaptive=true",
+      "verdict": "PASS",
+      "artifact_paths": ["logs/source-config-contract.log", "logs/model-registry-pytest.log"]
+    },
+    {
+      "id": "fresh_wheel_and_sdist",
+      "required": true,
+      "expected": "new wheel and sdist contain src/antigravity_k/config.yaml",
+      "observed": "uv build exit 0; both listings include config.yaml; SHA-256 retained",
+      "verdict": "PASS",
+      "artifact_paths": ["artifacts/antigravity_k-0.1.0-py3-none-any.whl", "artifacts/antigravity_k-0.1.0.tar.gz", "logs/artifact-sha256.log", "logs/wheel-config-listing.log", "logs/sdist-config-listing.log"]
+    },
+    {
+      "id": "isolated_wheel_install",
+      "required": true,
+      "expected": "outside checkout, installed wheel resource is used and agk --help exits 0",
+      "observed": "package/resource/registry paths all under isolated site-packages; agent defaults parsed; agk help rendered; temporary venv removed",
+      "verdict": "PASS",
+      "artifact_paths": ["logs/isolated-install-smoke.log"]
+    }
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": "PENDING_INDEPENDENT_REVIEW",
+  "blocked_reason": null
+}

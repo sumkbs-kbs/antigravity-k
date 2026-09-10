@@ -1,0 +1,7 @@
+Command: PYTHONPATH=src uv run --no-sync pytest -q tests/test_fr05_conversation_authoritative_reads.py -k 'public_record_return_does_not_alias_store_cache or corrupt_payload_does_not_reuse_cached_record or cached_process_rejects_stale_fork_after_remote_append'
+Exit: 0
+
+....                                                                     [100%]
+4 passed, 8 deselected in 0.57s
+
+Binary observable: the exact red selection passes against the patched source tree.

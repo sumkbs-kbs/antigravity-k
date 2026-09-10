@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-11",
+  "attempt": 1,
+  "status": "REVIEW",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "tree_clean_before_run": false,
+  "changed_files": [
+    "scripts/ga_gate_verify.py (new — gate-artifact verifier)",
+    "scripts/val02_staging.py (SC-4 resume-to-completion, SC-6 conversation load + measured duration + FD samples, required-scenario gating)",
+    "scripts/val01_staging.py (ollama_tool_registry executes a real tool, not a registry listing)",
+    "tests/test_fr11_gate_verifier.py (new)"
+  ],
+  "required_scenarios": [
+    {"id": "gate-inventory", "required": true, "expected": "all required gates inventoried", "observed": "commercial_ga_gates.json: 20/20 required (ruff/format/mypy/basedpyright/tests, dashboard install/lint/typecheck/test/build, package/docker, sbom, audits x2, bandit, master/api E2E, accessibility, clean-machine); existing ga_gate.py runner already records argv/cwd/timeout/stdout/stderr/exit/UTC start-end/SHA/dirty/lock+manifest hashes", "verdict": "PASS"},
+    {"id": "verifier-missing-empty", "required": true, "expected": "empty gates / missing required gate cannot pass", "observed": "verify_gate_report flags both; unit-tested", "verdict": "PASS"},
+    {"id": "verifier-false-metric", "required": true, "expected": "status/exit inconsistency, zero duration, summary mismatch, bad/expected-sha mismatch rejected", "observed": "all flagged; unit-tested incl. CLI exit codes 1/2", "verdict": "PASS"},
+    {"id": "soak-negative", "required": true, "expected": "60s rehearsal rejected when 28800s required", "observed": "verify_soak_artifact rejects 8s rehearsal artifact against 28800 requirement (measured run); unit-tested at 60s", "verdict": "PASS"},
+    {"id": "val02-missing-required", "required": true, "expected": "reduced/empty scenario runs are not all_pass", "observed": "--scenarios SC-1 → all_pass=False + missing_required=[SC-2..SC-6] (measured, log saved)", "verdict": "PASS"},
+    {"id": "val02-resume-completes", "required": true, "expected": "kill -9 → prepare_resume → resuming→running→done + duplicate side effect rejected", "observed": "SC-4 rehearsal green with resumed_task_completed/duplicate_side_effect_rejected/post_recovery_sequences_unique all true", "verdict": "PASS"},
+    {"id": "val02-soak-workload", "required": true, "expected": "soak includes conversation ops, measured duration, FD samples, append equality", "observed": "SC-6 rehearsal: 1963 conversation ops, revision==append count, fd_growth=0, actual_duration_s recorded and enforced >= 0.9x requested", "verdict": "PASS"},
+    {"id": "val01-real-tool-exec", "required": true, "expected": "tool listing not counted as execution success", "observed": "ollama_tool_registry scenario now executes read_file through the permission boundary and asserts the file content", "verdict": "PASS"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "R11-05 (explicit cloud-provider scenario adapter): no cloud credential in this environment — provider abstraction exists (model_manager) but no cloud staging scenario was added; carries to RP-12 with the real-provider run (BLOCKED_EXTERNAL for credentials).",
+    "R11-10 (shipping wheel/lock audit alignment): dependency-audit gates audit the environment; binding them to the built wheel's dependency set is recorded as RP-13 manifest work.",
+    "Full 20-gate run not executed this session (RP-12 same-SHA requirement); verifier tested against synthetic fixtures + a real 8s val02 rehearsal artifact."
+  ]
+}

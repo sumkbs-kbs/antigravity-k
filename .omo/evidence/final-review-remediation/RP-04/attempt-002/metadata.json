@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-04",
+  "attempt": 2,
+  "status": "REVIEW",
+  "owner": "rp04_retry",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "tree_clean_before_run": false,
+  "changed_files": [
+    "src/antigravity_k/engine/rsi_sandbox.py",
+    "src/antigravity_k/engine/meta_architect.py",
+    "tests/test_fr04_mutation_rollback_isolation.py"
+  ],
+  "source_imports": [
+    "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/rsi_sandbox.py",
+    "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/meta_architect.py"
+  ],
+  "required_scenarios": [
+    {
+      "id": "red-proof-baseline-checkout",
+      "required": true,
+      "expected": "the unmodified baseline restores dirty B through whole-tree checkout",
+      "observed": "the isolated baseline test fails because B changes from user-dirty to committed",
+      "verdict": "PASS",
+      "artifact_paths": ["logs/red-proof.txt"]
+    },
+    {
+      "id": "delegated-component-rollback",
+      "required": true,
+      "expected": "MetaArchitect validation failure restores its owned engine file and preserves dirty B and untracked C",
+      "observed": "execute_proposal=false; owned_restored=true; dirty_preserved=true; untracked_preserved=true",
+      "verdict": "PASS",
+      "artifact_paths": ["logs/manual-qa-source.txt", "manual-qa.md"]
+    },
+    {
+      "id": "focused-regression",
+      "required": true,
+      "expected": "all RSI family, fail-closed caller, and FR-04 isolation tests pass against src",
+      "observed": "43 passed",
+      "verdict": "PASS",
+      "artifact_paths": ["logs/focused-regression.txt"]
+    },
+    {
+      "id": "lint",
+      "required": true,
+      "expected": "changed implementation and test have no Ruff violations",
+      "observed": "All checks passed!",
+      "verdict": "PASS",
+      "artifact_paths": ["logs/ruff.txt"]
+    }
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": "PENDING_INDEPENDENT_REVIEW",
+  "blocked_reason": null,
+  "cleanup": {
+    "temporary_baseline_worktree": "removed: /tmp/ssak-rp04-red.YVY86s/source",
+    "manual_temp_repository": "removed by driver; temp_repo_removed=true",
+    "remaining_unrelated_worktree": "/private/tmp/ssak-rp01-head-5992 was pre-existing and was not touched"
+  }
+}
