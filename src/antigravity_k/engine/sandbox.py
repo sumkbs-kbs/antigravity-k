@@ -117,8 +117,20 @@ def _python_runtime_read_paths() -> list[str]:
 
     conda/venv interpreters live under the user HOME, so only these exact
     prefixes are allow-listed instead of the whole HOME directory.
+    Seatbelt matches canonical (realpath) locations, and venv interpreters are
+    frequently symlinks into a manager store (uv/conda), so both the symlink
+    location and its resolved target tree must be allow-listed.
     """
-    paths = {sys.prefix, sys.base_prefix, os.path.dirname(os.path.abspath(sys.executable))}
+    exe_real = os.path.realpath(os.path.abspath(sys.executable))
+    paths = {
+        sys.prefix,
+        sys.base_prefix,
+        os.path.realpath(sys.prefix),
+        os.path.realpath(sys.base_prefix),
+        os.path.dirname(os.path.abspath(sys.executable)),
+        os.path.dirname(exe_real),
+        os.path.dirname(os.path.dirname(exe_real)),
+    }
     return sorted(p for p in paths if p)
 
 
