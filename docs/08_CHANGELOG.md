@@ -1,6 +1,23 @@
 # 08 Changelog
 
-기준일: 2026-08-17
+기준일: 2026-09-10
+
+## 2026-09-10
+
+### Commercial GA-100 Plan 100% Completion (33/33 DONE)
+- 상용화 준비도 100% 계획([`docs/11_COMMERCIAL_GA_100_PLAN.md`](./11_COMMERCIAL_GA_100_PLAN.md)) 및 체크리스트([`docs/12_COMMERCIAL_GA_100_CHECKLIST.md`](./12_COMMERCIAL_GA_100_CHECKLIST.md))에 명시된 33개 작업 항목(GA-00 ~ RC-01)을 전수 종결하고 독립 증거 팩을 수립했다.
+- **DR 고아 워크트리 복구 리허설 완결**: `worktree_manager.py:sweep_orphan_worktrees`에서 `os.path.realpath` 정규화를 적용하고, `scripts/dr_rehearsal.py`에 고아/최신/dirty 워크트리 시나리오를 추가하여 4/4 시나리오 `all_ok = True`를 검증했다.
+- **EVO-02 & RAG-02 독립 리뷰 완료**: 실측 평가 스위트(12 passed) 및 절대 라인 검증(13 passed)의 독립 리뷰 보고서를 `.omo/evidence/commercial-ga-100/`에 기록하고 체크리스트 테이블과 정합성을 100% 동기화했다.
+
+### UnifiedAgent & Ssak-Search Local Infrastructure Integration
+- **UnifiedAgent 코어 파이프라인**: 4방향 태스크 분류 라우팅(`explore` / `web` / `code` / `answer`), Graphify 하이브리드 리트리버(`hybrid_retrieve`) 및 Headroom 컨텍스트 압축, pytest 바이트코드 격리 실행, 2-샘플 다양성 프로브 기반 Adaptive Stability Routing을 통합했다.
+- **Ssak-Search 클라이언트**: Cloudflare Pages 기반 Ssak-Search 엔진 API 연동 및 그라운딩 컨텍스트 포맷터(`SsakSearchClient`) 및 BaseTool 래퍼(`SsakSearchTool`)를 제공한다.
+- **CLI & REST API**: `agk ask "<task>" [--test <path>]` CLI 명령어 및 `POST /api/agent/ask` 엔드포인트를 구현했다.
+
+### Dashboard UI Integration & Real Coding Evaluation Suite
+- **대시보드 UI 연동**: `PlanToggleBar.tsx`에 `⚡ Adaptive` 토글 버튼을 추가하고, `ChatMessage.tsx`에 `assistant-agent-meta` 배지(`⚡ adaptive`, `🌐 web`, `🗺️ graphify`, `✅ passed`/`❌ failed`, 스텝 수, 소요 시간)를 시각화했다. `ChatPage.tsx`에서 Adaptive 모드 시 `askAgent`를 통해 작업을 수행하도록 바인딩했다. Vitest 전체 70개 파일 750개 테스트를 100% 통과했다.
+- **실전 코딩 평가 스위트 이식**: `tests/evals/real_coding/`에 `unified_tasks.py`, `hard_composite_tasks.py`, `stability_eval.py` 및 CI 회귀용 `test_real_coding_harness.py`를 구축했다. 23개 전수 테스트를 1.76초에 통과했다.
+- **릴리즈 & 공급망 무결성**: 77개 릴리즈/공급망 테스트 전수 통과, Vite 프로덕션 빌드 1.52초 무결점 생성, Mypy 478개 소스 파일 0 errors, ESLint 0 errors를 달성했다.
 
 ## 2026-08-13
 

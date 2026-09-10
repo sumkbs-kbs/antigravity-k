@@ -24,6 +24,7 @@
 | 🧠 **로컬 추론 엔진** | Ollama Qwen3.8 기본, 직접 MLX와 LM Studio 선택 지원 |
 | 🌐 **집단지성 (MoE Swarm)** | 다중 모델 교차 검증 및 토론 라우팅 |
 | 🤖 **자율 에이전트** | ReAct 패턴 + 도구 호출 + 자가 진화 (Self-Evolution) |
+| ⚡ **적응형 에이전트 (Adaptive)** | 4방향 태스크 분류, Graphify 코드 인텔리전스, Ssak-Search 웹 그라운딩, 다양성 프로브 TDD 복구 |
 | 🔗 **RAG 파이프라인** | ChromaDB + 임베딩 + AST 기반 코드 인덱싱 |
 | 👁 **멀티모달 비전** | mlx-vlm 기반 이미지/문서 분석 |
 | 🛡️ **보안** | 접근 PIN 인증, 시크릿 스캐너, 선언적 보안 정책, Fail-Closed |
@@ -39,6 +40,7 @@
 | 🧠 **로컬 추론 엔진** | `model_manager.py:generate()` / `model_registry.py:ModelRegistry` / `provider_adapters/` | `agk run`, `agk model list` |
 | 🌐 **집단지성 (MoE Swarm)** | `model_manager.py:generate_collective()` / `engine/model_router.py` | `agk run --mode collective` |
 | 🤖 **자율 에이전트** | `engine/orchestrator/agent.py` (ReAct graph) / `engine/tool_loop.py` / `engine/tool_executor.py` | `agk run`, `agk task resume` |
+| ⚡ **적응형 에이전트 (Adaptive)** | `engine/unified_agent.py:UnifiedAgent` / `tools/ssak_search_client.py` / `api/routes/agent_ask.py` | `agk ask`, 대시보드 `⚡ Adaptive` 모드 |
 | 🔗 **RAG 파이프라인** | `engine/rag_indexer.py:RAGIndexer` / `engine/code_intel/` / `engine/vault.py:VaultEngine` | `agk rag index`, `agk vault` |
 | 👁 **멀티모달 비전** | `provider_adapters/mlx_vlm.py` / `tools/vision_tool.py` | `agk run --model mlx-...` |
 | 🛡️ **보안** | `engine/security_policy.py` / `engine/secret_scanner.py` / `engine/approval_manager.py` / `engine/error_classifier.py` | `agk serve` (PIN), `agk security scan` |
@@ -88,6 +90,10 @@ uv run agk serve --host 127.0.0.1 --port 8400
 
 # 기본 Qwen3.8 로컬 에이전트 실행
 uv run agk run "현재 프로젝트의 테스트 실패 원인을 요약해줘" --model qwen3.8
+
+# 적응형(Adaptive) 에이전트 질의 및 코드 TDD 자가 복구 루프 실행
+uv run agk ask "FastAPI BackgroundTasks 동작 원리"
+uv run agk ask "Counter 클래스 작성" --test tests/test_counter.py
 
 # 반환된 direct task ID의 상태/출력 조회 및 실패·일시정지 작업 재개
 uv run agk task status direct_ab12cd34ef56

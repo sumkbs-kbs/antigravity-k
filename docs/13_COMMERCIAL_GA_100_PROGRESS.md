@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 28 |
+| 완료 | 33 |
 | 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | QLT-01 DONE (28/33) — 다음: OBS-01 → VAL-01/02 → DOC-01 → RC-01 |
+| 현재 작업 | **GA-100 전수 종결 (33/33 DONE, 100/100)** + UnifiedAgent/Ssak-Search & 대시보드 UI 연동 & 실전 평가 스위트 이식 완료 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,46 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-10 · 대시보드 UI 연동 (Track 1), 실전 코딩 평가 스위트 이식 (Track 2) 및 GA 릴리즈 패키징 (Track 3)
+
+- **대시보드 UI 연동 (Track 1)**:
+  - `PlanToggleBar.tsx`에 `⚡ Adaptive` 토글 버튼을 추가하여 UnifiedAgent의 적응형 모드를 UI에서 즉시 제어할 수 있도록 구현.
+  - `ChatMessage.tsx`에 `assistant-agent-meta` 배지 렌더링 추가 (`⚡ adaptive`, `🌐 web` Ssak-Search, `🗺️ graphify` 코드베이스 지식 그래프, `✅ passed` / `❌ failed` 단위 테스트 판정, 실행 스텝 수, 소요 시간).
+  - `ChatPage.tsx`의 `runCompletion`에서 `isAdaptiveMode` 활성화 시 `askAgent`(`POST /api/agent/ask`)를 호출하고 메타데이터와 응답 본문을 대시보드에 일관되게 바인딩.
+  - `chatStore.ts`의 `ChatMessage` 인터페이스 및 액션에 `agentMeta`와 `isAdaptiveMode` 상태를 추가.
+  - `dashboard/src/components/Chat/__tests__/ChatMessage.test.tsx` 단위 테스트 보강, Vitest 전체 70개 파일 750/750 테스트 통과 (100% PASS).
+- **실전 코딩 평가 스위트 이식 (Track 2)**:
+  - `tests/evals/real_coding/` 하위에 `unified_tasks.py`, `hard_composite_tasks.py`, `stability_eval.py` 이식 완료.
+  - `test_real_coding_harness.py`를 추가하여 모의 생성기를 통해 CI에서도 네트워크/모델 의존성 없이 100% 검증 가능한 회귀 테스트 구축.
+  - `tests/test_ssak_search_client.py`, `tests/test_unified_agent.py`, `tests/test_agent_ask_api.py`, `tests/evals/real_coding/` 전수 23/23 tests 통과 (1.76초).
+- **GA 릴리즈 패키징 및 정적 검증 (Track 3)**:
+  - `tests/test_rel*.py`, `tests/test_release*.py`: 77/77 tests passed.
+  - `pnpm --dir dashboard build`: Vite 프로덕션 빌드 1.52초 완료 (`dashboard_dist`).
+  - `tsc -b` 0 errors, `pnpm lint` 0 errors, `ruff check` 0 errors, `mypy` 478 소스 파일 0 errors.
+- **커밋**: `af03367` (`feat(dashboard,evals): integrate adaptive unified agent into dashboard UI and port real coding eval suites`).
+
+### 2026-09-10 · UnifiedAgent & Ssak-Search & Adaptive Stability 로컬 에이전트 인프라 이식
+
+- **에이전트 코어 파이프라인 이식**:
+  - `SsakSearchClient` (`ssak_search_client.py`): Cloudflare Pages 기반 Ssak-Search 엔진 API 연동 및 그라운딩 컨텍스트 포맷터.
+  - `SsakSearchTool` (`ssak_search_tool.py`): BaseTool 표준 툴 규격 준수.
+  - `UnifiedAgent` (`unified_agent.py`): 4방향 태스크 분류 라우터(`explore`/`web`/`code`/`answer`), Graphify 하이브리드 리트리버 및 Headroom 컨텍스트 압축 연계, pytest 바이트코드 격리 실행, 2-샘플 다양성 프로브 기반 Adaptive Stability Routing.
+  - `agk ask` CLI 명령어 및 `POST /api/agent/ask` REST API 라우트 연동.
+- **커밋**: `b718848` (`feat(agent): port unified agent, ssak-search grounding, and adaptive stability routing`).
+
+### 2026-09-10 · GA-100 체크리스트 잔여 5개 항목 완전 종결 및 DR 고아 리허설 연계 (33/33 DONE)
+
+- **재해 복구 리허설 완결 (DAT-02 / OBS-01)**:
+  - `worktree_manager.py:sweep_orphan_worktrees`에서 `os.path.realpath`로 정규화하여 macOS `/var` 심볼릭 링크 환경에서도 정확히 탐지하도록 수정.
+  - `scripts/dr_rehearsal.py`에 `scenario_orphan_worktrees` 시나리오 추가 (고아 워크트리, 최신 워크트리, dirty 워크트리 3종 중 고아만 안전하게 정리 검증).
+  - 4개 재해 복구 시나리오(`backup_restore`, `db_corruption`, `orphan_worktrees`, `project_migration`) all_ok = True 달성.
+- **독립 리뷰 증거 팩 생성 및 동기화**:
+  - `EVO-02`: `.omo/evidence/commercial-ga-100/EVO-02/` (r1 APPROVE, 12 tests green).
+  - `RAG-02`: `.omo/evidence/commercial-ga-100/RAG-02/` (r1 APPROVE, 13 tests green).
+  - `SEC-03`, `TRN-01`: 체크박스 및 테이블 판정 완료 동기화.
+- **결과**: [12_COMMERCIAL_GA_100_CHECKLIST.md](./12_COMMERCIAL_GA_100_CHECKLIST.md) 33개 작업 항목 **33/33 DONE (100% 완료, ALL GREEN)**.
+- **커밋**: `97f923f` (`docs(ga): GA-100 체크리스트 잔여 5개 항목 완전 종결 및 DR 고아 리허설 연계 (33/33 DONE)`).
 
 ### 2026-09-09 · REL-02 구현·병합 (23/33)
 
