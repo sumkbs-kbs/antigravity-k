@@ -331,11 +331,38 @@ function ChatMessageComponent({ message }: Props) {
         onKeyDown={role === 'assistant' ? handleBubbleKeyDown : undefined}
       >
         {role === 'assistant' && (
-          <div className="antigravity-assistant-header">
+          <div className="antigravity-assistant-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 6 }}>
             <div className="assistant-identity-badge">
               <span className="assistant-spark">✦</span>
               <span className="assistant-identity-name">Ssak-Ai</span>
             </div>
+            {message.agentMeta && (
+              <div className="assistant-agent-meta" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '11px', opacity: 0.85 }}>
+                <span className="badge badge-mode" style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 4 }}>
+                  ⚡ {message.agentMeta.mode || 'adaptive'}
+                </span>
+                {message.agentMeta.used_web && (
+                  <span className="badge badge-web" title="Ssak-Search 웹 검색 참조" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', padding: '2px 6px', borderRadius: 4 }}>
+                    🌐 web
+                  </span>
+                )}
+                {message.agentMeta.used_graphify && (
+                  <span className="badge badge-graphify" title="Graphify 코드베이스 하이브리드 검색" style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', padding: '2px 6px', borderRadius: 4 }}>
+                    🗺️ graphify
+                  </span>
+                )}
+                {message.agentMeta.passed !== null && message.agentMeta.passed !== undefined && (
+                  <span className={`badge ${message.agentMeta.passed ? 'badge-pass' : 'badge-fail'}`} style={{ background: message.agentMeta.passed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: message.agentMeta.passed ? '#4ade80' : '#f87171', padding: '2px 6px', borderRadius: 4 }}>
+                    {message.agentMeta.passed ? '✅ passed' : '❌ failed'}
+                  </span>
+                )}
+                {message.agentMeta.steps !== undefined && (
+                  <span style={{ color: 'var(--text-muted, #888)' }}>
+                    {message.agentMeta.steps} steps ({message.agentMeta.total_seconds?.toFixed(1) ?? '0.0'}s)
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
         {role === 'user' ? (

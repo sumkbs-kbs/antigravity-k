@@ -6,7 +6,7 @@ import React from 'react';
 import { useChatStore } from '../../stores/chatStore';
 
 const PlanToggleBar: React.FC = () => {
-  const { selectedModel, isPlanMode, isTddMode, setPlanMode, setTddMode } = useChatStore();
+  const { selectedModel, isPlanMode, isTddMode, isAdaptiveMode, setPlanMode, setTddMode, setAdaptiveMode } = useChatStore();
 
   const modelName = selectedModel === 'default' ? 'Default Local Model' : selectedModel;
 
@@ -21,6 +21,19 @@ const PlanToggleBar: React.FC = () => {
         <div className="plan-toggle active" title="Autonomous Mode: AI가 툴을 자율적으로 실행합니다">
           <span className="toggle-dot" style={{ background: 'var(--accent-color)' }} />
           <span>🤖 Auto</span>
+        </div>
+
+        {/* Adaptive Mode Toggle */}
+        <div
+          className={`plan-toggle ${isAdaptiveMode ? 'active' : ''}`}
+          onClick={() => setAdaptiveMode(!isAdaptiveMode)}
+          title="Adaptive Mode: UnifiedAgent(4방향 태스크 분류, Graphify, 웹 그라운딩, 적응형 안정성 라우팅)를 실행합니다"
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAdaptiveMode(!isAdaptiveMode); } }}
+        >
+          <span className="toggle-dot" style={{ background: 'var(--warning-color, #e5a50a)' }} />
+          <span>⚡ Adaptive</span>
         </div>
 
         {/* Plan Mode Toggle */}

@@ -11,6 +11,14 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   id?: string;
+  agentMeta?: {
+    used_web?: boolean;
+    used_graphify?: boolean;
+    steps?: number;
+    total_seconds?: number;
+    passed?: boolean | null;
+    mode?: string;
+  };
 }
 
 export interface ChatSession {
@@ -63,6 +71,7 @@ export interface ChatState {
   // ToDos
   isPlanMode: boolean;
   isTddMode: boolean;
+  isAdaptiveMode: boolean;
 
   // Actions
   createNewSession: () => void;
@@ -70,7 +79,7 @@ export interface ChatState {
   deleteSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
   addMessage: (msg: ChatMessage) => void;
-  updateLastAssistantMessage: (content: string) => void;
+  updateLastAssistantMessage: (content: string, agentMeta?: ChatMessage['agentMeta']) => void;
   setConversationRevision: (revision: number) => void;
   applyServerSnapshot: (snapshot: {
     conversation_id: string;
@@ -86,6 +95,7 @@ export interface ChatState {
   setSelectedModel: (model: string) => void;
   setPlanMode: (val: boolean) => void;
   setTddMode: (val: boolean) => void;
+  setAdaptiveMode: (val: boolean) => void;
   loadFromStorage: () => void;
   saveToStorage: () => void;
   clearForProjectSwitch: () => void;
@@ -105,6 +115,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   selectedModel: 'default',
   isPlanMode: false,
   isTddMode: false,
+  isAdaptiveMode: false,
 
   createNewSession: () => {
     const id = generateId();
@@ -207,13 +218,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().saveToStorage();
   },
 
-  updateLastAssistantMessage: (content: string) => {
+  updateLastAssistantMessage: (content: string, agentMeta?: ChatMessage['agentMeta']) => {
     const { messages, activeSessionId, sessions } = get();
     const newMessages = [...messages];
     if (newMessages.length > 0 && newMessages[newMessages.length - 1].role === 'assistant') {
-      newMessages[newMessages.length - 1] = { ...newMessages[newMessages.length - 1], content };
+      newMessages[newMessages.length - 1] = {
+        ...newMessages[newMessages.length - 1],
+        content,
+        ...(agentMeta !== undefined ? { agentMeta } : {}),
+      };
     } else {
-      newMessages.push({ role: 'assistant', content });
+      newMessages.push({ role: 'assistant', content, ...(agentMeta !== undefined ? { agentMeta } : {}) });
     }
     const updatedSessions = sessions.map(s =>
       s.id === activeSessionId
@@ -284,6 +299,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setSelectedModel: (model) => set({ selectedModel: model }),
   setPlanMode: (val: boolean) => set({ isPlanMode: val }),
   setTddMode: (val: boolean) => set({ isTddMode: val }),
+  setAdaptiveMode: (val: boolean) => set({ isAdaptiveMode: val }),
 
   loadFromStorage: () => {
     try {

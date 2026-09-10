@@ -466,4 +466,29 @@ describe('ChatMessage code block', () => {
     expect(table?.textContent).toContain('항목');
     expect(table?.textContent).toContain('120ms');
   });
+
+  it('renders agentMeta badges when agentMeta is present', () => {
+    const msg = {
+      id: 'msg-agent',
+      role: 'assistant' as const,
+      content: 'Task completed successfully',
+      agentMeta: {
+        mode: 'adaptive',
+        used_web: true,
+        used_graphify: true,
+        steps: 3,
+        total_seconds: 1.2,
+        passed: true,
+      },
+    };
+    const { container } = render(<ChatMessage message={msg} />);
+    const metaContainer = container.querySelector('.assistant-agent-meta');
+    expect(metaContainer).toBeInTheDocument();
+    expect(metaContainer?.textContent).toContain('⚡ adaptive');
+    expect(metaContainer?.textContent).toContain('🌐 web');
+    expect(metaContainer?.textContent).toContain('🗺️ graphify');
+    expect(metaContainer?.textContent).toContain('✅ passed');
+    expect(metaContainer?.textContent).toContain('3 steps');
+    expect(metaContainer?.textContent).toContain('1.2s');
+  });
 });

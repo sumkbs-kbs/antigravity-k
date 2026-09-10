@@ -28,6 +28,7 @@ import {
   fetchModels,
   fetchLocalModels,
   loadModel,
+  askAgent,
   type ModelInfo,
   type LocalModelItem,
 } from '../../api/client';
@@ -63,7 +64,7 @@ import {
 
 export const ChatPage: React.FC = () => {
   const {
-    messages, isStreaming, selectedModel, isPlanMode, isTddMode,
+    messages, isStreaming, selectedModel, isPlanMode, isTddMode, isAdaptiveMode,
     activeSession, activeSessionId, updateSessionTitle,
     addMessage, updateLastAssistantMessage, saveToStorage,
     applyServerSnapshot,
@@ -162,6 +163,7 @@ export const ChatPage: React.FC = () => {
   const selectedModelRef = useRef(selectedModel);
   const isPlanModeRef = useRef(isPlanMode);
   const isTddModeRef = useRef(isTddMode);
+  const isAdaptiveModeRef = useRef(isAdaptiveMode);
   const runRef = useRef<(text: string) => Promise<void>>(async () => {});
   // 로컬 모델 로더의 최신 버전을 가리키는 레퍼런스 — init effect가 마운트 시 1회만
   // 실행되도록 하면서 effect 본문의 동기 setState(react-hooks/set-state-in-effect)를 피한다.
@@ -173,8 +175,9 @@ export const ChatPage: React.FC = () => {
     selectedModelRef.current = selectedModel;
     isPlanModeRef.current = isPlanMode;
     isTddModeRef.current = isTddMode;
+    isAdaptiveModeRef.current = isAdaptiveMode;
     loadLocalModelsRef.current = loadLocalModels;
-  }, [isPlanMode, isTddMode, selectedModel, loadLocalModels]);
+  }, [isPlanMode, isTddMode, isAdaptiveMode, selectedModel, loadLocalModels]);
 
   /* ─── Init ───────────────────────────────────────────────── */
   useEffect(() => {
@@ -442,10 +445,11 @@ export const ChatPage: React.FC = () => {
     const model = selectedModelRef.current;
     const planMode = isPlanModeRef.current;
     const tddMode = isTddModeRef.current;
+    const adaptiveMode = isAdaptiveModeRef.current;
     const requestEpoch = useProjectStore.getState().switchEpoch;
     const requestProjectId = useProjectStore.getState().activeProjectId;
 
-    firePluginHook('chat:send', { text, model, planMode, tddMode });
+    firePluginHook('chat:send', { text, model, planMode, tddMode, adaptiveMode });
     useActivityStore.getState().clear();
     useActivityStore.getState().setSessionStarted();
     addMessage({ role: 'user', content: text });
@@ -456,9 +460,62 @@ export const ChatPage: React.FC = () => {
     setStreaming(true);
     startElapsedTimer();
 
-    let assistantContent = '';
     const abortController = new AbortController();
     abortRef.current = abortController;
+
+    if (adaptiveMode) {
+      try {
+        const res = await askAgent({
+          task: text,
+          model: model === 'default' ? undefined : model,
+          adaptive: true,
+          use_web: webSearch,
+          project_id: requestProjectId ?? undefined,
+        });
+
+        if (!isIdentityCurrent(requestEpoch)) {
+          if (abortRef.current === abortController) {
+            abortRef.current = null;
+          }
+          return;
+        }
+
+        if (res.ok) {
+          updateLastAssistantMessage(res.answer, {
+            used_web: res.used_web,
+            used_graphify: res.used_graphify,
+            steps: res.steps,
+            total_seconds: res.total_seconds,
+            passed: res.passed,
+            mode: res.mode,
+          });
+          detectChangesFromAssistantContent(res.answer).catch(() => {});
+        } else {
+          const errText = res.error || 'Adaptive 에이전트 작업에 실패했습니다.';
+          updateLastAssistantMessage(`⚠️ 오류 발생: ${errText}`);
+          setStreamError(errText);
+        }
+      } catch (err: unknown) {
+        if (!isIdentityCurrent(requestEpoch)) return;
+        const errText = err instanceof Error ? err.message : 'Adaptive 에이전트 요청 중 통신 오류가 발생했습니다.';
+        updateLastAssistantMessage(`⚠️ 통신 오류: ${errText}`);
+        setStreamError(errText);
+      } finally {
+        saveToStorage();
+        setStreaming(false);
+        stopElapsedTimer();
+        abortRef.current = null;
+        useActivityStore.getState().setSessionEnded();
+        const next = queueRef.current.shift();
+        setQueuedMessages([...queueRef.current]);
+        if (next !== undefined) {
+          void runRef.current(next);
+        }
+      }
+      return;
+    }
+
+    let assistantContent = '';
 
     // CTX-01: client message array is projection only — server store is authoritative.
 

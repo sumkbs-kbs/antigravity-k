@@ -15,9 +15,12 @@ class AgentRequest(BaseModel):
     model: str | None = None
     test_code: str | None = None
     adaptive: bool = True
+    use_web: bool = False
+    project_id: str | None = None
 
 
 class AgentResponse(BaseModel):
+    ok: bool = True
     task: str
     answer: str
     used_web: bool
@@ -26,6 +29,7 @@ class AgentResponse(BaseModel):
     total_seconds: float
     passed: bool | None = None
     mode: str = "standard"
+    error: str | None = None
 
 
 @router.post("/ask", response_model=AgentResponse)
@@ -41,8 +45,14 @@ async def agent_ask(request: AgentRequest) -> AgentResponse:
     mm = get_model_manager()
     agent = UnifiedAgent(mm.generate, target, project_root=Path.cwd())
     use_adaptive = bool(request.test_code) and request.adaptive
-    outcome = agent.run(request.task, test_code=request.test_code, adaptive=use_adaptive)
+    outcome = agent.run(
+        request.task,
+        test_code=request.test_code,
+        adaptive=use_adaptive,
+        use_web=request.use_web,
+    )
     return AgentResponse(
+        ok=True,
         task=request.task,
         answer=outcome.answer,
         used_web=outcome.used_web,

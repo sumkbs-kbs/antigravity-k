@@ -28,8 +28,11 @@ import {
   McpHealthResponseSchema,
   McpOAuthStatusResponseSchema,
   McpOAuthStartResponseSchema,
+  AgentAskResponseSchema,
 } from './clientSchema';
 import type {
+  AgentAskRequest,
+  AgentAskResponse,
   LocalModelItem,
   LocalModelsResponse,
   CacheStats,
@@ -63,6 +66,8 @@ import type {
 } from './clientSchema';
 
 export type {
+  AgentAskRequest,
+  AgentAskResponse,
   CacheStats,
   DebugModeResult,
   HealthStatus,
@@ -377,6 +382,17 @@ export async function streamChatCompletion(
     }
     handlers.onError(err instanceof Error ? err : new Error(String(err)));
   }
+}
+
+/**
+ * Unified Agent ask endpoint (Adaptive Stability & Ssak-Search Grounding).
+ */
+export async function askAgent(payload: AgentAskRequest): Promise<AgentAskResponse> {
+  const raw = await apiRequest('/api/agent/ask', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return AgentAskResponseSchema.parse(raw);
 }
 
 /**

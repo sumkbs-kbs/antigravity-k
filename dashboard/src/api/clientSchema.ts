@@ -536,3 +536,28 @@ export type RequestExecutionContext = z.infer<typeof RequestExecutionContextSche
 export type ConversationConflictPayload = z.infer<typeof ConversationConflictPayloadSchema>;
 export type ConversationSnapshot = z.infer<typeof ConversationSnapshotSchema>;
 export type ExecutionContextErrorCode = z.infer<typeof ExecutionContextErrorCodeSchema>;
+
+export const AgentAskRequestSchema = z.object({
+  task: z.string().min(1),
+  model: z.string().nullable().optional(),
+  test_code: z.string().nullable().optional(),
+  adaptive: z.boolean().default(true),
+  use_web: z.boolean().optional(),
+  project_id: z.string().optional(),
+});
+
+export const AgentAskResponseSchema = z.object({
+  ok: z.boolean().default(true),
+  task: z.string(),
+  answer: z.string(),
+  used_web: z.boolean(),
+  used_graphify: z.boolean(),
+  steps: z.number().int(),
+  total_seconds: z.number(),
+  passed: z.boolean().nullable().optional(),
+  mode: z.string().default('standard'),
+  error: z.string().nullable().optional(),
+});
+
+export type AgentAskRequest = z.infer<typeof AgentAskRequestSchema>;
+export type AgentAskResponse = z.infer<typeof AgentAskResponseSchema>;

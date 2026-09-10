@@ -84,7 +84,8 @@ def test_run_code_without_test() -> None:
     mock_gen = MagicMock(return_value="```python\ndef square(x):\n    return x * x\n```")
     agent = UnifiedAgent(mock_gen, "dummy-model", headroom=False)
 
-    outcome = agent.run("Write a function to square a number")
+    with patch.object(agent, "_graphify_context", return_value=""):
+        outcome = agent.run("Write a function to square a number")
     assert outcome.passed is True
     assert "def square(x):" in outcome.answer
 

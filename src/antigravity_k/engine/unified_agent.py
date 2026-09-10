@@ -347,9 +347,10 @@ class UnifiedAgent:
         max_repairs: int = 2,
         consistency_samples: int = 1,
         adaptive: bool = False,
+        use_web: bool = False,
     ) -> AgentOutcome:
         t0 = time.time()
-        action = self._classify(task)
+        action = "web" if use_web else self._classify(task)
         outcome = AgentOutcome(task=task, answer="")
         if action == "explore":
             outcome = self._run_explore(task)
