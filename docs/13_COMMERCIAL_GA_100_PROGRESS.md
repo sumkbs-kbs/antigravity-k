@@ -979,3 +979,20 @@ tags: [commercialization, progress, evidence, multi-agent]
   `git worktree repair`로 리팩토링 전 구경댓 link(`antigravity-k/.git`) 복구 — branch tip
   `f82f16b` 및 worktree 모두 정상. 병합 여부는 별도 결정 사항 (GA-100 범위 외).
 - **최종 상태**: GA-100 plan **33/33 DONE 유지**, 잔여 계획 항목 0.
+
+### 2026-09-10 · GA-100 잔여 항목 해소 및 Graphify 선별 이식 완료
+
+- **GA-100 잔여 4건 완료 (커밋 `82de6b1`)**:
+  1. `taskExecutionProjection.ts`: `context.compress.skipped` → `'completed'` 매핑 및 vitest 단언 추가.
+  2. `stream.py` & `tool_loop.py`: `decide_post_compress_policy` 런타임 연결.
+  3. `FileTree.tsx`: 디렉터리 고속 전환 시 비동기 레이스 보호(`isIdentityCurrent(capturedEpoch)`).
+  4. `dependencies.py` & `test_ws03_project_lifecycle.py`: `get_vault_engine` 프로젝트 단위 격리(WS-03) A-B-A 전환 검증.
+- **Graphify Hybrid Retrieval & Optimizers 선별 이식 (커밋 `ec55af2`)**:
+  - `codex/ssak-ai-local-70b-upgrade` 피처 브랜치 검토 결과: 전체 병합 시 83개 충돌 및 ARC-01/WS/SEC 아키텍처 퇴행 위험 확인 → 브랜치 격리 보존 유지 결정.
+  - 핵심 가치 모듈인 **Graphify Hybrid Retrieval** 선별 이식:
+    - `graphify_builder.py`: AST 상수·docstring 파싱, 다국어 심볼 패턴 매칭, 증분 SHA-256 캐싱, 임베딩+키워드 하이브리드 검색.
+    - `headroom_compressor.py`: JSON/코드 docstring/공백 압축 레이어.
+    - `ponytail_shaper.py`: Lazy-Senior-Developer 지침 주입기.
+    - `graphify_tool.py`: `ToolRegistry` 자동 발견 에이전트 도구 (`hybrid_retrieve`, `query`, `explain`, `path`).
+    - 테스트: `test_optimizers_integration.py` & `test_graphify_builder.py` 15/15 passed (100%).
+- **품질 게이트**: backend 115 passed, vitest 749 passed, mypy 0 errors (474 files), ruff all passed.

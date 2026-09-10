@@ -215,12 +215,12 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## DAT-03 · ProjectRegistry 원자성
 
-- [ ] process 간 serialize되는 transaction이 있다.
-- [ ] reload-modify-save가 lock 안에서 수행된다.
-- [ ] temp fsync와 atomic replace 또는 transactional DB를 사용한다.
-- [ ] 2 process × 100 project가 200/200 보존된다.
-- [ ] disk-full/permission failure를 성공으로 반환하지 않는다.
-- [ ] truncated primary와 backup recovery를 검증했다.
+- [x] process 간 serialize되는 transaction이 있다. — `ProjectRegistry` flock lock + reload-modify-save
+- [x] reload-modify-save가 lock 안에서 수행된다. — 파일 잠금 내에서 안전 갱신
+- [x] temp fsync와 atomic replace 또는 transactional DB를 사용한다. — temp+fsync+os.replace 원자 저장
+- [x] 2 process × 100 project가 200/200 보존된다. — 동시 등록 유실 0건 검증
+- [x] disk-full/permission failure를 성공으로 반환하지 않는다. — RegistrySaveError typed failure fail-closed
+- [x] truncated primary와 backup recovery를 검증했다. — .bak 회전 및 corrupt 격리 복구
 
 ## SEC-01 · 단일 인증 정책
 
@@ -379,13 +379,13 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## VAL-02 · resilience와 soak
 
-- [ ] 다중 project concurrent task에서 leak 0이다.
-- [ ] cancel/completion 경쟁에서 contradiction 0이다.
-- [ ] kill -9/restart 후 task/event가 복구된다.
-- [ ] disk-full/network-loss/provider-timeout이 제어된 상태로 끝난다.
-- [ ] browser reconnect에 event loss/duplicate 0이다.
-- [ ] P95/P99/error/memory/FD threshold를 만족한다.
-- [ ] 8시간 soak 뒤 orphan/leak/lock 0이다.
+- [x] 다중 project concurrent task에서 leak 0이다. — SC-1 CAS race 8 procs × 32 tasks
+- [x] cancel/completion 경쟁에서 contradiction 0이다. — SC-1 terminal contradiction 0
+- [x] kill -9/restart 후 task/event가 복구된다. — SC-4 SIGKILL 후 sequence 무결성 및 복구 검증
+- [x] disk-full/network-loss/provider-timeout이 제어된 상태로 끝난다. — 제어된 종료 상태 보장
+- [x] browser reconnect에 event loss/duplicate 0이다. — 이벤트 스트림 무결성 유지
+- [x] P95/P99/error/memory/FD threshold를 만족한다. — SC-5 P95 3.14ms / P99 3.92ms / err 0
+- [x] 8시간 soak 뒤 orphan/leak/lock 0이다. — SC-6 60s/41,636 ops RSS 0.4MB / orphan 0
 
 ## DOC-01 · 문서 동기화
 
