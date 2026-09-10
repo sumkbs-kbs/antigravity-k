@@ -38,13 +38,13 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | DAT-03 | DONE | dat_03_registry | dat_03_verify (r1 APPROVE) | codex/dat-03-registry-atomic / Ssak-Ai-dat-03 | `f61e06f` | `.omo/evidence/commercial-ga-100/DAT-03/` | 병합 완료 (`ba5e1f3`) — 2026-09-06. AC 4건 독립 재현, 결함 0, 회귀 0. 브랜치는 audit trail로 보존 |
 | SEC-01 | DONE | sec_01_policy | sec_01_verify (독립 세션) | codex/sec-01-auth-policy / Ssak-Ai-sec-01 | `89ad09f` | `.omo/evidence/commercial-ga-100/SEC-01/` | 단일 fail-closed AuthPolicy (HTTP/SSE/WS) — r1 APPROVE (독립 재현 6/6), 병합 `f2a03c7`, 회귀 0 |
 | SEC-02 | DONE | sec_02_impl | sec_02_verify (독립 세션) | codex/sec-02-pin-rate-limit / Ssak-Ai-sec-02 | `eab18a4` | `.omo/evidence/commercial-ga-100/SEC-02/` | bearer-token-only 표면 + credential gate(burst 5/sustained 20·600s/lockout 300s) + secret-free audit — r1 APPROVE (독립 재현 12/12), 병합 `3ec95e2`, 회귀 0 (21=21) |
-| SEC-03 | DONE | sec_03_impl | sec_03_verify (독립 세션) | codex/sec-03-ws-origin-ticket (병합 `3be742d`) | `71b48a7` | `.omo/evidence/commercial-ga-100/SEC-03/` | SEC-01 |
+| SEC-03 | DONE | sec_03_impl | sec_03_verify (독립 세션) | codex/sec-03-ws-origin-ticket (병합 `3be742d`) | `71b48a7` | `.omo/evidence/commercial-ga-100/SEC-03/` | r1 APPROVE (독립 재현 4/4), 병합 `3be742d`, 회귀 0 |
 | EVO-01 | DONE | evo_01_impl | r1 리뷰 대기 | codex/evo-01-mutation-fail-closed (병합) | — | `.omo/evidence/commercial-ga-100/EVO-01/` | GA-00 |
-| EVO-02 | DONE | evo_02_impl | r1 리뷰 대기 | codex/evo-02-measured-eval (병합 `b6fbba9`) | `f8c85f7` | `.omo/evidence/commercial-ga-100/EVO-02/` | EVO-01 |
-| TRN-01 | DONE | trn_01_impl | trn_01_verify (독립 세션) | codex/trn-01-recipe-source (병합 `583911a`) | `717ee89` | `.omo/evidence/commercial-ga-100/TRN-01/` | GA-00 |
+| EVO-02 | DONE | evo_02_impl | evo_02_verify (독립 세션) | codex/evo-02-measured-eval (병합 `b6fbba9`) | `f8c85f7` | `.omo/evidence/commercial-ga-100/EVO-02/` | r1 APPROVE (독립 재현 5/5, f8c85f7 실측 분리) |
+| TRN-01 | DONE | trn_01_impl | trn_01_verify (독립 세션) | codex/trn-01-recipe-source (병합 `583911a`) | `717ee89` | `.omo/evidence/commercial-ga-100/TRN-01/` | r1 APPROVE (독립 재현 4/4: validation/capability/digest/단일 resolve) |
 | TRN-02 | DONE | trn_02_impl | r1 리뷰 대기 | codex/trn-02-timeout-resource (병합 `52cfb14`) | `564324d` | `.omo/evidence/commercial-ga-100/TRN-02/` | TRN-01 |
 | RAG-01 | DONE | rag_01_impl | r1 리뷰 대기 | codex/rag-01-chunk-identity (병합) | — | `.omo/evidence/commercial-ga-100/RAG-01/` | GA-00 |
-| RAG-02 | DONE | rag_02_impl | r1 리뷰 대기 | codex/rag-02-line-provenance (병합 `5656115`) | `e2c780a` | `.omo/evidence/commercial-ga-100/RAG-02/` | RAG-01 |
+| RAG-02 | DONE | rag_02_impl | rag_02_verify (독립 세션) | codex/rag-02-line-provenance (병합 `5656115`) | `e2c780a` | `.omo/evidence/commercial-ga-100/RAG-02/` | r1 APPROVE (독립 재현 5/5, e2c780a 절대 라인 검증) |
 | REL-01 | DONE | rel_01_impl | r1 리뷰 대기 | codex/rel-01-sbom-order (병합) | — | `.omo/evidence/commercial-ga-100/REL-01/` | GA-00 |
 | REL-02 | DONE | rel_02_impl | r1 리뷰 대기 | codex/rel-02-container-contract (병합) | `c15ec3e` | `.omo/evidence/commercial-ga-100/REL-02/` | GA-00 |
 | REL-03 | DONE | rel_03_impl | r1 리뷰 대기 | codex/rel-03-supply-chain-audit (병합) | `26ae62e` | `.omo/evidence/commercial-ga-100/REL-03/` | REL-01, REL-02 |
@@ -211,7 +211,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 - [x] A 취소 후 B uncommitted/untracked 변경이 보존된다. *(동일 시험 + 스코프 밖 보존 시험)*
 - [x] A 소유 변경만 폐기된다. *(test_discards_owned_* / test_preserves_changes_outside_scope)*
 - [x] conflict가 원본 보존 상태로 나타난다. *(test_merge_back_conflict_preserves_original + mutation 확인)*
-- [ ] crash/orphan cleanup rehearsal을 수행했다. *(다음 페이즈: kill -9 후 orphan worktree 정리 시나리오 — VAL-02와 연계)*
+- [x] crash/orphan cleanup rehearsal을 수행했다. — WorktreeManager.sweep_orphan_worktrees e2e 및 dr_rehearsal.py 실측 시나리오 통과 (고아 정리/보존 4/4)
 
 ## DAT-03 · ProjectRegistry 원자성
 
@@ -248,7 +248,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 - [x] expired/reused ticket을 거절한다. (테스트 18건 검증)
 - [x] 정상 reconnect와 event replay가 통과한다. (기존 WS 스위트 마이그레이션 후 통과)
 - [x] cross-site browser 시나리오가 차단된다. (악의 Origin + 유효 ticket도 거절)
-- [ ] 독립 r1 리뷰 (sec_03_verify) — **r1 APPROVE (독립 재현 4/4, 회귀 0)**
+- [x] 독립 r1 리뷰 (sec_03_verify) — **r1 APPROVE (독립 재현 4/4, 회귀 0)**
 
 ## EVO-01 · mutation fail-closed
 
@@ -265,7 +265,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 - [x] frozen held-out 평가 provenance가 있다. (benchmark_provenance: suite/env_hash 16자리 sha256/evaluated_at)
 - [x] regression promotion이 거절된다. (improvement<=0 → regression_rejected + promotion_rejected 이벤트)
 - [x] UI/API가 예상·실측·신뢰구간을 구분한다. (get_report pending_evaluations 카운트 + 상태별 summary 문구)
-- [ ] 독립 r1 리뷰 (evo_02_verify) — 대기
+- [x] 독립 r1 리뷰 (evo_02_verify) — **r1 APPROVE (독립 재현 5/5: expected/measured 분리, pending 상태, held-out provenance, regression 거절, UI/API 분리)**
 
 ## TRN-01 · 학습 recipe 일치
 
@@ -275,7 +275,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 - [x] backend 미지원 option이 사전 거절된다. (capability 표)
 - [x] recipe digest가 결정적이다.
 - [x] MLX와 Unsloth capability 표시가 정확하다.
-- [ ] 독립 r1 리뷰 (trn_01_verify) — **r1 APPROVE (독립 재현 4/4: validation/capability/digest/단일 resolve)**
+- [x] 독립 r1 리뷰 (trn_01_verify) — **r1 APPROVE (독립 재현 4/4: validation/capability/digest/단일 resolve)**
 
 ## TRN-02 · timeout과 자원 반환
 
@@ -302,7 +302,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 - [x] CRLF/Unicode/빈 줄 fixture가 통과한다. (인덱싱 시 LF 정규화, 13건 스위트)
 - [x] stale digest/range를 citation validator가 거절한다. ([citation:id:5-8] range 대조 + freshness=stale→unverified)
 - [x] UI/CLI citation을 열어 원문을 확인했다. (format_context가 doc.md:9-10 absolute 헤더 노출)
-- [ ] 독립 r1 리뷰 (rag_02_verify) — 대기
+- [x] 독립 r1 리뷰 (rag_02_verify) — **r1 APPROVE (독립 재현 5/5: 절대 라인 계산, 표/코드블록 offset, CRLF 정규화, citation range 검증, stale 거절)**
 
 ## REL-01 · package와 SBOM
 

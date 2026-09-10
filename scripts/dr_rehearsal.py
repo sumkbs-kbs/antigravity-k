@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sqlite3
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -98,6 +100,57 @@ def scenario_db_corruption(tmp: Path) -> dict[str, Any]:
     return result
 
 
+def scenario_orphan_worktrees(tmp: Path) -> dict[str, Any]:
+    """고아 워크트리 정리 리허설: 크래시 후 방치된 clean 고아만 안전 제거, dirty/최신 보존."""
+    from antigravity_k.engine.worktree_manager import WorktreeManager
+
+    result: dict[str, Any] = {"scenario": "orphan_worktrees"}
+    repo_dir = tmp / "git-repo"
+    repo_dir.mkdir(parents=True, exist_ok=True)
+
+    git_env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "dr",
+        "GIT_AUTHOR_EMAIL": "dr@test",
+        "GIT_COMMITTER_NAME": "dr",
+        "GIT_COMMITTER_EMAIL": "dr@test",
+    }
+
+    subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True, capture_output=True, env=git_env)
+    (repo_dir / "README.md").write_text("# Repo\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True, env=git_env)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo_dir, check=True, capture_output=True, env=git_env)
+
+    manager = WorktreeManager(base_repo_path=str(repo_dir), worktrees_dir=".ag_worktrees")
+
+    # 1. 고아 대상 (clean + 30일 전 mtime)
+    orphan_path = os.path.realpath(manager.create_worktree("wt-orphan"))
+    stale_ts = time.time() - 30 * 86_400
+    os.utime(orphan_path, (stale_ts, stale_ts))
+
+    # 2. 최신 워크트리 (clean + 현재 mtime) -> 보존 대상
+    recent_path = os.path.realpath(manager.create_worktree("wt-recent"))
+
+    # 3. 변경 중인 워크트리 (dirty + 오래된 mtime) -> 보존 대상 (BR-01 원칙)
+    dirty_path = os.path.realpath(manager.create_worktree("wt-dirty"))
+    (Path(dirty_path) / "uncommitted.txt").write_text("precious work\n", encoding="utf-8")
+    os.utime(dirty_path, (stale_ts, stale_ts))
+
+    # Dry run 검증: 오직 orphan만 타겟이어야 하고 파일은 삭제되지 않아야 함
+    dry_run_targets = manager.sweep_orphan_worktrees(older_than_days=7, dry_run=True)
+    result["dry_run_target_count"] = len(dry_run_targets)
+    result["dry_run_detected_orphan"] = orphan_path in dry_run_targets
+    result["dry_run_did_not_delete"] = os.path.exists(orphan_path)
+
+    # Actual sweep 실행
+    removed = manager.sweep_orphan_worktrees(older_than_days=7, dry_run=False)
+    result["orphan_removed"] = (orphan_path in removed) and (not os.path.exists(orphan_path))
+    result["recent_preserved"] = os.path.isdir(recent_path)
+    result["dirty_preserved"] = os.path.isdir(dirty_path) and (Path(dirty_path) / "uncommitted.txt").exists()
+
+    return result
+
+
 def scenario_project_migration(tmp: Path) -> dict[str, Any]:
     """프로젝트 마이그레이션 리허설: path 이동 → registry 갱신 → 활성 전환."""
     from antigravity_k.engine.project_registry import ProjectRegistry
@@ -136,7 +189,12 @@ def main() -> int:
     failures = 0
     with tempfile.TemporaryDirectory(prefix="agk-dr-") as td:
         tmp = Path(td)
-        for fn in (scenario_backup_restore, scenario_db_corruption, scenario_project_migration):
+        for fn in (
+            scenario_backup_restore,
+            scenario_db_corruption,
+            scenario_orphan_worktrees,
+            scenario_project_migration,
+        ):
             try:
                 res = fn(tmp / fn.__name__.replace("scenario_", ""))
                 res["ok"] = all(v for k, v in res.items() if isinstance(v, bool))

@@ -170,11 +170,14 @@ class WorktreeManager:
         """
         cutoff = time.time() - older_than_days * 86_400
         targets: list[str] = []
+        norm_base = os.path.realpath(self.base_repo_path)
+        norm_wt_dir = os.path.realpath(self.worktrees_dir)
         for entry in self.list_worktrees():
-            path = entry.get("path", "")
-            if not path or entry.get("bare") == "true":
+            raw_path = entry.get("path", "")
+            if not raw_path or entry.get("bare") == "true":
                 continue
-            if path == self.base_repo_path or not path.startswith(self.worktrees_dir):
+            path = os.path.realpath(raw_path)
+            if path == norm_base or not path.startswith(norm_wt_dir):
                 continue
             if not os.path.isdir(path):
                 continue

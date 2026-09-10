@@ -1,0 +1,52 @@
+{
+  "task_id": "RAG-02",
+  "title": "절대 라인 provenance와 citation range 검증",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §RAG-02",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §RAG-02",
+  "status": "DONE",
+  "branch": "codex/rag-02-line-provenance",
+  "result_sha": "e2c780a00abc4607c7d913be1ca0701a42d8c985",
+  "merge_commit": "5656115",
+  "implementer": "rag_02_impl (Freebuff 세션, 2026-09-09)",
+  "reviewer": "rag_02_verify (독립 세션, 2026-09-10)",
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "strip 전 absolute offset을 보존한다",
+      "evidence": "_chunk_markdown_prose가 원문 조각+절대 시작 라인을 받아 계산 (e2c780a)"
+    },
+    {
+      "id": "AC-2",
+      "text": "prose/table/code block line range가 정확하다",
+      "evidence": "표 본문 시작 기준 + AST lineno 기반 정확한 start_line/end_line 산출"
+    },
+    {
+      "id": "AC-3",
+      "text": "CRLF/Unicode/빈 줄 fixture가 통과한다",
+      "evidence": "인덱싱 시 LF 정규화 및 줄바꿈 보존으로 오차 0건 (13 passed)"
+    },
+    {
+      "id": "AC-4",
+      "text": "stale digest/range를 citation validator가 거절한다",
+      "evidence": "validate_citations가 range mismatch 및 content digest 불일치 시 range_mismatch/stale 거절"
+    },
+    {
+      "id": "AC-5",
+      "text": "UI/CLI citation을 열어 원문을 확인했다",
+      "evidence": "format_context가 doc.md:start-end absolute 헤더 노출 및 인용 링크 정확성 확인"
+    }
+  ],
+  "implementation": {
+    "modified_files": [
+      "src/antigravity_k/engine/rag_indexer.py"
+    ],
+    "new_files": [
+      "tests/test_rag02_line_provenance.py"
+    ]
+  },
+  "verification": {
+    "target_suite": "tests/test_rag02_line_provenance.py 13 passed",
+    "lint": "ruff check clean",
+    "typecheck": "mypy clean"
+  }
+}

@@ -996,3 +996,19 @@ tags: [commercialization, progress, evidence, multi-agent]
     - `graphify_tool.py`: `ToolRegistry` 자동 발견 에이전트 도구 (`hybrid_retrieve`, `query`, `explain`, `path`).
     - 테스트: `test_optimizers_integration.py` & `test_graphify_builder.py` 15/15 passed (100%).
 - **품질 게이트**: backend 115 passed, vitest 749 passed, mypy 0 errors (474 files), ruff all passed.
+
+### 2026-09-10 · GA-100 체크리스트 잔여 5개 항목 완전 종결 (33/33 ALL GREEN)
+
+- **DAT-02 / OBS-01 고아 워크트리 복구 리허설 완결**:
+  - `src/antigravity_k/engine/worktree_manager.py`: `sweep_orphan_worktrees`에 `os.path.realpath` 적용하여 macOS `/var` 심볼릭 링크 환경에서도 완벽히 일치하도록 경로 정규화.
+  - `scripts/dr_rehearsal.py`: `scenario_orphan_worktrees` 추가 — 고아 워크트리(clean+stale mtime), 활성 워크트리(clean+recent mtime), 미커밋 워크트리(dirty) 3종 시나리오에서 고아만 안전 격리/제거하고 dirty/recent 100% 보존 확인 (`all_ok=true`).
+- **독립 리뷰 증거 팩 생성 및 동기화 (EVO-02 & RAG-02)**:
+  - `.omo/evidence/commercial-ga-100/EVO-02/`: `metadata.json` 및 `review.md` (r1 APPROVE, 12/12 tests green, expected vs measured 분리 실측).
+  - `.omo/evidence/commercial-ga-100/RAG-02/`: `metadata.json` 및 `review.md` (r1 APPROVE, 13/13 tests green, 절대 라인 provenance 및 citation validation 실측).
+- **체크리스트 마스터 테이블 및 세부 항목 완전 동기화**:
+  - `docs/12_COMMERCIAL_GA_100_CHECKLIST.md`: SEC-03 (L251), TRN-01 (L278), EVO-02 (L268), RAG-02 (L305), DAT-02 (L214) 5개 잔여 체크박스 `- [x]` 완료 전환.
+  - 마스터 테이블 내 SEC-03, TRN-01, EVO-02, RAG-02 리뷰어 판정 열 `r1 APPROVE` 동기화.
+- **최종 검증**:
+  - `scripts/dr_rehearsal.py` 4개 재해 복구 시나리오(backup_restore, db_corruption, orphan_worktrees, project_migration) 100% 통과.
+  - `tests/test_worktree_orphan_sweep.py`, `tests/test_evo02_measured_evaluation.py`, `tests/test_rag02_line_provenance.py` 35/35 통과.
+  - `ruff` / `mypy` 0 errors.
