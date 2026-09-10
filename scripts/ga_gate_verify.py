@@ -30,6 +30,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -38,7 +39,7 @@ def _fail(problems: list[str], label: str, message: str) -> None:
     problems.append(f"{label}: {message}")
 
 
-def verify_gate_report(report: dict, manifest: dict, expected_sha: str | None) -> list[str]:
+def verify_gate_report(report: dict[str, Any], manifest: dict[str, Any], expected_sha: str | None) -> list[str]:
     problems: list[str] = []
     gates_field = report.get("gates")
     if not isinstance(gates_field, list) or not gates_field:
@@ -99,7 +100,7 @@ def verify_gate_report(report: dict, manifest: dict, expected_sha: str | None) -
     return problems
 
 
-def verify_soak_artifact(artifact: dict, min_soak_seconds: int) -> list[str]:
+def verify_soak_artifact(artifact: dict[str, Any], min_soak_seconds: int) -> list[str]:
     problems: list[str] = []
     if artifact.get("all_pass") is not True:
         _fail(problems, "soak.all_pass", f"VAL-02 all_pass={artifact.get('all_pass')!r}")

@@ -28,6 +28,7 @@ import statistics
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -234,9 +235,11 @@ def scenario_conversation_cas(workdir: Path, workers: int = 6, turns_per_worker:
 
 
 def _sc3_worker(storage_path: str, project_roots: list[str], result_q: Any) -> None:
+    from pathlib import Path
+
     from antigravity_k.engine.project_registry import ProjectRegistry
 
-    registry = ProjectRegistry(storage_path)
+    registry = ProjectRegistry(storage_path=Path(storage_path))
     registered = 0
     errors = 0
     for root in project_roots:
@@ -264,7 +267,7 @@ def scenario_registry_concurrent(workdir: Path, workers: int = 5, per_worker: in
     for p in procs:
         p.join(timeout=120)
 
-    final = ProjectRegistry(storage_path)
+    final = ProjectRegistry(storage_path=Path(storage_path))
     total_expected = workers * per_worker
     listed = final.list_projects()
     missing = total_expected - len(listed)
@@ -350,7 +353,8 @@ def scenario_kill_recovery(workdir: Path, events: int = 50) -> dict[str, Any]:
             # resuming → running → done으로 최종 완료시킨다.
             _ = reopened.transition(task_id, "running", expected_status="resuming")
             _ = reopened.transition(task_id, "done", output="recovered", expected_status="running")
-            final_done = reopened.get_task(task_id)["status"] == "done"
+            done_rec = reopened.get_task(task_id)
+            final_done = done_rec is not None and done_rec["status"] == "done"
         except Exception:
             final_done = False
         try:
@@ -520,7 +524,7 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
     }
 
 
-SCENARIOS = {
+SCENARIOS: dict[str, Callable[..., dict[str, Any]]] = {
     "SC-1": scenario_task_cas,
     "SC-2": scenario_conversation_cas,
     "SC-3": scenario_registry_concurrent,
