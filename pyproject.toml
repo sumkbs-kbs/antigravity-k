@@ -112,6 +112,11 @@ antigravity_k = [
 
 [tool.basedpyright]
 include = ["src", "scripts"]
+# 선택적 런타임 extras(playwright, chromadb, sentence_transformers, docx,
+# pypdf, coverage)는 hermetic gate 환경(--isolated --frozen)에 설치되지
+# 않는다 — import 미해석은 warning으로 강등하고 나머지 진단은 error 게이트
+# (--level error)가 그대로 강제한다.
+reportMissingImports = "warning"
 exclude = [
     ".venv",
     ".git",
