@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-13",
+  "attempt": 1,
+  "status": "REVIEW",
+  "owner": "zcode-remediation-agent",
+  "source_sha": "4b202113f254a766fdd26db30e4f65e417f77c28",
+  "candidate_checkout": "/Users/mr.k/program/coding/ssak_comp/ssak-rp12-candidate",
+  "changed_files": [
+    "scripts/release_manifest_verify.py (new)",
+    "tests/test_fr13_release_manifest.py (new)"
+  ],
+  "required_scenarios": [
+    {
+      "id": "artifacts-built",
+      "required": true,
+      "expected": "wheel/sdist/container on the gate-passing SHA",
+      "observed": "wheel 2,285,482B sha256=91de1b84…, sdist 2,812,325B sha256=e4980e78…, docker image 99ae35b44bff digest sha256:99ae35b4… (build log preserved)",
+      "verdict": "PASS"
+    },
+    {
+      "id": "clean-install-outside-repo",
+      "required": true,
+      "expected": "install/boot/config/CLI/API/auth from isolated venv outside the source tree",
+      "observed": "import resolves to cleanenv site-packages from /var/tmp cwd; bundled config carries agent defaults; agk --help exit 0; /health /docs 200; unauthenticated 401; PIN login→JWT→200 (manifest.clean_install_verification)",
+      "verdict": "PASS"
+    },
+    {
+      "id": "sbom-notices-linked",
+      "required": true,
+      "expected": "SBOM + notices present and hashed in manifest",
+      "observed": "python.cdx.json, dashboard.cdx.json, THIRD_PARTY_NOTICES.txt hashed as manifest artifacts",
+      "verdict": "PASS"
+    },
+    {
+      "id": "dr-backup-restore",
+      "required": true,
+      "expected": "backup→corruption→restore with real read/write",
+      "observed": "dr_rehearsal on candidate SHA: backup_restore + db_corruption + orphan_worktrees + project_migration all ok (raw log preserved)",
+      "verdict": "PASS"
+    },
+    {
+      "id": "manifest-verifier",
+      "required": true,
+      "expected": "missing/tampered/duplicate/malformed rejected",
+      "observed": "release_manifest_verify.py — 8 unit tests green incl. sha mismatch, size mismatch, missing file, duplicate id, bad source sha; live manifest PASS (6 artifacts)",
+      "verdict": "PASS"
+    },
+    {
+      "id": "container-digest",
+      "required": true,
+      "expected": "image digest/ID recorded, not just a tag",
+      "observed": "tag antigravity-k:rp13-candidate, ID 99ae35b44bff, digest sha256:99ae35b4… in manifest.container",
+      "verdict": "PASS"
+    },
+    {
+      "id": "container-runtime",
+      "required": true,
+      "expected": "container health/auth/persistence across restart",
+      "observed": "docker run antigravity-k:rp13-candidate: /v1/health 200, unauth 401, PIN login->JWT 200, docker HEALTHCHECK 'healthy'; /app/data carries auth_hash/projects.json/search_cache; after docker restart health+JWT remain 200; container removed after verification",
+      "verdict": "PASS"
+    }
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "R13-07 rollback-to-previous-artifact: no prior release artifact exists; downgrade path covered only via reinstall/rehearsal. Upgrade/migration rehearsal is provided by dr_rehearsal.project_migration.",
+    "chromadb is absent from the base wheel (optional extra) — base install boots with health/auth green but RAG features need the extra; recorded as a packaging decision for RP-14.",
+    "R13-09 second independent verifier deferred to RP-14 (self-verification via unit tests + live manifest check only)."
+  ]
+}
