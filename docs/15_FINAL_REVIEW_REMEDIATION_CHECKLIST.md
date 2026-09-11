@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 최종 검토 개선 실행 체크리스트
-status: in-progress (RP-00 DONE, RP-01..11 REVIEW, RP-12 IN_PROGRESS, RP-13..14 TODO)
+status: in-progress (RP-00 DONE, RP-01..11 REVIEW, RP-12 IN_PROGRESS(soak), RP-13 REVIEW, RP-14 TODO)
 date: 2026-09-10
 reviewed_sha: 8794aaecabf5664a7ee560b104e0115d915aabb7
 plan: docs/14_FINAL_REVIEW_REMEDIATION_PLAN.md
@@ -37,7 +37,7 @@ tags: [checklist, remediation, agent-coordination, release-gate]
 | RP-10 | 문서/승인 상태 준비 | RP-09 | REVIEW | zcode-remediation-agent / current checkout | `8794aae…+dirty` | 증거 인덱스·README·진행기록·mirror 정합화; 승인 자료 인계는 BLOCKED_EXTERNAL | `RP-10/attempt-001` |
 | RP-11 | gate/증거 수집기 | RP-10 | REVIEW | zcode-remediation-agent / current checkout | `8794aae…+dirty` | 검증기 신규+val01/val02 보강(부정 케이스 실측); cloud adapter는 자격증명 필요로 RP-12 이관 | `RP-11/attempt-001` |
 | RP-12 | 후보/실 provider/8h | RP-11 | IN_PROGRESS | zcode-remediation-agent + rp12_*_gate / candidate+current checkout | `4b202113f254a766fdd26db30e4f65e417f77c28` | **전체 gate 20/20 PASS(단일 실행·clean·검증기 PASS)** — 13개 테스트 격리 결함 해소(21635080, 4b202113). Ollama 12/12. soak-006 진행 중(~09-11 12:03Z, 70875519 — diff 근거로 소스 동일), cloud BLOCKED_EXTERNAL | `RP-12/attempt-001`~`004` |
-| RP-13 | 배포/복구/manifest | RP-12 | TODO | — | — | — | — |
+| RP-13 | 배포/복구/manifest | RP-12 | REVIEW | zcode-remediation-agent / candidate checkout | `4b202113f254…`(source) | 산출물·clean 설치·컨테이너 health/auth/persistence·DR 4/4·manifest 검증기(부정 8종) 완료; 이전 artifact rollback은 이전 릴리스 부재로 제한 기록, 2인차 확인은 RP-14 | `RP-13/attempt-001` |
 | RP-14 | 독립 재검토/출시 판정 | RP-13 | TODO | — | — | — | — |
 | RP-15 | 선택 유지보수 | RP-05 이후·후보 이전 | DECISION_PENDING | — | — | — | — |
 
@@ -55,8 +55,8 @@ tags: [checklist, remediation, agent-coordination, release-gate]
 | FR-06 | RP-11, RP-12, RP-14 | same-SHA 전부 gate+실 cloud/local+28,800초 | RP-12: 후보 4b202113에서 **전체 gate 20/20 PASS**(검증기 포함) — same-SHA 전체 gate 충족. 잔여: 28,800초 soak 완료 판정(~12:03Z), 실 cloud(BLOCKED_EXTERNAL) |
 | FR-07 | RP-06, RP-12 | no-op delete를 검출하는 실 Chroma 시나리오 | RP-06 완료(REVIEW): 실측 VAL-01 12 passed·exit 0, no-op negative control FAIL 확인 |
 | FR-08 | RP-10, RP-14 | metadata/공식·mirror/지원·승인·점수 일치 | 문서 정합화 완료(REVIEW); 실제 승인 artifact는 BLOCKED_EXTERNAL, 최종 GO blocker 유지 |
-| FR-09 | RP-11, RP-13, RP-14 | retrievable artifact/hash/provenance/복구 | OPEN |
-| FR-10 | RP-07, RP-13 | source/bundle/installed config 일치 | RP-07 완료(REVIEW): 바이트 동일·wheel 격리 설치·agk exit 0; RP-13 manifest 연결 잔여 |
+| FR-09 | RP-11, RP-13, RP-14 | retrievable artifact/hash/provenance/복구 | RP-13 완료(REVIEW): wheel/sdist 해시·docker digest·SBOM/공지·DR 4/4가 manifest로 연결, 검증기가 변조 거부(8 테스트); 2인차 독립 확인은 RP-14 |
+| FR-10 | RP-07, RP-13 | source/bundle/installed config 일치 | RP-07+RP-13 완료(REVIEW): 바이트 동일·격리 설치·manifest에 wheel 해시로 provenance 연결 |
 | 폴더 E2E 공백 | RP-08, RP-12 | A/B marker가 실 provider payload에 정확 반영 | 결정적 double tier 완료(마커 포함/배제·in-flight 스냅샷 8 passed); 실 브라우저·실 provider 잔여 |
 | 압축 E2E 공백 | RP-09, RP-12 | 수동 UI/자동 trigger/정보 보존/최종 budget | store/API tier 완료(43 passed, 초기 제약 누락 결함 수정); 수동 UI·자동 트리거 스트리밍·실 provider 잔여 |
 
@@ -237,17 +237,17 @@ tags: [checklist, remediation, agent-coordination, release-gate]
 
 ## RP-13 배포/복구/manifest
 
-- [ ] R13-01 RP-12와 같은 SHA의 wheel/sdist/image 생성
-- [ ] R13-02 file/version/size/hash/retrievable location/provenance 기록
-- [ ] R13-03 source 밖 clean 설치에서 config/assets/CLI/API/auth 검증
-- [ ] R13-04 container digest/health/auth/persistence 검증
-- [ ] R13-05 SBOM/notices/benchmark/staging/raw logs가 manifest에 연결
-- [ ] R13-06 backup→corruption→restore 뒤 실제 read/write 성공
-- [ ] R13-07 upgrade/migration 및 이전 artifact rollback 뒤 서비스/data 확인
-- [ ] R13-08 Git checkout 성공만으로 rollback 완료 처리하지 않음
-- [ ] R13-09 두 번째 검증자가 파일 존재와 checksum/source SHA 확인
-- [ ] R13-10 삭제/변조 artifact negative fixture가 manifest 검증 실패
-- [ ] R13-11 독립 release artifact 리뷰 PASS
+- [x] R13-01 RP-12와 같은 SHA의 wheel/sdist/image 생성
+- [x] R13-02 file/version/size/hash/retrievable location/provenance 기록
+- [x] R13-03 source 밖 clean 설치에서 config/assets/CLI/API/auth 검증
+- [x] R13-04 container digest/health/auth/persistence 검증
+- [x] R13-05 SBOM/notices/benchmark/staging/raw logs가 manifest에 연결
+- [x] R13-06 backup→corruption→restore 뒤 실제 read/write 성공
+- [ ] R13-07 upgrade/migration 및 이전 artifact rollback 뒤 서비스/data 확인 — project_migration 리허설은 통과; 이전 릴리스 artifact가 없어 이전 버전 rollback 실측 불가(제한 기록)
+- [x] R13-08 Git checkout 성공만으로 rollback 완료 처리하지 않음
+- [ ] R13-09 두 번째 검증자가 파일 존재와 checksum/source SHA 확인 — RP-14 독립 검토로 이연
+- [x] R13-10 삭제/변조 artifact negative fixture가 manifest 검증 실패
+- [ ] R13-11 독립 release artifact 리뷰 PASS — RP-14로 이연
 
 ## RP-14 최종 승인
 

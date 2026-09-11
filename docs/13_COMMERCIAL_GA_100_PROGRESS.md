@@ -1146,3 +1146,12 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **최종 후보 `4b202113f254a766fdd26db30e4f65e417f77c28`에서 전체 20개 게이트 단일 실행 PASS(clean worktree, 검증기 PASS)** — FR-06의 same-SHA 전체 게이트 요건 최초 완전 충족. 원문: `RP-12/attempt-004/ga-final-full.json`.
 - soak `rp12-soak-006` 진행 중(70875519 기준 시작, 종료 예상 2026-09-11T12:03Z). 70875519→4b202113 차이는 테스트 인프라 2개 파일뿐으로 VAL-02 실행 코드 불변 — diff 근거를 attempt-004 metadata에 기록(R12-14 검토자 판정 자료).
 - 잔여: soak 완료 판정, 실 cloud provider(자격증명 필요·BLOCKED_EXTERNAL), RP-08/09 브라우저 tier 수동 QA.
+
+### 2026-09-11 · RP-13 배포 산출물·복구·manifest 완료 (REVIEW)
+
+- 후보 `4b202113`에서 wheel/sdist 빌드(SHA256 기록)·docker image(digest sha256:99ae35b4…) 생성.
+- 저장소 밖 clean venv 설치 검증: site-packages 임포트·번들 config agent 기본값·`agk --help`·서버 기동(health/docs 200, 무인증 401, PIN→JWT→200). chromadb는 선택 extras — base wheel에서 RAG 비활성 기록.
+- 컨테이너 실행 검증: HEALTHCHECK healthy, 무인증 401, JWT 200, `/app/data` 상태 지속, **restart 후에도 health·JWT 200**.
+- DR 리허설 후보 SHA에서 4/4(backup_restore·db_corruption·orphan_worktrees·project_migration).
+- `release_manifest_verify.py` 신규: artifact 존재·SHA256·크기·source SHA 검증, 변조/누락/중복 거부(8 테스트). live manifest PASS(산출물 6건 — 게이트 보고서·SBOM 2종·공지 포함).
+- 증거: `RP-13/attempt-001/`(manifest·해시·DR 원문). 제한: 이전 릴리스 artifact 부재로 이전 버전 rollback 실측 불가, 2인차 확인은 RP-14.
