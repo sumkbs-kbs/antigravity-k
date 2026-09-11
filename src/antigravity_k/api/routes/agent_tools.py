@@ -319,15 +319,17 @@ async def browser_action(req: BrowserActionRequest, request: Request):
                 )
                 browser = state.browser
                 assert browser is not None
-                state.context = await browser.new_context(
+                context = await browser.new_context(
                     viewport={"width": 1280, "height": 800},
                 )
-                _ = await state.context.route("**/*", _guard_browser_route)
-                state.page = await state.context.new_page()
+                state.context = context
+                _ = await context.route("**/*", _guard_browser_route)
+                page = await context.new_page()
+                state.page = page
                 # Console error/log auto-collection
                 state.console_errors = []
                 state.console_logs = []
-                state.page.on(
+                page.on(
                     "console",
                     lambda msg: (
                         _append_console_entry(state.console_errors, {"type": msg.type, "text": msg.text})
