@@ -109,7 +109,7 @@ class ScheduledJobStore:
             )
             _ = connection.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_job_runs_idempotency "
-                + "ON scheduled_job_runs(idempotency_key) WHERE idempotency_key IS NOT NULL"
+                "ON scheduled_job_runs(idempotency_key) WHERE idempotency_key IS NOT NULL"
             )
 
     def create(self, job: ScheduledJob) -> ScheduledJob:
@@ -117,8 +117,8 @@ class ScheduledJobStore:
         with self._connection() as connection:
             _ = connection.execute(
                 "INSERT INTO scheduled_jobs "
-                + "(job_id, spec_json, status, created_at, updated_at, next_run_at, last_run_at) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(job_id, spec_json, status, created_at, updated_at, next_run_at, last_run_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     job.job_id,
                     spec,
@@ -150,8 +150,8 @@ class ScheduledJobStore:
             rows = _fetchall(
                 connection,
                 "SELECT * FROM scheduled_jobs WHERE status = 'active' "
-                + "AND next_run_at IS NOT NULL AND next_run_at <= ? "
-                + "ORDER BY next_run_at ASC LIMIT ?",
+                "AND next_run_at IS NOT NULL AND next_run_at <= ? "
+                "ORDER BY next_run_at ASC LIMIT ?",
                 (now.isoformat(), limit),
             )
         return [_job_from_row(row) for row in rows]
@@ -161,7 +161,7 @@ class ScheduledJobStore:
         with self._connection() as connection:
             cursor = connection.execute(
                 "UPDATE scheduled_jobs SET spec_json = ?, status = ?, updated_at = ?, "
-                + "next_run_at = ?, last_run_at = ? WHERE job_id = ?",
+                "next_run_at = ?, last_run_at = ? WHERE job_id = ?",
                 (
                     spec,
                     job.status,
@@ -190,7 +190,7 @@ class ScheduledJobStore:
             status = "paused" if next_run_at is None else "active"
             cursor = connection.execute(
                 "UPDATE scheduled_jobs SET status = ?, next_run_at = ?, last_run_at = ?, updated_at = ? "
-                + "WHERE job_id = ? AND status = 'active' AND next_run_at = ?",
+                "WHERE job_id = ? AND status = 'active' AND next_run_at = ?",
                 (
                     status,
                     _iso(next_run_at),
@@ -212,13 +212,13 @@ class ScheduledJobStore:
         with self._connection() as connection:
             _ = connection.execute(
                 "INSERT INTO scheduled_job_runs "
-                + "(run_id, job_id, status, task_id, output, error, delivery_status, delivery_error, "
-                + "started_at, completed_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                + "ON CONFLICT(run_id) DO UPDATE SET job_id = excluded.job_id, status = excluded.status, "
-                + "task_id = excluded.task_id, output = excluded.output, error = excluded.error, "
-                + "delivery_status = excluded.delivery_status, delivery_error = excluded.delivery_error, "
-                + "started_at = excluded.started_at, completed_at = excluded.completed_at, "
-                + "idempotency_key = COALESCE(excluded.idempotency_key, scheduled_job_runs.idempotency_key)",
+                "(run_id, job_id, status, task_id, output, error, delivery_status, delivery_error, "
+                "started_at, completed_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET job_id = excluded.job_id, status = excluded.status, "
+                "task_id = excluded.task_id, output = excluded.output, error = excluded.error, "
+                "delivery_status = excluded.delivery_status, delivery_error = excluded.delivery_error, "
+                "started_at = excluded.started_at, completed_at = excluded.completed_at, "
+                "idempotency_key = COALESCE(excluded.idempotency_key, scheduled_job_runs.idempotency_key)",
                 (
                     run.run_id,
                     run.job_id,
@@ -258,7 +258,7 @@ class ScheduledJobStore:
             rows = _fetchall(
                 connection,
                 "SELECT * FROM scheduled_job_runs WHERE status IN ('submitted', 'running') "
-                + "ORDER BY started_at ASC LIMIT ?",
+                "ORDER BY started_at ASC LIMIT ?",
                 (limit,),
             )
         return [_run_from_row(row) for row in rows]
@@ -268,7 +268,7 @@ class ScheduledJobStore:
             row = _fetchone(
                 connection,
                 "SELECT output FROM scheduled_job_runs WHERE job_id = ? AND status = 'succeeded' "
-                + "ORDER BY started_at DESC LIMIT 1",
+                "ORDER BY started_at DESC LIMIT 1",
                 (job_id,),
             )
         return "" if row is None else str(row["output"])

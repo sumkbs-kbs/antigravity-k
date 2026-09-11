@@ -14,9 +14,8 @@ from antigravity_k.engine.provider_adapters.unsloth_resource_contracts import (
     UnslothResourceOperation,
 )
 
-_TABLE_NAME: Final = "unsloth_resource_reservations"
 _CREATE_TABLE_SQL: Final = (
-    f"CREATE TABLE IF NOT EXISTS {_TABLE_NAME} ("
+    "CREATE TABLE IF NOT EXISTS unsloth_resource_reservations ("
     "reservation_id TEXT PRIMARY KEY,"
     "idempotency_key TEXT NOT NULL UNIQUE,"
     "request_fingerprint TEXT NOT NULL,"
@@ -30,16 +29,17 @@ _CREATE_TABLE_SQL: Final = (
     "released_at TEXT)"
 )
 _INSERT_SQL: Final = (
-    f"INSERT INTO {_TABLE_NAME} ("
+    "INSERT INTO unsloth_resource_reservations ("
     "reservation_id,idempotency_key,request_fingerprint,operation,device_id,"
     "estimated_peak_bytes,provenance_fingerprint,resource_job_id,state,created_at,released_at"
     ") VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)"
 )
 _RELEASE_SQL: Final = (
-    f"UPDATE {_TABLE_NAME} SET state = ?, released_at = COALESCE(released_at, ?) WHERE reservation_id = ? RETURNING *"
+    "UPDATE unsloth_resource_reservations SET state = ?, "
+    "released_at = COALESCE(released_at, ?) WHERE reservation_id = ? RETURNING *"
 )
 _BIND_JOB_SQL: Final = (
-    f"UPDATE {_TABLE_NAME} SET resource_job_id = COALESCE(resource_job_id, ?) "
+    "UPDATE unsloth_resource_reservations SET resource_job_id = COALESCE(resource_job_id, ?) "
     "WHERE reservation_id = ? AND state = ? AND (resource_job_id IS NULL OR resource_job_id = ?) RETURNING *"
 )
 
@@ -139,7 +139,7 @@ class AdmissionTransaction:
     def inspect(self, idempotency_key: str, device_id: str) -> AdmissionInspection:
         idempotency_row = _typed_fetchone(
             self.connection.execute(
-                f"SELECT * FROM {_TABLE_NAME} WHERE idempotency_key = ?",
+                "SELECT * FROM unsloth_resource_reservations WHERE idempotency_key = ?",
                 (idempotency_key,),
             ),
         )
@@ -158,7 +158,7 @@ class AdmissionTransaction:
                 )
         occupancy_row = _typed_fetchone(
             self.connection.execute(
-                f"SELECT COUNT(*) FROM {_TABLE_NAME} WHERE device_id = ? AND state = ?",
+                "SELECT COUNT(*) FROM unsloth_resource_reservations WHERE device_id = ? AND state = ?",
                 (device_id, UnslothReservationState.ACTIVE.value),
             ),
         )
@@ -201,7 +201,7 @@ class UnslothResourceRepository:
     def list_active(self) -> tuple[UnslothReservation, ...]:
         with self._connection() as connection:
             cursor = connection.execute(
-                f"SELECT * FROM {_TABLE_NAME} WHERE state = ? ORDER BY created_at",
+                "SELECT * FROM unsloth_resource_reservations WHERE state = ? ORDER BY created_at",
                 (UnslothReservationState.ACTIVE.value,),
             )
             reservations: list[UnslothReservation] = []
@@ -276,7 +276,9 @@ class UnslothResourceRepository:
         with self._connection() as connection:
             _ = connection.execute("PRAGMA journal_mode = WAL")
             _ = connection.execute(_CREATE_TABLE_SQL)
-            rows: list[SQLiteValueRow] = connection.execute(f"PRAGMA table_info({_TABLE_NAME})").fetchall()
+            rows: list[SQLiteValueRow] = connection.execute(
+                "PRAGMA table_info(unsloth_resource_reservations)"
+            ).fetchall()
             columns = {_text(row, 1) for row in rows}
             if "resource_job_id" not in columns:
-                _ = connection.execute(f"ALTER TABLE {_TABLE_NAME} ADD COLUMN resource_job_id TEXT")
+                _ = connection.execute("ALTER TABLE unsloth_resource_reservations ADD COLUMN resource_job_id TEXT")

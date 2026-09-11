@@ -104,9 +104,11 @@ def _normalize_learning_rate(value: object) -> str:
 def _normalize_int(key: str, value: object) -> int:
     if isinstance(value, bool):
         raise HyperparameterValidationError(f"{key}: 정수여야 합니다")
+    if not isinstance(value, (str, int, float)):
+        raise HyperparameterValidationError(f"{key}: 정수로 해석 불가한 값 {value!r}")
     try:
-        num = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError) as exc:
+        num = float(value)
+    except ValueError as exc:
         raise HyperparameterValidationError(f"{key}: 정수로 해석 불가한 값 {value!r}") from exc
     if not math.isfinite(num) or num != int(num):
         raise HyperparameterValidationError(f"{key}: 정수여야 합니다 (got {value!r})")

@@ -254,8 +254,8 @@ def _wire_from_parts(
         if raw_rev is None:
             raw_rev = nested_map.get("conversation_revision")
         try:
-            rev = int(raw_rev) if raw_rev is not None else 0
-        except (TypeError, ValueError):
+            rev = int(raw_rev) if isinstance(raw_rev, (str, int, float)) else 0
+        except ValueError:
             rev = 0
 
     return RequestExecutionContextWire(

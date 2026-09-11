@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -161,8 +160,7 @@ class ShieldsManager:
         if state_dir:
             self._state_dir: Path = Path(state_dir)
         else:
-            home = os.environ.get("HOME", "/tmp")
-            self._state_dir = Path(home) / ".antigravity-k" / "state"
+            self._state_dir = Path.home() / ".antigravity-k" / "state"
 
         self._state_file: Path = self._state_dir / "shields-state.json"
         self._audit_file: Path = self._state_dir / "shields-audit.jsonl"

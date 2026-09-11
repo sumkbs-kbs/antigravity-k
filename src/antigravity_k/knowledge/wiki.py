@@ -277,7 +277,8 @@ class LLMWiki:
 
         conn = self._connect()
         _ = conn.execute(
-            f"UPDATE wiki_entries SET {set_clause} WHERE id = ?",
+            # set_clause contains only keys from the local `allowed` set.
+            f"UPDATE wiki_entries SET {set_clause} WHERE id = ?",  # nosec B608
             values,
         )
         conn.commit()

@@ -14,7 +14,7 @@ Rules:
 from __future__ import annotations
 
 import json
-from typing import Final, Iterable, Literal
+from typing import Final, Iterable, Literal, cast
 
 from antigravity_k.engine.task_events import ExecutionEventRecord
 from antigravity_k.engine.task_state_types import TERMINAL_TASK_STATUSES
@@ -29,6 +29,11 @@ _EVENT_TERMINAL_HINTS: Final[dict[str, DisplayTerminalStatus]] = {
     "canceled": "cancelled",
 }
 
+_DISPLAY_STATUSES: Final[dict[str, DisplayTerminalStatus]] = {
+    status: cast(DisplayTerminalStatus, status)
+    for status in ("pending", "running", "resuming", "paused", "done", "failed", "cancelled", "unknown")
+}
+
 
 def _status_from_task_status_payload(payload_json: str) -> DisplayTerminalStatus | None:
     try:
@@ -38,17 +43,7 @@ def _status_from_task_status_payload(payload_json: str) -> DisplayTerminalStatus
     if not isinstance(payload, dict):
         return None
     to_status = payload.get("to_status")
-    if isinstance(to_status, str) and to_status in {
-        "pending",
-        "running",
-        "resuming",
-        "paused",
-        "done",
-        "failed",
-        "cancelled",
-    }:
-        return to_status  # type: ignore[return-value]
-    return None
+    return _DISPLAY_STATUSES.get(to_status) if isinstance(to_status, str) else None
 
 
 def resolve_display_terminal_status(
@@ -56,7 +51,7 @@ def resolve_display_terminal_status(
     events: Iterable[ExecutionEventRecord],
 ) -> DisplayTerminalStatus:
     if store_status in TERMINAL_TASK_STATUSES:
-        return store_status  # type: ignore[return-value]
+        return _DISPLAY_STATUSES.get(store_status, "unknown")
     if store_status in {"pending", "running", "resuming", "paused"}:
         # Prefer latest CAS-emitted task.status while still non-terminal.
         latest: DisplayTerminalStatus | None = None
@@ -66,7 +61,7 @@ def resolve_display_terminal_status(
             hinted = _status_from_task_status_payload(event["payload_json"])
             if hinted is not None:
                 latest = hinted
-        return latest if latest is not None else store_status  # type: ignore[return-value]
+        return latest if latest is not None else _DISPLAY_STATUSES.get(store_status, "unknown")
     return "unknown"
 
 

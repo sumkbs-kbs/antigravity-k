@@ -1122,3 +1122,12 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **환경 교정**: `.venv`의 stale site-packages 사본(형제 checkout 발)이 소스를 가리던 문제를 editable 재설치로 해소. attempt-002 작업자들의 결과 불일치 원인.
 - **잔여**: 실 브라우저 QA(RP-08/09 수동 tier), 후보 SHA 고정 후 전체 gate·실 provider·28,800초 soak·배포 산출물(RP-11~13), 독립 재검토(RP-14). 법무/개인정보 승인은 미취득(BLOCKED_EXTERNAL)으로 최종 GO blocker 유지.
 - **상태 규칙**: 위 REVIEW 항목은 구현·실측 완료일 뿐 폐쇄가 아니다. 독립 검토 PASS 전 FR 폐쇄로 기록하지 않는다.
+
+### 2026-09-11 09:59 KST · 사용자 추가 수정 인수 및 RP-12 red gate 보완 착수
+
+- 사용자 추가 작업을 새 기준으로 인수했다. 현재 main HEAD는 `adae06a6926082aa86d83ace4a9c101e70360394`, RP-12의 clean detached candidate는 `a619bc9f024f09fcee9f8911dfce5476e086980f`다. main 작업 트리의 기존 `docs/15_FINAL_REVIEW_REMEDIATION_CHECKLIST.md`와 `vault_data` 변경은 보존한다.
+- RP-01~11 코드·결정적 검증은 evidence와 함께 `REVIEW` 상태로 통합됐다. RP-08의 선택 폴더→provider payload marker 격리, RP-09의 store/API 압축 경로와 초기 제약 보존 수정도 포함됐다. 독립 승인 전에는 DONE으로 올리지 않는다.
+- RP-12 attempt-001은 local Ollama/Chroma/MLX 시나리오를 통과했고 run `rp12-soak-005`로 candidate SHA에서 28,800초 soak를 수행 중이다. 기록된 시작은 `2026-09-10T23:48:13Z`, 예상 종료는 `2026-09-11T07:48:13Z`다.
+- same-SHA 전체 gate는 20개 중 16개 통과했다. red gate는 `python-basedpyright` 44 errors, `dependency-audit-python`의 감사 인터프리터·비 PyPI 로컬 의존성 문제, `security-bandit`의 high/medium 발견, candidate 환경에서만 발생한 Python 테스트 13건이다.
+- 실행 중인 soak/candidate를 건드리지 않고 main에서 보완 작업을 분리했다. `rp12_type_gate`는 type errors, `rp12_runner_gate`는 hermetic gate 실행·Python 테스트 환경·shipping dependency audit, `rp12_security_gate`는 Bandit 발견을 담당한다. 수정이 통합되면 새 candidate SHA와 필수 gate/soak 재실행 필요 여부를 증거 기준으로 판정한다.
+- cloud provider 자격증명과 법무·개인정보 승인 artifact는 계속 `BLOCKED_EXTERNAL`이며, 이를 PASS로 추론하지 않는다.

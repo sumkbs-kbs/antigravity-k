@@ -71,8 +71,10 @@ def _flatten_content(content: object) -> str:
         return ""
     parts: list[str] = []
     for part in content:
-        if isinstance(part, Mapping) and isinstance(part.get("text"), str):
-            parts.append(part["text"])
+        if isinstance(part, Mapping):
+            text = part.get("text")
+            if isinstance(text, str):
+                parts.append(text)
         elif isinstance(part, str):
             parts.append(part)
     return "\n".join(part for part in parts if part)
@@ -100,8 +102,10 @@ def _flatten_call_output(raw: object) -> str:
         if stripped.startswith("{") and stripped.endswith("}"):
             try:
                 parsed = json.loads(stripped)
-                if isinstance(parsed, Mapping) and isinstance(parsed.get("output"), str):
-                    return parsed["output"]
+                if isinstance(parsed, Mapping):
+                    output = parsed.get("output")
+                    if isinstance(output, str):
+                        return output
             except json.JSONDecodeError:
                 pass
         return raw

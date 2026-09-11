@@ -53,7 +53,7 @@ class SupervisionOutcome:
 class _WatchdogState:
     lock: threading.Lock = field(default_factory=threading.Lock)
     last_output_monotonic: float = field(default_factory=time.monotonic)
-    fired_reason: str | None = None
+    fired_reason: TerminationReason | None = None
 
 
 def _signal_group(proc: subprocess.Popen[str], sig: int) -> None:
@@ -95,7 +95,7 @@ def start_watchdog(
     timeout_sec: float | None,
     no_output_timeout_sec: float | None,
     cancel_event: threading.Event | None,
-    on_fire: Callable[[str], None] | None = None,
+    on_fire: Callable[[TerminationReason], None] | None = None,
 ) -> threading.Thread:
     """감독 watchdog 스레드. timeout / no-output / cancel 시 그룹을 종료한다."""
 
@@ -103,7 +103,7 @@ def start_watchdog(
         started = time.monotonic()
         while proc.poll() is None:
             now = time.monotonic()
-            reason: str | None = None
+            reason: TerminationReason | None = None
             if cancel_event is not None and cancel_event.is_set():
                 reason = "cancelled"
             elif timeout_sec is not None and now - started >= timeout_sec:
@@ -207,7 +207,7 @@ def supervise_command(
 
     with state.lock:
         fired = state.fired_reason
-    reason: TerminationReason = "completed" if fired is None else fired  # type: ignore[assignment]
+    reason: TerminationReason = "completed" if fired is None else fired
     return SupervisionOutcome(
         reason=reason,
         return_code=exit_code,

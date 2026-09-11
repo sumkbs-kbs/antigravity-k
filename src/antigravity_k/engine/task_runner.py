@@ -10,6 +10,8 @@ Codex 스타일의 long-horizon task 실행 및 Checkpoint/Resume 지원.
   4) resume()      — 마지막 체크포인트에서 재개
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -21,9 +23,10 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
+from contextvars import Token
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, TypeAlias, TypedDict, cast, final, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypedDict, cast, final, runtime_checkable
 
 from pydantic import JsonValue, TypeAdapter
 
@@ -49,6 +52,9 @@ from antigravity_k.engine.task_state_types import (
 from antigravity_k.engine.task_steering import TaskSteeringQueue, TaskSteeringResult
 from antigravity_k.engine.worktree_manager import WorktreeManager
 
+if TYPE_CHECKING:
+    from antigravity_k.api.contracts.execution_context import RequestExecutionContext
+
 
 def _stderr_text(error: subprocess.CalledProcessError) -> str:
     raw_stderr: object = error.__dict__.get("stderr")
@@ -59,14 +65,14 @@ def _stderr_text(error: subprocess.CalledProcessError) -> str:
     return str(error)
 
 
-def _reset_worktree_context(token: object | None) -> None:
+def _reset_worktree_context(token: Token[RequestExecutionContext | None] | None) -> None:
     """Restore the ambient request execution context after a task finishes."""
     if token is None:
         return
     try:
         from antigravity_k.api.project_binding import reset_bound_request_execution_context
 
-        reset_bound_request_execution_context(token)  # type: ignore[arg-type]
+        reset_bound_request_execution_context(token)
     except Exception:
         logger.debug("worktree context reset failed", exc_info=True)
 
@@ -681,7 +687,7 @@ class BackgroundTaskRunner:
             if task.worktree_path and task.status != TaskStatus.PAUSED:
                 self.worktree_manager.remove_worktree(task.task_id)
 
-    def _bind_worktree_context(self, task: BackgroundTask) -> object | None:
+    def _bind_worktree_context(self, task: BackgroundTask) -> Token[RequestExecutionContext | None] | None:
         """Bind RequestExecutionContext to the task's worktree (DAT-02).
 
         Worktree tasks must execute tools against the worktree root regardless

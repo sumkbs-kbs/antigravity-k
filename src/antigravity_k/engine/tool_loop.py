@@ -1354,7 +1354,9 @@ class ToolLoopEngine:
             if not direct_response:
                 from antigravity_k.engine.context_compress_observability import ContextCompressAttempt
 
-                raw_compress = self._maybe_compress_context(
+                raw_compress: (
+                    ContextCompressAttempt | tuple[list[dict[str, str]], str, int | float | None, int | float | None]
+                ) = self._maybe_compress_context(
                     shaped_messages,
                     prompt_str,
                     delegate_model,
@@ -1367,8 +1369,8 @@ class ToolLoopEngine:
                 # Compat: CTX-02 tests may patch this to a legacy 4-tuple.
                 if isinstance(raw_compress, ContextCompressAttempt):
                     compress_attempt = raw_compress
-                elif isinstance(raw_compress, tuple) and len(raw_compress) >= 4:
-                    shaped_t, prompt_t, before_t, after_t = raw_compress[:4]
+                elif isinstance(raw_compress, tuple):
+                    shaped_t, prompt_t, before_t, after_t = raw_compress
                     compress_attempt = ContextCompressAttempt(
                         messages=list(shaped_t),
                         prompt=str(prompt_t),

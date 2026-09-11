@@ -15,6 +15,7 @@ import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from importlib import import_module
 from pathlib import Path
 from typing import Literal
 
@@ -243,9 +244,7 @@ def load_configured_mcp_servers() -> tuple[list[dict[str, object]], str]:
         return servers, config_path
 
     try:
-        from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
-
-        registry = MCPServerRegistry()
+        registry = import_module("antigravity_k.tools.mcp_tool_loader").MCPServerRegistry()
         for sid, scfg in registry.get_skill_mcp_servers().items():
             servers.append(_config_row(sid, scfg, source="skill-registry"))
         if servers:
@@ -334,7 +333,6 @@ async def probe_configured_servers(
     Each server is connected in isolation and disconnected afterwards so probes
     do not leak sessions into the long-lived agent loader.
     """
-    from antigravity_k.engine.mcp_capability import MCPCapabilityAdvisor
     from antigravity_k.tools.mcp_session_manager import MCPSessionManager
 
     health = cache or mcp_health_cache
@@ -342,7 +340,7 @@ async def probe_configured_servers(
     if not configured:
         return []
 
-    advisor = MCPCapabilityAdvisor()
+    advisor = import_module("antigravity_k.engine.mcp_capability").MCPCapabilityAdvisor()
     mcp_servers = {str(row["name"]): _as_mapping(row.get("config")) for row in configured if row.get("name")}
     audit = advisor.audit_config({"mcpServers": mcp_servers}, source=source_label)
     blocked = {finding.server: finding.message for finding in audit.findings if finding.severity == "error"}

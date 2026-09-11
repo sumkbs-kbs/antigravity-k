@@ -93,9 +93,10 @@ def safe_urlopen(
     last_error: urllib.error.HTTPError | None = None
     for attempt in range(_MAX_RETRIES + 1):
         try:
+            # validate_egress_url above allowlists HTTP(S) before this sink.
             if timeout is None:
-                return cast(HTTPResponse, urllib.request.urlopen(target))
-            return cast(HTTPResponse, urllib.request.urlopen(target, timeout=timeout))
+                return cast(HTTPResponse, urllib.request.urlopen(target))  # nosec B310
+            return cast(HTTPResponse, urllib.request.urlopen(target, timeout=timeout))  # nosec B310
         except urllib.error.HTTPError as error:
             if error.code not in _RETRYABLE_STATUS or attempt >= _MAX_RETRIES:
                 raise

@@ -102,8 +102,10 @@ def _flatten_parts(content: object) -> str:
         return ""
     parts: list[str] = []
     for part in content:
-        if isinstance(part, Mapping) and part.get("type") == "text" and isinstance(part.get("text"), str):
-            parts.append(part["text"])
+        if isinstance(part, Mapping) and part.get("type") == "text":
+            text = part.get("text")
+            if isinstance(text, str):
+                parts.append(text)
         elif isinstance(part, str):
             parts.append(part)
     return "\n".join(part for part in parts if part)

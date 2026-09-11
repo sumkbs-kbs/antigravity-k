@@ -776,7 +776,7 @@ model.save_pretrained("{output_dir}/dpo_model")
         timeout_sec: float | None = None,
         no_output_timeout_sec: float | None = None,
         cancel_event: threading.Event | None = None,
-        on_proc_start: Callable[[object], None] | None = None,
+        on_proc_start: Callable[[subprocess.Popen[str]], None] | None = None,
     ) -> TrainingRunResult:
         """생성된 mlx-lm 학습 설정을 실제로 실행합니다. (TRN-02 감독 포함)
 

@@ -1,0 +1,1 @@
+[python-basedpyright] uv run --isolated --frozen basedpyright src/ scripts/

@@ -257,7 +257,14 @@ class MemoryService:
         placeholders = ",".join("?" * len(ids))
         with self._get_connection() as conn:
             cur = _cursor(
-                cast(object, conn.execute(f"SELECT * FROM knowledge_items WHERE id IN ({placeholders})", ids))
+                cast(
+                    object,
+                    conn.execute(
+                        # `placeholders` contains one `?` per separately bound value.
+                        f"SELECT * FROM knowledge_items WHERE id IN ({placeholders})",  # nosec B608
+                        ids,
+                    ),
+                )
             )
             rows = [_row_dict(row) for row in cur.fetchall()]
 

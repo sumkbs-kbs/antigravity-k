@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -32,6 +32,13 @@ __all__ = [
 ]
 
 _Ecosystem: TypeAlias = Literal["pypi", "npm"]
+
+
+class AuditVerdict(TypedDict):
+    ok: bool
+    unresolved: tuple[str, ...]
+    excepted: tuple[str, ...]
+    medium_low_count: int
 
 
 class AuditExceptionError(ValueError):
@@ -102,7 +109,7 @@ def audit_verdict_with_exceptions(
     findings: tuple[dict[str, object], ...],
     exceptions: tuple[AuditException, ...],
     today: date | None = None,
-) -> dict[str, object]:
+) -> AuditVerdict:
     """감사 결과(findings)를 예외 레지스트리로 판정한다.
 
     findings 항목 계약: {id, package, ecosystem, installed_version, severity}

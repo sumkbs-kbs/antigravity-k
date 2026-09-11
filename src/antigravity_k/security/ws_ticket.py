@@ -24,7 +24,8 @@ from __future__ import annotations
 import secrets
 import threading
 import time
-from typing import Final
+from importlib import import_module
+from typing import Final, Protocol
 
 import jwt
 
@@ -45,6 +46,11 @@ class WSTicketError(Exception):
     """ticket 발급/검증 실패."""
 
 
+class TokenSecret(Protocol):
+    @property
+    def secret(self) -> str: ...
+
+
 class WSTicketService:
     """단기 1회성 WS ticket 발급기/검증기.
 
@@ -54,12 +60,12 @@ class WSTicketService:
 
     def __init__(
         self,
-        token_service: object,
+        token_service: TokenSecret,
         *,
         ttl_sec: float = 30.0,
     ) -> None:
         """token_service의 secret을 재사용하는 ticket 서비스를 만든다."""
-        self._secret: str = token_service.secret  # type: ignore[attr-defined]
+        self._secret = token_service.secret
         self._ttl_sec = max(1.0, float(ttl_sec))
         self._lock = threading.Lock()
         # jti -> 만료시각(monotonic 기준 + grace). 1회성 판정용.
@@ -131,15 +137,14 @@ class WSTicketService:
 _service: WSTicketService | None = None
 
 
-def get_ws_ticket_service(token_service: object | None = None) -> WSTicketService:
+def get_ws_ticket_service(token_service: TokenSecret | None = None) -> WSTicketService:
     """공유 ticket 서비스 싱글톤. 최초 호출에 token_service가 필요하다."""
     global _service
     if _service is None:
         if token_service is None:
-            from antigravity_k.api.auth_routes import get_token_service
-
-            token_service = get_token_service()
-        _service = WSTicketService(token_service)
+            _service = WSTicketService(import_module("antigravity_k.api.auth_routes").get_token_service())
+        else:
+            _service = WSTicketService(token_service)
     return _service
 
 

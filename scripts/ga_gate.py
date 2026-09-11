@@ -28,6 +28,14 @@ type JsonValue = None | bool | int | float | str | Sequence[JsonValue] | Mapping
 
 OUTPUT_ENCODING: Final = "utf-8"
 OUTPUT_ERRORS: Final = "backslashreplace"
+PYTHON_ENVIRONMENT_VARIABLES: Final = (
+    "CONDA_DEFAULT_ENV",
+    "CONDA_PREFIX",
+    "PIPAPI_PYTHON_LOCATION",
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "VIRTUAL_ENV",
+)
 
 
 class Gate(BaseModel):
@@ -87,6 +95,13 @@ def _load_manifest(path: Path) -> Manifest:
     return Manifest.model_validate_json(path.read_bytes())
 
 
+def _gate_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    for variable in PYTHON_ENVIRONMENT_VARIABLES:
+        environment.pop(variable, None)
+    return environment
+
+
 def _terminate(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
@@ -114,6 +129,7 @@ def _run_gate(gate: Gate, root: Path) -> tuple[dict[str, bool | float | int | li
             stderr=subprocess.PIPE,
             encoding=OUTPUT_ENCODING,
             errors=OUTPUT_ERRORS,
+            env=_gate_environment(),
             start_new_session=True,
         )
     except OSError as error:

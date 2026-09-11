@@ -44,7 +44,7 @@ def test_search_parses_results_successfully() -> None:
     raw_bytes = json.dumps(mock_payload).encode("utf-8")
     mock_resp = io.BytesIO(raw_bytes)
 
-    with patch("urllib.request.urlopen", return_value=mock_resp):
+    with patch("antigravity_k.tools.ssak_search_client.safe_urlopen", return_value=mock_resp):
         hits = search("fastapi tutorial", max_results=2)
 
     assert len(hits) == 2
@@ -54,9 +54,17 @@ def test_search_parses_results_successfully() -> None:
 
 
 def test_search_handles_network_error_gracefully() -> None:
-    with patch("urllib.request.urlopen", side_effect=OSError("Network down")):
+    with patch("antigravity_k.tools.ssak_search_client.safe_urlopen", side_effect=OSError("Network down")):
         hits = search("any query")
     assert hits == []
+
+
+def test_search_rejects_non_http_scheme_before_open() -> None:
+    with patch("antigravity_k.tools.egress_policy.urllib.request.urlopen") as raw_open:
+        hits = search("secrets", base_url="file:///etc/passwd")
+
+    assert hits == []
+    raw_open.assert_not_called()
 
 
 def test_grounded_context_formats_hits() -> None:

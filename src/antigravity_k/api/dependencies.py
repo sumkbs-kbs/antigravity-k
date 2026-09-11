@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
@@ -134,7 +134,7 @@ def _get_session_manager(
 get_session_manager = _get_session_manager
 
 
-def _durable_memory_hooks(project_root: str) -> dict[str, tuple]:
+def _durable_memory_hooks(project_root: str) -> dict[str, tuple[Callable[..., object], ...]]:
     """Build clear/export/redact hooks scoped to ``project_root`` (WS-03 F5)."""
     root = str(Path(project_root).resolve())
     return {

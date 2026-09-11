@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from importlib import import_module
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, ContextManager, Protocol, TypeAlias, cast, override
+from typing import TYPE_CHECKING, Any, ContextManager, Protocol, TypeAlias, cast, override, runtime_checkable
 
 from antigravity_k.engine.context_budget import context_budget_for_context_length
 from antigravity_k.tools.egress_policy import safe_urlopen
@@ -56,6 +56,11 @@ class _AnthropicClient(Protocol):
 
 class _AnthropicModule(Protocol):
     def Anthropic(self, *, api_key: str) -> _AnthropicClient: ...
+
+
+@runtime_checkable
+class _ReadableError(Protocol):
+    def read(self) -> bytes: ...
 
 
 def _as_json_map(value: object) -> JsonMap:
@@ -461,7 +466,7 @@ class OpenRouterProvider(BaseInferenceProvider):
                         continue
         except Exception as e:
             err_body = ""
-            if hasattr(e, "read"):
+            if isinstance(e, _ReadableError):
                 try:
                     err_body = f" Body: {e.read().decode('utf-8', errors='replace')}"
                 except Exception:

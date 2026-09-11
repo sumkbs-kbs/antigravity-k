@@ -453,7 +453,8 @@ def build_default_redirect_uri(request_base: str | None = None) -> str:
         from antigravity_k.config import config as app_config
 
         host = app_config.server.host or host
-        if host in {"0.0.0.0", "::"}:
+        # These wildcard values are replaced with loopback, never used for binding.
+        if host in {"0.0.0.0", "::"}:  # nosec B104
             host = "127.0.0.1"
         port = int(app_config.server.port)
     except Exception:  # noqa: BLE001

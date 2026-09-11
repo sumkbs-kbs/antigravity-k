@@ -1,0 +1,567 @@
+[main]	INFO	profile include tests: None
+[main]	INFO	profile exclude tests: None
+[main]	INFO	cli include tests: None
+[main]	INFO	cli exclude tests: None
+[main]	INFO	running on Python 3.13.12
+Working... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:03
+Run started:2026-09-11 01:00:42.137542+00:00
+
+Test results:
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/audit_db.py:213:14
+212	        query = (
+213	            f"SELECT id, ts_ms, panel_id, kind, hook_event_name, tool_name, payload_json "
+214	            f"FROM hook_events{where} ORDER BY ts_ms DESC LIMIT ?"
+215	        )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/audit_db.py:253:14
+252	        query = (
+253	            f"SELECT tool_name, COUNT(*) as cnt, MIN(ts_ms) as first_ts, MAX(ts_ms) as last_ts "
+254	            f"FROM hook_events{where} "
+255	            f"GROUP BY tool_name ORDER BY cnt DESC"
+256	        )
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/antigravity_k/engine/autonomous_qa.py:388:49
+387	                screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+388	                attempt.before_screenshot_hash = hashlib.md5(screenshot_bytes).hexdigest()
+389
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/antigravity_k/engine/autonomous_qa.py:419:48
+418	                after_bytes = await page.screenshot(full_page=True)
+419	                attempt.after_screenshot_hash = hashlib.md5(after_bytes).hexdigest()
+420
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/antigravity_k/engine/autonomous_qa.py:632:13
+631	        # 바이트 해시 기반 빠른 비교
+632	        h1 = hashlib.md5(before).hexdigest()
+633	        h2 = hashlib.md5(after).hexdigest()
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/antigravity_k/engine/autonomous_qa.py:633:13
+632	        h1 = hashlib.md5(before).hexdigest()
+633	        h2 = hashlib.md5(after).hexdigest()
+634
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/antigravity_k/engine/code_tree_indexer.py:160:31
+159	                # 변경 감지
+160	                content_hash = hashlib.md5(content.encode()).hexdigest()
+161	                if self._file_hashes.get(rel_path) == content_hash and not force:
+
+--------------------------------------------------
+>> Issue: [B602:subprocess_popen_with_shell_equals_true] subprocess call with shell=True identified, security issue.
+   Severity: High   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b602_subprocess_popen_with_shell_equals_true.html
+   Location: src/antigravity_k/engine/limited_process_runner.py:38:18
+37	            args,
+38	            shell=shell,
+39	            stdin=subprocess.DEVNULL,
+40	            stdout=subprocess.PIPE,
+41	            stderr=subprocess.PIPE,
+42	            text=False,
+43	            env=dict(env) if env is not None else os.environ.copy(),
+44	            cwd=cwd,
+45	            start_new_session=os.name == "posix",
+46	        )
+47	        context = current_task_execution_context()
+48	        registration = task_process_supervisor.register(
+49	            context.task_id if context is not None else None,
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: src/antigravity_k/engine/local_runtime.py:117:21
+116
+117	        log_path = f"/tmp/agk_llama_server_{port}.log"
+118	        log_file = open(log_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: src/antigravity_k/engine/mcp_oauth.py:456:20
+455	        host = app_config.server.host or host
+456	        if host in {"0.0.0.0", "::"}:
+457	            host = "127.0.0.1"
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/provider_adapters/unsloth_resource_repository.py:33:6
+32	_INSERT_SQL: Final = (
+33	    f"INSERT INTO {_TABLE_NAME} ("
+34	    "reservation_id,idempotency_key,request_fingerprint,operation,device_id,"
+35	    "estimated_peak_bytes,provenance_fingerprint,resource_job_id,state,created_at,released_at"
+36	    ") VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)"
+37	)
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/provider_adapters/unsloth_resource_repository.py:39:6
+38	_RELEASE_SQL: Final = (
+39	    f"UPDATE {_TABLE_NAME} SET state = ?, released_at = COALESCE(released_at, ?) WHERE reservation_id = ? RETURNING *"
+40	)
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/provider_adapters/unsloth_resource_repository.py:42:6
+41	_BIND_JOB_SQL: Final = (
+42	    f"UPDATE {_TABLE_NAME} SET resource_job_id = COALESCE(resource_job_id, ?) "
+43	    "WHERE reservation_id = ? AND state = ? AND (resource_job_id IS NULL OR resource_job_id = ?) RETURNING *"
+44	)
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/provider_adapters/unsloth_resource_repository.py:142:18
+141	            self.connection.execute(
+142	                f"SELECT * FROM {_TABLE_NAME} WHERE idempotency_key = ?",
+143	                (idempotency_key,),
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/provider_adapters/unsloth_resource_repository.py:161:18
+160	            self.connection.execute(
+161	                f"SELECT COUNT(*) FROM {_TABLE_NAME} WHERE device_id = ? AND state = ?",
+162	                (device_id, UnslothReservationState.ACTIVE.value),
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/provider_adapters/unsloth_resource_repository.py:204:18
+203	            cursor = connection.execute(
+204	                f"SELECT * FROM {_TABLE_NAME} WHERE state = ? ORDER BY created_at",
+205	                (UnslothReservationState.ACTIVE.value,),
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/antigravity_k/engine/rag_indexer.py:207:35
+206	                    # 변경 감지 (해시 비교)
+207	                    content_hash = hashlib.md5(content.encode()).hexdigest()
+208	                    if self._file_hashes.get(rel_path) == content_hash:
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/antigravity_k/engine/rag_indexer.py:321:38
+320
+321	        self._file_hashes[rel_path] = hashlib.md5(content.encode()).hexdigest()
+322
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/antigravity_k/engine/rag_indexer.py:405:39
+404	                    try:
+405	                        current_hash = hashlib.md5(Path(source_path).read_bytes()).hexdigest()
+406	                    except OSError:
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/antigravity_k/engine/rag_indexer.py:693:27
+692	        try:
+693	            current_hash = hashlib.md5(source_path.read_bytes()).hexdigest()
+694	        except OSError:
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: src/antigravity_k/engine/sandbox.py:344:33
+343	            # 다른 프로세스의 임시 파일(시크릿 포함 가능) 격리
+344	            denied_roots.extend(["/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"])
+345	            read_rules = ["(allow file-read*)"]
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: src/antigravity_k/engine/sandbox.py:344:57
+343	            # 다른 프로세스의 임시 파일(시크릿 포함 가능) 격리
+344	            denied_roots.extend(["/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"])
+345	            read_rules = ["(allow file-read*)"]
+
+--------------------------------------------------
+>> Issue: [B604:any_other_function_with_shell_equals_true] Function call with shell=True parameter identified, possible security issue.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b604_any_other_function_with_shell_equals_true.html
+   Location: src/antigravity_k/engine/sandbox.py:465:60
+464	                self._limited_command(command, timeout),
+465	                shell=True,
+466	                timeout=timeout,
+467	                env=env,
+468	                cwd=cwd,
+469	            )
+470	            return SandboxResult(
+471	                success=return_code == 0,
+472	                stdout=stdout,
+
+--------------------------------------------------
+>> Issue: [B604:any_other_function_with_shell_equals_true] Function call with shell=True parameter identified, possible security issue.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b604_any_other_function_with_shell_equals_true.html
+   Location: src/antigravity_k/engine/sandbox.py:537:17
+536	            args,
+537	            shell=shell,
+538	            timeout=timeout,
+539	            env=env,
+540	            cwd=cwd or self.project_root,
+541	        )
+542	        return result.return_code, result.stdout, result.stderr, result.output_truncated
+543
+544	    @staticmethod
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:119:16
+118	            _ = connection.execute(
+119	                "INSERT INTO scheduled_jobs "
+120	                + "(job_id, spec_json, status, created_at, updated_at, next_run_at, last_run_at) "
+121	                + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:152:16
+151	                connection,
+152	                "SELECT * FROM scheduled_jobs WHERE status = 'active' "
+153	                + "AND next_run_at IS NOT NULL AND next_run_at <= ? "
+154	                + "ORDER BY next_run_at ASC LIMIT ?",
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:163:16
+162	            cursor = connection.execute(
+163	                "UPDATE scheduled_jobs SET spec_json = ?, status = ?, updated_at = ?, "
+164	                + "next_run_at = ?, last_run_at = ? WHERE job_id = ?",
+165	                (
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:192:16
+191	            cursor = connection.execute(
+192	                "UPDATE scheduled_jobs SET status = ?, next_run_at = ?, last_run_at = ?, updated_at = ? "
+193	                + "WHERE job_id = ? AND status = 'active' AND next_run_at = ?",
+194	                (
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:214:16
+213	            _ = connection.execute(
+214	                "INSERT INTO scheduled_job_runs "
+215	                + "(run_id, job_id, status, task_id, output, error, delivery_status, delivery_error, "
+216	                + "started_at, completed_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:215:18
+214	                "INSERT INTO scheduled_job_runs "
+215	                + "(run_id, job_id, status, task_id, output, error, delivery_status, delivery_error, "
+216	                + "started_at, completed_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+217	                + "ON CONFLICT(run_id) DO UPDATE SET job_id = excluded.job_id, status = excluded.status, "
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:216:18
+215	                + "(run_id, job_id, status, task_id, output, error, delivery_status, delivery_error, "
+216	                + "started_at, completed_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+217	                + "ON CONFLICT(run_id) DO UPDATE SET job_id = excluded.job_id, status = excluded.status, "
+218	                + "task_id = excluded.task_id, output = excluded.output, error = excluded.error, "
+219	                + "delivery_status = excluded.delivery_status, delivery_error = excluded.delivery_error, "
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:217:18
+216	                + "started_at, completed_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+217	                + "ON CONFLICT(run_id) DO UPDATE SET job_id = excluded.job_id, status = excluded.status, "
+218	                + "task_id = excluded.task_id, output = excluded.output, error = excluded.error, "
+219	                + "delivery_status = excluded.delivery_status, delivery_error = excluded.delivery_error, "
+220	                + "started_at = excluded.started_at, completed_at = excluded.completed_at, "
+221	                + "idempotency_key = COALESCE(excluded.idempotency_key, scheduled_job_runs.idempotency_key)",
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:260:16
+259	                connection,
+260	                "SELECT * FROM scheduled_job_runs WHERE status IN ('submitted', 'running') "
+261	                + "ORDER BY started_at ASC LIMIT ?",
+262	                (limit,),
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/scheduled_job_store.py:270:16
+269	                connection,
+270	                "SELECT output FROM scheduled_job_runs WHERE job_id = ? AND status = 'succeeded' "
+271	                + "ORDER BY started_at DESC LIMIT 1",
+272	                (job_id,),
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: src/antigravity_k/engine/shields.py:164:42
+163	        else:
+164	            home = os.environ.get("HOME", "/tmp")
+165	            self._state_dir = Path(home) / ".antigravity-k" / "state"
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/task_events.py:82:8
+81	    cursor = connection.execute(
+82	        "INSERT INTO task_execution_events ("
+83	        + "schema_version, task_id, step_id, agent_id, parent_id, tool_call_id, "
+84	        + "approval_id, resource_job_id, correlation_id, event_type, payload_json, created_at) "
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/task_state_store.py:149:22
+148	                    "INSERT INTO task_idempotency (idempotency_key, owner_subject, task_id, created_at) "
+149	                    + "SELECT idempotency_key, owner_subject, task_id, created_at FROM task_idempotency_legacy",
+150	                )
+151	                _ = connection.execute("DROP TABLE task_idempotency_legacy")
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/task_state_store.py:302:16
+301	            cursor = connection.execute(
+302	                "UPDATE task_history SET status = ?, output = ?, error = ?, updated_at = ?, completed_at = ?, "
+303	                + "owner_pid = ?, version = ? "
+304	                + "WHERE task_id = ? AND status = ? AND version = ?",
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/engine/task_state_store.py:378:16
+377	            cursor = connection.execute(
+378	                "UPDATE task_history SET status = ?, error = NULL, updated_at = ?, completed_at = NULL, "
+379	                + "owner_pid = ?, version = ? "
+380	                + "WHERE task_id = ? AND status = ? AND owner_pid IS ? AND version = ?"
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/knowledge/memory_service.py:260:44
+259	            cur = _cursor(
+260	                cast(object, conn.execute(f"SELECT * FROM knowledge_items WHERE id IN ({placeholders})", ids))
+261	            )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/knowledge/wiki.py:280:14
+279	        _ = conn.execute(
+280	            f"UPDATE wiki_entries SET {set_clause} WHERE id = ?",
+281	            values,
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/antigravity_k/knowledge/wiki_privacy.py:84:12
+83	        raw_rows: list[sqlite3.Row] = connection.execute(
+84	            "SELECT id, title, category, tags, content, created_at FROM wiki_entries "
+85	            + "WHERE category = ? AND title = ? ORDER BY updated_at DESC, id DESC LIMIT 1",
+86	            key,
+
+--------------------------------------------------
+>> Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
+   Severity: Medium   Confidence: High
+   CWE: CWE-22 (https://cwe.mitre.org/data/definitions/22.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen
+   Location: src/antigravity_k/tools/egress_policy.py:97:42
+96	            if timeout is None:
+97	                return cast(HTTPResponse, urllib.request.urlopen(target))
+98	            return cast(HTTPResponse, urllib.request.urlopen(target, timeout=timeout))
+
+--------------------------------------------------
+>> Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
+   Severity: Medium   Confidence: High
+   CWE: CWE-22 (https://cwe.mitre.org/data/definitions/22.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen
+   Location: src/antigravity_k/tools/egress_policy.py:98:38
+97	                return cast(HTTPResponse, urllib.request.urlopen(target))
+98	            return cast(HTTPResponse, urllib.request.urlopen(target, timeout=timeout))
+99	        except urllib.error.HTTPError as error:
+
+--------------------------------------------------
+>> Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
+   Severity: Medium   Confidence: High
+   CWE: CWE-22 (https://cwe.mitre.org/data/definitions/22.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen
+   Location: src/antigravity_k/tools/media_gen_tools.py:181:20
+180	                print(f"Downloading Kokoro ONNX model to {model_path}...")
+181	                _ = urllib.request.urlretrieve(
+182	                    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx",
+183	                    model_path,
+184	                )
+185	            if not os.path.exists(voices_path):
+
+--------------------------------------------------
+>> Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
+   Severity: Medium   Confidence: High
+   CWE: CWE-22 (https://cwe.mitre.org/data/definitions/22.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen
+   Location: src/antigravity_k/tools/media_gen_tools.py:187:20
+186	                print(f"Downloading Kokoro voices to {voices_path}...")
+187	                _ = urllib.request.urlretrieve(
+188	                    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.json",
+189	                    voices_path,
+190	                )
+191
+
+--------------------------------------------------
+>> Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
+   Severity: Medium   Confidence: High
+   CWE: CWE-22 (https://cwe.mitre.org/data/definitions/22.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen
+   Location: src/antigravity_k/tools/ssak_search_client.py:55:13
+54	    try:
+55	        with urllib.request.urlopen(req, timeout=timeout) as resp:
+56	            payload = json.loads(resp.read().decode("utf-8"))
+
+--------------------------------------------------
+>> Issue: [B602:subprocess_popen_with_shell_equals_true] subprocess call with shell=True identified, security issue.
+   Severity: High   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b602_subprocess_popen_with_shell_equals_true.html
+   Location: src/antigravity_k/tools/system_tools.py:723:21
+722	                command,
+723	                shell=True,
+724	                capture_output=True,
+725	                text=True,
+726	                timeout=60,
+727	                env=env_vars,
+728	            )
+729	            output = result.stdout
+730	            if result.stderr:
+731	                output += f"\nSTDERR:\n{result.stderr}"
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 117363
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 301
+		Medium: 37
+		High: 11
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 10
+		Medium: 30
+		High: 309
+Files skipped (0):

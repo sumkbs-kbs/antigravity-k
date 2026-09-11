@@ -157,7 +157,7 @@ class CodeTreeIndexer:
                     continue
 
                 # 변경 감지
-                content_hash = hashlib.md5(content.encode()).hexdigest()
+                content_hash = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
                 if self._file_hashes.get(rel_path) == content_hash and not force:
                     # 이미 있으면 기존 심볼 유지
                     if rel_path in self._symbols:

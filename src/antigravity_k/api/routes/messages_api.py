@@ -32,7 +32,7 @@ from antigravity_k.engine.anthropic_tool_bridge import (
     serialize_tools_for_prompt,
 )
 from antigravity_k.engine.model_manager import ModelManager
-from antigravity_k.engine.protocol_translator import ProtocolTranslator
+from antigravity_k.engine.protocol_translator import APIFormat, ProtocolTranslator
 
 logger = logging.getLogger("antigravity_k.api.messages")
 
@@ -41,7 +41,7 @@ router = APIRouter()
 _ALLOWED_ROLES = {"user", "assistant"}
 
 _TRANSLATOR = ProtocolTranslator()
-_TRANSLATOR_TYPE: str = _TRANSLATOR.ANTHROPIC.value if hasattr(_TRANSLATOR, "ANTHROPIC") else "anthropic"
+_TRANSLATOR_TYPE = APIFormat.ANTHROPIC.value
 
 
 def _error(status: int, err_type: str, message: str) -> tuple[dict[str, Any], int]:

@@ -1,5 +1,6 @@
 import re
 from collections.abc import Mapping
+from importlib import import_module
 from pathlib import Path
 
 from pydantic import JsonValue
@@ -28,9 +29,7 @@ def has_auth(server: Mapping[str, JsonValue]) -> bool:
     name = server.get("name") or server.get("_name")
     if isinstance(name, str) and name:
         try:
-            from antigravity_k.engine.mcp_oauth import has_stored_tokens
-
-            if has_stored_tokens(name):
+            if import_module("antigravity_k.engine.mcp_oauth").has_stored_tokens(name):
                 return True
         except Exception:
             pass

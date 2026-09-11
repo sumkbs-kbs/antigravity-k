@@ -4,6 +4,7 @@ import atexit
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from typing import Protocol
@@ -114,8 +115,15 @@ class LocalRuntimeSupervisor:
             "--reasoning-preserve",
         ]
 
-        log_path = f"/tmp/agk_llama_server_{port}.log"
-        log_file = open(log_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
+        log_file = tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            errors="replace",
+            prefix=f"agk_llama_server_{port}_",
+            suffix=".log",
+            delete=False,
+        )
+        log_path = log_file.name
         process = self._process_factory(
             cmd,
             stdout=log_file,

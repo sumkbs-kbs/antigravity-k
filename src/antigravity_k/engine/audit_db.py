@@ -210,7 +210,7 @@ class AuditDb:
             where = " WHERE " + " AND ".join(conditions)
 
         query = (
-            f"SELECT id, ts_ms, panel_id, kind, hook_event_name, tool_name, payload_json "
+            f"SELECT id, ts_ms, panel_id, kind, hook_event_name, tool_name, payload_json "  # nosec B608
             f"FROM hook_events{where} ORDER BY ts_ms DESC LIMIT ?"
         )
         params.append(limit)
@@ -250,7 +250,7 @@ class AuditDb:
             where = " WHERE tool_name IS NOT NULL"
 
         query = (
-            f"SELECT tool_name, COUNT(*) as cnt, MIN(ts_ms) as first_ts, MAX(ts_ms) as last_ts "
+            f"SELECT tool_name, COUNT(*) as cnt, MIN(ts_ms) as first_ts, MAX(ts_ms) as last_ts "  # nosec B608
             f"FROM hook_events{where} "
             f"GROUP BY tool_name ORDER BY cnt DESC"
         )

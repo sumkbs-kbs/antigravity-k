@@ -8,6 +8,8 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from antigravity_k.tools.egress_policy import safe_urlopen
+
 DEFAULT_BASE_URL = "https://search-engine-api.pages.dev"
 
 
@@ -52,7 +54,7 @@ def search(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with safe_urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except Exception:
         return []

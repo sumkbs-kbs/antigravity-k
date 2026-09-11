@@ -1,0 +1,2 @@
+Installed 64 packages in 54ms
+[python-tests] uv run --isolated --frozen pytest tests/ -v --tb=short

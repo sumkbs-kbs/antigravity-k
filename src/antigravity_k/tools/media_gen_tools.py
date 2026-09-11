@@ -1,11 +1,12 @@
 import logging
 import os
+import shutil
 import subprocess
-import urllib.request
 from importlib import import_module
 from typing import NotRequired, Protocol, TypedDict, cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+from .egress_policy import safe_urlopen
 
 logger = logging.getLogger(__name__)
 JsonMap = dict[str, object]
@@ -27,6 +28,11 @@ def _as_text(value: object, default: str = "") -> str:
     if value is None:
         return default
     return value if isinstance(value, str) else str(value)
+
+
+def _download_asset(url: str, destination: str) -> None:
+    with safe_urlopen(url, allow_local=False) as response, open(destination, "wb") as output:
+        shutil.copyfileobj(response, output)
 
 
 class _SoundFileModule(Protocol):
@@ -178,13 +184,13 @@ class GenerateAudioTool(BaseTool):
 
             if not os.path.exists(model_path):
                 print(f"Downloading Kokoro ONNX model to {model_path}...")
-                _ = urllib.request.urlretrieve(
+                _download_asset(
                     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx",
                     model_path,
                 )
             if not os.path.exists(voices_path):
                 print(f"Downloading Kokoro voices to {voices_path}...")
-                _ = urllib.request.urlretrieve(
+                _download_asset(
                     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.json",
                     voices_path,
                 )

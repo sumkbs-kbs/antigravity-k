@@ -80,9 +80,9 @@ def append_execution_event(
     details = metadata or RunEventMetadata()
     cursor = connection.execute(
         "INSERT INTO task_execution_events ("
-        + "schema_version, task_id, step_id, agent_id, parent_id, tool_call_id, "
-        + "approval_id, resource_job_id, correlation_id, event_type, payload_json, created_at) "
-        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "schema_version, task_id, step_id, agent_id, parent_id, tool_call_id, "
+        "approval_id, resource_job_id, correlation_id, event_type, payload_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             RUN_EVENT_SCHEMA_VERSION,
             task_id,

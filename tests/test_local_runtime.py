@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock, patch
@@ -54,6 +55,14 @@ def test_llama_runtime_starts_server_when_endpoint_is_down() -> None:
         "--port",
         "8080",
     ]
+    log_file = popen.call_args.kwargs["stdout"]
+    log_path = log_file.name
+    try:
+        assert log_path != "/tmp/agk_llama_server_8080.log"
+        assert os.stat(log_path).st_mode & 0o077 == 0
+    finally:
+        log_file.close()
+        os.unlink(log_path)
 
 
 def test_llama_runtime_reports_installation_reason_when_server_binary_is_missing() -> None:

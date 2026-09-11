@@ -341,7 +341,10 @@ class SandboxRunner:
             if user_tree:
                 denied_roots.append(user_tree)
             # 다른 프로세스의 임시 파일(시크릿 포함 가능) 격리
-            denied_roots.extend(["/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"])
+            # These paths are sandbox deny-list entries, not file creation targets.
+            denied_roots.extend(
+                ["/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"]  # nosec B108
+            )
             read_rules = ["(allow file-read*)"]
             for denied in denied_roots:
                 read_rules.append(f'(deny file-read* (subpath "{denied}"))')
@@ -462,7 +465,8 @@ class SandboxRunner:
         try:
             return_code, stdout, stderr, output_truncated = self._run_limited_process(
                 self._limited_command(command, timeout),
-                shell=True,
+                # Callers explicitly select the documented unsandboxed compatibility mode.
+                shell=True,  # nosec B604
                 timeout=timeout,
                 env=env,
                 cwd=cwd,
@@ -534,7 +538,8 @@ class SandboxRunner:
     ) -> tuple[int, str, str, bool]:
         result = LimitedProcessRunner(self.max_output_bytes).run(
             args,
-            shell=shell,
+            # SandboxRunner selects and enforces this execution mode.
+            shell=shell,  # nosec B604
             timeout=timeout,
             env=env,
             cwd=cwd or self.project_root,

@@ -33,7 +33,9 @@ class LimitedProcessRunner:
         env: Mapping[str, str] | None,
         cwd: str,
     ) -> LimitedProcessResult:
-        process = subprocess.Popen(
+        # `shell` is an explicit execution mode selected only by SandboxRunner;
+        # command authorization and OS isolation are enforced at that boundary.
+        process = subprocess.Popen(  # nosec B602
             args,
             shell=shell,
             stdin=subprocess.DEVNULL,

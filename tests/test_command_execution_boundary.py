@@ -1,11 +1,12 @@
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 
 from antigravity_k.tools.permission_gate import PermissionGate
-from antigravity_k.tools.system_tools import RunBashCommandTool
+from antigravity_k.tools.system_tools import NaturalLanguageBashTool, RunBashCommandTool
 from antigravity_k.tools.tool_contracts import Permission
 from antigravity_k.tools.tool_registry import ToolRegistry
 
@@ -104,3 +105,21 @@ def test_sandbox_disabled_refuses_instead_of_raw_execution(monkeypatch: pytest.M
 
     assert result.startswith("Error: run_bash_command requires an enabled OS sandbox")
     assert "raw host execution is disabled" in result
+
+
+def test_natural_language_bash_routes_generated_command_through_sandbox() -> None:
+    tool = NaturalLanguageBashTool()
+    with (
+        patch("antigravity_k.engine.model_manager.ModelManager") as manager_factory,
+        patch("antigravity_k.engine.model_registry.ModelRegistry"),
+        patch("antigravity_k.engine.orchestrator.OrchestratorAgent") as orchestrator_factory,
+        patch.object(RunBashCommandTool, "_run_with_sandbox", return_value="safe [sandboxed]") as sandbox,
+        patch("antigravity_k.tools.system_tools.subprocess.run") as raw_run,
+    ):
+        manager_factory.return_value.get_target_for_role.return_value = object()
+        orchestrator_factory.return_value.run_sync.return_value = "echo safe"
+        result = tool.execute(intent="print safe")
+
+    sandbox.assert_called_once_with("echo safe")
+    raw_run.assert_not_called()
+    assert result.endswith("safe [sandboxed]")

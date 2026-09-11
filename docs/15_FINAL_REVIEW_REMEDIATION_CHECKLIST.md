@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 최종 검토 개선 실행 체크리스트
-status: in-progress (RP-00 DONE, RP-01..11 REVIEW, RP-12..14 TODO)
+status: in-progress (RP-00 DONE, RP-01..11 REVIEW, RP-12 IN_PROGRESS, RP-13..14 TODO)
 date: 2026-09-10
 reviewed_sha: 8794aaecabf5664a7ee560b104e0115d915aabb7
 plan: docs/14_FINAL_REVIEW_REMEDIATION_PLAN.md
@@ -36,12 +36,12 @@ tags: [checklist, remediation, agent-coordination, release-gate]
 | RP-09 | 수동/자동 압축 E2E | RP-08 | REVIEW | zcode-remediation-agent / current checkout | `8794aae…+dirty` | store+API tier 완료(43 passed, 제품 결함 1건 수정); 스트리밍 자동 압축·실 provider는 RP-12 이관 | `RP-09/attempt-001` |
 | RP-10 | 문서/승인 상태 준비 | RP-09 | REVIEW | zcode-remediation-agent / current checkout | `8794aae…+dirty` | 증거 인덱스·README·진행기록·mirror 정합화; 승인 자료 인계는 BLOCKED_EXTERNAL | `RP-10/attempt-001` |
 | RP-11 | gate/증거 수집기 | RP-10 | REVIEW | zcode-remediation-agent / current checkout | `8794aae…+dirty` | 검증기 신규+val01/val02 보강(부정 케이스 실측); cloud adapter는 자격증명 필요로 RP-12 이관 | `RP-11/attempt-001` |
-| RP-12 | 후보/실 provider/8h | RP-11 | TODO | — | — | — | — |
+| RP-12 | 후보/실 provider/8h | RP-11 | IN_PROGRESS | zcode-remediation-agent + rp12_*_gate / candidate+current checkout | `a619bc9f024f09fcee9f8911dfce5476e086980f` | 게이트 16/20 green·Ollama 12/12·soak 진행 중(run rp12-soak-005, ~09-11 07:48Z); red gate 4개 별도 보완 중, cloud BLOCKED_EXTERNAL | `RP-12/attempt-001`, `attempt-002` |
 | RP-13 | 배포/복구/manifest | RP-12 | TODO | — | — | — | — |
 | RP-14 | 독립 재검토/출시 판정 | RP-13 | TODO | — | — | — | — |
 | RP-15 | 선택 유지보수 | RP-05 이후·후보 이전 | DECISION_PENDING | — | — | — | — |
 
-현재 필수 완료: **0/15** (RP-01~11 REVIEW — 구현·실측 완료, 독립 검토 미완료로 DONE 아님). 선택 RP-15는 분모에 포함하지 않는다. 체크 개수는 품질 점수나 상용화 백분율이 아니다. 조정자가 병렬화할 때에는 계획서 §4의 허용 범위 및 변경한 의존관계를 기록한다.
+현재 필수 완료: **0/15** (RP-01~11 REVIEW, RP-12 IN_PROGRESS — 후보 a619bc9f 고정·게이트 실행·soak 진행 중). 선택 RP-15는 분모에 포함하지 않는다. 체크 개수는 품질 점수나 상용화 백분율이 아니다. 조정자가 병렬화할 때에는 계획서 §4의 허용 범위 및 변경한 의존관계를 기록한다.
 
 ## 발견과 종료 증거 연결표
 
@@ -52,7 +52,7 @@ tags: [checklist, remediation, agent-coordination, release-gate]
 | FR-03 | RP-03, RP-14 | traversal/symlink/transaction 복구 실측 | 코드 수정+실측 완료(RP-03 REVIEW); 독립 승인 잔여 |
 | FR-04 | RP-04, RP-14 | dirty/concurrent/untracked 변경 보존 | 코드 수정+실측 완료(RP-04 REVIEW); 독립 승인 잔여 |
 | FR-05 | RP-05, RP-09, RP-14 | cross-process read/create/append/compact CAS | RP-05 코드 수정+실측 완료(REVIEW); RP-09 종단간·독립 승인 잔여 |
-| FR-06 | RP-11, RP-12, RP-14 | same-SHA 전체 gate+실 cloud/local+28,800초 | RP-11 검증기·soak/복구 시나리오 보강 완료; same-SHA 전체 gate·실 provider·28,800초는 RP-12 잔여 |
+| FR-06 | RP-11, RP-12, RP-14 | same-SHA 전체 gate+실 cloud/local+28,800초 | RP-12 진행: 후보 a619bc9f 고정, 게이트 16/20 green(4 red: basedpyright/bandit/pip-audit 기존부채·환경 + python-tests 환경 의존), Ollama 12/12, 28,800초 soak 실행 중, cloud BLOCKED_EXTERNAL |
 | FR-07 | RP-06, RP-12 | no-op delete를 검출하는 실 Chroma 시나리오 | RP-06 완료(REVIEW): 실측 VAL-01 12 passed·exit 0, no-op negative control FAIL 확인 |
 | FR-08 | RP-10, RP-14 | metadata/공식·mirror/지원·승인·점수 일치 | 문서 정합화 완료(REVIEW); 실제 승인 artifact는 BLOCKED_EXTERNAL, 최종 GO blocker 유지 |
 | FR-09 | RP-11, RP-13, RP-14 | retrievable artifact/hash/provenance/복구 | OPEN |
@@ -220,17 +220,17 @@ tags: [checklist, remediation, agent-coordination, release-gate]
 
 ## RP-12 후보와 실 운영 검증
 
-- [ ] R12-01 선행 코드/테스트/gate 변경 통합 완료
-- [ ] R12-02 clean release checkout의 full candidate SHA 고정
-- [ ] R12-03 전체 required gate 실행, 축소 smoke와 구분
-- [ ] R12-04 actual local provider streaming/실 tool/cancel/error 통과
-- [ ] R12-05 actual cloud provider streaming/실 tool/cancel/error 통과
-- [ ] R12-06 RP-08 marker 요청을 실제 provider에 반복·payload 확인
-- [ ] R12-07 RP-09 수동/자동 압축을 실제 provider 경로에서 반복
-- [ ] R12-08 Chroma persistence/restart/reindex/delete/citation 실측
-- [ ] R12-09 지원 하드웨어 MLX 또는 CUDA 학습/checkpoint/resume/fuse 실측
-- [ ] R12-10 SC-1~SC-6 필수 시나리오와 실제 복구 완료 검증
-- [ ] R12-11 연속 부하 actual duration ≥ 28,800초, start/end/샘플 원문 보존
+- [x] R12-01 선행 코드/테스트/gate 변경 통합 완료
+- [x] R12-02 clean release checkout의 full candidate SHA 고정
+- [x] R12-03 전체 required gate 실행, 축소 smoke와 구분
+- [x] R12-04 actual local provider streaming/실 tool/cancel/error 통과
+- [ ] R12-05 actual cloud provider streaming/실 tool/cancel/error 통과 — 자격증명 없음(BLOCKED_EXTERNAL)
+- [ ] R12-06 RP-08 marker 요청을 실제 provider에 반복·payload 확인 — 브라우저 tier 미실행
+- [ ] R12-07 RP-09 수동/자동 압축을 실제 provider 경로에서 반복 — 미실행
+- [x] R12-08 Chroma persistence/restart/reindex/delete/citation 실측
+- [x] R12-09 지원 하드웨어 MLX 또는 CUDA 학습/checkpoint/resume/fuse 실측
+- [ ] R12-10 SC-1~SC-6 필수 시나리오와 실제 복구 완료 검증 — 8초 리허설 전 green(복구 완료·중복 거부 포함), 28,800초 본실행 진행 중
+- [ ] R12-11 연속 부하 actual duration ≥ 28,800초 — rp12-soak-005 진행 중(예상 종료 2026-09-11T07:48Z), 완료 후 val02.json 판정
 - [ ] R12-12 p95/p99/error/FD/RSS trend/orphan/DB lock 승인 기준 충족
 - [ ] R12-13 샘플 누락·중단·미실행 없음, short rehearsal로 대체 없음
 - [ ] R12-14 모든 결과의 동일 SHA와 clean 환경 확인, 독립 판정 PASS

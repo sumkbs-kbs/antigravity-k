@@ -218,9 +218,8 @@ def _run_job(job: _Job, request: TrainingJobStartRequest) -> None:
     # 실제 학습 실행 (동기 — 잡 스레드 안이므로 이벤트 루프를 막지 않는다)
     # TRN-02: watchdog이 timeout/no-output/cancel을 감독하고, on_proc_start로
     # 실제 Popen을 잡에 노출해 취소가 프로세스 그룹에 도달하게 한다.
-    def _capture_proc(proc: object) -> None:
-        if isinstance(proc, subprocess.Popen):
-            job.proc = proc
+    def _capture_proc(proc: subprocess.Popen[str]) -> None:
+        job.proc = proc
 
     run_result = pipeline.run_training(
         config,

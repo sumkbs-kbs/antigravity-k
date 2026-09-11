@@ -58,6 +58,14 @@ class _CodeTreeIndexer(Protocol):
     def stats(self) -> CodeTreeStats: ...
 
 
+class _ClosableVectorStore(Protocol):
+    def close(self) -> None: ...
+
+
+class _RagIndexer(Protocol):
+    vector_store: _ClosableVectorStore
+
+
 def _object_mapping(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
@@ -165,6 +173,7 @@ class OrchestratorAgent:
 
         # ─── Freebuff-Style Proactive: Code Tree Indexer (P0) ───
         self._code_tree_indexer: _CodeTreeIndexer | None = None
+        self._rag_indexer: _RagIndexer | None = None
 
         # ─── P4: MAX Mode Parallel Engine (지연 초기화) ───
         self._max_engine: MaxEnginePort | None = None

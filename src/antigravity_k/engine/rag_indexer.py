@@ -204,7 +204,7 @@ class RAGIndexer:
                         continue
 
                     # 변경 감지 (해시 비교)
-                    content_hash = hashlib.md5(content.encode()).hexdigest()
+                    content_hash = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
                     if self._file_hashes.get(rel_path) == content_hash:
                         continue  # 변경 없음 → 스킵
                     self._file_hashes[rel_path] = content_hash
@@ -318,7 +318,7 @@ class RAGIndexer:
         # (원본 파일은 수정하지 않고, 청킹/라인 계산에만 정규화된 텍스트를 쓴다.)
         content = content.replace("\r\n", "\n").replace("\r", "\n")
 
-        self._file_hashes[rel_path] = hashlib.md5(content.encode()).hexdigest()
+        self._file_hashes[rel_path] = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
 
         # 기존 청크 삭제
         if self.vector_store:
@@ -402,7 +402,7 @@ class RAGIndexer:
                     freshness = "missing"
                 elif source_hash:
                     try:
-                        current_hash = hashlib.md5(Path(source_path).read_bytes()).hexdigest()
+                        current_hash = hashlib.md5(Path(source_path).read_bytes(), usedforsecurity=False).hexdigest()
                     except OSError:
                         freshness = "unavailable"
                     else:
@@ -690,7 +690,7 @@ class RAGIndexer:
         if not source_path.is_file():
             return False
         try:
-            current_hash = hashlib.md5(source_path.read_bytes()).hexdigest()
+            current_hash = hashlib.md5(source_path.read_bytes(), usedforsecurity=False).hexdigest()
         except OSError:
             return False
         return current_hash != expected_hash

@@ -35,11 +35,11 @@ from __future__ import annotations
 
 import logging
 import time
+from importlib import import_module
 from typing import Literal
 
 from prometheus_client import Counter
 
-from antigravity_k.api.error_handler import correlation_id_var
 from antigravity_k.engine.metrics import REGISTRY
 
 logger = logging.getLogger("antigravity_k.ops")
@@ -163,9 +163,9 @@ def log_operation_event(
     ``RequestExecutionContext``(project/task/conversation)를 읽어 한 줄로
     기록한다. 호출자는 이벤트 이름과 도메인 필드만 넘긴다.
     """
-    from antigravity_k.api.project_binding import get_bound_request_execution_context
-
-    context = get_bound_request_execution_context()
+    project_binding = import_module("antigravity_k.api.project_binding")
+    correlation_id_var = import_module("antigravity_k.api.error_handler").correlation_id_var
+    context = project_binding.get_bound_request_execution_context()
     payload: dict[str, object] = {
         "event": event,
         "outcome": outcome,
@@ -196,13 +196,11 @@ def _check_task_db() -> tuple[ReadinessStatus, str]:
     try:
         import os
 
-        from antigravity_k.engine.task_state_store import TaskStateStore
-
         db_path = os.environ.get("AGK_TASK_DB_PATH", "data/tasks.db")
         if not os.path.exists(db_path):
             # 아직 생성 전이면 ready로 본다 — 첫 요청 시 initialize된다.
             return "ready", "task_db (not yet created)"
-        store = TaskStateStore(db_path)
+        store = import_module("antigravity_k.engine.task_state_store").TaskStateStore(db_path)
         _ = store.list_tasks(limit=1)
         return "ready", "task_db ok"
     except Exception as exc:  # noqa: BLE001 — readiness는 모든 실패를 보고해야 한다
@@ -212,9 +210,7 @@ def _check_task_db() -> tuple[ReadinessStatus, str]:
 def _check_registry() -> tuple[ReadinessStatus, str]:
     """프로젝트 레지스트리 로드 + 활성 프로젝트 존재 확인."""
     try:
-        from antigravity_k.engine.project_registry import get_project_registry
-
-        registry = get_project_registry()
+        registry = import_module("antigravity_k.engine.project_registry").get_project_registry()
         active = registry.get_active_project()
         if not active.path:
             return "degraded", "registry: no active project"
@@ -230,14 +226,11 @@ def _check_writable_storage() -> tuple[ReadinessStatus, str]:
 
     root: Path | None = None
     try:
-        from antigravity_k.api.project_binding import get_request_project_root
-        from antigravity_k.engine.project_registry import get_project_registry
-
-        bound = get_request_project_root()
+        bound = import_module("antigravity_k.api.project_binding").get_request_project_root()
         if bound:
             root = Path(bound)
         else:
-            active = get_project_registry().get_active_project()
+            active = import_module("antigravity_k.engine.project_registry").get_project_registry().get_active_project()
             if active and active.path:
                 root = Path(active.path).expanduser()
     except Exception:  # noqa: BLE001 — registry 실패 시 데이터 디렉터리로 fallback
@@ -256,9 +249,7 @@ def _check_writable_storage() -> tuple[ReadinessStatus, str]:
 def _check_model_manager() -> tuple[ReadinessStatus, str]:
     """모델 매니저가 응답 가능한 상태인지 확인 (로드된 모델 부재는 degraded)."""
     try:
-        from antigravity_k.api.dependencies import get_model_manager
-
-        manager = get_model_manager()
+        manager = import_module("antigravity_k.api.dependencies").get_model_manager()
         if manager is None:
             return "degraded", "model_manager unavailable"
         status = manager.status() if hasattr(manager, "status") else {}

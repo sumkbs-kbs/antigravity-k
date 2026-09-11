@@ -385,7 +385,7 @@ class AutonomousQAEngine:
                 # Step 1: 스크린샷
                 screenshot_bytes = await page.screenshot(full_page=True)
                 screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-                attempt.before_screenshot_hash = hashlib.md5(screenshot_bytes).hexdigest()
+                attempt.before_screenshot_hash = hashlib.md5(screenshot_bytes, usedforsecurity=False).hexdigest()
 
                 # Step 2: 비전 분석
                 defects = await self._vision_analyze(screenshot_b64)
@@ -416,7 +416,7 @@ class AutonomousQAEngine:
 
                 report.status = FixStatus.VERIFYING
                 after_bytes = await page.screenshot(full_page=True)
-                attempt.after_screenshot_hash = hashlib.md5(after_bytes).hexdigest()
+                attempt.after_screenshot_hash = hashlib.md5(after_bytes, usedforsecurity=False).hexdigest()
 
                 # Step 6: Visual Regression 비교
                 attempt.visual_diff_score = self._compare_screenshots(screenshot_bytes, after_bytes)
@@ -629,8 +629,8 @@ class AutonomousQAEngine:
             return 0.0
 
         # 바이트 해시 기반 빠른 비교
-        h1 = hashlib.md5(before).hexdigest()
-        h2 = hashlib.md5(after).hexdigest()
+        h1 = hashlib.md5(before, usedforsecurity=False).hexdigest()
+        h2 = hashlib.md5(after, usedforsecurity=False).hexdigest()
 
         if h1 == h2:
             return 0.0

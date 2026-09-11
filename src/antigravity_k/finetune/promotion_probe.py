@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from importlib import import_module
 from pathlib import Path
-from typing import ClassVar, Protocol, final
+from typing import ClassVar, Protocol, final, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,6 +36,17 @@ class RuntimeProbe(Protocol):
     def __call__(self, target: PromotionProbeTarget) -> RuntimeProbeResult: ...
 
 
+@runtime_checkable
+class MlxChatTokenizer(Protocol):
+    def apply_chat_template(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        add_generation_prompt: bool,
+        tokenize: bool,
+    ) -> str: ...
+
+
 @final
 class MlxFusedArtifactProbe:
     def __call__(self, target: PromotionProbeTarget) -> RuntimeProbeResult:
@@ -47,6 +58,8 @@ class MlxFusedArtifactProbe:
             # chat template 프롬프트 — raw completion 모드에서는 chat-tuned 모델이
             # 첫 토큰으로 EOS를 낼 수 있어 max_tokens=1이 빈 출력이 된다 (VAL-01 실측).
             tokenizer = loaded[1]
+            if not isinstance(tokenizer, MlxChatTokenizer):
+                return _failed(target, "MLX tokenizer API is incompatible.")
             prompt = tokenizer.apply_chat_template(
                 [{"role": "user", "content": "Return OK."}],
                 add_generation_prompt=True,

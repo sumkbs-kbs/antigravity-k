@@ -227,7 +227,9 @@ class AgentErrorJournal:
         if request_context:
             for k, v in request_context.items():
                 if k == "headers" and isinstance(v, Mapping):
-                    sanitized_request[k] = _sanitize_headers(v)
+                    sanitized_request[k] = _sanitize_headers(
+                        {str(header): str(value) for header, value in v.items()},
+                    )
                 else:
                     sanitized_request[k] = _sanitize_value(k, v)
 

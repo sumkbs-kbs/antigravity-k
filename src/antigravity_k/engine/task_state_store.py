@@ -140,13 +140,13 @@ class TaskStateStore:
                 _ = connection.execute("ALTER TABLE task_idempotency RENAME TO task_idempotency_legacy")
                 _ = connection.execute(
                     "CREATE TABLE task_idempotency ("
-                    + "idempotency_key TEXT NOT NULL, owner_subject TEXT NOT NULL DEFAULT 'loopback', "
-                    + "task_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, "
-                    + "PRIMARY KEY (idempotency_key, owner_subject))",
+                    "idempotency_key TEXT NOT NULL, owner_subject TEXT NOT NULL DEFAULT 'loopback', "
+                    "task_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, "
+                    "PRIMARY KEY (idempotency_key, owner_subject))",
                 )
                 _ = connection.execute(
                     "INSERT INTO task_idempotency (idempotency_key, owner_subject, task_id, created_at) "
-                    + "SELECT idempotency_key, owner_subject, task_id, created_at FROM task_idempotency_legacy",
+                    "SELECT idempotency_key, owner_subject, task_id, created_at FROM task_idempotency_legacy",
                 )
                 _ = connection.execute("DROP TABLE task_idempotency_legacy")
 
@@ -300,8 +300,8 @@ class TaskStateStore:
 
             cursor = connection.execute(
                 "UPDATE task_history SET status = ?, output = ?, error = ?, updated_at = ?, completed_at = ?, "
-                + "owner_pid = ?, version = ? "
-                + "WHERE task_id = ? AND status = ? AND version = ?",
+                "owner_pid = ?, version = ? "
+                "WHERE task_id = ? AND status = ? AND version = ?",
                 (
                     status,
                     next_output,
@@ -375,7 +375,7 @@ class TaskStateStore:
                 return False
 
             cursor = connection.execute(
-                "UPDATE task_history SET status = ?, error = NULL, updated_at = ?, completed_at = NULL, "
+                "UPDATE task_history SET status = ?, error = NULL, updated_at = ?, completed_at = NULL, "  # nosec B608
                 + "owner_pid = ?, version = ? "
                 + "WHERE task_id = ? AND status = ? AND owner_pid IS ? AND version = ?"
                 + (" AND owner_subject = ?" if owner_subject is not None else ""),

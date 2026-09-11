@@ -709,28 +709,8 @@ class NaturalLanguageBashTool(BaseTool):
 
             logger.info("AiShell translated '%s' -> `%s`", intent, command)
 
-            import os
-
-            from ..engine.provider_manager import get_provider_manager
-
-            # Now execute it
-            pm = get_provider_manager()
-            env_vars = os.environ.copy()
-            env_vars.update(pm.get_provider_env())
-
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                env=env_vars,
-            )
-            output = result.stdout
-            if result.stderr:
-                output += f"\nSTDERR:\n{result.stderr}"
-
-            return f"Executed Command: `{command}`\n\nOutput:\n{output if output else 'Success (no output).'}"
+            output = RunBashCommandTool()._run_with_sandbox(command)
+            return f"Executed Command: `{command}`\n\nOutput:\n{output}"
 
         except Exception as e:
             logger.exception("Unhandled exception")

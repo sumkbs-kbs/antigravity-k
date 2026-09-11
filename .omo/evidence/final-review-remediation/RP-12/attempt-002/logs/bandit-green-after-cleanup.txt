@@ -1,0 +1,37 @@
+[main]	INFO	profile include tests: None
+[main]	INFO	profile exclude tests: None
+[main]	INFO	cli include tests: None
+[main]	INFO	cli exclude tests: None
+[main]	INFO	running on Python 3.13.12
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/engine/audit_db.py:214
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/engine/audit_db.py:254
+[tester]	WARNING	nosec encountered (B104), but no failed test on file src/antigravity_k/engine/mcp_oauth.py:457
+[tester]	WARNING	nosec encountered (B108), but no failed test on file src/antigravity_k/engine/sandbox.py:346
+[tester]	WARNING	nosec encountered (B108), but no failed test on file src/antigravity_k/engine/sandbox.py:346
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/engine/task_state_store.py:379
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/engine/task_state_store.py:380
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/knowledge/memory_service.py:264
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/knowledge/wiki.py:281
+Working... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:04
+Run started:2026-09-11 01:09:24.382032+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 117400
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 13
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 301
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 8
+		High: 293
+Files skipped (0):
