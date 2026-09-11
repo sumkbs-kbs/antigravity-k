@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-12",
+  "attempt": 4,
+  "status": "IN_PROGRESS",
+  "owner": "zcode-remediation-agent",
+  "candidate_sha": "4b202113f254a766fdd26db30e4f65e417f77c28",
+  "candidate_checkout": "/Users/mr.k/program/coding/ssak_comp/ssak-rp12-candidate (git worktree, clean)",
+  "milestone": "FULL 20/20 GATE PASS on a single clean run — FR-06 same-SHA full-gate requirement first fully met",
+  "gate_status": {
+    "passed": 20,
+    "failed": 0,
+    "total": 20,
+    "single_shot": true,
+    "dirty": false,
+    "report": "ga-final-full.json (raw) / ga-final-trimmed.json",
+    "verifier": "PASS with --expected-sha 4b202113f254a766fdd26db30e4f65e417f77c28"
+  },
+  "fixes_this_attempt": [
+    "21635080 conftest allow-lists the session-bound active project root — hermetic (non-editable) installs resolved PROJECT_ROOT inside site-packages and rejected the bound project, failing 13 API/mlx tests on any non-main checkout",
+    "4b202113 mlx --help subprocess pinned to sys.executable — 'uv run' re-resolution picked different environments by execution context, making the flag-drift check fail only in full-suite runs"
+  ],
+  "soak": {
+    "active_run": "rp12-soak-006",
+    "pid": "52579 (/tmp/ssak-rp12-run/soak-006.pid)",
+    "started_utc": "2026-09-11T04:03:29Z",
+    "expected_end_utc": "2026-09-11T12:03:29Z",
+    "soak_sha": "70875519620052575ffc0b13d4e5853d08ecb573",
+    "same_source_justification": "diff 70875519..4b202113 touches only tests/conftest.py and tests/test_mlx_command_flags.py (pytest infrastructure); VAL-02/엔진/스테이징 코드 불변 — soak 실행 대상 소스와 동일하다. R12-14 검토자는 이 diff 근거로 판정.",
+    "workdir": "/tmp/ssak-rp12-run/work-006",
+    "output": "/tmp/ssak-rp12-run/val02-006.json",
+    "reference_run": "rp12-soak-005 (a619bc9, ends ~07:48Z) kept as same-family reference"
+  },
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": "28,800s soak in flight (ends ~12:03Z); cloud provider execution BLOCKED_EXTERNAL (no credentials); RP-06 style manual browser QA for RP-08/09 tiers still pending."
+}

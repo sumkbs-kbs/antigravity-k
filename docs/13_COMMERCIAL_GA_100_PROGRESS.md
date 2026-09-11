@@ -1131,3 +1131,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 - same-SHA 전체 gate는 20개 중 16개 통과했다. red gate는 `python-basedpyright` 44 errors, `dependency-audit-python`의 감사 인터프리터·비 PyPI 로컬 의존성 문제, `security-bandit`의 high/medium 발견, candidate 환경에서만 발생한 Python 테스트 13건이다.
 - 실행 중인 soak/candidate를 건드리지 않고 main에서 보완 작업을 분리했다. `rp12_type_gate`는 type errors, `rp12_runner_gate`는 hermetic gate 실행·Python 테스트 환경·shipping dependency audit, `rp12_security_gate`는 Bandit 발견을 담당한다. 수정이 통합되면 새 candidate SHA와 필수 gate/soak 재실행 필요 여부를 증거 기준으로 판정한다.
 - cloud provider 자격증명과 법무·개인정보 승인 artifact는 계속 `BLOCKED_EXTERNAL`이며, 이를 PASS로 추론하지 않는다.
+
+### 2026-09-11 · RP-12 red gate 4종 해소 및 최종 후보 70875519 고정
+
+- rp12_security_gate/rp12_runner_gate/rp12_type_gate 보완을 통합(ca9ccc85): bandit 발견 0(SQL 파라미터화·MD5 usedforsecurity=False·URL 스킴 허용목록·shell=True 제거·미디어 생성 소스 삽입 제거), hermetic gate 실행(`--isolated --frozen`+자식 환경 스크럽 — candidate venv 자기오염 해소), lock 기반 의존성 감사 스크립트(취약점 0).
+- basedpyright hermetic 게이트 녹색화(50eee6c2: 선택 extras import warning 강등 + 70875519: agent_tools None 가드 실제 결함 수정).
+- 최종 후보 `70875519620052575ffc0b13d4e5853d08ecb573`에서 **단일 실행 전체 게이트 19/20 green**(clean worktree). 잔여 python-tests red는 13개 테스트가 cwd 상대 전역 `data/projects.json` 레지스트리와 allowed-base에 의존하는 **테스트 격리 결함**(동일 SHA를 메인 checkout에서 실행하면 94/94·전체 5,900 passed로 재현 입증) — 테스트 격리 수정 과제로 분리, 제품 결함 아님.
+- soak 재시작: `rp12-soak-006`(PID 52579, 2026-09-11T04:03:29Z 시작, 예상 종료 12:03:29Z, SHA 70875519). a619bc9의 soak-005는 참고 증거로 자연 종료 허용.
+- 검증기 보강: required red 게이트가 있으면 승인 불가(adae06a6) — 자체 게이트 보고서 검증에서 발견·수정.
+
+### 2026-09-11 · RP-12 전체 게이트 20/20 PASS — 최종 후보 4b202113
+
+- 마지막 red였던 python-tests의 13개 실패를 **테스트 격리 결함**으로 규명·해소: ① hermetic 게이트(non-editable 설치)에서 `PROJECT_ROOT`가 site-packages를 가리켜 allowed-base가 conftest binding 프로젝트를 거부(21635080 — binding 경로를 `AGK_ALLOWED_ROOTS`에 명시), ② mlx 플래그 드리프트 검사의 `uv run` 재해석이 실행 맥락별로 다른 환경을 골라 전체 스위트에서만 실패(4b202113 — `sys.executable` 고정).
+- **최종 후보 `4b202113f254a766fdd26db30e4f65e417f77c28`에서 전체 20개 게이트 단일 실행 PASS(clean worktree, 검증기 PASS)** — FR-06의 same-SHA 전체 게이트 요건 최초 완전 충족. 원문: `RP-12/attempt-004/ga-final-full.json`.
+- soak `rp12-soak-006` 진행 중(70875519 기준 시작, 종료 예상 2026-09-11T12:03Z). 70875519→4b202113 차이는 테스트 인프라 2개 파일뿐으로 VAL-02 실행 코드 불변 — diff 근거를 attempt-004 metadata에 기록(R12-14 검토자 판정 자료).
+- 잔여: soak 완료 판정, 실 cloud provider(자격증명 필요·BLOCKED_EXTERNAL), RP-08/09 브라우저 tier 수동 QA.

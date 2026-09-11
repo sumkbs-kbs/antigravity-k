@@ -1,0 +1,593 @@
+{
+  "dependency_locks": [
+    {
+      "path": "uv.lock",
+      "sha256": "0e60ef3fa5e480387ba95b1e5d43a965c432c9f364ed61a62f46e9719f210934"
+    },
+    {
+      "path": "dashboard/pnpm-lock.yaml",
+      "sha256": "22729c76d1369b4ed5ac9fb4232f3e560a5375dfa562773976cb1967ee9278e5"
+    },
+    {
+      "path": "dashboard/package-lock.json",
+      "sha256": "34e3a0cb42357e9db406efa35a098354db88ddbf25e441d240aca06e23cc7aa0"
+    }
+  ],
+  "gates": [
+    {
+      "category": "python_backend",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "ruff",
+        "check",
+        "src/",
+        "tests/",
+        "scripts/"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.2991,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-11T04:40:18.322526+00:00",
+      "id": "python-ruff",
+      "required": true,
+      "started_at": "2026-09-11T04:40:18.023427+00:00",
+      "status": "passed",
+      "stderr": "Installed 64 packages in 59ms\n",
+      "stdout": "All checks passed!\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "python_backend",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "ruff",
+        "format",
+        "--check",
+        "src/",
+        "tests/",
+        "scripts/"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.279692,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-11T04:40:18.602701+00:00",
+      "id": "python-format",
+      "required": true,
+      "started_at": "2026-09-11T04:40:18.323027+00:00",
+      "status": "passed",
+      "stderr": "Installed 64 packages in 67ms\n",
+      "stdout": "968 files already formatted\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "python_backend",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "mypy",
+        "src/"
+      ],
+      "cwd": ".",
+      "duration_seconds": 34.892548,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-11T04:40:53.496286+00:00",
+      "id": "python-mypy",
+      "required": true,
+      "started_at": "2026-09-11T04:40:18.603452+00:00",
+      "status": "passed",
+      "stderr": "Installed 64 packages in 64ms\n",
+      "stdout": "ing --check-untyped-defs  [annotation-unchecked]\nsrc/antigravity_k/api/routes/system_api.py:262: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]\nsrc/antigravity_k/api/routes/system_api.py:282: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]\nsrc/antigravity_k/api/routes/system_api.py:285: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]\nsrc/antigravity_k/api/routes/system_api.py:350: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]\nsrc/antigravity_k/api/routes/system_api.py:351: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]\nsrc/antigravity_k/api/routes/system_api.py:355: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]\npyproject.toml: note: unused section(s): module = ['tests.*']\nSuccess: no issues found in 479 source files\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "python_backend",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "basedpyright",
+        "src/",
+        "scripts/",
+        "--level",
+        "error"
+      ],
+      "cwd": ".",
+      "duration_seconds": 9.987804,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-11T04:41:03.484815+00:00",
+      "id": "python-basedpyright",
+      "required": true,
+      "started_at": "2026-09-11T04:40:53.496942+00:00",
+      "status": "passed",
+      "stderr": "Installed 64 packages in 97ms\n",
+      "stdout": "0 errors, 0 warnings, 0 notes\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "python_backend",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "pytest",
+        "tests/",
+        "-v",
+        "--tb=short"
+      ],
+      "cwd": ".",
+      "duration_seconds": 439.730901,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-11T04:48:23.220285+00:00",
+      "id": "python-tests",
+      "required": true,
+      "started_at": "2026-09-11T04:41:03.485570+00:00",
+      "status": "passed",
+      "stderr": "Installed 64 packages in 64ms\n",
+      "stdout": "st_zero_waste_compression PASSED  [100%]\n\n=============================== warnings summary ===============================\n../../../../miniforge3/lib/python3.13/site-packages/fastapi/testclient.py:1\n  /Users/mr.k/miniforge3/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n../../../../miniforge3/lib/python3.13/site-packages/torch/jit/_script.py:365: 14 warnings\n  /Users/mr.k/miniforge3/lib/python3.13/site-packages/torch/jit/_script.py:365: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.\n    warnings.warn(\n\n../../../../miniforge3/lib/python3.13/site-packages/trl/extras/best_of_n_sampler.py:24\n  /Users/mr.k/miniforge3/lib/python3.13/site-packages/trl/extras/best_of_n_sampler.py:24: FutureWarning: `BestOfNSampler` is deprecated and will be removed in TRL 0.25.\n    class BestOfNSampler:\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========== 5901 passed, 6 skipped, 16 warnings in 436.01s (0:07:16) ===========\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "dashboard",
+      "command": [
+        "pnpm",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 2.645306,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-02"
+      ],
+      "finished_at": "2026-09-11T04:48:25.867159+00:00",
+      "id": "dashboard-install",
+      "required": true,
+      "started_at": "2026-09-11T04:48:23.221853+00:00",
+      "status": "passed",
+      "stderr": "",
+      "stdout": " reused 647, downloaded 0, added 645\nProgress: resolved 647, reused 647, downloaded 0, added 647, done\n\ndependencies:\n+ @monaco-editor/react 4.7.0\n+ @tanstack/react-query 5.102.1\n+ @types/diff 7.0.2\n+ diff 9.0.0\n+ dompurify 3.4.14\n+ ky 2.0.2\n+ monaco-editor 0.56.0\n+ react 19.2.8\n+ react-dom 19.2.8\n+ react-markdown 9.1.0\n+ react-router-dom 7.18.2\n+ rehype-highlight 7.0.2\n+ rehype-raw 7.0.0\n+ rehype-sanitize 6.0.0\n+ remark-breaks 4.0.0\n+ remark-gfm 4.0.1\n+ split.js 1.6.5\n+ xterm 5.3.0\n+ xterm-addon-fit 0.8.0\n+ zod 4.4.3\n+ zustand 5.0.15\n\ndevDependencies:\n+ @axe-core/playwright 4.13.0\n+ @eslint/js 9.39.5\n+ @playwright/test 1.62.1\n+ @stryker-mutator/core 9.6.1\n+ @stryker-mutator/vitest-runner 9.6.1\n+ @testing-library/jest-dom 6.10.0\n+ @testing-library/react 16.3.2\n+ @types/dompurify 3.2.0\n+ @types/node 24.13.3\n+ @types/react 19.2.18\n+ @types/react-dom 19.2.4\n+ @types/split.js 1.6.0\n+ @vitejs/plugin-react 4.7.0\n+ @vitest/coverage-v8 4.1.11\n+ eslint 9.39.5\n+ eslint-plugin-react-hooks 7.1.1\n+ globals 17.11.0\n+ jsdom 29.1.1\n+ react-doctor 0.9.12\n+ react-grab 0.2.0\n+ react-scan 0.5.7\n+ typescript 5.9.3\n+ typescript-eslint 8.67.0\n+ vite 6.4.3\n+ vitest 4.1.11\n\nDone in 2.6s using pnpm v11.3.0\n",
+      "task_ids": [
+        "REL-02"
+      ]
+    },
+    {
+      "category": "dashboard",
+      "command": [
+        "pnpm",
+        "run",
+        "lint"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 5.906914,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-11T04:48:31.775782+00:00",
+      "id": "dashboard-lint",
+      "required": true,
+      "started_at": "2026-09-11T04:48:25.868834+00:00",
+      "status": "passed",
+      "stderr": "$ eslint .\n",
+      "stdout": "dashboard/src/pages/StudioPage.tsx\n  154:24  warning  'setTokensPerSec' is assigned a value but never used  @typescript-eslint/no-unused-vars\n  175:10  warning  'logTail' is assigned a value but never used          @typescript-eslint/no-unused-vars\n  378:60  warning  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any\n  381:86  warning  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any\n\n/Users/mr.k/program/coding/ssak_comp/ssak-rp12-candidate/dashboard/src/stores/chatStore.ts\n  170:23  warning  'activeSessionId' is assigned a value but never used  @typescript-eslint/no-unused-vars\n  318:15  warning  'activeSession' is assigned a value but never used    @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/ssak-rp12-candidate/dashboard/src/stores/fileStore.ts\n  98:29  warning  '_epoch' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/ssak-rp12-candidate/dashboard/src/utils/__tests__/exhaustedNotification.test.ts\n  7:36  warning  'beforeEach' is defined but never used  @typescript-eslint/no-unused-vars\n\n\u2716 30 problems (0 errors, 30 warnings)\n\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "dashboard",
+      "command": [
+        "pnpm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 3.852582,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-11T04:48:35.629983+00:00",
+      "id": "dashboard-typecheck",
+      "required": true,
+      "started_at": "2026-09-11T04:48:31.777387+00:00",
+      "status": "passed",
+      "stderr": "$ tsc -b --pretty false\n",
+      "stdout": "",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "dashboard",
+      "command": [
+        "pnpm",
+        "run",
+        "test"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 12.23938,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-11T04:48:47.871101+00:00",
+      "id": "dashboard-test",
+      "required": true,
+      "started_at": "2026-09-11T04:48:35.631640+00:00",
+      "status": "passed",
+      "stderr": "esting, code that causes React state updates should be wrapped into act(...):\n\nact(() => {\n  /* fire events that update state */\n});\n/* assert on the output */\n\nThis ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act\n\n",
+      "stdout": "ace input  306ms\n     \u2713 shows replace input after search  305ms\n     \u2713 shows Replace button per match when replace text is entered  310ms\n     \u2713 shows Replace All button when replace text is entered  309ms\n     \u2713 shows matches list by default (expanded)  306ms\n     \u2713 hides matches when file header is clicked (collapse)  307ms\n     \u2713 does not show Replace All button when replaceText is empty  309ms\n     \u2713 does not show individual Replace buttons when replaceText is empty  307ms\n     \u2713 does not show per-file replace all button when replaceText is empty  306ms\n     \u2713 opens file when clicking a match line  307ms\n     \u2713 shows error toast when open fails with network error  307ms\n     \u2713 shows the backend detail when opening a match returns a non-OK response  308ms\n     \u2713 rejects an invalid file content shape when opening a match  309ms\n     \u2713 handles Escape on replace input to clear replaceText  308ms\n     \u2713 handles Shift+Tab from replace to search input  306ms\n     \u2713 opens focused match on Enter key  311ms\n\n Test Files  70 passed (70)\n      Tests  750 passed (750)\n   Start at  13:48:36\n   Duration  10.89s (transform 5.26s, setup 16.28s, import 11.65s, tests 16.33s, environment 62.69s)\n\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "dashboard",
+      "command": [
+        "pnpm",
+        "run",
+        "build"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 5.647988,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-03"
+      ],
+      "finished_at": "2026-09-11T04:48:53.527273+00:00",
+      "id": "dashboard-build",
+      "required": true,
+      "started_at": "2026-09-11T04:48:47.879313+00:00",
+      "status": "passed",
+      "stderr": "$ tsc -b && vite build\n",
+      "stdout": "59 kB\n../src/antigravity_k/dashboard_dist/assets/query--hnVxQ54.js                    28.62 kB \u2502 gzip:   8.69 kB\n../src/antigravity_k/dashboard_dist/assets/dompurify-5AjVNlXF.js                28.92 kB \u2502 gzip:  11.14 kB\n../src/antigravity_k/dashboard_dist/assets/index-BZmDpXTH.js                    35.92 kB \u2502 gzip:  12.13 kB\n../src/antigravity_k/dashboard_dist/assets/SettingsPage-CPLWnXzw.js             43.68 kB \u2502 gzip:  12.31 kB\n../src/antigravity_k/dashboard_dist/assets/AgentPage-BRFHUTNu.js                47.20 kB \u2502 gzip:  14.26 kB\n../src/antigravity_k/dashboard_dist/assets/ChatPage-BylkIq75.js                104.04 kB \u2502 gzip:  31.06 kB\n../src/antigravity_k/dashboard_dist/assets/api-client-CB4AvguO.js              123.65 kB \u2502 gzip:  34.31 kB\n../src/antigravity_k/dashboard_dist/assets/markdown-highlight-DapuynJS.js      174.34 kB \u2502 gzip:  53.01 kB\n../src/antigravity_k/dashboard_dist/assets/vendor-CxhKY1j7.js                  231.93 kB \u2502 gzip:  74.25 kB\n../src/antigravity_k/dashboard_dist/assets/terminal-DZLKAyTX.js                284.45 kB \u2502 gzip:  70.66 kB\n../src/antigravity_k/dashboard_dist/assets/markdown-core-C5P4FEw9.js           338.62 kB \u2502 gzip: 104.18 kB\n\u2713 built in 1.69s\n",
+      "task_ids": [
+        "REL-02"
+      ]
+    },
+    {
+      "category": "package",
+      "command": [
+        "uv",
+        "build",
+        "--no-sources"
+      ],
+      "cwd": ".",
+      "duration_seconds": 2.086396,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-01"
+      ],
+      "finished_at": "2026-09-11T04:48:55.615798+00:00",
+      "id": "package-build",
+      "required": true,
+      "started_at": "2026-09-11T04:48:53.529394+00:00",
+      "status": "passed",
+      "stderr": "gravity_k-0.1.0.dist-info/entry_points.txt'\nadding 'antigravity_k-0.1.0.dist-info/top_level.txt'\nadding 'antigravity_k-0.1.0.dist-info/RECORD'\nremoving build/bdist.macosx-11.0-arm64/wheel\nSuccessfully built dist/antigravity_k-0.1.0.tar.gz\nSuccessfully built dist/antigravity_k-0.1.0-py3-none-any.whl\n",
+      "stdout": "",
+      "task_ids": [
+        "REL-01"
+      ]
+    },
+    {
+      "category": "docker",
+      "command": [
+        "docker",
+        "build",
+        "--tag",
+        "antigravity-k:ga-gate",
+        "."
+      ],
+      "cwd": ".",
+      "duration_seconds": 238.744145,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-03",
+        "OPS-04"
+      ],
+      "finished_at": "2026-09-11T04:52:54.364243+00:00",
+      "id": "docker-build",
+      "required": true,
+      "started_at": "2026-09-11T04:48:55.618047+00:00",
+      "status": "passed",
+      "stderr": "exporting manifest list sha256:8a55008c26ee071e13115b858a7da88be4cce6bc2b82a0d9c17d0f2d79dbf5c6 done\n#29 naming to docker.io/library/antigravity-k:ga-gate done\n#29 unpacking to docker.io/library/antigravity-k:ga-gate\n#29 unpacking to docker.io/library/antigravity-k:ga-gate 16.6s done\n#29 DONE 99.5s\n",
+      "stdout": "",
+      "task_ids": [
+        "REL-02"
+      ]
+    },
+    {
+      "category": "supply_chain",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "python",
+        "-m",
+        "antigravity_k.engine.release_sbom",
+        "generate",
+        "--project-root",
+        ".",
+        "--release-root",
+        "src/antigravity_k/release"
+      ],
+      "cwd": ".",
+      "duration_seconds": 1.430031,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-01"
+      ],
+      "finished_at": "2026-09-11T04:52:55.801400+00:00",
+      "id": "sbom-generate",
+      "required": true,
+      "started_at": "2026-09-11T04:52:54.371365+00:00",
+      "status": "passed",
+      "stderr": "Installed 64 packages in 106ms\n",
+      "stdout": "{\"dashboard_components\": 145, \"python_components\": 61, \"release_root\": \"src/antigravity_k/release\", \"status\": \"generated\"}\n",
+      "task_ids": [
+        "REL-01"
+      ]
+    },
+    {
+      "category": "supply_chain",
+      "command": [
+        "bash",
+        "scripts/audit_python_dependencies.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 3.284421,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-05"
+      ],
+      "finished_at": "2026-09-11T04:52:59.088024+00:00",
+      "id": "dependency-audit-python",
+      "required": true,
+      "started_at": "2026-09-11T04:52:55.803588+00:00",
+      "status": "passed",
+      "stderr": "No known vulnerabilities found\n",
+      "stdout": "",
+      "task_ids": [
+        "REL-03"
+      ]
+    },
+    {
+      "category": "supply_chain",
+      "command": [
+        "pnpm",
+        "audit",
+        "--prod",
+        "--audit-level",
+        "high"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 0.447957,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-05"
+      ],
+      "finished_at": "2026-09-11T04:52:59.538407+00:00",
+      "id": "dependency-audit-dashboard",
+      "required": true,
+      "started_at": "2026-09-11T04:52:59.090463+00:00",
+      "status": "passed",
+      "stderr": "",
+      "stdout": "No known vulnerabilities found\n",
+      "task_ids": [
+        "REL-03"
+      ]
+    },
+    {
+      "category": "security",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "bandit",
+        "-r",
+        "src/antigravity_k",
+        "-ll",
+        "-x",
+        "src/antigravity_k/engine/secret_scanner.py"
+      ],
+      "cwd": ".",
+      "duration_seconds": 4.459459,
+      "exit_code": 0,
+      "finding_ids": [
+        "SEC-01",
+        "SEC-02",
+        "SEC-03"
+      ],
+      "finished_at": "2026-09-11T04:53:04.000361+00:00",
+      "id": "security-bandit",
+      "required": true,
+      "started_at": "2026-09-11T04:52:59.540875+00:00",
+      "status": "passed",
+      "stderr": " failed test on file src/antigravity_k/engine/task_state_store.py:380\n[tester]\tWARNING\tnosec encountered (B608), but no failed test on file src/antigravity_k/knowledge/memory_service.py:264\n[tester]\tWARNING\tnosec encountered (B608), but no failed test on file src/antigravity_k/knowledge/wiki.py:281\n",
+      "stdout": "Working... \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 100% 0:00:03\nRun started:2026-09-11 04:53:03.793903+00:00\n\nTest results:\n\tNo issues identified.\n\nCode scanned:\n\tTotal lines of code: 117403\n\tTotal lines skipped (#nosec): 0\n\tTotal potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 13\n\nRun metrics:\n\tTotal issues (by severity):\n\t\tUndefined: 0\n\t\tLow: 301\n\t\tMedium: 0\n\t\tHigh: 0\n\tTotal issues (by confidence):\n\t\tUndefined: 0\n\t\tLow: 0\n\t\tMedium: 8\n\t\tHigh: 293\nFiles skipped (0):\n",
+      "task_ids": [
+        "SEC-01",
+        "SEC-02",
+        "SEC-03"
+      ]
+    },
+    {
+      "category": "runtime",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "python",
+        "scripts/run_full_system_e2e_test.py"
+      ],
+      "cwd": ".",
+      "duration_seconds": 2.261386,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-11T04:53:06.263922+00:00",
+      "id": "master-e2e",
+      "required": true,
+      "started_at": "2026-09-11T04:53:04.002542+00:00",
+      "status": "passed",
+      "stderr": "Installed 64 packages in 66ms\n",
+      "stdout": "================================================================================\n\ud83d\udef8 MASTER END-TO-END SYSTEM TEST: SSAK-AI (QWEN3.8-27B)\n================================================================================\n\n[1/6] Fast-Path Layer (<5ms symbol discovery)...\n  \u2705 Fast-Path direct dispatch verified\n\n[2/6] Autonomous Flight Mission Controller...\n  \u2705 Flight autopilot completed all subgoals autonomously\n\n[3/6] Static Security & Code Verifier Gate...\n  \u2705 Zero-latency AST & security verification verified\n\n[4/6] Incremental AST & Blast Radius Call Hierarchy...\n  \u2705 Blast radius caller tracking verified\n\n[5/6] Reflexion Memory & Working Memory Compactor...\n  \u2705 Memory distillation and negative constraint injection verified\n\n[6/6] Zero-Waste Code Density Maximizer...\n  \u2705 100% pure code token density verified\n\n================================================================================\n\ud83c\udf89 MASTER SYSTEM SCORE: 6/6 (100%)\n================================================================================\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "runtime",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "pytest",
+        "tests/test_e2e_smoke.py",
+        "-q",
+        "--tb=short"
+      ],
+      "cwd": ".",
+      "duration_seconds": 18.514707,
+      "exit_code": 0,
+      "finding_ids": [
+        "CTX-01",
+        "WS-01"
+      ],
+      "finished_at": "2026-09-11T04:53:24.781293+00:00",
+      "id": "api-e2e",
+      "required": true,
+      "started_at": "2026-09-11T04:53:06.266438+00:00",
+      "status": "passed",
+      "stderr": "Installed 64 packages in 66ms\n",
+      "stdout": ".........                                                                [100%]\n9 passed in 17.88s\n",
+      "task_ids": [
+        "CTX-01",
+        "WS-01"
+      ]
+    },
+    {
+      "category": "accessibility",
+      "command": [
+        "pnpm",
+        "exec",
+        "playwright",
+        "test",
+        "e2e/tests/accessibility.spec.ts"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 10.695115,
+      "exit_code": 0,
+      "finding_ids": [
+        "UI-01",
+        "UI-02"
+      ],
+      "finished_at": "2026-09-11T04:53:35.478843+00:00",
+      "id": "accessibility-e2e",
+      "required": true,
+      "started_at": "2026-09-11T04:53:24.783657+00:00",
+      "status": "passed",
+      "stderr": "",
+      "stdout": "ta-extraction \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.1s)\n  \u2713  27 [chromium] \u203a e2e/tests/accessibility.spec.ts:115:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /git \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.0s)\n  \u2713  25 [chromium] \u203a e2e/tests/accessibility.spec.ts:115:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /skills \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.8s)\n  \u2713  28 [chromium] \u203a e2e/tests/accessibility.spec.ts:115:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /history \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.0s)\n  \u2713  29 [chromium] \u203a e2e/tests/accessibility.spec.ts:115:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /plugins \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.0s)\n  \u2713  31 [chromium] \u203a e2e/tests/accessibility.spec.ts:115:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /plugins/hello-world \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.0s)\n  \u2713  30 [chromium] \u203a e2e/tests/accessibility.spec.ts:115:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /plugins/job-operations \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.1s)\n  \u2713  32 [chromium] \u203a e2e/tests/accessibility.spec.ts:115:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /mutation \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.0s)\n\n  33 passed (10.0s)\n",
+      "task_ids": [
+        "UI-01",
+        "UI-02"
+      ]
+    },
+    {
+      "category": "runtime",
+      "command": [
+        "bash",
+        "scripts/verify_clean_machine.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 35.294024,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-01",
+        "OPS-02",
+        "OPS-03",
+        "OPS-04"
+      ],
+      "finished_at": "2026-09-11T04:54:10.775676+00:00",
+      "id": "clean-machine-runtime",
+      "required": true,
+      "started_at": "2026-09-11T04:53:35.481362+00:00",
+      "status": "passed",
+      "stderr": "",
+      "stdout": "\ub9ac: /var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T//agk-clean-TmF53p\n==============================================================\n\uc775\uc2a4\ud3ec\ud2b8 \uc644\ub8cc: 2865 \ud30c\uc77c\n\n\u25b6 uv sync (extras: dev rag mlx, locked)\n  \u2713 PASS (2s)\n\u25b6 \ud328\ud0a4\uc9c0 \uc784\ud3ec\ud2b8\n  \u2713 PASS (0s)\n\u25b6 CLI smoke (agk --help / model list)\n  \u2713 PASS (1s)\n  \u2713 PASS\n\u25b6 API E2E smoke (tests/test_e2e_smoke.py)\n  \u2713 PASS (22s)\n\u25b6 wheel \ube4c\ub4dc (\ud074\ub9b0 \ud2b8\ub9ac, setuptools \uaca9\ub9ac \ube4c\ub4dc)\n  \u2713 PASS (1s)\n  \u2192 dist/antigravity_k-0.1.0-py3-none-any.whl 2.2M\n\u25b6 \uc2e0\uaddc venv pip install (\ucf54\uc5b4 \uc758\uc874\uc131 PyPI \ud574\uc11d)\n  \u2713 PASS (7s)\n\u25b6 wheel \uc544\ud2f0\ud329\ud2b8 \uac80\uc99d (\ubc84\uc804\u00b7package-data\u00b7agk\u00b7pip check)\n  \u2713 PASS (1s)\n\n==============================================================\n \ub2e8\uacc4                           \uacb0\uacfc \uc18c\uc694(s)\n--------------------------------------------------------------\n uv sync (extras: dev rag mlx, locked) PASS   2\n \ud328\ud0a4\uc9c0 \uc784\ud3ec\ud2b8              PASS   0\n CLI smoke (agk --help / model list) PASS   1\n agk doctor (warn-only)           PASS   ?\n API E2E smoke (tests/test_e2e_smoke.py) PASS   22\n wheel \ube4c\ub4dc (\ud074\ub9b0 \ud2b8\ub9ac, setuptools \uaca9\ub9ac \ube4c\ub4dc) PASS   1\n \uc2e0\uaddc venv pip install (\ucf54\uc5b4 \uc758\uc874\uc131 PyPI \ud574\uc11d) PASS   7\n wheel \uc544\ud2f0\ud329\ud2b8 \uac80\uc99d (\ubc84\uc804\u00b7package-data\u00b7agk\u00b7pip check) PASS   1\n==============================================================\n\u2714 \ud074\ub9b0\uba38\uc2e0 \uc7ac\ud604 \uc131\uacf5 \u2014 \uc774 \ucee4\ubc0b\uc740 \uc0c8 \ud658\uacbd\uc5d0\uc11c \uc124\uce58\u00b7\uc2e4\ud589 \uac00\ub2a5\ud569\ub2c8\ub2e4\n",
+      "task_ids": [
+        "REL-01",
+        "REL-02"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-11T04:40:17.776422+00:00",
+  "git": {
+    "dirty": false,
+    "sha": "4b202113f254a766fdd26db30e4f65e417f77c28"
+  },
+  "manifest": {
+    "path": "scripts/commercial_ga_gates.json",
+    "sha256": "9a1b0e2ae4694620dbd38bfdfbad7c0ac5a778ab0e8ac49ab81ab31ea01c55a9"
+  },
+  "output_decoding": {
+    "encoding": "utf-8",
+    "errors": "backslashreplace"
+  },
+  "platform": {
+    "machine": "arm64",
+    "python_implementation": "CPython",
+    "python_version": "3.13.13",
+    "release": "25.6.0",
+    "system": "Darwin"
+  },
+  "schema_version": 1,
+  "summary": {
+    "failed": 0,
+    "passed": 20,
+    "required_failed": 0,
+    "total": 20
+  }
+}
