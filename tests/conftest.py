@@ -82,8 +82,21 @@ def _sec01_test_auth_harness() -> Iterator[None]:
     from antigravity_k.engine.project_registry import get_project_registry
 
     try:
-        active = get_project_registry().get_active_project()
+        registry = get_project_registry()
+        active = registry.get_active_project()
         bind_session_active_project("", active.id)
+        # Hermetic 게이트 환경(uv run --isolated --frozen)은 패키지를
+        # non-editable로 설치해 PROJECT_ROOT가 site-packages를 가리킨다 —
+        # allowed-base가 binding한 실제 프로젝트와 어긋해 임의 checkout에서
+        # ProjectRootInvalidError가 난다. binding 대상 경로를 명시적으로
+        # 허용해 어떤 checkout/설치 방식에서도 동일하게 동작시킨다.
+        record = registry.get_project(active.id)
+        if record is not None:
+            bound_root = str(Path(record.path).expanduser().resolve())
+            existing = os.environ.get("AGK_ALLOWED_ROOTS", "")
+            roots = [r for r in existing.split(os.pathsep) if r]
+            roots.append(bound_root)
+            os.environ["AGK_ALLOWED_ROOTS"] = os.pathsep.join(dict.fromkeys(roots))
     except Exception:
         pass  # registry 부트 실패 시에도 기존 테스트 동작은 유지
 
