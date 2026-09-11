@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 
 import pytest
 
 from antigravity_k.engine.lora_pipeline import LoRAPipeline
-from tests._cli_subprocess import python_invocation
 
 
 def _mlx_lm_missing() -> bool:
@@ -42,8 +42,12 @@ def _valid_flags(module: str) -> set[str]:
     AGK_TEST_PYTHON > uv run > sys.executable 순. CI에서 AGK_TEST_PYTHON을
     지정하면 드리프트 체크와 스모크 테스트가 같은 인터프리터를 공유한다.
     """
+    # pytestmark가 이미 현재 프로세스에서 mlx_lm 임포트를 확인하므로
+    # sys.executable에는 mlx_lm이 반드시 있다 — uv run 재해석은 실행 맥락
+    # (hermetic 게이트 등)에 따라 다른 환경을 골라 전체 스위트에서만
+    # 플래그 집합이 어긋나는 원인이 됐다. 인터프리터를 고정해 결정적으로.
     result = subprocess.run(
-        [*python_invocation(project=True), "-m", module, "--help"],
+        [sys.executable, "-m", module, "--help"],
         capture_output=True,
         text=True,
         timeout=120,
