@@ -155,7 +155,9 @@ class ConversationStore:
         self._lock = threading.RLock()
         self._records: dict[tuple[str, str], ConversationRecord] = {}
         if storage_dir is None:
-            storage_dir = os.path.join(os.path.expanduser("~"), ".antigravity", "conversations")
+            storage_dir = os.environ.get("AGK_CONVERSATION_STORE_DIR") or os.path.join(
+                os.path.expanduser("~"), ".antigravity", "conversations"
+            )
         self._storage_dir = Path(storage_dir)
         self._storage_dir.mkdir(parents=True, exist_ok=True)
         # VAL-02: 다중 프로세스 writer 간 원자성 — 프로세스 공유 flock(CTX-01 계약
@@ -633,9 +635,7 @@ def reset_conversation_store_for_tests(store: ConversationStore | None = None) -
         if store is not None:
             _store_singleton = store
         elif os.environ.get("AGK_CONVERSATION_STORE_DIR"):
-            _store_singleton = ConversationStore(
-                storage_dir=Path(os.environ["AGK_CONVERSATION_STORE_DIR"]) / "conversations"
-            )
+            _store_singleton = ConversationStore(storage_dir=Path(os.environ["AGK_CONVERSATION_STORE_DIR"]))
         else:
             _store_singleton = ConversationStore(storage_dir=tempfile.mkdtemp(prefix="agk-conv-"))
         return _store_singleton

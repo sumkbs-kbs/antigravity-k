@@ -14,7 +14,10 @@ canonical project root before the original is read, all targets are re-verified
 before the first write, and rollback restores exactly the staged preimage —
 an originally-empty file is restored as an empty file, only newly created
 files are removed, and files changed by someone else mid-transaction are
-reported as conflicts instead of being overwritten.
+reported as conflicts instead of being overwritten. Ownership is recorded
+before each write and the staged preimage is re-checked before it, so a
+half-written Nth target is restored and a target edited after staging is
+reported instead of overwritten.
 """
 
 import logging
@@ -49,6 +52,15 @@ class TransactionResult:
     error_message: str = ""
     rolled_back_count: int = 0
     conflicts: list[str] = field(default_factory=list)
+
+
+class TransactionConflictError(Exception):
+    """A staged target no longer holds its preimage when the commit starts."""
+
+    def __init__(self, file_path: str, reason: str) -> None:
+        super().__init__(f"{file_path}: {reason}")
+        self.file_path = file_path
+        self.reason = reason
 
 
 class AtomicTransactionEngine:
@@ -146,6 +158,33 @@ class AtomicTransactionEngine:
         finally:
             os.close(parent_fd)
 
+    def _assert_preimage_unchanged(self, op: FilePatchOp) -> None:
+        """Commit-time CAS: refuse to write a target that left its preimage.
+
+        A concurrent edit between staging and the first write must be reported,
+        never overwritten (R03-09). A target that is no longer decodable is
+        treated the same way instead of aborting the transaction mid-write.
+        """
+        try:
+            exists, current, _ = self._read_content(op.target_path)
+        except UnicodeDecodeError as exc:
+            raise TransactionConflictError(op.file_path, "target is no longer valid UTF-8") from exc
+        if exists == op.original_existed and (not exists or current == op.original_content):
+            return
+        raise TransactionConflictError(op.file_path, "target changed after staging")
+
+    def _restore_preimage(self, op: FilePatchOp) -> None:
+        """Restore one owned target to its staged preimage."""
+        if op.original_existed:
+            self._write_content(op.target_path, op.original_content)
+            if op.original_mode is not None:
+                self._restore_mode(op.target_path, op.original_mode)
+            return
+        try:
+            self._remove_new_file(op.target_path)
+        except FileNotFoundError:
+            pass
+
     def _restore_mode(self, relative_path: str, mode: int) -> None:
         parent_fd, leaf = self._open_parent(relative_path, create=False)
         try:
@@ -229,12 +268,18 @@ class AtomicTransactionEngine:
                 )
             targets.append(target)
 
-        # Step 2: Apply changes to disk
+        # Step 2: Apply changes to disk. Ownership of a target is recorded
+        # BEFORE its write: an Nth write that truncates the target and then
+        # fails must still be restored from the staged preimage (R03-08).
         written: list[tuple[FilePatchOp, Path]] = []
+        in_flight_index: int | None = None
         try:
-            for op, full_p in zip(self._active_ops, targets):
-                self._write_content(op.target_path, op.new_content)
+            for index, (op, full_p) in enumerate(zip(self._active_ops, targets)):
+                self._assert_preimage_unchanged(op)
                 written.append((op, full_p))
+                in_flight_index = index
+                self._write_content(op.target_path, op.new_content)
+                in_flight_index = None
 
             # Transaction successful
             committed_files = [op.file_path for op in self._active_ops]
@@ -242,9 +287,26 @@ class AtomicTransactionEngine:
             self._created_directories.clear()
             return TransactionResult(committed=True, touched_files=committed_files)
 
+        except TransactionConflictError as conflict:
+            # Step 3a: Abort before writing the target that changed externally.
+            rolled, preserved = self._rollback_written(written)
+            self._cleanup_created_directories()
+            self._active_ops.clear()
+            message = f"Transaction aborted: `{conflict.file_path}` {conflict.reason}; no write was attempted on it"
+            if preserved:
+                message += f"; conflicting external changes preserved on: {', '.join(preserved)}"
+            return TransactionResult(
+                committed=False,
+                touched_files=[],
+                error_message=message,
+                rolled_back_count=rolled,
+                conflicts=[conflict.file_path, *preserved],
+            )
+
         except OSError as ex:
-            # Step 3: Rollback on any I/O or filesystem error.
-            rolled, conflicts = self._rollback_written(written)
+            # Step 3b: Rollback on any I/O or filesystem error, including the
+            # target whose own write failed midway.
+            rolled, conflicts = self._rollback_written(written, in_flight=in_flight_index)
             self._cleanup_created_directories()
             self._active_ops.clear()
             message = f"Transaction rolled back due to error: {ex}"
@@ -258,30 +320,55 @@ class AtomicTransactionEngine:
                 conflicts=conflicts,
             )
 
-    def _rollback_written(self, written: list[tuple[FilePatchOp, Path]]) -> tuple[int, list[str]]:
-        """Restore staged preimages; report — never overwrite — foreign edits."""
+    def _rollback_written(
+        self,
+        written: list[tuple[FilePatchOp, Path]],
+        in_flight: int | None = None,
+    ) -> tuple[int, list[str]]:
+        """Restore staged preimages; report — never overwrite — foreign edits.
+
+        ``in_flight`` is the index of the operation whose write raised. That
+        target may hold a truncated copy of the staged content; because the
+        preimage was verified immediately before the write, such bytes are
+        ours to restore. Any other target that no longer matches its preimage
+        is preserved and reported as a conflict.
+        """
         rolled = 0
         conflicts: list[str] = []
-        for op, full_p in reversed(written):
+        for position, (op, full_p) in enumerate(reversed(written)):
+            index = len(written) - 1 - position
+            is_in_flight = index == in_flight
             try:
-                if op.original_existed:
-                    exists, current_content, _ = self._read_content(op.target_path)
-                    if not exists or current_content != op.new_content:
+                try:
+                    exists, current, _ = self._read_content(op.target_path)
+                except (OSError, UnicodeDecodeError) as read_exc:
+                    if not is_in_flight:
+                        logger.error("rollback cannot re-read %s: %s", op.file_path, read_exc)
+                        conflicts.append(op.file_path)
+                        continue
+                    # The preimage was verified before this write, so an
+                    # unreadable target holds our own partial bytes.
+                    self._restore_preimage(op)
+                    rolled += 1
+                    continue
+
+                if is_in_flight:
+                    if exists == op.original_existed and (not exists or current == op.original_content):
+                        continue  # 쓰기가 landing하지 않아 preimage가 그대로다
+                    if not (exists and op.new_content.startswith(current)):
+                        conflicts.append(op.file_path)
+                        continue
+                elif op.original_existed:
+                    if not exists or current != op.new_content:
                         # Someone else rewrote the file after our write: keep
                         # their version and surface the conflict.
                         conflicts.append(op.file_path)
                         continue
-                    # Restore content — including originally-empty files.
-                    self._write_content(op.target_path, op.original_content)
-                    if op.original_mode is not None:
-                        self._restore_mode(op.target_path, op.original_mode)
-                else:
-                    exists, current_content, _ = self._read_content(op.target_path)
-                    if exists and current_content != op.new_content:
-                        conflicts.append(op.file_path)
-                        continue
-                    if exists:
-                        self._remove_new_file(op.target_path)
+                elif exists and current != op.new_content:
+                    conflicts.append(op.file_path)
+                    continue
+
+                self._restore_preimage(op)
                 rolled += 1
             except OSError as restore_exc:
                 logger.error("rollback restore failed for %s: %s", full_p, restore_exc)

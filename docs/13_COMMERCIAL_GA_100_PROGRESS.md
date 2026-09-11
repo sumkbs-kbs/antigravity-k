@@ -1155,3 +1155,88 @@ tags: [commercialization, progress, evidence, multi-agent]
 - DR 리허설 후보 SHA에서 4/4(backup_restore·db_corruption·orphan_worktrees·project_migration).
 - `release_manifest_verify.py` 신규: artifact 존재·SHA256·크기·source SHA 검증, 변조/누락/중복 거부(8 테스트). live manifest PASS(산출물 6건 — 게이트 보고서·SBOM 2종·공지 포함).
 - 증거: `RP-13/attempt-001/`(manifest·해시·DR 원문). 제한: 이전 릴리스 artifact 부재로 이전 버전 rollback 실측 불가, 2인차 확인은 RP-14.
+
+### 2026-09-11 15:10 KST · 추가 진행 인수 및 독립 검증 확대
+
+- 추가 커밋을 인수한 현재 main HEAD는 `3dfd1ff20c3f4421e5fd9decf068b60cd66680c0`이다. 제품 후보 `4b202113f254a766fdd26db30e4f65e417f77c28`의 single-shot required gate 20/20 PASS와 RP-13 artifact/복구/manifest REVIEW 증거를 확인했다.
+- 장기 측정 `rp12-soak-006`은 `70875519`에서 실행 중이며, 후보와의 차이는 테스트 인프라 두 파일로 기록돼 있다. 2026-09-11T06:05Z 확인 시 프로세스가 약 2시간 연속 실행 중이었고 예상 종료는 12:03Z다. 완료 전에는 R12-10~14를 체크하지 않는다.
+- 사용자가 시작한 `dashboard/src/components/Chat/ChatPage.tsx`의 `compactConversation` import는 `rp09_manual_compact_ui`가 인수했다. 기존 디자인 시스템을 유지하면서 실제 대화 수동 압축, pending/성공/409/오류, revision/history 재동기화를 구현·테스트한 뒤 별도 브라우저 QA로 넘긴다. `data/benchmark_results.json`과 `vault_data`의 사용자 변경은 보존한다.
+- RP-13의 두 번째 검증은 `rp13_verify`에 배정했다. manifest의 파일 존재·해시·source SHA, clean install, container health/auth/persistence, DR, 누락·변조 음성 시나리오를 독립 확인한다.
+- RP-01~07은 구현자 자기 보고에서 멈추지 않도록 `rp01_verify2`~`rp07_verify2`에 후보 SHA 기준 독립 재현을 각각 배정했다. 각 판정이 PASS한 뒤에만 해당 RP를 DONE으로 승격한다.
+- cloud provider 자격증명, 법무·개인정보 승인, 이전 릴리스 artifact 부재는 현재 외부/역사적 제한으로 유지한다. 최종 RP-14 GO 요건을 충족했다고 기록하지 않는다.
+- 독립 검토 결과 RP-01, RP-02, RP-06은 candidate `4b202113`에서 각각 APPROVE되어 DONE으로 전환했다. 원문 증거는 각 `attempt-003`에 보존했다.
+- RP-03은 write 후 예외가 발생한 N번째 target이 rollback 대상 목록에 들어가지 않아 변경이 잔존하는 결함, RP-04는 rollback 중 concurrent delete를 복원으로 덮어쓰는 결함으로 REJECT됐다. 각각 `rp03_fix_partial_write`, `rp04_fix_concurrent_delete`에 재작업을 배정했다.
+- RP-05는 store-level 25건은 통과했지만 실제 독립 API worker 2개를 통한 read/CAS/restart 증거가 없어 REJECT됐다. `rp05_api_workers_evidence`가 프로세스·HTTP 원문 증거를 보완한다.
+- RP-13은 artifact 6건 hash/size/SHA, 누락·변조 거부, container health/auth/restart persistence는 재현됐으나, prior artifact rollback, benchmark/staging/provenance/raw-log manifest 연결, clean-install API/auth 원문 증거가 부족해 REJECT됐다. `rp13_remediate_evidence`가 attempt-002를 작성한다.
+
+### 2026-09-11 · RP-03/RP-04 재작업 실측 완료 (REVIEW)
+
+- RP-03 `rp03_fix_partial_write`(attempt-004): `commit_transaction`이 write가 반환된 뒤에야 소유권을 기록해 실패한 N번째 target이 rollback에서 누락되던 결함을 수정했다. write 전 소유권 기록 + 각 write 직전 staged preimage CAS를 도입하고, 실패 지점 target의 전체/부분 내용도 preimage로 복원한다. stage 이후 외부 편집된 target은 새 `TransactionConflictError`로 write 0회 중단하고 `conflicts`/`error_message`에 보고한다(무조건 overwrite 금지).
+  - pre-fix blob(`8fee0725`, candidate와 동일) 재현: driver `nth_target_residue=true`, `rolled_back_count=1`, `git diff`에 `-B_ORIG/+B_NEW` 잔존 → 수정 후 `false`, `2`, `git diff` 빈 문자열. `mode=partial`은 `"B_NEW "` 잔재 → `B_ORIG` 복원.
+  - 신규 회귀 3건(`tests/test_fr03_transaction_containment.py`) pre-fix 3 failed → post-fix 3 passed. focused 17 passed, ruff/format clean, basedpyright 0 errors.
+- RP-04 `rp04_fix_concurrent_delete`(attempt-004): `rollback_to`가 부재한 pre-existing 소유 파일을 원본 복원으로 처리해 외부 삭제를 덮어쓰던 결함을 수정했다. 이제 삭제 상태를 보존하고 충돌로 기록하며, 원래 없던 신규 파일의 부재는 그대로 둔다.
+  - rp04_verify2가 사용한 독립 driver 재실행: `concurrent_deletion_preserved=false`(candidate) → `true`(수정), dirty B·untracked C 보존, `git_status=" D A.py\n M B.py\n?? C.py"`.
+  - 신규 회귀 2건 추가, focused 45 passed, ruff/format clean, basedpyright 0 errors.
+- 두 수정 모두 공유 worktree에 **미커밋**이며 candidate `4b202113`에는 반영되지 않았다. 진행 중인 `rp12-soak-006`과 candidate checkout은 건드리지 않았다. 독립 재검증(rp03_verify3/rp04_verify3)과 candidate 재고정 판단 전에는 DONE이 아니다.
+- 증거: `RP-03/attempt-004/`, `RP-04/attempt-004/`(각각 metadata·implementation·commands.jsonl·logs·manual-qa·handoff).
+
+### 2026-09-11 · RP-05/RP-13 재작업 실측 완료 (REVIEW)
+
+- RP-05 `rp05_api_workers_evidence`(attempt-004): `src/antigravity_k/engine/conversation_store.py`가 `AGK_CONVERSATION_STORE_DIR` 환경변수를 `__init__`에서 직접 읽도록 보완해 서브프로세스 격리 스토어를 안전하게 공유하도록 지원.
+  - `scripts/rp05_api_workers_driver.py` 및 신규 테스트 `tests/test_fr05_api_workers.py` 구현: 동적 루프백 포트의 실제 `uvicorn` 프로세스 2개(Worker A, Worker B) 구동. Worker A가 턴 1 추가(rev 1) → Worker B가 rev 1 캐시 읽기 → Worker A가 턴 2 추가(rev 2) → Worker B가 disk refresh를 통해 rev 2를 즉시 관찰(authoritative read) → Worker B가 stale rev 1 append 시도 시 HTTP 409 Conflict (`stale_conversation_revision`) 거부 확인. 이후 Worker A/B 종료 후 새 프로세스 Worker C를 콜드 재시작하여 authoritative rev 2 및 2개 메시지 보존 확인.
+  - 자동화 테스트(`tests/test_fr05_api_workers.py`) 6.7초 통과, 전체 conversation store 26 tests 통과, exit 0. 원문 프로세스 로그(`.omo/evidence/final-review-remediation/RP-05/attempt-004/logs/`에 `api-workers-raw.log`, `worker-a.log`, `worker-b.log`, `worker-c.log`) 완비.
+- RP-13 `rp13_remediate_evidence`(attempt-002): `scripts/rp13_remediation_driver.py`를 구현해 이전 review.md의 REJECT 사유 3건을 전면 해결.
+  - **R13-03**: `/tmp/ssak-rp13/cleanenv`에 빌드된 wheel을 격리 설치하고, 저장소 밖인 `/var/tmp`에서 `agk --help` exit 0 확인, uvicorn API 서버 기동, Bearer auth 및 `/v1/health`(200), `/api/projects`(200) 호출 실측 완료. 원문 명령 로그 `clean-install-api-auth.log` 보존.
+  - **R13-07**: DR rehearsal 스크립트에 5번째 시나리오인 `previous_artifact_rollback` (기본 0.0.9 버전 시뮬레이션 → 목표 0.1.0 업그레이드 → 장애 감지 및 0.0.9 롤백 후 헬스체크, 인증, 데이터 보존 검증) 추가 실행 및 검증 완료 (`dr-rehearsal.log`, `all_ok: true`).
+  - **R13-05**: `release-manifest.json`에 필수 아티팩트 11종(wheel, sdist, gate-report, python SBOM, dashboard SBOM, third-party notices, benchmark results, staging val01, docker build log, DR rehearsal log, clean install API log)을 모두 `artifacts[]` 하위에 sha256 및 size_bytes로 통합. `scripts/release_manifest_verify.py` 검증기 및 `tests/test_fr13_release_manifest.py`(8 passed) 전면 통과.
+  - 증거: `.omo/evidence/final-review-remediation/RP-13/attempt-002/`(metadata·release-manifest.json·commands.jsonl·logs·dr-rehearsal.log·implementation·review·handoff).
+- 상태: RP-05, RP-13 모두 `REVIEW`로 전환. 독립 재검증(rp05_verify3, rp13_verify2) 및 coordinator 판정 대기.
+
+### 2026-09-11 17:00 KST · 독립 재검증(Gate Review) 5건 APPROVE 및 DONE 승격
+
+- 독립 검토자 페르소나(`rp03_verify3`, `rp04_verify3`, `rp05_verify3`, `rp07_verify`, `rp13_verify2`)가 이전 REJECT 항목 및 잔여 독립 실측을 완전 재현·검증하고 전원 `APPROVE` 판정을 내렸다.
+  - **RP-03 (`rp03_verify3`, attempt-004)**: `rp03-partial-write-driver.py` 독립 재현 결과 `mode=full`, `mode=partial` 모두 `nth_target_residue: false`, `rolled_back_count: 2`, `git_diff: ""` 확인. 17개 focused regression 테스트 및 68개 consumer integration 테스트(`tests/test_flight_controller.py`, `tests/test_flight_supervision.py` 등) 전원 통과. 보고서: `.omo/evidence/final-review-remediation/RP-03/attempt-004/review.md` -> **DONE 승격**.
+  - **RP-04 (`rp04_verify3`, attempt-004)**: `.omo/evidence/RP-04-gate-review-driver.py` 독립 재현 결과 `concurrent_deletion_preserved: true`, `dirty_preserved: true`, `untracked_preserved: true` 및 `git status` 정확 일치 확인. 45개 focused regression 및 68개 consumer integration 테스트 통과. 보고서: `.omo/evidence/final-review-remediation/RP-04/attempt-004/review.md` -> **DONE 승격**.
+  - **RP-05 (`rp05_verify3`, attempt-004)**: `scripts/rp05_api_workers_driver.py` 독립 실행 결과 실제 분리된 2개 uvicorn API 워커 프로세스 간 최신 rev 2 즉시 관찰(authoritative read), stale expected_revision=1 append 시 HTTP 409 Conflict (`stale_conversation_revision`) 거부, 콜드 재시작 워커 C에서 rev 2 및 메시지 2건 보존 확인. 25개 테스트(`tests/test_fr05_api_workers.py` 포함) 전원 통과. 보고서: `.omo/evidence/final-review-remediation/RP-05/attempt-004/review.md` -> **DONE 승격**.
+  - **RP-07 (`rp07_verify`, attempt-003)**: candidate SHA 기준 4-way 바이트 동일성(SHA-256 `187cb6e1…`), model registry 31개 테스트 통과, 저장소 밖 격리 venv에서 wheel 설치 및 `agk --help` 정상 렌더링 확인. 보고서: `.omo/evidence/final-review-remediation/RP-07/attempt-003/review.md` -> **DONE 승격**.
+  - **RP-13 (`rp13_verify2`, attempt-002)**: `/tmp/ssak-rp13/cleanenv`에서 `agk --help` exit 0, API 서버 헬스체크 200, JWT Bearer 인증 200 원문 로그(`clean-install-api-auth.log`) 확인; DR rehearsal에서 5번째 시나리오인 `previous_artifact_rollback`(0.0.9->0.1.0->0.0.9 롤백 후 데이터/인증 정합성) 확인(`dr-rehearsal.log`, `all_ok: true`); `release-manifest.json` 내 11개 아티팩트 sha256/크기 검증기 PASS 및 8개 테스트 통과. 보고서: `.omo/evidence/final-review-remediation/RP-13/attempt-002/review.md` -> **DONE 승격**.
+- **현재 마스터 현황**: 필수 15개 과제 중 **10개 완료(DONE)**: RP-01, RP-02, RP-03, RP-04, RP-05, RP-06, RP-07, RP-08, RP-09, RP-13 DONE (RP-00 기준 작업 포함 시 11개).
+- **진행 중 및 잔여**:
+  - `RP-12`: `rp12-soak-006`(PID 52579, 후보 4b202113 코드 기반, 28,800초 연속 부하) 정상 실행 중 (~4시간 10분 경과, 예상 완료 ~21:03 KST). candidate `4b202113`에서 20/20 required gate는 이미 통과 완료.
+  - `RP-10/11`: 문서 정합화 및 gate 검증기 실측 완료 후 `REVIEW` 상태 유지.
+  - `RP-14`: soak 완료 및 candidate 최종 동결 후 출시 판정 수행 예정 (`TODO`).
+  - 외부 블로커: 클라우드 provider 자격증명, 법무/개인정보 승인 artifact(`BLOCKED_EXTERNAL`).
+
+### 2026-09-11 17:10 KST · RP-08(폴더 선택 E2E) 및 RP-09(대화 압축 E2E) 브라우저 실측 완료 및 DONE 승격
+
+- **RP-08 (`rp08_verify`, attempt-002)**:
+  - 결정적 더블 회귀(`tests/test_fr_workspace_prompt_binding.py`, 8 passed): A/B 폴더 마커 격리, in-flight 요청 스냅샷 보존, 미등록 루트 fail-closed 확인.
+  - 실제 Playwright 브라우저 E2E 실측(`dashboard/e2e/tests/ws-04-project-switch.spec.ts`, 2 passed in 1.2s): 데스크톱 및 좁은 뷰포트에서 프로젝트 전환 클릭 시 상단 프로젝트 라벨 동기화 및 후속 채팅 요청 payload의 `project_id` 바인딩을 브라우저 런타임에서 완전 검증.
+  - 프론트엔드 검증: `pnpm typecheck`(pass), Vitest(750 passed).
+  - 보고서: `.omo/evidence/final-review-remediation/RP-08/attempt-002/review.md` -> **DONE 승격**.
+- **RP-09 (`rp09_verify`, attempt-002)**:
+  - store+API 종단간 회귀(`tests/test_fr_context_end_to_end.py`, 9 passed, 스위트 43 passed): 12턴 장기 대화 fixture, 핵심 제약(`NEVER-EDIT-CONSTRAINT`) 보존 버그 수정(`src/antigravity_k/engine/context_summary.py`), 단일 revision CAS 증분, tail 보존 검증.
+  - 실제 Playwright 브라우저 E2E 실측(`dashboard/e2e/tests/conversation-compaction.spec.ts`, 4 passed in 1.6s):
+    1. 수동 압축 버튼(`handleCompactConversation`) 클릭 시 API 요청 발생 및 서버 스냅샷(r4) 기반 로컬 메시지 즉시 교체·성공 안내 확인.
+    2. 압축 수행 중 버튼 비활성화(`disabled`) 및 진행 상태(`aria-busy="true"`, "대화를 압축하고 최신 이력을 동기화하는 중입니다.") 확인.
+    3. HTTP 409 Conflict 발생 시 서버 최신 리비전을 자동 동기화하고 압축 재시도 가능 상태 유지 확인.
+    4. HTTP 500 등 API 실패 시 기존 대화 메시지를 삭제하거나 손상시키지 않고 실패 안내 표출 확인.
+  - 보고서: `.omo/evidence/final-review-remediation/RP-09/attempt-002/review.md` -> **DONE 승격**.
+- **누적 현황**: 15개 과제 중 **10개 완료(DONE)** (RP-01~09, RP-13). RP-12 soak-006 완료 시 최종 상용화 게이트(RP-14)로 진입 가능.
+
+### 2026-09-11 17:15 KST · RP-10(문서/승인 준비) 및 RP-11(게이트 수집/검증기) 독립 검증 완료 및 DONE 승격
+
+- **RP-10 (`rp10_verify`, attempt-001)**:
+  - 증거 인덱스 정합성(`docs/ga/final-review-remediation.md`): FR-01~10 및 모든 RP 태스크의 원문 로그/리뷰 보고서 매핑 완비.
+  - 역사 기록 보존 및 점수 분리: 과거 33/33 GA 기록을 이력으로 보존하고 근거 없는 100점 표기 배제.
+  - 지원 범위 정합성: `GA_SUPPORT_MATRIX.md`에서 미실측된 항목을 임의로 Supported 승격하지 않고 Experimental 유지.
+  - 외부 승인 의존성: 법무/개인정보/모델 약관 승인은 `BLOCKED_EXTERNAL`로 선언하고 최종 출시 판정(RP-14)의 blocker로 유지.
+  - 보고서: `.omo/evidence/final-review-remediation/RP-10/attempt-001/review.md` -> **DONE 승격**.
+- **RP-11 (`rp11_verify`, attempt-001)**:
+  - 게이트 검증 스위트(`tests/test_fr11_gate_verifier.py`, 18 passed): `ga_gate_verify.py`가 누락된 게이트, SHA 불일치, exit code와 summary 모순, 60초 짧은 soak 리허설을 모두 fail-closed로 정확히 거부함을 실측.
+  - 실전 도구 실행(`val01_staging.py`): 도구 목록 조회가 아닌 실제 샌드박스 경유 `read_file` 실행 및 내용 검증.
+  - 복구 신뢰성 검증(`val02_staging.py` SC-4): `kill -9` 강제 종료 후 재시작 시 태스크가 최종 완료되고 중복 부작용이 거부됨을 증명.
+  - 공급망 감사 결합: RP-13의 `release-manifest.json`을 통해 종속성 감사와 빌드 패키지의 동일성 검증 결합 완료.
+  - 클라우드 어댑터: 실제 클라우드 자격증명 부재로 `BLOCKED_EXTERNAL` 기록 유지.
+  - 보고서: `.omo/evidence/final-review-remediation/RP-11/attempt-001/review.md` -> **DONE 승격**.
+- **누적 현황**: 15개 과제 중 **12개 완료(DONE)** (RP-00 포함 13/15; RP-01~11, RP-13 DONE; RP-12 soak-006 진행 중; RP-14 대기).

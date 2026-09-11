@@ -273,12 +273,10 @@ class RSISandbox:
                     continue
                 if not path.exists():
                     # ours 쓰기 후 누군가 파일을 삭제한 경우: 원본이 있었다면
-                    # 복원하고, 없었다면(신규 파일) 삭제 상태를 유지한다.
+                    # 외부 삭제를 보존하고 충돌로 기록한다. 원래 없었던 신규
+                    # 파일은 rollback의 목표 상태도 부재이므로 그대로 둔다.
                     if pre.existed:
-                        path.write_bytes(pre.content)
-                        if pre.mode is not None:
-                            path.chmod(pre.mode)
-                        restored += 1
+                        conflicts.append(pre.path)
                     continue
                 current = path.read_bytes()
                 if current != pre.last_owned_write:

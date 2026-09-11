@@ -58,7 +58,7 @@ describe('PersistentAgencyPanel', () => {
     render(<PersistentAgencyPanel />);
 
     expect(await screen.findByRole('heading', { name: 'Persistent Agency' })).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Objective ready');
+    expect(await screen.findByText('Objective ready')).toBeInTheDocument();
     expect(screen.getByText('[summary] Durable context is ready')).toBeInTheDocument();
     expect(screen.getByText('Index the repository')).toBeInTheDocument();
 

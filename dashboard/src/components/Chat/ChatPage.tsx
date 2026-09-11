@@ -24,6 +24,7 @@ import { useFileStore } from '../../stores/fileStore';
 import {
   streamChatCompletion,
   ConversationRevisionConflictError,
+  compactConversation,
   fetchConversationHistory,
   fetchModels,
   fetchLocalModels,
@@ -105,6 +106,8 @@ export const ChatPage: React.FC = () => {
 
   const [streamError, setStreamError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState<number>(0);
+  const [isCompactingConversation, setIsCompactingConversation] = useState<boolean>(false);
+  const [compactionStatus, setCompactionStatus] = useState<string | null>(null);
 
   const [workspaceContext, setWorkspaceContext] = useState({
     project_name: 'Ssak-Ai',
@@ -737,6 +740,89 @@ export const ChatPage: React.FC = () => {
     addToast('생성이 중단되었습니다.', 'info');
   }, [setStreaming, addToast, stopElapsedTimer]);
 
+  const handleCompactConversation = useCallback(async () => {
+    const chat = useChatStore.getState();
+    const conversationId = chat.activeSessionId;
+    const projectId = useProjectStore.getState().activeProjectId;
+    if (!conversationId || !projectId) {
+      const message = '압축할 대화 또는 프로젝트를 찾을 수 없습니다.';
+      setCompactionStatus(message);
+      addToast(message, 'error');
+      return;
+    }
+
+    const requestEpoch = useProjectStore.getState().switchEpoch;
+    setIsCompactingConversation(true);
+    setCompactionStatus('대화를 압축하고 최신 이력을 동기화하는 중입니다.');
+    addToast('대화를 압축하는 중입니다.', 'info');
+    try {
+      const snapshot = await compactConversation({
+        conversation_id: conversationId,
+        expected_revision: chat.conversationRevision ?? 0,
+        project_id: projectId,
+      });
+      if (!isIdentityCurrent(requestEpoch)) return;
+      applyServerSnapshot({
+        conversation_id: snapshot.conversation_id,
+        revision: snapshot.revision,
+        summary: snapshot.summary,
+        retained_message_ids: snapshot.retained_message_ids,
+      });
+      const history = await fetchConversationHistory(conversationId, projectId);
+      if (!isIdentityCurrent(requestEpoch)) return;
+      applyServerSnapshot({
+        conversation_id: history.snapshot.conversation_id,
+        revision: history.snapshot.revision,
+        summary: history.snapshot.summary,
+        retained_message_ids: history.snapshot.retained_message_ids,
+        messages: history.messages.map((message) => ({
+          id: message.id,
+          role: message.role === 'tool' ? 'system' : message.role,
+          content: message.content,
+        })),
+      });
+      const message = `대화를 압축했습니다. 서버 r${history.snapshot.revision}의 최신 이력을 반영했습니다.`;
+      setCompactionStatus(message);
+      addToast(message, 'success');
+    } catch (error: unknown) {
+      if (!isIdentityCurrent(requestEpoch)) return;
+      if (error instanceof ConversationRevisionConflictError) {
+        try {
+          const history = await fetchConversationHistory(conversationId, projectId);
+          if (!isIdentityCurrent(requestEpoch)) return;
+          applyServerSnapshot({
+            conversation_id: history.snapshot.conversation_id,
+            revision: history.snapshot.revision,
+            summary: history.snapshot.summary,
+            retained_message_ids: history.snapshot.retained_message_ids,
+            messages: history.messages.map((message) => ({
+              id: message.id,
+              role: message.role === 'tool' ? 'system' : message.role,
+              content: message.content,
+            })),
+          });
+          const message = `대화 리비전이 충돌했습니다. 서버 r${history.snapshot.revision}의 최신 이력을 반영했습니다. 다시 시도해 주세요.`;
+          setCompactionStatus(message);
+          addToast(message, 'info');
+        } catch (refreshError: unknown) {
+          const detail = refreshError instanceof Error ? refreshError.message : '최신 이력을 불러오지 못했습니다.';
+          const message = `대화 리비전이 충돌했습니다 (서버 r${error.payload.current_revision}). ${detail}`;
+          setCompactionStatus(message);
+          addToast(message, 'error');
+        }
+      } else {
+        const detail = error instanceof Error ? error.message : '알 수 없는 오류';
+        const message = `대화 압축에 실패했습니다: ${detail}`;
+        setCompactionStatus(message);
+        addToast(message, 'error');
+      }
+    } finally {
+      if (isIdentityCurrent(requestEpoch)) {
+        setIsCompactingConversation(false);
+      }
+    }
+  }, [addToast, applyServerSnapshot]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -1235,6 +1321,18 @@ export const ChatPage: React.FC = () => {
           <div className="agk-topbar-actions">
             <button
               type="button"
+              className={`topbar-tool-btn ${isCompactingConversation ? 'active' : ''}`}
+              aria-label={`대화 압축: ${sessionTitle}`}
+              aria-describedby="conversation-compaction-status"
+              aria-busy={isCompactingConversation}
+              title={isCompactingConversation ? '대화 압축 및 동기화 중' : '현재 대화 압축'}
+              disabled={isCompactingConversation || isStreaming || !activeSessionId || !activeProjectId}
+              onClick={() => void handleCompactConversation()}
+            >
+              {isCompactingConversation ? '…' : '⌗'}
+            </button>
+            <button
+              type="button"
               className="topbar-tool-btn"
               aria-label="명령 팔레트 열기 (Cmd+K)"
               title="명령 팔레트 (Cmd+K)"
@@ -1380,6 +1478,9 @@ export const ChatPage: React.FC = () => {
       {/* Screen-reader hint for pending review count */}
       <span className="visually-hidden" aria-live="polite">
         {pendingChangeCount > 0 ? `검토 대기 변경 ${pendingChangeCount}건` : ''}
+      </span>
+      <span id="conversation-compaction-status" className="visually-hidden" role="status">
+        {compactionStatus ?? ''}
       </span>
     </div>
   );

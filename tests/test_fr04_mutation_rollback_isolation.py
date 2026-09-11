@@ -13,6 +13,7 @@ a user-dirty B, and a new untracked C. The mutation owns only A.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 
@@ -96,6 +97,35 @@ def test_foreign_edit_to_owned_file_preserved_as_conflict(repo: Path, sandbox: R
             raise RuntimeError("fail")
 
     assert (repo / "A.py").read_text(encoding="utf-8") == "A = 'foreign-edit'\n"
+
+
+def test_foreign_deletion_of_preexisting_owned_file_is_preserved_as_conflict(
+    repo: Path, sandbox: RSISandbox, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="antigravity_k.rsi_sandbox"):
+        with pytest.raises(RuntimeError):
+            with sandbox.safe_mutation("own_delete_conflict"):
+                sandbox.write_owned(repo / "A.py", "A = 'mutated'\n")
+                (repo / "A.py").unlink()
+                raise RuntimeError("fail")
+
+    assert not (repo / "A.py").exists()
+    assert any(record.levelno == logging.WARNING for record in caplog.records)
+
+
+def test_foreign_write_to_new_owned_file_is_preserved_as_conflict(
+    repo: Path, sandbox: RSISandbox, caplog: pytest.LogCaptureFixture
+) -> None:
+    new_file = repo / "prompt_draft.md"
+    with caplog.at_level(logging.WARNING, logger="antigravity_k.rsi_sandbox"):
+        with pytest.raises(RuntimeError):
+            with sandbox.safe_mutation("own_new_conflict"):
+                sandbox.write_owned(new_file, "draft\n")
+                new_file.write_text("foreign-draft\n", encoding="utf-8")
+                raise RuntimeError("fail")
+
+    assert new_file.read_text(encoding="utf-8") == "foreign-draft\n"
+    assert any(record.levelno == logging.WARNING for record in caplog.records)
 
 
 def test_unowned_foreign_change_never_rolled_back(repo: Path, sandbox: RSISandbox) -> None:

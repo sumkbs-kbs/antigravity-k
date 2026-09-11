@@ -206,6 +206,71 @@ class TestRollbackFidelity:
         assert (root / "existing.py").read_text(encoding="utf-8") == "FOREIGN EDIT\n"
         assert not (root / "newfile.py").exists()
 
+    def test_nth_target_partial_write_then_fail_is_restored(self, root: Path) -> None:
+        """R03-08: a target that was truncated/part-written and then raised."""
+        second = root / "second.py"
+        second.write_text("SECOND_ORIG\n", encoding="utf-8")
+        engine = AtomicTransactionEngine(root)
+        engine.stage_file_patch("existing.py", "CHANGED = 1\n")
+        engine.stage_file_patch("second.py", "SECOND_NEW = 1\n")
+
+        real_write = engine._write_content
+        injected = False
+
+        def partial_then_fail(relative_path: str, content: str) -> None:
+            nonlocal injected
+            if relative_path == "second.py" and not injected:
+                injected = True
+                real_write(relative_path, content[:6])  # truncate, then part-write
+                raise OSError("injected after-write failure")
+            real_write(relative_path, content)
+
+        with patch.object(engine, "_write_content", partial_then_fail):
+            res = engine.commit_transaction()
+
+        assert res.committed is False
+        assert res.conflicts == []
+        assert res.rolled_back_count == 2
+        assert (root / "existing.py").read_text(encoding="utf-8") == "ORIG\n"
+        assert second.read_text(encoding="utf-8") == "SECOND_ORIG\n"
+        assert (root / "unrelated.py").read_text(encoding="utf-8") == "UNTOUCHED\n"
+
+    def test_nth_target_full_write_then_fail_leaves_no_residue(self, root: Path) -> None:
+        """R03-08: the write lands, then the target raises — no residue remains."""
+        engine = AtomicTransactionEngine(root)
+        engine.stage_file_patch("existing.py", "CHANGED = 1\n")
+        engine.stage_file_patch("newfile.py", "CREATED = 1\n")
+
+        real_write = engine._write_content
+
+        def write_then_fail(relative_path: str, content: str) -> None:
+            real_write(relative_path, content)
+            if relative_path == "newfile.py":
+                raise OSError("injected after-write failure")
+
+        with patch.object(engine, "_write_content", write_then_fail):
+            res = engine.commit_transaction()
+
+        assert res.committed is False
+        assert res.rolled_back_count == 2
+        assert (root / "existing.py").read_text(encoding="utf-8") == "ORIG\n"
+        assert not (root / "newfile.py").exists()
+
+    def test_foreign_edit_after_staging_aborts_before_write(self, root: Path) -> None:
+        """R03-09: a target edited between stage and commit is never overwritten."""
+        engine = AtomicTransactionEngine(root)
+        engine.stage_file_patch("existing.py", "CHANGED = 1\n")
+        engine.stage_file_patch("newfile.py", "CREATED = 1\n")
+
+        (root / "existing.py").write_text("FOREIGN EDIT\n", encoding="utf-8")
+        res = engine.commit_transaction()
+
+        assert res.committed is False
+        assert res.conflicts == ["existing.py"]
+        assert "existing.py" in res.error_message
+        assert (root / "existing.py").read_text(encoding="utf-8") == "FOREIGN EDIT\n"
+        assert not (root / "newfile.py").exists()
+
     def test_mode_preserved_on_rollback(self, root: Path) -> None:
         engine = AtomicTransactionEngine(root)
         target = root / "existing.py"

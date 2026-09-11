@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 최종 검토 후 상세 개선 개발계획서
-status: executing (RP-00 DONE, RP-01..07 REVIEW — 구현·실측 완료·독립 검토 이연, RP-08 이후 미착수)
+status: executing (RP-00/01/02/03/04/05/06/07/08/09/13 DONE; RP-10/11 REVIEW; RP-12 soak-006 진행; RP-14 TODO)
 date: 2026-09-10
 reviewed_sha: 8794aaecabf5664a7ee560b104e0115d915aabb7
 source_review: docs/qa/2026-09-10/FINAL_REVIEW.md

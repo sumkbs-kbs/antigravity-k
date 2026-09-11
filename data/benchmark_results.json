@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-09T14:45:38.290234+00:00",
+  "updated_at": "2026-09-11T03:19:33.268586+00:00",
   "total_results": 15,
   "results": [
     {
@@ -354,7 +354,7 @@
       "verified_output": ""
     }
   ],
-  "total_task_results": 654,
+  "total_task_results": 656,
   "task_results": [
     {
       "case_id": "task_e087b31f",
@@ -10184,6 +10184,36 @@
       "used_tools": [],
       "retry_count": 0,
       "latency_ms": 207.80383294913918,
+      "tokens_in": 62,
+      "tokens_out": 31,
+      "cost_usd": 0.0,
+      "error": "",
+      "calibration_eligible": false
+    },
+    {
+      "case_id": "task_ee01d812",
+      "target": "orchestrator-swarm",
+      "success": true,
+      "completion_reason": "done",
+      "expected_tools": [],
+      "used_tools": [],
+      "retry_count": 0,
+      "latency_ms": 179.27595786750317,
+      "tokens_in": 9,
+      "tokens_out": 31,
+      "cost_usd": 0.0,
+      "error": "",
+      "calibration_eligible": false
+    },
+    {
+      "case_id": "task_63ed2905",
+      "target": "orchestrator-swarm",
+      "success": true,
+      "completion_reason": "done",
+      "expected_tools": [],
+      "used_tools": [],
+      "retry_count": 0,
+      "latency_ms": 256.55487505719066,
       "tokens_in": 62,
       "tokens_out": 31,
       "cost_usd": 0.0,
