@@ -96,6 +96,16 @@ def verify_gate_report(report: dict[str, Any], manifest: dict[str, Any], expecte
             "summary",
             f"required_failed mismatch: reported {summary.get('required_failed')}, actual {actual_required_failed}",
         )
+    # A structurally valid report can still be a red report: any failed
+    # required gate must fail verification (FR-06/R11-04 — no green approval
+    # on a red run).
+    red_required = [
+        g.get("id", "<missing-id>")
+        for g in gates_field
+        if isinstance(g, dict) and g.get("required") and g.get("status") != "passed"
+    ]
+    if red_required:
+        _fail(problems, "required_red", f"required gates failed: {', '.join(red_required)}")
 
     return problems
 

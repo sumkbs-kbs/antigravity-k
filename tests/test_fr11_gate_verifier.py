@@ -158,6 +158,12 @@ class TestGateReportVerification:
         report = _report([_gate("python-ruff"), _gate("python-tests")])
         assert verifier.verify_gate_report(report, manifest, None) == []
 
+    def test_failed_required_gate_fails_verification(self, verifier: ModuleType, manifest: dict) -> None:
+        # Structurally valid but red report must NOT verify green (R11-04).
+        report = _report([_gate("python-ruff"), _gate("python-tests", status="failed", exit_code=1)])
+        problems = verifier.verify_gate_report(report, manifest, None)
+        assert any("required gates failed" in p and "python-tests" in p for p in problems)
+
 
 class TestSoakArtifactVerification:
     def _soak(self, *, duration: float = 29_000.0, all_pass: bool = True) -> dict:
