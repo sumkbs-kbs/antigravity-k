@@ -38,6 +38,11 @@ from antigravity_k.engine.task_context_snapshot import (
     restored_task_context_messages,
     save_task_context_snapshot,
 )
+from antigravity_k.engine.task_process_ownership import (
+    execution_owner_of,
+    owner_pid_for_raw_status,
+    resumable_task,
+)
 from antigravity_k.engine.task_process_supervisor import task_process_supervisor
 from antigravity_k.engine.task_state_store import (
     TaskStateStore,
@@ -46,6 +51,7 @@ from antigravity_k.engine.task_state_types import (
     CancellationVerdict,
     InvalidTaskStatusError,
     InvalidTaskTransitionError,
+    TaskRecord,
     TaskStatusName,
     TaskTransitionConflictError,
     parse_task_status,
@@ -258,6 +264,9 @@ class BackgroundTask:
         self.vault_writes: set[str] = set()
 
     def to_dict(self) -> TaskInfo:
+        # F-36: 이 태스크는 **이 프로세스가** 실행 중이다 — 소유 사실을 말한다. `resumable` 은
+        # 행동(`resume_task`)이 이 행에 대해 성공할 것인가이며, 여기서는 **아니다**: 실행 중인
+        # 태스크를 재개할 수는 없다(`can_prepare_resume` 이 이 프로세스의 pid 를 거부한다).
         return {
             "task_id": self.task_id,
             "prompt": (self.prompt[:100] + "..." if len(self.prompt) > 100 else self.prompt),
@@ -268,6 +277,8 @@ class BackgroundTask:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "checkpoint_count": len(self.checkpoints),
+            "execution_owner": execution_owner_of(self.status, owner_pid_for_raw_status(self.status)),
+            "resumable": resumable_task(self.status, owner_pid_for_raw_status(self.status), bool(self.checkpoints)),
         }
 
     def join(self, timeout: float | None = None) -> None:
@@ -960,18 +971,32 @@ class BackgroundTaskRunner:
 
         record = self.state_store.get_task(task_id, owner_subject=owner_subject)
         if record:
-            return {
-                "task_id": record["task_id"],
-                "prompt": record["prompt"][:100],
-                "status": record["status"],
-                "output_length": len(record["output"]),
-                "error": record["error"],
-                "created_at": record["created_at"],
-                "updated_at": record["updated_at"],
-                "completed_at": record["completed_at"],
-                "version": record["version"],
-            }
+            return self._record_info(record, has_checkpoint=self.get_last_checkpoint(task_id) is not None)
         return None
+
+    @staticmethod
+    def _record_info(record: TaskRecord, *, has_checkpoint: bool) -> TaskInfo:
+        """DB 행 → 보고용 정보. **파생 필드가 생기는 자리**(F-36).
+
+        `status` 는 저장된 값을 **그대로** 말한다(정책을 바꾸지 않는다 — 재시작이 고아 행을
+        자동으로 끝내면 재개 가능성이 사라진다). 대신 `execution_owner` 와 `resumable` 이
+        "그 상태가 지금 사실인가, 복구할 수 있는가"를 말한다. 둘 다 **저장하지 않는다**.
+        """
+        raw_status = str(record["status"])
+        owner_pid_value = record.get("owner_pid")
+        return {
+            "task_id": record["task_id"],
+            "prompt": record["prompt"][:100],
+            "status": record["status"],
+            "output_length": len(record["output"]),
+            "error": record["error"],
+            "created_at": record["created_at"],
+            "updated_at": record["updated_at"],
+            "completed_at": record["completed_at"],
+            "version": record["version"],
+            "execution_owner": execution_owner_of(raw_status, owner_pid_value),
+            "resumable": resumable_task(raw_status, owner_pid_value, has_checkpoint),
+        }
 
     def list_tasks(self, limit: int = 20, owner_subject: str | None = None) -> list[TaskInfo]:
         """최근 태스크 목록을 반환합니다."""
@@ -986,19 +1011,18 @@ class BackgroundTaskRunner:
 
         # DB의 히스토리 (활성 태스크와 중복 제거)
         active_ids = {str(r["task_id"]) for r in results}
-        for record in self.state_store.list_tasks(limit, owner_subject=owner_subject):
-            if record["task_id"] not in active_ids:
-                results.append(
-                    {
-                        "task_id": record["task_id"],
-                        "prompt": record["prompt"][:100],
-                        "status": record["status"],
-                        "error": record["error"],
-                        "created_at": record["created_at"],
-                        "updated_at": record["updated_at"],
-                        "version": record["version"],
-                    },
-                )
+        records = [
+            record
+            for record in self.state_store.list_tasks(limit, owner_subject=owner_subject)
+            if record["task_id"] not in active_ids
+        ]
+        # 체크포인트 유무는 **한 번의 질의**로 모은다(행마다 질의하면 목록 하나가 N번 질의한다).
+        with_checkpoints = self.state_store.last_checkpoint_steps([str(record["task_id"]) for record in records])
+        for record in records:
+            info = self._record_info(record, has_checkpoint=str(record["task_id"]) in with_checkpoints)
+            info.pop("output_length", None)
+            info.pop("completed_at", None)
+            results.append(info)
 
         return sorted(results, key=lambda x: str(x.get("created_at", "")), reverse=True)[:limit]
 

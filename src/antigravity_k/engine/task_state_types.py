@@ -43,6 +43,8 @@ class TaskRecord(TypedDict):
     updated_at: str
     completed_at: str | None
     version: int
+    # F-36: 보고 표면이 "누가 이 행을 실행 중인가"를 말할 수 있도록 조회 결과에 싣는다.
+    owner_pid: int | None
 
 
 class CheckpointRecord(TypedDict):

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 
 import type { TaskId, TaskSummary } from './taskExecutionSchema';
+import { canCancelTask, canResumeTask, taskStateLabel } from './taskLifecycleActions';
 
 export type PendingTaskAction =
   | Readonly<{ kind: 'submit' }>
@@ -71,6 +72,7 @@ export function TaskQueuePanel({
       <ul className="task-queue-list">
         {tasks.map((task) => {
           const title = taskTitle(task);
+          const stateLabel = taskStateLabel(task);
           const isPending = pendingAction !== null
             && 'taskId' in pendingAction
             && pendingAction.taskId === task.task_id;
@@ -80,18 +82,18 @@ export function TaskQueuePanel({
                 className="task-queue-select"
                 type="button"
                 onClick={() => onSelectTask(task.task_id)}
-                aria-label={`${title}, 상태 ${task.status}`}
+                aria-label={`${title}, 상태 ${stateLabel}`}
               >
                 <strong>{title}</strong>
-                <span>{task.status}</span>
+                <span>{stateLabel}</span>
               </button>
               <div className="task-queue-actions">
-                {(task.status === 'pending' || task.status === 'running' || task.status === 'resuming') && (
+                {canCancelTask(task) && (
                   <button type="button" disabled={isPending} onClick={() => onCancel(task.task_id)} aria-label={`${title} 취소`}>
                     취소
                   </button>
                 )}
-                {(task.status === 'failed' || task.status === 'paused' || task.status === 'cancelled') && (
+                {canResumeTask(task) && (
                   <button type="button" disabled={isPending} onClick={() => onResume(task.task_id)} aria-label={`${title} 재개`}>
                     재개
                   </button>

@@ -37,6 +37,15 @@ export const TaskEventsResponseSchema = z.object({
   has_more: z.boolean(),
 }).readonly();
 
+/**
+ * 소유 사실 — F-36: `running` 행의 **실행 주인이 지금 살아 있는가**.
+ *
+ * `live` 는 그 프로세스가 실행 중이라는 뜻이고, `dead` 는 크래시·재시작으로 주인이 사라졌다는
+ * 뜻이다(행은 여전히 `running` 이다 — 저장된 상태는 정책이라 바꾸지 않는다). 서버가 보내지
+ * 않으면 `undefined` 이며, 그때는 예전 상태 규칙으로 되돌아간다(`taskLifecycleActions`).
+ */
+export const ExecutionOwnerSchema = z.enum(['live', 'dead', 'none']);
+
 export const TaskSummarySchema = z.object({
   task_id: TaskIdSchema,
   prompt: z.string(),
@@ -46,6 +55,8 @@ export const TaskSummarySchema = z.object({
   created_at: z.string().min(1),
   updated_at: z.string().min(1),
   completed_at: z.string().nullable().optional().default(null),
+  execution_owner: ExecutionOwnerSchema.optional(),
+  resumable: z.boolean().optional(),
 }).readonly();
 
 export const TaskListResponseSchema = z.object({

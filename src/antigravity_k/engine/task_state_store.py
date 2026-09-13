@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -195,20 +195,22 @@ class TaskStateStore:
         return task_id
 
     def get_task(self, task_id: str, owner_subject: str | None = None) -> TaskRecord | None:
+        # F-36: `owner_pid` 도 읽는다 — 보고 표면이 "이 행을 누가 실행 중인가"를 말하려면
+        # 그 값이 조회 결과에 있어야 한다(저장 구조에는 처음부터 있었다).
         with self._connection() as connection:
             if owner_subject is None:
                 row = _fetchone(
                     connection.execute(
-                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version "
-                        + "FROM task_history WHERE task_id = ?",
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version, "
+                        + "owner_pid FROM task_history WHERE task_id = ?",
                         (task_id,),
                     )
                 )
             else:
                 row = _fetchone(
                     connection.execute(
-                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version "
-                        + "FROM task_history WHERE task_id = ? AND owner_subject = ?",
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version, "
+                        + "owner_pid FROM task_history WHERE task_id = ? AND owner_subject = ?",
                         (task_id, owner_subject),
                     )
                 )
@@ -457,24 +459,47 @@ class TaskStateStore:
         return "cancelled" if cursor.rowcount == 1 else "not_active"
 
     def list_tasks(self, limit: int, owner_subject: str | None = None) -> list[TaskRecord]:
+        # F-36: 목록도 `owner_pid` 를 읽는다 — 화면의 복구 제안(재개 버튼)은 **목록**의 행을 보고
+        # 그려지므로, 목록이 소유 사실을 말하지 않으면 그 자리가 조용해진다.
         with self._connection() as connection:
             if owner_subject is None:
                 rows = _fetchall(
                     connection.execute(
-                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version "
-                        + "FROM task_history ORDER BY created_at DESC LIMIT ?",
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version, "
+                        + "owner_pid FROM task_history ORDER BY created_at DESC LIMIT ?",
                         (limit,),
                     )
                 )
             else:
                 rows = _fetchall(
                     connection.execute(
-                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version "
-                        + "FROM task_history WHERE owner_subject = ? ORDER BY created_at DESC LIMIT ?",
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at, version, "
+                        + "owner_pid FROM task_history WHERE owner_subject = ? ORDER BY created_at DESC LIMIT ?",
                         (owner_subject, limit),
                     )
                 )
         return [self._row_to_task(row) for row in rows]
+
+    def last_checkpoint_steps(self, task_ids: Sequence[str]) -> dict[str, int]:
+        """여러 태스크의 **마지막 체크포인트 단계**를 한 번에 읽는다 — 복구 가능성의 재료다.
+
+        F-36: 표면이 "재개할 수 있는가"를 말하려면 체크포인트 유무가 필요한데, 행마다
+        `get_last_checkpoint` 를 부르면 목록 하나에 N번 질의한다. 한 문장으로 묶는다.
+        없는 태스크는 결과에 **없다**(0 단계 체크포인트와 "체크포인트 없음"은 다른 사실이다).
+        """
+        ordered = [task_id for task_id in dict.fromkeys(task_ids) if task_id]
+        if not ordered:
+            return {}
+        placeholders = ", ".join("?" for _ in ordered)
+        with self._connection() as connection:
+            rows = _fetchall(
+                connection.execute(
+                    "SELECT task_id, MAX(step) AS last_step FROM task_checkpoints "  # nosec B608
+                    + f"WHERE task_id IN ({placeholders}) GROUP BY task_id",
+                    tuple(ordered),
+                )
+            )
+        return {str(_row_value(row, "task_id")): int(cast(int, _row_value(row, "last_step"))) for row in rows}
 
     def save_checkpoint(self, task_id: str, step: int, context_json: str, output: str) -> None:
         with self._connection() as connection:
@@ -537,6 +562,7 @@ class TaskStateStore:
 
     def _row_to_task(self, row: sqlite3.Row) -> TaskRecord:
         version_raw = _row_value(row, "version") if "version" in row.keys() else 0
+        owner_pid_raw = _row_value(row, "owner_pid") if "owner_pid" in row.keys() else None
         return {
             "task_id": str(_row_value(row, "task_id")),
             "prompt": str(_row_value(row, "prompt")),
@@ -547,4 +573,5 @@ class TaskStateStore:
             "updated_at": str(_row_value(row, "updated_at") or _row_value(row, "created_at")),
             "completed_at": cast(str | None, _row_value(row, "completed_at")),
             "version": int(cast(int, version_raw or 0)),
+            "owner_pid": None if owner_pid_raw is None else int(cast(int, owner_pid_raw)),
         }
