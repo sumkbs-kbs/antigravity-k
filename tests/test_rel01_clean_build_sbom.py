@@ -17,6 +17,7 @@ exit code 계약을 독립 재현한다.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -100,11 +101,18 @@ class TestWorkflowOrder:
         assert gen_pos < build_pos < verify_pos
 
     def test_publish_is_gated_behind_build_job(self) -> None:
-        """AC-4: publish-pypi는 build job 성공에 의존한다 — 검증 실패 시 중단."""
+        """AC-4: publish-pypi는 build job 성공에 의존한다 — 검증 실패 시 중단.
+
+        요구는 "build 가 선행 조건이다"이지 `needs: build` 라는 **문자열**이 아니다. CR-14 R-11 이
+        `ga-close` 를 같은 자리에 추가했을 때 이 계약이 문자열 결합 때문에 먼저 깨졌다 — 목록을
+        **파싱**해 `build` 의 포함 여부를 본다(다른 선행 조건이 늘어도 의도는 그대로 지킨다).
+        """
         rel = _workflow("release.yml")
         publish_idx = rel.index("publish-pypi:")
         needs_block = rel[publish_idx : publish_idx + 200]
-        assert "needs: build" in needs_block
+        needs_line = next(line for line in needs_block.splitlines() if line.strip().startswith("needs:"))
+        declared = {item.strip() for item in re.sub(r"[\[\]]", "", needs_line.split(":", 1)[1]).split(",")}
+        assert "build" in declared, f"publish-pypi 가 build job 에 의존하지 않는다: {needs_line.strip()!r}"
         # build job 내부에 verify 단계가 실패 시 job이 실패한다 (continue-on-error 없음)
         build_block = rel[:publish_idx]
         verify_step = build_block[build_block.index("release_sbom verify") :]
