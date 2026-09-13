@@ -11,7 +11,10 @@
   C12-04 승인 누락/담당자/요청 범위 → BLOCKED_EXTERNAL이 정의되고, Pending 행마다
          붙어 있다.
   C12-05 과거 RP와 새 CR 상태 분리 → README가 RP 이력과 CR 현재 상태를 구분하고,
-         대상 문서의 상대 링크가 실재 파일·앵커를 가리킨다.
+         대상 문서의 상대 링크가 실재 파일·앵커를 가리킨다. 값의 소유자는 README 가
+         **실재하는 링크로** 가리키며(이름만 적는 것은 가리킴이 아니다 — F-29),
+         체크리스트의 **현재 상태 줄**은 커밋된 후보와 승인 없음을 말한다(과거 attempt 의
+         "미커밋" 기록을 현재로 읽히게 하지 않는다 — F-29).
 
 링크 검사기는 음성 입력(없는 파일/없는 앵커)을 거부하는지도 함께 시험한다 — 통과만
 하는 검사기는 계약이 아니다.
@@ -113,6 +116,18 @@ def _anchors(markdown: str) -> set[str]:
     return {_slug(m.group(1)) for m in re.finditer(r"^#{1,6}\s+(.*)$", markdown, re.M)}
 
 
+_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+
+def _link_targets(markdown: str) -> list[str]:
+    """markdown 링크 대상 — **링크 문법의 유일한 자리**다.
+
+    `_broken_links` 와 값 소유자 검사가 둘 다 이 함수를 쓴다: 링크 문법을 두 곳에 적으면
+    한쪽만 고쳐져 검사가 갈라진다(F-18·F-24·F-27·F-28 과 같은 병).
+    """
+    return [match.group(1).strip() for match in _LINK_RE.finditer(markdown)]
+
+
 def _broken_links(root: Path, relative: str) -> list[str]:
     """문서의 상대 markdown 링크 중 파일/앵커가 없는 것(저장소 상대 경로 인용 포함)."""
     path = root / relative
@@ -121,8 +136,7 @@ def _broken_links(root: Path, relative: str) -> list[str]:
     text = path.read_text(encoding="utf-8")
 
     broken: list[str] = []
-    for match in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", text):
-        target = match.group(1).strip()
+    for target in _link_targets(text):
         if target.startswith(("http://", "https://", "mailto:")):
             continue
         path_part, _, anchor = target.partition("#")
@@ -304,9 +318,11 @@ def test_approval_is_not_inferred_from_configuration() -> None:
 
 
 README_VALUE_OWNER = "CR14_FINAL_CANDIDATE_VERDICT.md"
+# 체크리스트의 **현재 상태 줄** — 과거 attempt 기록과 구분되는 자리.
+CURRENT_STATUS_PREFIX = "**현재:"
 
 
-def readme_value_owner_violations(text: str) -> list[str]:
+def readme_value_owner_violations(text: str, *, repo_root: Path | None = None) -> list[str]:
     """README 가 현재 값을 **소유한 문서**를 가리키지 않으면 보고한다(F-22, 빈 목록 = 통과).
 
     CR-14 attempt-009 는 이 자리에 "README 가 후보 SHA(`\b[0-9a-f]{7,40}\b`)를 담을 것"을
@@ -322,8 +338,50 @@ def readme_value_owner_violations(text: str) -> list[str]:
 
     그래서 검사 대상이 '값'에서 '값의 출처'로 옮겨졌다 — 느슨해진 것이 아니라 README 가
     지킬 수 있는 주장만 하도록 좁힌 것이고, 그 출처 포인터 자체를 아래에서 강제한다.
+
+    **R-5 재확인에서 고친 것(F-29)** — 그 포인터 강제가 처음에는 **토큰**을 보았다:
+    `README_VALUE_OWNER in text`, 즉 "README 가 그 **이름**을 어딘가에 담고 있는가". 요구는
+    "README 가 그 문서를 **가리킨다**"인데 확인은 "이름이 있다"였다 — 산문에 이름만 적거나
+    링크를 **다른 문서**로 바꿔도 통과한다(F-28 과 같은 병: 의도가 아니라 표기를 본다).
+    이제 **실재하는 링크**를 요구한다: 링크 대상의 파일명이 소유자이고, 그 대상이 저장소에
+    실제로 있다(`repo_root` 는 이빨이 임시 트리를 쓸 수 있게 하는 인자다).
     """
-    return [] if README_VALUE_OWNER in text else ["README 가 값을 소유한 판정서를 가리키지 않는다"]
+    root = REPO_ROOT if repo_root is None else repo_root
+    owner_targets = [
+        target for target in _link_targets(text) if Path(target.partition("#")[0]).name == README_VALUE_OWNER
+    ]
+    if not owner_targets:
+        return [
+            f"README 가 값을 소유한 판정서(`{README_VALUE_OWNER}`)를 **링크로** 가리키지 않는다"
+            " — 맨이름·산문 언급은 '가리킴'이 아니다"
+        ]
+    unresolved = [target for target in owner_targets if not (root / target.partition("#")[0]).is_file()]
+    if unresolved:
+        return [f"README 의 값 소유자 링크가 실재 파일을 가리키지 않는다: {unresolved}"]
+    return []
+
+
+def current_status_violations(text: str) -> list[str]:
+    """체크리스트의 **현재 상태 줄**이 커밋된 후보·승인 없음을 말하고 미커밋으로 읽히지 않는가(F-29).
+
+    attempt-001 의 계약은 `"미커밋" in checklist` 를 요구했다 — 그때는 참이었지만 후보가
+    커밋된(attempt-009) 뒤로는 **과거 attempt 의 기록 행**이 그 문자열을 계속 공급해 검사가
+    무의미해졌고, 메시지는 거짓을 말하게 됐다("코드가 미커밋이라는 사실이 체크리스트에 없다").
+    요구를 **현재를 말하는 한 줄**로 좁힌다: 과거 행의 "미커밋" 은 기록이므로 그대로 두고,
+    현재 상태가 그것을 현재로 읽히게 하면 실패한다.
+    """
+    lines = [line for line in text.splitlines() if line.startswith(CURRENT_STATUS_PREFIX)]
+    if not lines:
+        return [f"체크리스트에 현재 상태 줄이 없다(`{CURRENT_STATUS_PREFIX}` 로 시작하는 줄)"]
+    line = lines[0]
+    violations: list[str] = []
+    if "커밋" not in line:
+        violations.append("현재 상태가 후보가 **커밋된** 상태임을 밝히지 않는다")
+    if "승인" not in line or "없음" not in line:
+        violations.append("현재 상태가 **GA 승인 없음**을 밝히지 않는다")
+    if re.search(r"미커밋(?!\s*(?:아님|없))", line):
+        violations.append("현재 상태가 코드를 **미커밋**으로 말한다 — 그 표현은 과거 attempt 기록의 것이다")
+    return violations
 
 
 def test_readme_separates_rp_history_from_current_cr_state() -> None:
@@ -360,12 +418,62 @@ def test_readme_value_owner_pointer_is_enforced() -> None:
     )
 
 
+def test_readme_value_owner_pointer_must_be_a_resolving_link(tmp_path: Path) -> None:
+    """이름만 적는 것은 가리킴이 아니다(F-29) — ① 산문 ② 다른 문서 ③ 없는 파일 순으로 심는다.
+
+    R-5 재확인 전의 계약은 `README_VALUE_OWNER in text` 였다: README 의 **산문**에 그 이름이
+    한 번이라도 있으면 통과했고, 링크가 **다른 문서**를 가리켜도 통과했다. 요구("값을 소유한
+    문서를 가리킨다")와 확인("그 이름이 있다")이 갈라져 있었다 — F-28 과 같은 병이다.
+    """
+    owner_rel = f"docs/ga/{README_VALUE_OWNER}"
+    (tmp_path / "docs" / "ga").mkdir(parents=True)
+    (tmp_path / owner_rel).write_text("# 판정\n", encoding="utf-8")
+
+    assert readme_value_owner_violations(f"판정서는 {README_VALUE_OWNER} 이다\n", repo_root=tmp_path), (
+        "이빨 없음 — 링크가 아니라 산문으로 이름만 담아도 통과했다"
+    )
+    assert readme_value_owner_violations("[판정서](docs/10_FINAL_READINESS_REPORT.md)\n", repo_root=tmp_path), (
+        "이빨 없음 — 다른 문서를 가리켜도 통과했다"
+    )
+    assert readme_value_owner_violations(f"[판정서]({owner_rel})\n", repo_root=tmp_path) == [], (
+        "기준선 — 실재하는 소유자 링크가 통과하지 않았다"
+    )
+
+    (tmp_path / owner_rel).unlink()
+    assert readme_value_owner_violations(f"[판정서]({owner_rel})\n", repo_root=tmp_path), (
+        "이빨 없음 — 없는 파일을 가리키는 링크를 통과시켰다"
+    )
+
+
 def test_current_cr_status_is_not_reported_as_done() -> None:
-    """CR 카드의 실행 기록은 code SHA와 독립 review SHA를 구분해 남긴다."""
+    """현재 상태 표기는 커밋된 후보를 말하고, 과거 attempt 의 '미커밋' 을 현재로 읽히게 하지 않는다."""
     checklist = _read("docs/17_COMMERCIAL_RELIABILITY_CHECKLIST.md")
 
     assert re.search(r"code SHA / 독립 review SHA", checklist), "SHA 기록 형식이 사라졌다"
-    assert "미커밋" in checklist, "코드가 미커밋이라는 사실이 체크리스트에 없다"
+    assert not current_status_violations(checklist), " / ".join(current_status_violations(checklist))
+
+
+def test_current_status_must_state_committed_and_not_uncommitted() -> None:
+    """이빨 — 현재 상태 줄에 "미커밋" 을 심으면 실패하고, 커밋된 상태를 빼도 실패해야 한다."""
+    checklist = _read("docs/17_COMMERCIAL_RELIABILITY_CHECKLIST.md")
+    assert not current_status_violations(checklist), "기준선이 이미 위반이다"
+
+    lines = checklist.splitlines()
+    index = next(i for i, line in enumerate(lines) if line.startswith(CURRENT_STATUS_PREFIX))
+
+    uncommitted = list(lines)
+    uncommitted[index] = lines[index].replace(CURRENT_STATUS_PREFIX, f"{CURRENT_STATUS_PREFIX} 코드는 미커밋이다.", 1)
+    assert current_status_violations("\n".join(uncommitted)), "이빨 없음 — 현재 상태가 미커밋이라고 말해도 통과했다"
+
+    silent = list(lines)
+    silent[index] = f"{CURRENT_STATUS_PREFIX} CR-01 ~ CR-14 REVIEW / GA 승인 없음."
+    violations = current_status_violations("\n".join(silent))
+    assert any("커밋된" in violation for violation in violations), f"이빨 없음: {violations}"
+
+    no_approval = list(lines)
+    no_approval[index] = f"{CURRENT_STATUS_PREFIX} 코드 후보 커밋 동결. 최종 판정 NO-GO."
+    violations = current_status_violations("\n".join(no_approval))
+    assert any("승인" in violation for violation in violations), f"이빨 없음: {violations}"
 
 
 @pytest.mark.parametrize("relative", LINK_CHECK_TARGETS)
