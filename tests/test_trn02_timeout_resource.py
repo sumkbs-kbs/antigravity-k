@@ -412,3 +412,243 @@ def _app() -> Any:
     from antigravity_k.api.server import app
 
     return app
+
+
+class TestTerminalRecordOwnership:
+    """F-16 — 종결 기록은 **먼저 확정한 쪽**이 소유하고, 이후 쓰기가 덮지 않는다.
+
+    attempt-011(F-15)은 "취소가 `completed` 로 분류된다"는 **분류 규칙**을 고쳤다. 그 아래의
+    구조는 그대로였다 — 취소 핸들러와 잡 스레드가 같은 `job.view` dict 를 잠금 없이 쓰고,
+    "누가 최종 기록을 쓰는가"를 정하는 규칙이 없다. 그래서 취소와 watchdog 의 `timeout` 이
+    거의 같은 순간에 확정되면(둘 다 사실이다) **나중에 쓴 쪽이 이긴다** — API 는 `ok: true`
+    로 답했는데 뷰는 `timeout` 이 되고, 사용자의 취소는 조용히 사라진다.
+    """
+
+    def test_finalize_owns_the_record_first_wins(self) -> None:
+        from antigravity_k.api.routes.training_jobs_api import _Job
+
+        job = _Job("train_x", "chat-sft", "mlx")
+        assert job.finalize(success=False, termination="cancelled", error="cancelled by user") is True
+        # 늦게 도착한 감독 결과 — 기록을 덮지 못한다.
+        assert job.finalize(success=False, termination="timeout", error="exit_code=-15", progress=100) is False
+        view = job.snapshot()
+        assert (view["status"], view["termination"], view["error"]) == ("failed", "cancelled", "cancelled by user")
+        assert view["progress"] == 0, "늦은 쓰기가 진행률까지 바꿨다"
+
+    def test_first_wins_in_the_other_order_too(self) -> None:
+        from antigravity_k.api.routes.training_jobs_api import _Job
+
+        job = _Job("train_x", "chat-sft", "mlx")
+        assert job.finalize(success=True, termination="completed", progress=100) is True
+        # 이미 끝난 잡에 늦게 온 취소는 기록을 되돌리지 못한다 — 되돌리면 완료가 취소로 둔갑한다.
+        assert job.finalize(success=False, termination="cancelled", error="cancelled by user") is False
+        view = job.snapshot()
+        assert (view["status"], view["termination"], view["error"]) == ("completed", "completed", "")
+
+    def test_note_and_append_log_do_not_touch_a_finalized_record(self) -> None:
+        from antigravity_k.api.routes.training_jobs_api import _Job
+
+        job = _Job("train_x", "chat-sft", "mlx")
+        job.iterations = 10
+        assert job.finalize(success=False, termination="timeout", error="timeout_sec 초과", progress=100) is True
+        job.note(progress=42, error="나중 값")
+        job.append_log("iter 3: loss=1.0")
+        view = job.snapshot()
+        assert view["progress"] == 100
+        assert view["error"] == "timeout_sec 초과"
+        assert view["loss"] is None
+        assert view["log_tail"] == ["iter 3: loss=1.0"], "로그 꼬리는 이력이므로 남는다"
+
+    def test_snapshot_is_a_copy_not_the_live_view(self) -> None:
+        from antigravity_k.api.routes.training_jobs_api import _Job
+
+        job = _Job("train_x", "chat-sft", "mlx")
+        snap = job.snapshot()
+        job.note(records=7)
+        job.append_log("iter 1: loss=2.0")
+        assert snap["records"] == 0
+        assert snap["log_tail"] == []
+        assert snap is not job.view
+        assert snap["log_tail"] is not job.view["log_tail"]
+
+    def test_claim_cancel_is_once_only(self) -> None:
+        from antigravity_k.api.routes.training_jobs_api import _Job
+
+        job = _Job("train_x", "chat-sft", "mlx")
+        assert job.claim_cancel() is True
+        assert job.claim_cancel() is False
+        assert job.cancelled is True
+
+    def test_late_timeout_does_not_erase_the_cancel(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """HTTP — 취소가 먼저 기록되고 `timeout` 이 나중에 도착해도 취소가 남는다.
+
+        F-16 의 결정적 재현(증인 A 와 같은 순서): 가짜 `run_training` 이 **취소가 기록될
+        때까지 기다린 뒤** watchdog 의 timeout 을 돌려준다. 실제 경로에서도 watchdog 이
+        먼저 `timeout` 을 확정하고 사용자가 직후 취소하면 같은 순서가 만들어진다.
+        """
+        returned = threading.Event()
+
+        def late_timeout(
+            self: object,
+            config: dict[str, object],
+            on_log: Any = None,
+            timeout_sec: Any = None,
+            cancel_event: Any = None,
+            on_proc_start: Any = None,
+            **kwargs: Any,
+        ) -> TrainingRunResult:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+                time.sleep(0.005)
+            returned.set()
+            time.sleep(0.3)  # 취소 기록이 올라간 **뒤** 감독 결과가 도착하는 순서를 확정
+            return TrainingRunResult(success=False, exit_code=-15, elapsed_sec=0.1, termination="timeout", command="x")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("antigravity_k.engine.lora_pipeline.mlx_lm_available", lambda: True)
+        app = _app()
+        with (
+            patch.object(LoRAPipeline, "apply_recipe", autospec=True) as mock_apply,
+            patch.object(LoRAPipeline, "run_training", new=late_timeout),
+        ):
+            mock_apply.return_value = {
+                "recipe": "chat-sft",
+                "records": 1,
+                "sufficient": True,
+                "dataset_path": "data/ds.jsonl",
+                "config_path": "data/cfg.json",
+                "config": {"command": "python -m mlx_lm.lora", "platform": "mlx"},
+            }
+            client = TestClient(app)
+            job_id = client.post(
+                "/api/training-jobs",
+                json={
+                    "recipe": "chat-sft",
+                    "base_model": "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+                    "platform": "mlx",
+                    "hyperparameters": {"iterations": 5, "batch_size": 2},
+                },
+            ).json()["job_id"]
+            cancel = client.post(f"/api/training-jobs/{job_id}/cancel")
+            assert cancel.json()["ok"] is True
+            assert returned.wait(timeout=10), "가짜 run_training 이 감독 결과를 돌려주지 않았다"
+            time.sleep(0.8)  # 잡 스레드가 뷰에 쓰고 정착하는 관측 창
+            settled = _settled_view(client, job_id)
+
+        assert settled["status"] == "failed"
+        assert settled["termination"] == "cancelled", (
+            "취소를 늦게 도착한 timeout 이 덮었다 — 종결 기록의 주인이 없으면 API 의 ok:true 가 거짓이 된다(F-16)"
+        )
+        assert "cancelled" in settled["error"]
+        assert settled["progress"] != 100, "취소된 잡의 진행률을 늦은 쓰기가 100 으로 올렸다"
+
+
+class TestCancelDoesNotStallTheEventLoop:
+    """F-17 — 취소는 **이벤트 루프에서 블로킹하지 않는다**.
+
+    `terminate_process_group` 은 `proc.wait(grace)` 두 번, 즉 최대 `2 × grace` 초(기본 10초)를
+    블로킹한다. `async def` 라우트는 이벤트 루프에서 도므로 그동안 서버 전체가 멈췄다 —
+    동기(`def`) 라우트는 FastAPI 가 스레드풀에서 실행한다. 여기서는 종료 대기를 1초로 만들고
+    그동안 이벤트 루프의 heartbeat 최대 간격을 직접 잰다.
+    """
+
+    def test_cancel_route_is_sync_not_async(self) -> None:
+        import inspect as _inspect
+
+        from antigravity_k.api.routes.training_jobs_api import cancel_training_job
+
+        assert not _inspect.iscoroutinefunction(cancel_training_job), (
+            "취소 라우트가 async 다 — terminate_process_group 블로킹이 이벤트 루프를 세운다(F-17)"
+        )
+
+    def test_cancel_keeps_the_loop_responsive(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import asyncio
+
+        import httpx
+
+        class _Proc:
+            pid = 4242
+
+            def poll(self) -> None:
+                return None
+
+            def terminate(self) -> None:
+                return None
+
+            def wait(self, timeout: float | None = None) -> int:
+                return 0
+
+        def hanging_run(
+            self: object,
+            config: dict[str, object],
+            on_log: Any = None,
+            timeout_sec: Any = None,
+            cancel_event: Any = None,
+            on_proc_start: Any = None,
+            **kwargs: Any,
+        ) -> TrainingRunResult:
+            if on_proc_start is not None:
+                on_proc_start(_Proc())
+            while not (cancel_event is not None and cancel_event.is_set()):
+                time.sleep(0.005)
+            return TrainingRunResult(
+                success=False, exit_code=-15, elapsed_sec=0.1, termination="cancelled", command="x"
+            )
+
+        async def _measure_stall() -> float:
+            from antigravity_k.api.server import app
+
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://stall") as ac:
+                with (
+                    patch.object(LoRAPipeline, "apply_recipe", autospec=True) as mock_apply,
+                    patch.object(LoRAPipeline, "run_training", new=hanging_run),
+                    patch(
+                        "antigravity_k.finetune.training_supervision.terminate_process_group",
+                        new=lambda proc, grace_sec=5.0: time.sleep(1.0),  # 종료 대기 1초
+                    ),
+                ):
+                    mock_apply.return_value = {
+                        "recipe": "chat-sft",
+                        "records": 1,
+                        "sufficient": True,
+                        "dataset_path": "data/ds.jsonl",
+                        "config_path": "data/cfg.json",
+                        "config": {"command": "python -m mlx_lm.lora", "platform": "mlx"},
+                    }
+                    started = await ac.post(
+                        "/api/training-jobs",
+                        json={
+                            "recipe": "chat-sft",
+                            "base_model": "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+                            "platform": "mlx",
+                            "hyperparameters": {"iterations": 5, "batch_size": 2},
+                        },
+                    )
+                    job_id = started.json()["job_id"]
+                    for _ in range(500):
+                        if (await ac.get(f"/api/training-jobs/{job_id}")).json()["status"] == "running":
+                            break
+                        await asyncio.sleep(0.01)
+
+                    gaps: list[float] = []
+
+                    async def heartbeat() -> None:
+                        last = time.monotonic()
+                        while True:
+                            await asyncio.sleep(0.005)
+                            now = time.monotonic()
+                            gaps.append(now - last)
+                            last = now
+
+                    beat = asyncio.create_task(heartbeat())
+                    await ac.post(f"/api/training-jobs/{job_id}/cancel")
+                    await asyncio.sleep(0.05)  # 종료 대기 동안의 간격이 기록될 틈
+                    beat.cancel()
+                    return max(gaps)
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("antigravity_k.engine.lora_pipeline.mlx_lm_available", lambda: True)
+        stall = asyncio.run(_measure_stall())
+        assert stall < 0.4, f"취소가 이벤트 루프를 {stall * 1000:.0f}ms 세웠다 — 블로킹 종료가 루프에서 돌았다(F-17)"
