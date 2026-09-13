@@ -303,6 +303,29 @@ def test_approval_is_not_inferred_from_configuration() -> None:
 # --------------------------------------------------------------------------- C12-05
 
 
+README_VALUE_OWNER = "CR14_FINAL_CANDIDATE_VERDICT.md"
+
+
+def readme_value_owner_violations(text: str) -> list[str]:
+    """README 가 현재 값을 **소유한 문서**를 가리키지 않으면 보고한다(F-22, 빈 목록 = 통과).
+
+    CR-14 attempt-009 는 이 자리에 "README 가 후보 SHA(`\b[0-9a-f]{7,40}\b`)를 담을 것"을
+    요구했고, attempt-014(F-22)에서 그 요구를 **내려놓았다**. 그 요구는 성립할 수 없었다:
+
+      * README 의 값은 사람이 손으로 쓴다. 그런데 **최종 커밋의 SHA 는 그 커밋 전에는
+        알 수 없다** — 즉 README 의 SHA 는 구조적으로 항상 **과거** 커밋을 가리킨다
+        (실측: README 는 `54e4169a` 를 가리킨 채 후보가 `1207118d`·`0593dd27`·`ded52af6` 로
+        진행했고, 그 값을 손보려던 attempt-013 의 **기록 커밋**이 `README.md` 를 건드려
+        gate 지문을 `2c5a15c8…` → `b9590b01…` 로 옮겼다 — 기록이 증거를 낡게 만들었다).
+      * 값은 `docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md`(= 지문 제외 대상)가 소유한다.
+        README 는 그 문서를 가리키면 된다.
+
+    그래서 검사 대상이 '값'에서 '값의 출처'로 옮겨졌다 — 느슨해진 것이 아니라 README 가
+    지킬 수 있는 주장만 하도록 좁힌 것이고, 그 출처 포인터 자체를 아래에서 강제한다.
+    """
+    return [] if README_VALUE_OWNER in text else ["README 가 값을 소유한 판정서를 가리키지 않는다"]
+
+
 def test_readme_separates_rp_history_from_current_cr_state() -> None:
     readme = _read(README)
 
@@ -310,9 +333,15 @@ def test_readme_separates_rp_history_from_current_cr_state() -> None:
     assert re.search(r"CR-0?1\s*~\s*CR-1?\d", readme), "현재 CR 범위가 README에 없다"
     assert re.search(r"REVIEW", readme), "현재 CR 상태(REVIEW)를 밝히지 않는다"
     # CR-14 attempt-009 에서 후보를 커밋했다(`54e4169a`). 그 전까지 이 자리는 "미커밋"을 요구했다.
-    # **커밋은 승인이 아니므로** 의도는 그대로다 — 이제는 **후보 full/숫자 SHA 를 명시**하고
+    # **커밋은 승인이 아니므로** 의도는 그대로다 — README 는 **후보가 커밋된 상태**와
     # **승인 없음**을 함께 밝혀야 하며, "커밋됨"이 풀린 것으로 읽히지 않아야 한다.
-    assert re.search(r"\b[0-9a-f]{7,40}\b", readme), "커밋된 후보 리비전(SHA)을 README 에 밝히지 않는다"
+    # 값(SHA·게이트 수)을 README 에 박지 않는 이유와 그 대체 검사는 `readme_value_owner_violations`
+    # 참조 — 값의 소유자는 판정 카드이고, README 는 그 카드를 가리킨다(F-22).
+    assert not readme_value_owner_violations(readme), " / ".join(readme_value_owner_violations(readme))
+    assert not re.search(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b", readme), (
+        "README 가 커밋 SHA 리터럴을 담고 있다 — 그 값은 갱신할 수 없고(최종 SHA 는 커밋 전 미지), "
+        "갱신 시도가 기록 커밋으로 지문을 옮긴다(F-22)"
+    )
     assert re.search(r"커밋", readme), "후보가 커밋된 상태인지 밝히지 않는다"
     assert re.search(r"승인 없음|no GA approval", readme), "GA 승인 없음을 밝히지 않는다"
     assert re.search(r"미배정|unassigned", readme), "독립 검토자·출시 책임자 미배정을 밝히지 않는다"
@@ -320,6 +349,15 @@ def test_readme_separates_rp_history_from_current_cr_state() -> None:
     ga100_rows = [line for line in readme.splitlines() if "GA-100" in line and "33/33" in line]
     assert ga100_rows, "GA-100 완료율 행이 사라졌다"
     assert all("구현 이력" in row for row in ga100_rows), "GA-100 완료 수가 이력임을 밝히지 않는다"
+
+
+def test_readme_value_owner_pointer_is_enforced() -> None:
+    """통과만 하는 검사기는 계약이 아니다 — 출처 포인터가 사라지면 실패해야 한다(F-22)."""
+    readme = _read(README)
+    assert not readme_value_owner_violations(readme), "README 가 이미 판정서를 가리키지 않는다"
+    assert readme_value_owner_violations(readme.replace(README_VALUE_OWNER, "판정서")), (
+        "이빨 없음 — 출처 포인터를 지웠는데도 통과했다"
+    )
 
 
 def test_current_cr_status_is_not_reported_as_done() -> None:
