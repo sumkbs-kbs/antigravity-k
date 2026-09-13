@@ -9,15 +9,23 @@
   BENCHMARK_THRESHOLD_CODE_REVIEW     (기본: 1000ms)
   BENCHMARK_THRESHOLD_MAX_ENGINE      (기본: 50ms)
 
-실행:
-  # 모든 성능 테스트 실행
-  python -m pytest tests/test_benchmark_performance.py -v --tb=short
+실행 (CR-14 F-21 이후):
+  이 모듈의 모든 테스트는 `benchmark` 마커를 가진다. 그 이유는 임계값이 **wall-clock** 이라
+  조용한 프로세스에서만 의미가 있기 때문이다 — 실측: 같은 환경에서 이 모듈만 돌리면
+  `test_context_enrich_total_latency` 가 2209/2209/2212ms 였지만, 6000여 개 테스트를 도는
+  프로세스 안에서는 6084ms 로 임계값(6000ms)을 넘겼다.
 
-  # 느린 테스트 포함 실행 (기본: slow 마커로 skip)
-  python -m pytest tests/test_benchmark_performance.py -v --benchmark
+  그래서 기능 게이트는 `-m "not benchmark"` 로 이 모듈을 제외하고, 전용 게이트가 선별한다:
 
-  # 특정 스테이지만 실행
-  python -m pytest tests/test_benchmark_performance.py -v -k "context_enrich"
+      python -m pytest tests/ -m "not benchmark" -v --tb=short   # python-tests
+      python -m pytest tests/ -m benchmark -v --tb=short         # python-benchmark
+
+  특정 스테이지만:
+
+      python -m pytest tests/test_benchmark_performance.py -v -k "context_enrich"
+
+  주의: 예전 이 자리에는 "기본: slow 마커로 skip" 이라고 적혀 있었지만 실제로 그들을
+  deselect 하는 설정은 없었다(`addopts`·collection hook 없음) — 문서와 동작이 달랐다.
 """
 
 import os
