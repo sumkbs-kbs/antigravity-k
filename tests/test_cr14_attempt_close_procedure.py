@@ -253,6 +253,21 @@ def test_close_stage_files_the_report_then_passes(procedure: ModuleType, tmp_pat
     manifest.write_text(
         json.dumps({"gates": [{"id": "alpha", "required": True, "command": ["true"]}]}), encoding="utf-8"
     )
+    # 게이트별 스킵 가시성 등록부 — attempt-024(R-16)부터 마감 검사가 이를 요구한다:
+    # 등록부가 없으면 "소유자 없는 스킵"을 판정할 수 없으므로 FAIL 이다(침묵을 통과로 읽지 않는다).
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    (scripts / "gate_skip_register.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "gate_visibility": {
+                    "gates": [{"gate": "alpha", "attribution": "no_skip_concept", "observation": "none"}]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     sha = _init_repo(repo)
     fingerprint = _fingerprint(repo, "HEAD")
     card = repo / "card.md"

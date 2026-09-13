@@ -96,6 +96,9 @@ class _Fixture:
         (self.repo / "docs").mkdir()
         (self.repo / "src" / "app.py").write_text("value = 1\n", encoding="utf-8")
         (self.repo / "docs" / "plan.md").write_text("plan\n", encoding="utf-8")
+        # 등록부도 **후보 커밋 안에** 둔다 — 나중에 만들면 그 파일이 첫 커밋에 섮여 "docs 전용" 검사가
+        # 코드 스코프 이동으로 읽는다(계약이 재는 것이 그것이다).
+        self.write_register([{"gate": "alpha", "observation": "none"}, {"gate": "beta", "observation": "none"}])
         subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True, capture_output=True)
         self.candidate = _commit_all(self.repo, "seed")
         self.fingerprint = _fingerprint(self.repo, "HEAD")
@@ -116,6 +119,18 @@ class _Fixture:
             encoding="utf-8",
         )
         self.manifest_sha = __import__("hashlib").sha256(self.manifest.read_bytes()).hexdigest()
+        # 기본 등록부 — manifest 의 게이트를 전수 덮되 관측 자리를 `none` 으로 둔다(스킵 관측은
+        # 아래 테스트들이 개별적으로 켠다). 등록부가 **없으면** 마감 검사가 그것을 위반으로 본다.
+        self.write_register([{"gate": gate_id, "observation": "none"} for gate_id in ids])
+
+    def write_register(self, entries: list[dict[str, object]]) -> Path:
+        path = self.repo / "scripts" / "gate_skip_register.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"schema_version": 1, "gate_visibility": {"gates": entries}}),
+            encoding="utf-8",
+        )
+        return path
 
     def write_report(
         self,
@@ -126,6 +141,7 @@ class _Fixture:
         sha: str | None = None,
         generated_at: str = "2026-09-13T00:00:00+00:00",
         manifest_sha: str | None = None,
+        outputs: dict[str, str] | None = None,
     ) -> Path:
         directory = self.evidence / attempt
         directory.mkdir(parents=True, exist_ok=True)
@@ -137,6 +153,7 @@ class _Fixture:
                 "exit_code": 0 if status == "passed" else 1,
                 "required": True,
                 "duration_seconds": 1.0,
+                "stdout": (outputs or {}).get(gate_id, ""),
             }
             for gate_id, status in gates
         ]
@@ -300,6 +317,108 @@ def test_exit_codes_match_the_verdict(closer: ModuleType, fixture: _Fixture) -> 
     assert closer.main(base) == 1
     (fixture.evidence / "attempt-001" / "gate-report.json").write_text("{not json", encoding="utf-8")
     assert closer.main([*base, "--card", str(fixture.root / "missing-card.md")]) == 2
+
+
+# ---------------------------------------------------------------------------
+# R-16 (attempt-024) — 다른 게이트의 스킵도 소유되어야 한다
+# ---------------------------------------------------------------------------
+
+
+def test_close_check_gates_with_zero_skips_pass(closer: ModuleType, fixture: _Fixture) -> None:
+    """기준선 — 관측 자리를 켜 두고도 스킵이 0건이면 마감할 수 있다(강한 검사도 초록을 낼 수 있어야 쓸 수 있다)."""
+    fixture.write_register(
+        [
+            {"gate": "alpha", "attribution": "per_test", "observation": "close_check"},
+            {"gate": "beta", "attribution": "no_skip_concept", "observation": "none"},
+        ]
+    )
+    fixture.write_report(
+        "attempt-002",
+        gates=[("alpha", "passed"), ("beta", "passed")],
+        outputs={"alpha": "9 passed, 16 deselected, 1 warning in 20.20s\n"},
+        generated_at="2026-09-13T01:00:00+00:00",
+    )
+    assert fixture.check(closer, fixture.healthy_card()) == []
+
+
+def test_teeth_skip_reported_by_a_close_check_gate_is_rejected(closer: ModuleType, fixture: _Fixture) -> None:
+    """게이트가 스킵을 보고했는데 등록부가 그 게이트를 `close_check` 로만 적어 두면 거부한다.
+
+    이것이 R-16 의 이빨이다: 게이트 안에서 재현할 수 없는 게이트(docker·dashboard·playwright)의
+    스킵은 **여기서만** 보인다. 이 조항이 없으면 한 게이트가 테스트를 통째로 빼고도 21/21 이 된다.
+    """
+    fixture.write_register(
+        [
+            {"gate": "alpha", "attribution": "per_test", "observation": "close_check"},
+            {"gate": "beta", "attribution": "no_skip_concept", "observation": "none"},
+        ]
+    )
+    fixture.write_report(
+        "attempt-002",
+        gates=[("alpha", "passed"), ("beta", "passed")],
+        outputs={"alpha": "7 passed, 2 skipped, 16 deselected in 20.20s\n"},
+        generated_at="2026-09-13T01:00:00+00:00",
+    )
+    problems = fixture.check(closer, fixture.healthy_card())
+    assert any("스킵 2건을 보고했다" in problem and "alpha" in problem for problem in problems), problems
+
+
+def test_teeth_shell_skip_row_is_rejected(closer: ModuleType, fixture: _Fixture) -> None:
+    """셸 스크립트 게이트의 `SKIP` 행도 같은 자리에서 잡는다(`clean-machine-runtime` 의 모양).
+
+    그 행은 색상 이스케이프로 감싸여 나오므로 이스케이프를 벗긴 뒤 본다 — 실측으로 확인했다.
+    """
+    fixture.write_register(
+        [
+            {"gate": "alpha", "attribution": "no_skip_concept", "observation": "close_check"},
+            {"gate": "beta", "attribution": "no_skip_concept", "observation": "none"},
+        ]
+    )
+    fixture.write_report(
+        "attempt-002",
+        gates=[("alpha", "passed"), ("beta", "passed")],
+        outputs={
+            "alpha": "\x1b[33mwheel \uac80\uc99d   SKIP   -\x1b[0m\n\u2714 \ud074\ub9b0\uba38\uc2f6 \uc7ac\ud604 \uc131\uacf5\n"
+        },
+        generated_at="2026-09-13T01:00:00+00:00",
+    )
+    problems = fixture.check(closer, fixture.healthy_card())
+    assert any("스킵 1건을 보고했다" in problem for problem in problems), problems
+
+
+def test_teeth_gate_missing_from_the_visibility_register_is_rejected(closer: ModuleType, fixture: _Fixture) -> None:
+    """보고서에 있는 required 게이트가 등록부의 가시성 분류에 없으면 거부한다(소유자 없는 게이트)."""
+    fixture.write_register([{"gate": "alpha", "attribution": "per_test", "observation": "close_check"}])
+    problems = fixture.check(closer, fixture.healthy_card())
+    assert any("가시성 분류에 없다" in problem and "beta" in problem for problem in problems), problems
+
+
+def test_teeth_missing_register_is_rejected(closer: ModuleType, fixture: _Fixture) -> None:
+    """등록부가 없으면 **침묵 통과하지 않는다** — 그 자리가 바로 소유자 없는 스킵이 숨는 자리다."""
+    (fixture.repo / "scripts" / "gate_skip_register.json").unlink()
+    problems = fixture.check(closer, fixture.healthy_card())
+    assert any("가시성 등록부" in problem for problem in problems), problems
+
+
+def test_registered_gate_keeps_its_skips_at_close(closer: ModuleType, fixture: _Fixture) -> None:
+    """`registered` 게이트(`python-tests`)의 스킵은 등록부가 소유한다 — 마감 검사가 그것을 거부하지 않는다.
+
+    어떻게 박아 두는가: 이 조항을 `close_check` 게이트에만 걸어 두었다. 그렇지 않으면
+    python-tests 의 13건이 마감마다 위반으로 올라와 검사가 쓸 수 없게 된다.
+    """
+    fixture.write_register(
+        [
+            {"gate": "alpha", "attribution": "per_test", "observation": "registered"},
+            {"gate": "beta", "attribution": "no_skip_concept", "observation": "none"},
+        ]
+    )
+    fixture.write_report(
+        "attempt-002",
+        gates=[("alpha", "passed"), ("beta", "passed")],
+        outputs={"alpha": "6291 passed, 13 skipped, 16 deselected in 559.48s\n"},
+        generated_at="2026-09-13T01:00:00+00:00",
+    )
+    assert fixture.check(closer, fixture.healthy_card()) == []
 
 
 def test_the_real_manifest_is_the_one_this_check_reads() -> None:

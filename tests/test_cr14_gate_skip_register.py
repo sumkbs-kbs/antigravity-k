@@ -25,6 +25,16 @@ PDF/DOCX 수집을 재는 **23건**이 게이트·CI·weekly 어디서도 돌지
 스킵 집합**을 한 건씩 맞춘다. 등록되지 않은 스킵이 생기면 실패한다(무엇이 사라졌는지 적어라).
 등록된 스킵이 사라져도 실패한다(등록부가 낡았다). 양쪽 다 "조용한 변화 금지"의 구현이다.
 
+게이트 전수로 넓힌 소유 (attempt-024 가 R-16 을 닫으면서)
+=========================================================
+처음 scope 는 **게이트 `python-tests` 한 곳**이었다("다른 파이프라인의 스킵은 소관이 아니다").
+그런데 같은 후보가 **required gate 21개**로 초록을 만들고, 그중 다섯이 테스트를 돈다 — 다른
+게이트의 스킵은 아무도 세지 않았다(R-16). 이제 등록부의 `gate_visibility` 가 21개를 전수
+분류하고, 이 파일이 ① 분류의 **전수성**(게이트를 추가하면 분류도 적어야 한다) ② pytest 게이트의
+**귀속 플래그** ③ vitest·playwright 의 **이름 보고** ④ 스크립트 게이트의 스킵 채널**선언**과
+게이트 명령에서의 **미사용**을 잰다. 실제 실행의 스킵 건수는 게이트 안에서 순환하므로 마감 검사가
+편입된 보고서에서 읽는다(`scripts/verify_attempt_close.py` — F-24 가 세운 위치).
+
 관측 목록은 선언에서 파생하지 않는다 (attempt-022 가 찾은 구멍)
 =============================================================
 처음에는 관측 대상 파일을 `entries` 의 스킵 목록에서 파생했다. 그러면 **항목을 닫는 순간**
@@ -282,3 +292,163 @@ def test_gate_environment_skips_exactly_what_the_register_declares() -> None:
         f"  등록부에만 있음: {_as_lines(declared - observed)}\n"
         f"  관측에만 있음:   {_as_lines(observed - declared)}"
     )
+
+
+# ─── 게이트 전수: 다른 게이트의 스킵도 이름을 갖는다 (R-16 · attempt-024) ────
+
+# 스킵을 **테스트 단위로** 귀속시키는 pytest 플래그(`-v` 스킵 줄, `-rs` 스킵 요약).
+PYTEST_ATTRIBUTION_FLAGS = ("-v", "-rs", "-ra")
+VALID_ATTRIBUTIONS = ("per_test", "no_skip_concept")
+VALID_OBSERVATIONS = ("registered", "close_check", "none")
+# 스크립트 게이트의 스킵 채널 — `--skip-*` 플래그와 `SKIP_*` 변수가 그 흔적이다.
+SCRIPT_SKIP_MARKER = re.compile(r"--skip-[a-z0-9][a-z0-9-]*|SKIP_[A-Z][A-Z0-9_]*")
+# vitest·playwright 소스의 스킵 마커 — 지금은 0건이고, 생기면 이 계약이 먼저 본다.
+DASHBOARD_TEST_MARKER = re.compile(r"\b(?:it|test|describe)\.(?:skip|todo|only)\b|\btest\.(?:skip|fixme|only)\b")
+
+
+def _required_gates() -> list[dict[str, Any]]:
+    payload: dict[str, Any] = json.loads(GATE_FILE.read_text(encoding="utf-8"))
+    return [gate for gate in payload["gates"] if gate.get("required")]
+
+
+def _visibility() -> dict[str, Mapping[str, Any]]:
+    entries = cast(Sequence[Mapping[str, Any]], _register()["gate_visibility"]["gates"])
+    return {str(entry["gate"]): entry for entry in entries}
+
+
+def _gate_commands() -> dict[str, list[str]]:
+    return {str(gate["id"]): [str(token) for token in gate["command"]] for gate in _required_gates()}
+
+
+def _script_of(command: Sequence[str]) -> Path | None:
+    """게이트 명령에서 그 게이트가 도는 **스크립트**를 찾는다(실재하는 파일만).
+
+    스크립트 토큰만 본다: `bandit … -x src/…/secret_scanner.py` 처럼 **인자로 들어간 소스 파일**을
+    스크립트로 오인하면 엉뚝한 파일을 스캔하게 된다(`scripts/` 아래이거나 `.sh` 여야 한다).
+    """
+    for token in command:
+        if token.endswith(".sh") or (token.startswith("scripts/") and token.endswith(".py")):
+            candidate = REPO_ROOT / token
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def test_every_required_gate_is_classified_for_skip_visibility() -> None:
+    """전수성 — **required 게이트를 추가하면 분류도 함께 적어야 한다**.
+
+    이것이 R-16 의 구조적 절반이다: 게이트를 하나 늘리고 분류를 빠뜨리면 그 게이트의 스킵은
+    다시 익명이 되므로, 계약이 그 자리에서 멈춘다(개수를 손으로 맞추는 대신 목록을 맞춘다 —
+    F-21 이 개수 고정을 목록 고정으로 바꾼 것과 같은 이유).
+    """
+    classified = _visibility()
+    required = {str(gate["id"]) for gate in _required_gates()}
+    missing = sorted(required - set(classified))
+    extra = sorted(set(classified) - required)
+    assert not missing, (
+        f"required 게이트가 스킵 가시성 분류에 없다: {missing}"
+        " — 그 게이트가 조용히 테스트를 빼도 아무 자리가 아프지 않다(R-16)"
+    )
+    assert not extra, f"분류에만 있는 게이트가 있다(오타이거나 게이트가 사라졌다): {extra}"
+
+    for gate_id, entry in sorted(classified.items()):
+        assert str(entry.get("runner", "")).strip(), f"{gate_id}: runner 가 비었다"
+        assert entry["attribution"] in VALID_ATTRIBUTIONS, (
+            f"{gate_id}: 알 수 없는 attribution {entry['attribution']!r}"
+            f" — 허용: {VALID_ATTRIBUTIONS}. `summary_only` 는 허용하지 않는다: 귀속 플래그를 붙이면 `per_test` 가 된다"
+        )
+        assert entry["observation"] in VALID_OBSERVATIONS, (
+            f"{gate_id}: 알 수 없는 observation {entry['observation']!r} — 허용: {VALID_OBSERVATIONS}"
+        )
+        assert str(entry.get("how", "")).strip(), f"{gate_id}: how 가 비었다 — 스킵이 어떻게 드러나는지 적어라"
+        if entry["attribution"] == "per_test":
+            assert entry["observation"] in {"registered", "close_check"}, (
+                f"{gate_id}: 귀속이 가능한데 관측 자리가 없다 — 누가 세는가"
+            )
+
+
+def test_pytest_gates_can_attribute_a_skip_to_a_test() -> None:
+    """pytest 게이트 — 스킵이 **테스트 단위로 귀속**되어야 한다.
+
+    attempt-024 의 측정: `api-e2e` 는 `-q` 뿐이어서 스킵이 생기면 `N skipped` 만 남고 **이름이
+    없었다**(그 자리가 익명이 되면 등록부가 세야 할 대상이 이름을 잃는다). `-rs` 를 넣어 고쳤다.
+    """
+    for gate_id, command in sorted(_gate_commands().items()):
+        if not any("pytest" in token for token in command):
+            continue
+        assert any(flag in command for flag in PYTEST_ATTRIBUTION_FLAGS), (
+            f"{gate_id}: pytest 인데 스킵을 테스트 단위로 귀속시키는 플래그가 없다 {command}"
+            f" — 필요: {list(PYTEST_ATTRIBUTION_FLAGS)}. `N skipped` 만 남으면 무엇이 검증되지 않았는지 알 수 없다"
+        )
+
+
+def test_non_pytest_gates_report_skip_names() -> None:
+    """vitest·playwright — 스킵이 **이름으로** 보고되어야 한다(둘 다 실측으로 확인했다).
+
+    vitest 기본 리포터는 `1 skipped` 건수만 내고 이름을 내지 않는다(스크래치 테스트로 측정) —
+    `--reporter=verbose` 가 `↓ <파일> > <describe> > <테스트>` 로 이름을 낸다.
+    playwright 는 `list` 리포터가 `- <n> [project] › <파일>:<줄> › <이름>` 으로 낸다.
+    """
+    commands = _gate_commands()
+    assert "--reporter=verbose" in commands["dashboard-test"], (
+        f"dashboard-test: vitest 기본 리포터는 건수만 낸다 — `--reporter=verbose` 가 이름을 낸다 {commands['dashboard-test']}"
+    )
+    config = (REPO_ROOT / "dashboard" / "playwright.config.ts").read_text(encoding="utf-8")
+    assert re.search(r"reporter:\s*\[[\s\S]{0,400}?['\"]list['\"]", config), (
+        "accessibility-e2e: playwright 의 `list` 리포터가 스킵을 이름으로 낸다"
+        " — 리포터를 바꾸면 그 게이트의 스킵이 익명이 된다"
+    )
+
+
+def test_dashboard_sources_have_no_unregistered_skip_markers() -> None:
+    """vitest·playwright 가 수집하는 소스의 스킵 마커 — 지금은 **0건**이다(tripwire).
+
+    마커가 생기면 vitest 는 그 테스트를 건너뛰고 게이트는 초록으로 남는다(이름은 verbose 리포터가
+    내지만, 등록부는 그 사실을 모른다). 그래서 새 마커는 **여기서 먼저 멈춘다** — 등록부에 적거나
+    제거하라는 뜻이다.
+    """
+    hits: list[str] = []
+    roots = (REPO_ROOT / "dashboard" / "src", REPO_ROOT / "dashboard" / "e2e")
+    for base in roots:
+        for path in sorted(base.rglob("*.ts")) + sorted(base.rglob("*.tsx")):
+            if "node_modules" in path.parts:
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if DASHBOARD_TEST_MARKER.search(line):
+                    hits.append(f"{path.relative_to(REPO_ROOT)}:{number}")
+    assert not hits, (
+        f"dashboard 테스트 소스에 스킵 마커가 생겼다: {hits}"
+        " — vitest·playwright 는 그 테스트를 건너뛰면서 게이트는 초록으로 남는다. 등록부에 적거나 제거하라"
+    )
+
+
+def test_script_gates_declare_their_skip_channels_and_the_gate_uses_none() -> None:
+    """스크립트 게이트 — 스킵 채널은 **선언**되고, 게이트 명령은 그 채널을 **쓰지 않아야** 한다.
+
+    attempt-024 의 측정: `clean-machine-runtime` 의 스크립트는 `--skip-e2e`·`--skip-wheel` 을 갖고
+    그 플래그가 켜지면 요약에 `SKIP` 행이 생기면서 **게이트는 초록으로 남는다**. 지금 게이트 명령에는
+    두 플래그가 **없다** — 이 조항은 그 사실을 고정한다. 누군가 편의를 위해 `--skip-wheel` 을
+    명령에 넣으면 wheel 검증이 통째로 사라지는데 계약은 그대로 통과할 뻔했다(게이트 안에서는
+    사라진 단계와 존재하는 단계가 같은 초록을 낸다).
+    """
+    classified = _visibility()
+    commands = _gate_commands()
+    for gate_id, entry in sorted(classified.items()):
+        if entry["runner"] not in {"bash", "python-script", "script"}:
+            continue
+        script = _script_of(commands[gate_id])
+        assert script is not None, (
+            f"{gate_id}: 스크립트 게이트인데 명령에서 실재하는 스크립트를 찾지 못했다 {commands[gate_id]}"
+        )
+        text = script.read_text(encoding="utf-8")
+        # `skip_channels` 는 스크립트 안의 **모든** 스킵 표기(CLI 플래그와 내부 토글)를 적는다 —
+        # 하나라도 빠지면 그것이 조용한 자리다. 게이트 명령 검사는 그중 `--` 로 시작하는 것만 본다.
+        declared = [str(channel) for channel in entry.get("skip_channels", [])]
+        found = sorted(set(SCRIPT_SKIP_MARKER.findall(text)))
+        undeclared = [marker for marker in found if marker not in declared]
+        assert not undeclared, (
+            f"{gate_id}: {script.name} 에 선언되지 않은 스킵 채널이 있다 {undeclared}"
+            f" — 등록부 `gate_visibility.gates[{gate_id}].skip_channels` 에 적어라(모르는 스킵 채널은 조용한 자리다)"
+        )
+        used = [channel for channel in declared if channel.startswith("--") and channel in commands[gate_id]]
+        assert not used, f"{gate_id}: 게이트 명령이 스킵 플래그 {used} 를 쓴다 — 그 단계가 사라져도 게이트는 초록이다"

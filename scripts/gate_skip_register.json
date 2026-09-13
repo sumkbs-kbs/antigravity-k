@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "scope": "게이트 `python-tests` 의 환경(`uv run --isolated --frozen --extra dev --extra rag --extra documents`)에서 **실제로 스킵되는** 테스트. 다른 파이프라인(개발자 ambient·CI matrix·weekly job)의 스킵은 이 등록부의 소관이 아니다 — 그쪽 환경은 각자 소유자가 있다.",
+  "scope": "**required 게이트 21개가 스킵을 어떻게 드러내는지**를 게이트별로 소유한다. 그중 `python-tests` 는 이 등록부가 **스킵 집합 자체**를 대조한다(`entries`·`observed_files`). 나머지 required 게이트는 `gate_visibility` 가 러너·귀속 가능성·관측 방법을 분류하고, **실제 실행의 스킵 건수는 마감 검사**(`scripts/verify_attempt_close.py`)가 편입된 보고서에서 읽어 등록부와 대조한다 — 게이트 안에서 재현할 수 없는 게이트(docker·dashboard·playwright·클린머신)를 등록부가 '대조한다'고 주장하지 않기 위해서다(주장이 아니라 측정). 개발자 ambient·CI matrix·weekly job 의 스킵은 여전히 이 등록부의 소관이 아니다 — 그쪽 환경은 각자 소유자가 있다.",
   "why": "게이트 초록은 \"이 후보가 검증됐다\"는 주장인데, **스킵은 그 주장에서 조용히 빠지는 자리**다. CR-14 attempt-011/012 는 ambient 도구로 돌아 스킵이 13·6건이었고, F-18 로 게이트 환경을 lock 에 고정한 뒤(attempt-013) 스킵이 **40건**이 됐다 — 도구 출처는 바로잡혔지만 그 대가가 조용했다(R-8). attempt-021 이 그 대가를 세어 이 등록부로 옮겼다: 40 → **17**(23건은 출하 extra `documents` 를 게이트에 넣어 복원했다). attempt-022 가 스킵 2건을 **능력으로** 되돌렸고(`config-models-unregistered` → `closed`), attempt-023 이 나머지 미검증 능력 2건을 되돌렸다(`orchestrator-refactor-rewrite` → `closed`): 남은 것은 **13건**이고 **전부 소유자가 있다**(mlx 4 · unsloth 7 · access-pin 2). **소유자 없는 스킵은 0건**이다.",
   "measured_by": "tests/test_cr14_gate_skip_register.py — 같은 게이트 환경을 다시 돌려 이 등록부와 **한 건씩** 대조한다. 관측 대상 파일은 `observed_files` 가 소유한다: **항목을 닫아도 그 파일은 관측에서 빠지지 않는다**(등록부에서 지우기만 하면 그 파일의 스킵이 다시는 보이지 않고, 그것이 F-30 의 병을 한 층 위에서 반복한다). 등록되지 않은 스킵이 생기거나, 등록된 스킵이 사라지면 계약이 실패한다(양쪽 다 \"무엇이 바뀌었는지 적어라\"는 뜻이다).",
   "observed_files": [
@@ -11,6 +11,42 @@
     "tests/test_planning_and_rendering_quality.py",
     "tests/test_upgrade_v6_9.py"
   ],
+  "gate_visibility": {
+    "why": "R-16 — 등록부의 scope 가 `python-tests` 한 곳이던 때, **다른 테스트 게이트의 스킵은 아무도 세지 않았다**. 같은 후보가 21/21 초록인데 그중 한 게이트가 조용히 테스트를 빼도 아무 자리도 아프지 않았다(F-30 의 병이 게이트 경계 밖에서 반복된 셈이다). 그래서 '무엇이 스킵되는가'의 소유 단위를 **게이트**로 넓혔다: 게이트마다 ① 러너가 스킵을 **테스트 단위로 귀속**시키는가 ② 그 관측을 **어디서** 하는가를 분류하고, 계약이 ③ 명령에 실제로 그 귀속 플래그가 있는지 ④ 스크립트의 스킵 채널이 **선언됐는지·게이트 명령에는 없는지**를 잰다.",
+    "attribution": {
+      "per_test": "스킵이 **테스트 단위로** 보고된다 — 어느 테스트가 왜 스킵됐는지 게이트 출력에서 읽을 수 있다(실측: pytest `-v`/`-rs` · vitest `--reporter=verbose` · playwright `list`).",
+      "summary_only": "요약 줄에 **건수만** 보고된다 — 무엇이 검증되지 않았는지 이름이 없다. 이 class 는 허용하지 않는다: 귀속 플래그를 붙이면 `per_test` 가 되기 때문이다(attempt-024 가 `api-e2e`·`dashboard-test` 에서 실제로 붙였다).",
+      "no_skip_concept": "러너·스크립트가 스킵을 만들 수 없다 — 없음을 **정적 스캔으로** 확인할 수 있는 자리다(마커가 생기면 계약이 실패한다)."
+    },
+    "observation": {
+      "registered": "등록부가 같은 환경을 재현해 **스킵 집합 자체**를 한 건씩 대조한다(계약 `tests/test_cr14_gate_skip_register.py`). 가장 강한 형태이고, 그래서 게이트가 스스로 재현할 수 있는 자리에만 쓴다.",
+      "close_check": "구현 실행의 스킵 건수를 **마감 검사**가 편입된 보고서에서 읽는다. 게이트 안에서는 순환(보고서는 게이트가 끝나야 생긴다)이라 게이트 계약이 아니라 마감 단계가 소유한다 — F-24 가 세운 위치와 같다.",
+      "none": "스킵이 생길 수 없다(정적 검사·빌드·감사·아티팩트 생성)."
+    },
+    "gates": [
+      {"gate": "python-tests", "runner": "pytest", "attribution": "per_test", "observation": "registered", "how": "이 저장소가 스킵 집합을 한 건씩 아는 유일한 게이트다 — 계약이 `--extra` 목록까지 게이트 파일에서 읽어 같은 환경을 재현한다."},
+      {"gate": "python-benchmark", "runner": "pytest", "attribution": "per_test", "observation": "close_check", "how": "같은 수집(`tests/`)에 마커만 다르다(`-m benchmark`). `-v` 가 있으므로 스킵은 이름·사유로 보인다."},
+      {"gate": "api-e2e", "runner": "pytest", "attribution": "per_test", "observation": "close_check", "how": "`tests/test_e2e_smoke.py` 한 파일. **attempt-024 에서 `-rs` 를 넣었다** — 그 전에는 `-q` 뿐이라 스킵이 생기면 `N skipped` 만 남고 이름이 없었다(측정: 증인 검사 A)."},
+      {"gate": "dashboard-test", "runner": "vitest", "attribution": "per_test", "observation": "close_check", "how": "**attempt-024 에서 `--reporter=verbose` 를 넣었다** — 기본 리포터는 `1 skipped` 건수만 내고 이름을 내지 않는다(스크래치 테스트로 실측). verbose 는 `↓ <파일> > <describe> > <테스트>` 로 이름을 낸다."},
+      {"gate": "accessibility-e2e", "runner": "playwright", "attribution": "per_test", "observation": "close_check", "how": "`playwright.config.ts` 의 `list` 리포터가 스킵을 `- <n> [project] › <파일>:<줄> › <이름>` 으로 낸다(스크래치 스펙으로 실측). 설정을 바꾸면 그 사실이 이 항목과 계약에 드러난다."},
+      {"gate": "clean-machine-runtime", "runner": "bash", "attribution": "no_skip_concept", "observation": "close_check", "how": "스크립트는 스킵 채널을 **갖는다**(`--skip-e2e`·`--skip-wheel` → 요약에 `SKIP` 행). 게이트 명령에는 그 플래그가 **없다**(계약이 확인한다) — 있으면 wheel 검증이 통째로 사라지는데 초록은 그대로다.", "skip_channels": ["--skip-e2e", "--skip-wheel", "SKIP_E2E", "SKIP_WHEEL"]},
+      {"gate": "master-e2e", "runner": "python-script", "attribution": "no_skip_concept", "observation": "none", "how": "`scripts/run_full_system_e2e_test.py` 는 스킵 개념이 없다(정적 스캔 0건) — 검사는 통과하거나 실패한다.", "skip_channels": []},
+      {"gate": "python-ruff", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "정적 검사 — 테스트를 돌리지 않는다."},
+      {"gate": "python-format", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "정적 검사 — 테스트를 돌리지 않는다."},
+      {"gate": "python-mypy", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "정적 검사 — 테스트를 돌리지 않는다."},
+      {"gate": "python-basedpyright", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "정적 검사 — 테스트를 돌리지 않는다."},
+      {"gate": "dashboard-install", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "의존성 설치 — 테스트를 돌리지 않는다."},
+      {"gate": "dashboard-lint", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "정적 검사 — 테스트를 돌리지 않는다."},
+      {"gate": "dashboard-typecheck", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "정적 검사 — 테스트를 돌리지 않는다."},
+      {"gate": "dashboard-build", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "빌드 — 테스트를 돌리지 않는다."},
+      {"gate": "package-build", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "빌드 — 테스트를 돌리지 않는다."},
+      {"gate": "docker-build", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "이미지 빌드 — 테스트를 돌리지 않는다."},
+      {"gate": "sbom-generate", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "아티팩트 생성 — 테스트를 돌리지 않는다."},
+      {"gate": "dependency-audit-python", "runner": "bash", "attribution": "no_skip_concept", "observation": "none", "how": "감사 스크립트(`scripts/audit_python_dependencies.sh`) — 스킵 채널을 갖지 않는다(계약이 스캔한다).", "skip_channels": []},
+      {"gate": "dependency-audit-dashboard", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "감사 — 테스트를 돌리지 않는다."},
+      {"gate": "security-bandit", "runner": "none", "attribution": "no_skip_concept", "observation": "none", "how": "정적 보안 검사 — 스킵 개념이 아니라 발견 건수다."}
+    ]
+  },
   "classes": {
     "ENV_PLATFORM": "플랫폼·선택 의존성 때문에 게이트 환경에서 실행할 수 없다. **다른 파이프라인이 그 파일을 실제로 돈다**는 사실을 owner_run 으로 증명해야 한다(그 파일이 그 워크플로에서 안 돌면 계약이 실패한다).",
     "ENV_CONFIG": "런타임 설정에 따라 달라진다. 이 환경에서 스킵되지만 **같은 경계를 다른 required 게이트가 잰다** — 그 사실을 note 에 적고 파일을 가리킨다.",

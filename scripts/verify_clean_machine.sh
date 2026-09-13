@@ -139,7 +139,7 @@ if [[ $SKIP_E2E -eq 1 ]]; then
   echo "(--skip-e2e: API E2E 생략)"
 else
   step "API E2E smoke (tests/test_e2e_smoke.py)" \
-    uv run pytest tests/test_e2e_smoke.py -q --no-header || FAILED=1
+    uv run pytest tests/test_e2e_smoke.py -q -rs --no-header || FAILED=1
 fi
 
 # ─── [7] 배포 아티팩트: 클린 트리에서 wheel 빌드 ────────────────────────────

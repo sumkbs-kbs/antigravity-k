@@ -36,6 +36,11 @@
   5. required gate 전부 `passed` · `exit_code == 0`, 그리고 같은 지문에 실패한 실행이 없다.
   6. 카드의 `inventory / PASS / FAIL / NOT_RUN` 수치가 보고서 집계와 **같은가**(손으로 적은 수치 금지).
   7. 후보..HEAD 사이에 **코드 스코프 변경이 없는가**(기록 커밋이 지문을 옮기지 않았다).
+  8. **required 게이트 전수가 등록부의 스킵 가시성 분류를 갖고, 실제 실행의 스킵이 0건인가
+     (R-16 · attempt-024)** — 한 게이트가 테스트·단계를 조용히 빼고도 초록을 내는 자리를 막는다.
+     게이트 계약(`tests/test_cr14_gate_skip_register.py`)은 자기 실행 안에서 `python-tests` 의
+     환경만 재현할 수 있으므로(docker·dashboard·playwright 를 안에서 돌릴 수 없고 보고서는
+     게이트가 끝나야 생긴다) 다른 게이트의 관측은 **여기가 유일하게 측정 가능한 자리**다.
 
 이 검사는 gate inventory 에 **넣지 않는다** — 넣으면 순환이 생겨 영원히 실패한다(위 주석 참조).
 """
@@ -49,7 +54,7 @@ import json
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -156,6 +161,78 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# 게이트가 스킵을 **보고하는** 두 가지 형태 — 러너의 요약 건수와 셸 스크립트의 `SKIP` 행.
+_SKIP_COUNT_RE = re.compile(r"(\d+)\s+skipped", re.IGNORECASE)
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_SKIP_TOKEN_RE = re.compile(r"(?:^|\s)SKIP(?:\s|$)", re.MULTILINE)
+
+
+def _visibility_entries(repo_root: Path) -> dict[str, Mapping[str, Any]] | None:
+    """등록부(`scripts/gate_skip_register.json`)의 게이트별 스킵 가시성 분류.
+
+    읽을 수 없으면 `None` — **조용히 건너뛰지 않는다**: 그 자리가 바로 이 검사가 막으려는
+    자리이기 때문이다(등록부가 없으면 "소유자 없는 스킵"을 판정할 수 없다).
+    """
+    payload = _read_json(repo_root / "scripts" / "gate_skip_register.json")
+    if payload is None:
+        return None
+    entries = (payload.get("gate_visibility") or {}).get("gates")
+    if not isinstance(entries, list):
+        return None
+    return {str(entry.get("gate")): cast("Mapping[str, Any]", entry) for entry in entries}
+
+
+def skip_visibility_violations(report: dict[str, Any], *, label: str, repo_root: Path) -> list[str]:
+    """게이트별 **실제 실행의 스킵**을 등록부와 대조한다 (R-16, attempt-024).
+
+    왜 마감 단계인가: 게이트 계약(`tests/test_cr14_gate_skip_register.py`)은 자기 실행 안에서
+    `python-tests` 의 환경만 재현할 수 있다 — docker·dashboard·playwright 게이트를 안에서 다시
+    돌릴 수는 없고, 보고서는 게이트가 **끝나야** 생기므로 게이트 안에서는 순환한다. F-24 가
+    "선언한 초록의 출처"를 마감 단계로 옮긴 것과 같은 이유로, 다른 게이트의 스킵 관측도 여기가
+    유일하게 측정 가능한 자리다.
+
+    무엇을 막는가: 한 게이트가 테스트를 조용히 빼고도 초록을 내는 것. `clean-machine-runtime` 의
+    `--skip-wheel` 이 대표적이다 — 그 플래그가 게이트 명령에 들어가면 wheel 검증 단계가 통째로
+    사라지는데(요약에 `SKIP` 행) 게이트는 여전히 exit 0 이다. 등록부가 그 게이트의 스킵을
+    소유하지 않는다면 그 사실을 아무도 세지 않는다.
+    """
+    visibility = _visibility_entries(repo_root)
+    if visibility is None:
+        return [
+            f"{label}: 게이트별 스킵 가시성 등록부(scripts/gate_skip_register.json)를 읽을 수 없다"
+            " — 소유자 없는 스킵을 판정할 수 없다(침묵을 통과로 읽지 않는다)"
+        ]
+
+    problems: list[str] = []
+    for gate in report.get("gates") or []:
+        if not gate.get("required"):
+            continue
+        gate_id = str(gate.get("id"))
+        entry = visibility.get(gate_id)
+        if entry is None:
+            problems.append(
+                f"{label}: required 게이트 {gate_id} 가 등록부의 가시성 분류에 없다"
+                " — 그 게이트가 스킵을 만들어도 아무도 소유하지 않는다(R-16)"
+            )
+            continue
+        if entry.get("observation") != "close_check":
+            continue
+        out = ANSI_FREE(str(gate.get("stdout") or "")) + "\n" + ANSI_FREE(str(gate.get("stderr") or ""))
+        counted = [int(value) for value in _SKIP_COUNT_RE.findall(out)]
+        observed = (max(counted) if counted else 0) + len(_SKIP_TOKEN_RE.findall(out))
+        if observed:
+            problems.append(
+                f"{label}: 게이트 {gate_id} 가 스킵 {observed}건을 보고했다 — 등록부가 그 게이트의 스킵을 소유하지 않는다"
+                f" (게이트 초록은 '이 후보가 검증됐다'는 주장인데 그 테스트·단계는 돌지 않았다)"
+            )
+    return problems
+
+
+def ANSI_FREE(text: str) -> str:
+    """색상 이스케이프를 벗긴다 — 셸 스크립트의 `SKIP` 행은 색상 코드로 감싸여 나온다."""
+    return _ANSI_RE.sub("", text)
 
 
 def _report_sort_key(report: dict[str, Any]) -> str:
@@ -284,6 +361,10 @@ def close_violations(
             problems.append(
                 f"{label}: 보고서 summary {reported_summary} 가 gate 목록 집계 {expected_summary} 와 다르다"
             )
+        # (8) 게이트별 스킵 — required 게이트 전수가 등록부가 소유하고, **실제 실행의 스킵이 0건**인가.
+        # 게이트 계약은 자기 실행 안에서 `python-tests` 만 재현할 수 있으므로(다른 게이트를 안에서
+        # 돌릴 수 없고 보고서는 끝나야 생긴다) 이 관측의 자리는 마감 단계다 — R-16.
+        problems.extend(skip_visibility_violations(latest, label=label, repo_root=repo_root))
 
     # (7) 울타리 — 후보..HEAD 에 코드 스코프 변경이 없어야 한다.
     head = _git(repo_root, "rev-parse", "HEAD")
