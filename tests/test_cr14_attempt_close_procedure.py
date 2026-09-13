@@ -84,6 +84,28 @@ def test_close_stage_runs_no_gate(procedure: ModuleType, manifest_ids: list[str]
     assert list(plan("close", manifest_ids)) == []
 
 
+def test_merge_is_decided_by_the_report_identity_not_by_stage_order(procedure: ModuleType, tmp_path: Path) -> None:
+    """F-26 — 이어받기는 **파일의 정체성**으로 결정한다.
+
+    배치를 따로 실행하면(각 호출이 별도 프로세스) "첫 배치인가"를 프로세스 안에서 알 수 없다.
+    첫 구현은 그 상태로 "첫 배치에만 --merge-into 를 안 붙이는" 규칙을 써서, `--stage tests`
+    단독 실행이 fast 18개의 결과를 **덮어썼다**(보고서 total 18 → 1).
+    """
+    output = tmp_path / "report.json"
+    sha, manifest_sha = "a" * 40, "c" * 64
+    should_merge = procedure.should_merge
+    assert isinstance(should_merge, Callable)
+    assert should_merge(output, head=sha, manifest_sha=manifest_sha) is False  # 보고서가 없다
+
+    output.write_text(json.dumps({"git": {"sha": sha}, "manifest": {"sha256": manifest_sha}}), encoding="utf-8")
+    assert should_merge(output, head=sha, manifest_sha=manifest_sha) is True  # 같은 후보·같은 manifest
+    assert should_merge(output, head="b" * 40, manifest_sha=manifest_sha) is False  # 다른 후보
+    assert should_merge(output, head=sha, manifest_sha="d" * 64) is False  # 다른 manifest
+
+    output.write_text("{ 깨진 보고서", encoding="utf-8")
+    assert should_merge(output, head=sha, manifest_sha=manifest_sha) is False  # 읽을 수 없으면 새로 시작
+
+
 def test_unknown_stage_and_missing_gate_are_usage_errors(procedure: ModuleType) -> None:
     plan = procedure.plan_stage
     assert isinstance(plan, Callable)
@@ -166,6 +188,30 @@ def test_teeth_file_report_refuses_missing_or_broken_source(procedure: ModuleTyp
 # ---------------------------------------------------------------------------
 # close 단계 — 편입 + 마감 검사
 # ---------------------------------------------------------------------------
+
+
+def test_teeth_second_stage_does_not_erase_the_first_stage_results(procedure: ModuleType, tmp_path: Path) -> None:
+    """F-26 의 모양 그대로 — 앞 배치의 결과가 들어 있는 보고서를 두 번째 배치가 **덮어쓰지 않는다**.
+
+    실제 실행 없이 규칙만 확인한다: 같은 후보·manifest 의 보고서가 있으면 `--merge-into` 가 붙고,
+    그 플래그가 붙은 argv 로 같은 출력 파일을 쓰므로 ga_gate 가 이어받는다(그 이어받기 규칙은
+    `tests/test_cr14_candidate_evidence.py` 가 따로 고정한다).
+    """
+    output = tmp_path / "report.json"
+    sha, manifest_sha = "e" * 40, "f" * 64
+    output.write_text(json.dumps({"git": {"sha": sha}, "manifest": {"sha256": manifest_sha}}), encoding="utf-8")
+    assert procedure.should_merge(output, head=sha, manifest_sha=manifest_sha) is True
+    command = list(
+        procedure.gate_command(
+            ["python-tests"],
+            manifest=tmp_path / "gates.json",
+            output=output,
+            merge_into=procedure.should_merge(output, head=sha, manifest_sha=manifest_sha),
+            repo_root=tmp_path,
+        )
+    )
+    assert "--merge-into" in command
+    assert str(tmp_path / "scripts" / "ga_gate.py") in command
 
 
 def test_close_stage_files_the_report_then_passes(procedure: ModuleType, tmp_path: Path) -> None:

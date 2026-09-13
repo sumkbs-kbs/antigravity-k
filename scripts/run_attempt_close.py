@@ -106,7 +106,7 @@ def plan_stage(stage: str, gate_ids: Sequence[str]) -> list[str]:
     raise UsageError(f"알 수 없는 단계다: {stage} (가능: {', '.join((*_STAGE_ORDER, 'all'))})")
 
 
-def gate_command(
+def gate_command(  # noqa: PLR0913 — argv 한 벌을 만드는 함수라 인자가 많다
     gate_ids: Sequence[str], *, manifest: Path, output: Path, merge_into: bool, repo_root: Path
 ) -> list[str]:
     """`ga_gate.py` 호출 argv — 배치 경계마다 `--merge-into` 를 붙이는 규칙을 여기서만 정한다."""
@@ -115,7 +115,7 @@ def gate_command(
         "run",
         "--no-sync",
         "python",
-        str(_GATE_SCRIPT),
+        str(repo_root / "scripts" / "ga_gate.py"),  # --repo-root 안의 게이트 실행자를 돌린다
         "--manifest",
         str(manifest),
         "--output",
@@ -126,6 +126,32 @@ def gate_command(
     if merge_into:
         command.append("--merge-into")
     return command
+
+
+def existing_report_identity(output: Path) -> tuple[str, str] | None:
+    """이어받을 수 있는 보고서의 `(후보 sha, manifest sha256)` — 없거나 읽을 수 없으면 `None`."""
+    if not output.is_file():
+        return None
+    try:
+        payload = json.loads(output.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    sha = str((payload.get("git") or {}).get("sha") or "")
+    manifest_sha = str((payload.get("manifest") or {}).get("sha256") or "")
+    if not sha or not manifest_sha:
+        return None
+    return sha, manifest_sha
+
+
+def should_merge(output: Path, *, head: str, manifest_sha: str) -> bool:
+    """`--merge-into` 를 붙일지 결정한다 — **같은 후보·같은 manifest** 일 때만 이어받는다.
+
+    단계별로 따로 실행하면(각 호출이 별도 프로세스) "첫 배치인가"를 프로세스 안에서 알 수 없다.
+    attempt-017 의 첫 구현이 그 상태로 `--merge-into` 를 **첫 배치에만 안 붙이는** 규칙을 썼고,
+    그래서 `--stage tests` 단독 실행이 fast 18개의 결과를 **덮어썼다**(보고서 total 이 18 → 1).
+    판단 근거를 프로세스 기억이 아니라 **파일의 정체성**으로 옮긴다.
+    """
+    return existing_report_identity(output) == (head, manifest_sha)
 
 
 def file_report(source: Path, attempt_dir: Path) -> Path:
@@ -152,6 +178,19 @@ def _run_stage(
     print(f"[{stage}] {' '.join(command)}", flush=True)
     result = subprocess.run(command, cwd=repo_root, check=False)
     return result.returncode
+
+
+def _head(repo_root: Path) -> str:
+    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_root, capture_output=True, check=False, text=True)
+    if result.returncode != 0:
+        raise UsageError("HEAD 를 읽을 수 없다 — git 저장소에서 실행해야 한다")
+    return result.stdout.strip()
+
+
+def _manifest_sha256(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _close(*, card: Path, evidence_root: Path, manifest: Path, repo_root: Path, attempt: str) -> int:
@@ -215,7 +254,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     stages = list(_STAGE_ORDER) if args.stage == "all" else [args.stage]
-    first_gate_stage = True
+    # 이어받기는 **보고서의 정체성**으로 결정한다: 같은 후보·같은 manifest 일 때만.
+    # 그래서 배치를 따로 실행해도 앞 배치의 결과를 덮어쓰지 않는다.
+    try:
+        merge_into = should_merge(output, head=_head(repo_root), manifest_sha=_manifest_sha256(manifest_path))
+    except UsageError as error:
+        print(f"ERROR {error}", file=sys.stderr)
+        return 2
+    print(f"[merge] {'이어받는다' if merge_into else '새 보고서로 시작한다'} ({output})")
     for stage in stages:
         if stage == "close":
             return _close(
@@ -237,14 +283,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             ids,
             manifest=manifest_path,
             output=output,
-            merge_into=not first_gate_stage,
+            merge_into=merge_into,
             repo_root=repo_root,
         )
         print(f"[{stage}] {len(ids)}개 gate 실행 완료 — exit {code}")
         if code != 0:
             print(f"ERROR 게이트 실행이 실패했다({stage}, exit {code})", file=sys.stderr)
             return 1
-        first_gate_stage = False
+        merge_into = True
     print("[all] 게이트 배치가 끝났다 — `--stage close` 로 보고서 편입과 마감 검사를 돌린다")
     return 0
 
