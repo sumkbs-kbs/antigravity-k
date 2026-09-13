@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scope": "게이트 `python-tests` 의 환경(`uv run --isolated --frozen --extra dev --extra rag --extra documents`)에서 **실제로 스킵되는** 테스트. 다른 파이프라인(개발자 ambient·CI matrix·weekly job)의 스킵은 이 등록부의 소관이 아니다 — 그쪽 환경은 각자 소유자가 있다.",
-  "why": "게이트 초록은 \"이 후보가 검증됐다\"는 주장인데, **스킵은 그 주장에서 조용히 빠지는 자리**다. CR-14 attempt-011/012 는 ambient 도구로 돌아 스킵이 13·6건이었고, F-18 로 게이트 환경을 lock 에 고정한 뒤(attempt-013) 스킵이 **40건**이 됐다 — 도구 출처는 바로잡혔지만 그 대가가 조용했다(R-8). attempt-021 이 그 대가를 세어 이 등록부로 옮겼다: 40 → **17**(23건은 출하 extra `documents` 를 게이트에 넣어 복원했다). attempt-022 가 스킵 2건을 **능력으로** 되돌렸다(`config-models-unregistered` → `closed`): 남은 것은 **15건**이다 — 13건은 각자 소유자가 있고(mlx · unsloth · access-pin), 2건은 명시된 미검증 능력이다.",
+  "why": "게이트 초록은 \"이 후보가 검증됐다\"는 주장인데, **스킵은 그 주장에서 조용히 빠지는 자리**다. CR-14 attempt-011/012 는 ambient 도구로 돌아 스킵이 13·6건이었고, F-18 로 게이트 환경을 lock 에 고정한 뒤(attempt-013) 스킵이 **40건**이 됐다 — 도구 출처는 바로잡혔지만 그 대가가 조용했다(R-8). attempt-021 이 그 대가를 세어 이 등록부로 옮겼다: 40 → **17**(23건은 출하 extra `documents` 를 게이트에 넣어 복원했다). attempt-022 가 스킵 2건을 **능력으로** 되돌렸고(`config-models-unregistered` → `closed`), attempt-023 이 나머지 미검증 능력 2건을 되돌렸다(`orchestrator-refactor-rewrite` → `closed`): 남은 것은 **13건**이고 **전부 소유자가 있다**(mlx 4 · unsloth 7 · access-pin 2). **소유자 없는 스킵은 0건**이다.",
   "measured_by": "tests/test_cr14_gate_skip_register.py — 같은 게이트 환경을 다시 돌려 이 등록부와 **한 건씩** 대조한다. 관측 대상 파일은 `observed_files` 가 소유한다: **항목을 닫아도 그 파일은 관측에서 빠지지 않는다**(등록부에서 지우기만 하면 그 파일의 스킵이 다시는 보이지 않고, 그것이 F-30 의 병을 한 층 위에서 반복한다). 등록되지 않은 스킵이 생기거나, 등록된 스킵이 사라지면 계약이 실패한다(양쪽 다 \"무엇이 바뀌었는지 적어라\"는 뜻이다).",
   "observed_files": [
     "tests/test_mlx_command_flags.py",
@@ -14,7 +14,7 @@
   "classes": {
     "ENV_PLATFORM": "플랫폼·선택 의존성 때문에 게이트 환경에서 실행할 수 없다. **다른 파이프라인이 그 파일을 실제로 돈다**는 사실을 owner_run 으로 증명해야 한다(그 파일이 그 워크플로에서 안 돌면 계약이 실패한다).",
     "ENV_CONFIG": "런타임 설정에 따라 달라진다. 이 환경에서 스킵되지만 **같은 경계를 다른 required 게이트가 잰다** — 그 사실을 note 에 적고 파일을 가리킨다.",
-    "KNOWN_GAP": "제품 능력을 재는 테스트인데 **어디서도 돌지 않는다** = 미검증 능력. owner·plan·review_due 를 반드시 채운다. review_due 가 지나면 계약이 실패한다 — 그 자리를 다시 보라는 뜻이다(감사 예외의 만료와 같은 규율)."
+    "KNOWN_GAP": "제품 능력을 재는 테스트인데 **어디서도 돌지 않는다** = 미검증 능력. owner·plan·review_due 를 반드시 채운다. review_due 가 지나면 계약이 실패한다 — 그 자리를 다시 보라는 뜻이다(감사 예외의 만료와 같은 규율). 항목이 0건이면 경계 문서가 '미검증 능력 0건'을 명시해야 한다(침묵은 증거가 아니다)."
   },
   "entries": [
     {
@@ -75,30 +75,18 @@
       "note": "PIN(인증) 경계는 **required 게이트 안에서 다른 파일이 잰다** — `tests/test_cr04_shell_api_boundary.py` 가 `config.security.access_pin` 을 세우고 토큰 없는 요청이 401 로 끝나는 것을 확인한다(그 파일은 게이트에서 스킵되지 않는다). 그래서 이 스킵은 \"인증 경계가 미검증\"을 뜻하지 않는다 — 이 특정 파일의 두 테스트만 그 환경에서 안 돈다.",
       "owner": "tests/test_cr04_shell_api_boundary.py",
       "owner_run": []
-    },
-    {
-      "id": "orchestrator-refactor-rewrite",
-      "class": "KNOWN_GAP",
-      "skips": [
-        {
-          "file": "tests/test_agent_program_creation.py",
-          "reason": "OrchestratorAgent has been significantly refactored (state graph + engine context). This integration test needs comprehensive updates to match the new architecture.",
-          "count": 1
-        },
-        {
-          "file": "tests/test_planning_and_rendering_quality.py",
-          "reason": "OrchestratorAgent 대규모 리팩토링으로 EngineContext 의존성 불일치 — 향후 재작성 필요",
-          "count": 1
-        }
-      ],
-      "why": "두 테스트는 **에이전트의 핵심 루프**를 잰다(에이전트가 프로그램을 만들고 실행하는가 · 코드 전용 답변에서 품질 재시도가 도는가). OrchestratorAgent 가 state graph + engine context 로 리팩토링되면서 둘 다 **무조건 스킵**이 됐다 — 조건이 아니라 `@pytest.mark.skip` 이므로 어떤 환경에서도 돌지 않는다. 작성자는 \"향후 재작성 필요\"라고 적었지만 그 일을 소유한 사람은 없다.",
-      "capability": "에이전트 실행 루프 — 프로그램 생성·실행, 코드 전용 답변의 품질 재시도",
-      "owner": "오케스트레이터 소관 (출시 책임자 미배정 — C14-08 배정 대상)",
-      "plan": "state graph + EngineContext 구조에 맞게 두 테스트를 재작성해 능력을 다시 잰다. 재작성이 이번 릴리스 범위가 아니면 **그 사실을 판정서 §6 과 이 등록부에 함께 적어** 미검증 능력으로 남긴다(조용한 스킵으로 두지 않는다).",
-      "review_due": "2026-10-15"
     }
   ],
   "closed": {
+    "orchestrator-refactor-rewrite": {
+      "skips": 2,
+      "files": [
+        "tests/test_agent_program_creation.py",
+        "tests/test_planning_and_rendering_quality.py"
+      ],
+      "how": "**미검증 능력 2건을 닫았다** — 제품 코드는 고칠 필요가 없었고, 고칠 것은 계약 드리프트였다. 실패 이유를 관측하니 두 루프는 **돌고 있었다**. (1) 두 테스트 더블 모두 `manager.router` 가 없었다 — 툴 루프는 `manager.router.get_combo(...)` 로 콤보 여부를 판단하는데(`tool_loop.run_loop`), 실제 `ModelManager` 는 생성자에서 `self.router` 를 **항상** 만든다. (2) `_QualityRetryManager.get_model_info(name)` 이 인자를 요구했다 — 실제 `ModelManager.get_model_info()` 는 `status()` 의 별칭이며 **인자를 받지 않는다**(`self_capability._model_info` 가 인자 없이 부른다). 잘못된 쪽은 더블이었다. (3) 프로그램 생성 테스트는 도구 호출이 **승인 게이트에서 멈춰** 있었다(CR-04/CR-05 가 그 테스트 이후에 생겼다). 게이트를 끄는 대신 **제품의 승인 경로**로 사용자 동의를 만들었다: `get_approval_manager()` 에 `ApprovalDecision.ALWAYS_ALLOW` 를 기록한다(대시보드가 '항상 허용'을 누를 때와 같은 상태). 나머지 게이트(보안 정책·위험 명령·경로 샌드박스)는 그대로 산다. (4) 같은 테스트의 스크립트가 `sys.executable`(저장소의 venv — 테스트의 프로젝트 루트 밖)로 프로그램을 실행하려 해 **셀 경로 경계(CR-04)가 정당하게 거부**했다. 경계를 우회하지 않고 명령을 **루트 기준 상대 경로**(`python3 <file>`)로 바꿨다 — 경계는 그대로 재어진다. (5) 품질 재시도 테스트의 `calls == 2` 는 더블이 **한 턴을 두 번 세어서**(`stream_generate` 가 `self.generate()` 호출) 거짓이 됐고, 재시도 예산이 **패키지 기본 config(`quality_gate.max_retries: 2`)** 에서 와 환경 의존적이었다. 더블이 `_answer()` 한 곳에서 한 번만 세게 하고, 테스트가 예산을 1로 **고정**한다 — 이제 `calls == 2` 는 '초기 1턴 + 재시도 1턴'이라는 뜻이다. 다섯 항목 모두 **테스트를 약화시키지 않고** 계약에 맞춘 것이며, 두 테스트는 이제 조건 없이 돌고 **통과**한다(6 passed / 0 skipped 실측).",
+      "found_by": "R-8 감사(attempt-021)가 '어디서도 돌지 않는 제품 능력 4건'으로 등록했고, attempt-022 가 그중 설정 2건을 닫았다. attempt-023 이 나머지 2건을 닫으면서, 두 테스트가 **제품 결함이 아니라 계약 드리프트**로 죽어 있었다는 사실을 확인했다 — 무조건 스킵은 \"고칠 것이 남았다\"는 뜻이었지만, 실제로 남아 있던 것은 과거 인터페이스를 흉내내는 더블과 인증·경로 경로였다."
+    },
     "config-models-unregistered": {
       "skips": 2,
       "files": [

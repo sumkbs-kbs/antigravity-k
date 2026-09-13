@@ -1,6 +1,6 @@
 # 게이트 커버리지 경계 — required gate 21개가 **재지 않는** 것
 
-최종 갱신: 2026-09-13 (CR-14 attempt-022 — `config-models-unregistered` 폐쇄 + F-31)
+최종 갱신: 2026-09-13 (CR-14 attempt-023 — `orchestrator-refactor-rewrite` 폐쇄 + F-32)
 
 판정서의 `required gate 21/21 PASS` 는 **강한 문장이지만 만능 문장이 아니다.** 이 문서는 그
 문장이 **어디까지 참인지**를 적는다. 목적은 하나다: 초록을 "모든 것이 검증됐다"로 읽는 착각을
@@ -32,13 +32,14 @@ uv run --isolated --frozen --extra dev --extra rag --extra documents pytest test
 | 013 | **lock 고정**(F-18 수정) | 6174 | **40** |
 | 020 | lock 고정 | 6251 | 40 |
 | 021 | lock 고정 + `documents` | 6280 | **17** |
-| **022** | lock 고정 + `documents` | **6289** | **15** |
+| 022 | lock 고정 + `documents` | 6289 | 15 |
+| **023** | lock 고정 + `documents` | **6291** | **13** |
 
 도구 출처를 바로잡은 것(F-18)은 옳았지만, 그 순간 **돌던 테스트 30여 건이 스킵으로 옮겨졌고
 아무도 세지 않았다.** R-8 은 그 사실을 한계로 적어 두었다가 attempt-021 이 감사했다.
 40건의 구성이 곧 답이다: `documents` 23(→ 복원) · `mlx` 4 · `unsloth` 7 · access-pin 2 ·
-**소유자 없는 제품 능력 4**. 그 4건 중 2건(`config-models-unregistered`)은 **attempt-022 에서
-능력으로 되돌았다**(설정 복원 — 아래 §3-2).
+**소유자 없는 제품 능력 4**. 그 4건은 **attempt-022·023 에서 모두 능력으로 되돌아왔다**
+(설정 복원 2건 + 에이전트 루프 2건 — 아래 §3).
 
 **닫는 일이 관측을 줄이면 안 된다(attempt-022, F-31a).** 관측 대상 파일을 등록부의 선언에서
 **파생**시키면 항목을 닫는 순간 그 파일이 관측에서 사라지고, 그 자리가 다시 열려도 계약은
@@ -46,21 +47,42 @@ uv run --isolated --frozen --extra dev --extra rag --extra documents pytest test
 적혀 그 파일이 계속 관측된다(`tests/test_cr14_gate_skip_register.py` 가 `observed_files ⊇ 선언 파일`
 과 `closed` 파일의 관측 잔존을 강제한다).
 
-## 3. 게이트가 **재지 않는** 제품 능력 — 소유자 없는 2건 (+ 닫은 2건)
+## 3. 게이트가 **재지 않는** 제품 능력 — 현재 **미검증 능력 0건**
 
-이 항목들이 이 문서의 핵심이다. 등록부에서 `KNOWN_GAP` 으로 분류되며, **어디서도 돌지 않는다.**
+이 절은 등록부에서 `KNOWN_GAP` 으로 분류되는 항목, 즉 **어디서도 돌지 않는 제품 능력**의 목록이다.
+attempt-021 의 감사가 4건을 등록했고, **attempt-023 시점에 그 목록은 비었다.** 아래는 그 4건이
+어떻게 닫혔는지의 기록이다 — 항목이 0건이 된 뒤에도 남겨 두는 이유는, "닫았다"는 주장의 근거가
+사라지면 그 주장을 다시 확인할 방법도 사라지기 때문이다.
 
-### `orchestrator-refactor-rewrite` — 에이전트 실행 루프 (2건)
+**이 문서는 `KNOWN_GAP` 이 0건이라는 사실을 명시해야 한다** — 계약이 그 문장을 요구한다
+(`test_known_gaps_are_owned_and_expire`). 항목이 없으면 검사할 것도 없고, 침묵은 "미검증 능력이
+없다"는 증거가 아니다.
 
-- 미검증 능력: **에이전트가 프로그램을 만들고 실행하는가** · **코드 전용 답변에서 품질 재시도가 도는가**
-- 왜 스킵인가: `OrchestratorAgent` 가 state graph + engine context 로 리팩토링되면서 두 테스트가
+### ~~`orchestrator-refactor-rewrite` — 에이전트 실행 루프 (2건)~~ → **attempt-023 에서 닫혔다(능력 복원)**
+
+- 미검증 능력이었던 것: **에이전트가 프로그램을 만들고 실행하는가** · **코드 전용 답변에서 품질
+  재시도가 도는가**
+- 왜 스킵이었나: `OrchestratorAgent` 가 state graph + engine context 로 리팩토링되면서 두 테스트가
   **조건 없이** `@pytest.mark.skip` 이 됐다("향후 재작성 필요"). 조건이 아니므로 **어떤 환경에서도
   돌지 않는다** — ambient 에서도 돌지 않는다.
 - 파일: `tests/test_agent_program_creation.py` · `tests/test_planning_and_rendering_quality.py`
-- 소유자: 오케스트레이터 소관(**출시 책임자 미배정 — C14-08 배정 대상**)
-- 계획: state graph 구조에 맞게 재작성해 능력을 다시 잰다. 이번 릴리스 범위가 아니면 그 사실을
-  판정서 §6 과 여기에 함께 적어 **미검증 능력**으로 남긴다(조용한 스킵으로 두지 않는다).
-- 만료: 2026-10-15
+- 어떻게 닫았나: **제품 코드는 고칠 필요가 없었다 — 고칠 것은 계약 드리프트였다.** 실패 이유를
+  관측하니 두 루프는 **돌고 있었고**, 막던 것은 리팩토링 이전 인터페이스를 흉내내는 **테스트 더블**과
+  그 뒤에 생긴 **승인·경로 경계**였다(F-32).
+
+  | 걸린 것 | 왜 걸렸나 | 어떻게 맞췄나 (게이트는 그대로) |
+  | --- | --- | --- |
+  | `manager.router` 없음 (더블 2개) | 툴 루프가 `manager.router.get_combo(...)` 로 콤보를 판정하는데(`tool_loop.run_loop`), 실제 `ModelManager` 는 생성자에서 `self.router` 를 **항상** 만든다 | 더블에 `_StubRouter` 를 둔다(콤보 없음) |
+  | `get_model_info(name)` (더블) | 인자를 **요구하는 쪽이 틀렸다** — 실제 `ModelManager.get_model_info()` 는 `status()` 의 별칭이며 **인자를 받지 않는다**(`self_capability._model_info` 가 인자 없이 부른다) | 더블의 시그니처를 맞춘다 |
+  | 도구 호출이 승인 정지 | CR-04/CR-05 의 승인 게이트가 이 테스트 이후에 생겼다 | 게이트를 끄지 않고 **제품의 승인 경로**로 동의를 만든다: `get_approval_manager()` 에 `ApprovalDecision.ALWAYS_ALLOW` 기록(대시보드 '항상 허용'과 같은 상태). 나머지 게이트는 그대로 산다 |
+  | 셀 경로 경계가 실행 거부 | 스크립트가 `sys.executable`(저장소 venv — 테스트의 프로젝트 루트 밖)로 실행하려 했다. 경계 판단이 **옳다** | 경계를 우회하지 않고 명령을 **루트 기준 상대 경로**로 바꾼다(`python3 <file>`) — 경계는 그대로 재어진다 |
+  | `manager.calls == 2` 가 거짓 | 더블이 한 턴을 **두 번** 셌고(`stream_generate` → `self.generate()`), 재시도 예산이 **패키지 기본 config**(`quality_gate.max_retries: 2`)에서 와 환경 의존적이었다 | 더블이 `_answer()` 한 곳에서 한 번만 세게 하고, 테스트가 예산을 1로 **고정**한다 → `calls == 2` 는 "초기 1턴 + 재시도 1턴" |
+
+- 결과: 두 테스트는 이제 **조건 없이 돌고 통과**한다(`tests/test_agent_program_creation.py` +
+  `tests/test_planning_and_rendering_quality.py` **6 passed / 0 skipped**). 등록부: `closed` 로
+  옮겼고 **두 파일 모두 관측 목록에 남았다** — 무조건 스킵이 돌아오면 대조가 즉시 실패한다(F-31a).
+- 교훈: 무조건 스킵은 "고칠 것이 남았다"는 뜻이지만, **남아 있던 것이 제품 결함이라는 뜻은 아니다.**
+  이 2건은 6번째·7번째 사례와 같은 병이었다 — 검사가 대상이 아니라 **과거의 대상**을 보고 있었다.
 
 ### ~~`config-models-unregistered` — 제품 설정의 약속 (2건)~~ → **attempt-022 에서 닫혔다(능력 복원)**
 
@@ -85,17 +107,22 @@ uv run --isolated --frozen --extra dev --extra rag --extra documents pytest test
 | `mlx-lm` 미설치 | 4 | `ci.yml` 매트릭스 `deps: [base, rag, mlx]`(macOS·Linux) · `weekly-drift.yml` — 최신 mlx-lm 으로 플래그 드리프트 검사 |
 | `unsloth/trl` 미설치 | 7 | `weekly-drift.yml` unsloth-drift — 최신 unsloth·trl 설치 후 API 드리프트 검사 |
 | (**닫힘**) 제품 설정 약속 | 2 | attempt-022 에서 **능력으로 되돌았다** — 게이트 환경에서 `tests/test_upgrade_v6_9.py` **21 passed / 0 skipped** |
+| (**닫힘**) 에이전트 실행 루프 | 2 | attempt-023 에서 **능력으로 되돌렸다** — 게이트 환경에서 두 파일 **6 passed / 0 skipped** |
 | Access PIN 미설정 | 2 | `tests/test_cr04_shell_api_boundary.py` — 게이트 안에서 PIN 을 세우고 토큰 없는 요청이 401 로 끝나는 것을 잰다(**이 파일은 게이트에서 스킵되지 않는다**) |
 
 이 세 줄은 등록부의 `ENV_PLATFORM`(워크플로가 그 파일을 **실제로** 도는지 계약이 확인)과
 `ENV_CONFIG`(대신 재는 파일이 게이트에서 스킵되지 않는지 계약이 확인)에 대응한다.
 
+**남은 13건은 전부 소유자가 있다** — 소유자 없는 스킵(미검증 능력)은 **0건**이다.
+
 ## 5. 이 문서를 어떻게 쓰는가
 
-- 판정서·릴리스 노트에서 `21/21` 을 인용할 때, **§3 의 4건이 여전히 미검증**이라는 사실을 함께 본다.
+- 판정서·릴리스 노트에서 `21/21` 을 인용할 때, **스킵 13건이 남아 있다**는 사실과 그 13건의
+  소유자를 함께 본다. `21/21` 은 "게이트에 넣은 것을 다 돌렸다"는 문장이지 "모든 테스트가 돌았다"는
+  문장이 아니다.
 - 새 스킵을 만들려면 **등록부에 적어야 한다.** 적지 않으면 `test_gate_environment_skips_exactly_what_the_register_declares`
   가 실패한다 — "무엇이 사라졌는지 적어라"는 뜻이다.
 - `KNOWN_GAP` 의 만료일이 지나면 계약이 실패한다. 그 실패는 **버그가 아니라 알림**이다:
   그 자리를 다시 보라는 뜻이다(감사 예외의 만료와 같은 규율).
-- 능력이 복원되면(예: 그 두 테스트를 재작성) 등록부에서 그 항목을 지우고,
-  `removed_by_f30` 처럼 **어떻게 복원했는지**를 등록부에 한 줄 남긴다.
+- 능력이 복원되면 등록부에서 그 항목을 지우고, `closed` 에 **어떻게 복원했는지**를 남긴다.
+  닫힌 파일은 `observed_files` 에서 **빼지 않는다** — 빼면 그 자리가 다시 열려도 보이지 않는다(F-31a).

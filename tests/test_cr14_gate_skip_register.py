@@ -14,8 +14,9 @@
 **어떤 파이프라인도 `documents` extra(pypdf)를 설치하지 않았다.** 그래서 출하 능력인
 PDF/DOCX 수집을 재는 **23건**이 게이트·CI·weekly 어디서도 돌지 않았다(게이트는 초록).
 게이트 환경에 그 extra 를 넣어 23건을 되살렸고(실측 87 passed / 0 skipped), 남은 **17건**을
-이 등록부로 옮겼다. 그중 **4건은 어디서도 돌지 않는 제품 능력**이다(에이전트 루프 2건 ·
-제품 설정 약속 2건) — 등록부가 그 사실을 소유하고 만료일을 건다.
+이 등록부로 옮겼다. 그중 **4건은 어디서도 돌지 않는 제품 능력**이었다(에이전트 루프 2건 ·
+제품 설정 약속 2건). **attempt-022·023 이 그 4건을 모두 닫았다** — 남은 **13건은 전부
+소유자가 있다**(mlx 4 · unsloth 7 · access-pin 2).
 
 규칙은 한 곳
 ============
@@ -235,14 +236,22 @@ def test_known_gaps_are_owned_and_expire() -> None:
     """KNOWN_GAP — 미검증 능력은 **소유자·계획·만료일**을 갖고, 판정서 경계 문서에도 적힌다.
 
     만료일이 지나면 계약이 실패한다: 그 자리를 다시 보라는 뜻이다(감사 예외의 만료와 같은 규율).
+
+    항목이 **0건이면** 이 루프는 아무것도 재지 않는다 — 그 침묵을 "미검증 능력이 없다"는 주장으로
+    읽지 않도록, 그 사실을 경계 문서가 **명시**하게 한다(침묵은 증거가 아니다: 이 저장소에서 반복된
+    병이 바로 "검사가 대상이 아니라 그 부재를 본다"이다).
     """
     register = _register()
     boundary = BOUNDARY_DOC.read_text(encoding="utf-8")
     today = date.today()
 
-    for entry in register["entries"]:
-        if entry["class"] != "KNOWN_GAP":
-            continue
+    gaps = [entry for entry in register["entries"] if entry["class"] == "KNOWN_GAP"]
+    if not gaps:
+        assert "미검증 능력 0건" in boundary, (
+            f"KNOWN_GAP 이 0건인데 경계 문서({BOUNDARY_DOC.name})가 그 사실을 적지 않았다 — 침묵은 증거가 아니다"
+        )
+
+    for entry in gaps:
         entry_id = str(entry["id"])
         assert str(entry["owner"]).strip(), f"{entry_id}: owner 가 비었다"
         assert str(entry["plan"]).strip(), f"{entry_id}: plan 이 비었다 — 어떻게 닫을 것인가"
