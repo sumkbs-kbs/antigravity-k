@@ -1,6 +1,6 @@
 # CR-14 최종 후보 판정서 — NO-GO
 
-- 판정일: 2026-09-12 (attempt-001) · **attempt-002 갱신: 2026-09-12** · **attempt-003 갱신: 2026-09-12** · **attempt-004 갱신: 2026-09-12** · **attempt-005 갱신: 2026-09-13** · **attempt-006 갱신: 2026-09-13** · **attempt-007 갱신: 2026-09-13** · **attempt-008 갱신: 2026-09-13** · **attempt-009 갱신: 2026-09-13(최신)**
+- 판정일: 2026-09-12 (attempt-001) · **attempt-002 갱신: 2026-09-12** · **attempt-003 갱신: 2026-09-12** · **attempt-004 갱신: 2026-09-12** · **attempt-005 갱신: 2026-09-13** · **attempt-006 갱신: 2026-09-13** · **attempt-007 갱신: 2026-09-13** · **attempt-008 갱신: 2026-09-13** · **attempt-009 갱신: 2026-09-13** · **attempt-010 갱신: 2026-09-13(최신)**
 - 후보: 커밋 `08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f` + 미커밋 patch(CR-01~CR-14)
 - 코드 지문(gate 실행 시점, `docs/`·`.omo/` 제외): attempt-001 `11979d6c…` → attempt-002 `ebbbd7f06fab3fb2d10008336ef96ba0d7949ee72007774c6372fc07f1bba0b5`(2544 files) → attempt-003 `eb10aed606ba7e84ecce03a50a19153b92105cacd196b5a167b5e38770f1f448`(2545 files) → attempt-004 `eca54773d5504e40a724a0c86ab9d1724be310986ef3e326f8f4904f52d98dd8`(2546 files) → attempt-005 `1981bfb5143d3f9eac947826bf6ee53655c47194f5be9c4a5bf755ba982a1844` → attempt-006 `3a9a7d66909e2fafaf31b4c429d2338f262d50b0d0d8ef3b5f00b5be0ca41e2d` → attempt-007 `c36327effafcc6dbe4a80970682f5e82eccd98f81951b000c758e888e7b0130a` → attempt-008 `6641446ef41e0562118dd0741637f57eae6412f18fdf18813ea87f777d0b0076` → **attempt-009 `dd34a76bf076ebc09be8c575ad733c52a0a647faa4d5d9758f3b01cf6f667f37`**
 - **코드 후보 full SHA: `54e4169a947d4ba0cbe3fabf92b0c8590b8ccef6`**(attempt-009 — 커밋 `5a717c4a` + F-12 수정 `54e4169a`). `git.dirty: true` 의 원인은 ` M vault_data`(별도 저장소의 런타임 이벤트 로그) **한 줄뿐**이다 — F-13.
@@ -13,7 +13,31 @@
 
 ---
 
-## attempt-009 갱신 (2026-09-13, 최신) — 후보 커밋 + F-12·F-07 폐쇄: **기술 축을 모두 닫았다**
+## attempt-010 갱신 (2026-09-13, 최신) — 지문 경계 실측 + 동결 트리에서 20/20 재검증: **기록이 증거를 낡게 만들던 경계를 찾았다**
+
+**판정은 NO-GO 로 유지한다.** attempt-009 가 측정한 코드 내용은 그대로이고, 그 내용을 **동결된 커밋 트리**에 묶었다. 대신 그 과정에서 이 저장소가 전제해 온 가정 하나가 **틀렸음**이 드러났다.
+
+- 후보: **clean HEAD `5ccb938e5d31411b16f2a69e3015fc8fb826455d`**(커밋 4개) · 코드 지문 **`d4a42ab87697ba299129719d054c9259a717628a1bc8f80d00cd03ae0e372ce7`**(attempt-009 의 `dd34a76b…` 에서 이동).
+
+**드러난 경계 — "문서를 써도 증거가 낡지 않는다"는 `docs/` 안에서만 참이다**
+
+- 게이트 코드 지문의 제외 목록은 `FINGERPRINT_EXCLUDED_PREFIXES = ("docs/", ".omo/")` 이고 **경로 접두사 비교**다. 그래서 **`README.md`(루트)와 `tests/**` 는 지문 안**이다.
+- attempt-009 기록을 쓰면서 커밋 계약 파일(`tests/test_cr12_docs_alignment.py`)을 고치자 지문이 `dd34a76b…` → `003205f2…` → `d4a42ab8…` 로 **이동**했다 — 그대로 두면 attempt-009 의 20/20 초록이 **후보가 아닌 트리**를 가리킨다(F-07 과 같은 병).
+- 수정: README 에서 지문 **값**을 제거하고 **출처**(본 문서·보고서)를 가리키게 했다(D-51). 최신 값을 손으로 계속 갱신하는 대안은 **갱신하는 행위가 값을 낡게 만들어** 자기모순이라 기각했다.
+
+**동결 트리에서 20/20**
+
+- **커밋은 지문을 옮기지 않는다**(내용 hash 기반): README 수정본 미커밋 상태 `d4a42ab8…` == 커밋 `5ccb938e` 후 `d4a42ab8…`. 그래서 "트리 동결 → 커밋 → 측정" 순서가 보고서의 SHA 와 지문을 **같은 트리**로 묶는다(D-52).
+- **required gate 20개가 되돌리기 0회로 단일 지문 `d4a42ab8…` 에서 20/20 PASS**(python-tests **6189 passed / 13 skipped** 463.3s · dashboard-test **81 files/849** · docker 233.7s · clean-machine 41.0s · dashboard-build 24.6s)이고 **실행 후 지문 재측정도 동일**하다. `data/` 드리프트 0, 실행 후 트리는 ` M vault_data` 한 줄.
+- **HEAD 의존 gate 분리 재실행**(D-53): `git HEAD` 에 의존하는 것은 `dashboard-build`(핀을 읽어야 드리프트 0)와 `clean-machine-runtime`(`git archive HEAD`)뿐이라 이 둘만 clean HEAD 에서 다시 돌려 `gate-report-clean-head.json`(2/2 PASS)에 남겼다 — `ref: HEAD` 로 **3001 파일**을 아카이브했고 `git ls-tree -r HEAD` 도 3001 이며 아카이브의 README 가 커밋본임을 확인했다. **전체 인벤토리는 `gate-report.json`(20/20)** 이고 단독 보고서를 '18개 미실행'으로 읽으면 안 된다.
+
+**F-14(신규/폐쇄)** — attempt-009 기록이 `frontend 846 passed(80 files)` 를 인용했으나 **같은 attempt 의 보고서는 `Test Files 81 passed (81)` · `Tests 849 passed (849)`** 였다(F-12 가 추가한 테스트 3건 이전 값이 넘어왔다). 이 저장소가 반복해 잡아 온 **'주장 ≠ 측정'** 병과 같은 모양이므로 수치를 정정하고, **수치는 그 attempt 의 `gate-report.json` 에서 직접 인용**하기로 했다(D-54).
+
+**이 attempt 가 닫지 못한 것** — R-4: 규율을 강제하는 회귀(문서가 지문·수치를 인용하지 않는다)는 **아직 없다**(추가하면 그 자체가 지문을 옮겨 이 증거를 무효화한다 — 게이트 실행 직전에 만들어야 한다, D-55). R-2: 목표 지문에서 20/20 을 **한 보고서로** 본 것은 아니다(20/20 + 2/2 분리). R-3: `clean-machine-runtime` 초록은 `5ccb938e` 시점 HEAD 에 대한 것이다.
+
+---
+
+## attempt-009 갱신 (2026-09-13) — 후보 커밋 + F-12·F-07 폐쇄: **기술 축을 모두 닫았다**
 
 **판정은 NO-GO 로 유지한다.** 달라진 것은 **커밋된 후보에서 20/20 을 완주**했고 **`clean-machine-runtime` 이 후보를 검증**했다는 점이다. 이제 남은 차단 사유는 **사람의 영역**(외부 승인·독립 검토·장기 검증)뿐이다.
 
@@ -514,12 +538,13 @@ timeout 7200초). `ga_gate.py --merge-into`가 **같은 후보 SHA + 같은 mani
 | F-06 | mermaid 경유 `uuid@9.0.1` moderate(`<11.1.1`, `buf` 인자 경로) | 잔여 위험 | 감사 임계값 `high` 라 **차단되지 않는다** — 상류가 uuid를 올려야 함(attempt-002 신규) |
 | ~~F-07~~ | `clean-machine-runtime` 이 `git archive HEAD` 로 **커밋된 HEAD** 를 검증한다(그 시점 2877 파일, `git.dirty: true`). 후보가 미커밋이면 **초록이 후보가 아닌 다른 코드를 가리킨다** — **attempt-009 에서 닫혔다**(후보 커밋 후 재실행, 3001 파일) | 검증 범위(sequencing) | 코드 결함 아님 — 후보 커밋 뒤 새 HEAD 에서 재실행하면 정확해진다. 그 전까지 이 PASS 를 후보 근거로 인용 금지(attempt-003 신규) |
 
-## 5. 판정 카드 (attempt-002 기준)
+## 5. 판정 카드 (attempt-010 기준)
 
-- code candidate full SHA: **`54e4169a947d4ba0cbe3fabf92b0c8590b8ccef6`**(attempt-009 — 커밋 `5a717c4a` + F-12 수정 `54e4169a`. 그 전까지 이 행은 "없음"이었다.). `git.dirty: true` 의 원인은 ` M vault_data` 한 줄(F-13)이며 **코드·산출물은 clean** 이다. 보조 식별자 **코드 지문 `dd34a76bf076ebc09be8c575ad733c52a0a647faa4d5d9758f3b01cf6f667f37`**(`docs/`·`.omo/` 제외, attempt-009)
+- code candidate full SHA: **`5ccb938e5d31411b16f2a69e3015fc8fb826455d`**(attempt-010 — 커밋 `5a717c4a` 후보 → `54e4169a` F-12 → `7347c5ee` attempt-009 기록 → `5ccb938e` README 지문 제거). `git.dirty: true` 의 원인은 ` M vault_data` 한 줄(F-13)이며 **코드·산출물은 clean** 이다. 보조 식별자 **코드 지문 `d4a42ab87697ba299129719d054c9259a717628a1bc8f80d00cd03ae0e372ce7`**(`docs/`·`.omo/` 제외, attempt-010)
+  - **SHA 는 커밋마다 움직이지만 지문이 같으면 같은 코드다** — 증거는 지문으로 읽는다. 지문 제외는 `docs/`·`.omo/` **접두사뿐**이라 `README.md`·`tests/**` 는 지문 안이다(attempt-009 의 `dd34a76b…` 는 기록 커밋이 이 둘을 고쳐서 이동했다 — F-14/D-51)
 - evidence bundle 위치 / manifest SHA256: **attempt-002 는 번들을 만들지 않았다** — 근거는 `attempt-002/gate-report.json` + `reproduction.md`·`decision.md`·`manual-qa.md`·`logs/**`. attempt-001 번들(`attempt-001/bundle/`, `manifest.sha256` sidecar)은 **`evidence_kind: reference`, verify verdict `REFERENCE_ONLY`(exit 3). 승인 artifact가 아니다**로 유지
-- required gate inventory / PASS / FAIL / NOT_RUN: **20 / 20 / 0 / 0**(attempt-009, **커밋된 후보**에서 되돌리기 없이 단일 지문 · 실행 후 지문 재확인 / attempt-001 은 20 / 14 / 1 / 4 — 과거 기록 보존)
-- backend·frontend·실행 보안·설치/복구·실 provider·8h 결과: backend **6189 passed / 13 skipped**(attempt-009 — skip 13건 중 7건은 unsloth/trl 환경 오버레이 부재이며 uv.lock 에 0건, D-32) · frontend **846 passed(80 files)** · dev 도구 체인 감사 **전체 트리 0건**(attempt-007, F-09 폐쇄) · 실행 보안 PASS · 설치/복구 `clean-machine-runtime` **PASS(단 F-07 — HEAD 검증)** · 컨테이너 `docker-build` **PASS(227.3s)** · `clean-machine-runtime` **PASS + 후보를 검증(F-07 폐쇄, 3001 파일)** · 실 provider **미확보** · 8h soak **미실행** · 측정 도구 `stryker:quick` **exit 0 · All files 91.92%(quick 범위 2 파일, attempt-008)**
+- required gate inventory / PASS / FAIL / NOT_RUN: **20 / 20 / 0 / 0**(attempt-010, **동결된 clean HEAD** 에서 되돌리기 없이 단일 지문 `d4a42ab8…` · 실행 후 지문 재확인 · HEAD 의존 2개는 clean HEAD 재실행으로 별도 보고서 2/2 / attempt-009 는 20 / 20 / 0 / 0 이었으나 그 뒤 지문이 이동했다 / attempt-001 은 20 / 14 / 1 / 4 — 과거 기록 보존)
+- backend·frontend·실행 보안·설치/복구·실 provider·8h 결과: backend **6189 passed / 13 skipped**(attempt-010 — skip 13건 중 7건은 unsloth/trl 환경 오버레이 부재이며 uv.lock 에 0건, D-32) · frontend **849 passed(81 files)**(F-14 — 종전 기록의 `846/80` 은 F-12 이전 값이었다) · dev 도구 체인 감사 **전체 트리 0건**(attempt-007, F-09 폐쇄) · 실행 보안 PASS · 설치/복구 `clean-machine-runtime` **PASS + 후보를 검증(3001 파일, `ref: HEAD`) · clean HEAD 재실행 PASS(39.2s)** · 컨테이너 `docker-build` **PASS(233.7s)** · 실 provider **미확보** · 8h soak **미실행** · 측정 도구 `stryker:quick` **exit 0 · All files 91.92%(quick 범위 2 파일, attempt-008)**
 - 후보 트리 안정성(attempt-003 실측): **20-gate 전체 실행 후 코드 지문 불변** + `dashboard-build` 재빌드 **바이트 단위 동일** → 이 후보에서 검증은 트리를 바꾸지 않는다
 - 지원 scope / 실제 외부 승인: 미확정 / 없음
 - 독립 리뷰 보고서와 대상 SHA: **미생성 / 미정**
@@ -527,10 +552,14 @@ timeout 7200초). `ga_gate.py --merge-into`가 **같은 후보 SHA + 같은 mani
 - 최종 판정: **NO-GO** (기술 gate 는 초록, 승인·커밋 위생이 차단)
 - 출시 책임자 / 판정 날짜: 미배정 / 2026-09-13
 
-## 6. 재개 순서 (권장, attempt-009 갱신)
+## 6. 재개 순서 (권장, attempt-010 갱신)
 
-0. ~~**CR-01~CR-14 커밋 → clean full SHA 고정 → 그 SHA 에서 20-gate 재실행**~~ — **attempt-009 에서 완료했다.**
-   SHA `54e4169a` · 커밋된 후보에서 20/20 PASS · `clean-machine-runtime` 이 후보를 검증(F-07 폐쇄).
+0. ~~**CR-01~CR-14 커밋 → clean full SHA 고정 → 그 SHA 에서 20-gate 재실행**~~ — **attempt-009·010 에서 완료했다.**
+   SHA `54e4169a`(attempt-009) → **clean HEAD `5ccb938e`**(attempt-010) · 커밋된 후보에서 20/20 PASS ·
+   `clean-machine-runtime` 이 후보를 검증(F-07 폐쇄) · HEAD 의존 2개는 clean HEAD 재실행(2/2).
+
+0-b. **다음 첫 항목 — 규율을 계약으로**: `README.md`·`tests/**` 가 지문·결과 수치를 인용하지 않도록 검사하는 회귀를 추가한다.
+   ⚠️ **테스트 추가 자체가 지문을 이동시키므로 게이트 실행 직전에 만들고**, 만든 뒤에는 새 지문에서 20-gate 를 다시 완주해야 한다(D-55 · R-4).
    ※ 단 **`git.dirty: true` 는 ` M vault_data` 한 줄 때문**이다(F-13) — "미커밋 코드가 있다"로 읽지 말 것.
    ※ 릴리스 직전 **태그 SHA 에서 `clean-machine-runtime` 을 마지막으로 다시 돌려라**(R-3).
 
@@ -546,9 +575,8 @@ timeout 7200초). `ga_gate.py --merge-into`가 **같은 후보 SHA + 같은 mani
 2. ~~**F-01**~~ 은 §0-B 에서 **GA blocker 에서 내려왔다** — 빌드는 멱등이고, 낡은 것은 HEAD 추적 번들이다.
    커밋에 갱신된 `dashboard_dist` 를 포함시키면 clean 해진다. 계속 추적할지 여부는 post-GA 정책 결정.
    **mermaid 승격 이후 HEAD 번들은 소스와 다른(취약한) 코드를 담으므로 HEAD 로 되돌리면 안 된다.**
-3. **CR-01~CR-14 커밋 → clean full SHA 확정 → 그 SHA 에서 20-gate 재실행.** `gate-report.json` 을
-   새 SHA 기준으로 갱신하는 것까지가 한 묶음이다. **특히 `clean-machine-runtime` 은 커밋 뒤에 다시
-   돌려야 한다**(F-07 — 그 전까지의 PASS 는 낡은 HEAD 의 번들을 검증한 것이다).
+3. ~~**CR-01~CR-14 커밋 → clean full SHA 확정 → 그 SHA 에서 20-gate 재실행**~~ — **attempt-010 에서 완료했다**(clean HEAD `5ccb938e` · 지문 `d4a42ab8…` · 20/20).
+   ⚠️ **기록을 `README.md`·`tests/**` 에 쓰면 지문이 이동해 증거가 낡는다**(지문 예외는 `docs/`·`.omo/` **접두사뿐**) — 릴리스 기록은 `docs/**` 에 쓰고 **결과 수치는 그 attempt 의 `gate-report.json` 에서 직접 인용**한다(F-14 · D-51/D-54).
 4. **독립 코드/보안/QA 검토 배정 + 출시 책임자 지정**(C14-08).
 5. **외부 조건(EX-01~06) 요청서 발송** — 이게 남은 두 번째 NO-GO 조건이다.
 6. ~~**F-06**(mermaid 경유 `uuid@9.0.1` moderate)~~ — **attempt-006 에서 닫혔다**(상류 선언 범위 안의
@@ -583,6 +611,7 @@ F-10(도구 미동작)·F-11a(선언 범위 미커버리지)와 F-09 의 `qs` �
 | ~~F-01~~ | `dashboard_dist` 가 추적 중인 빌드 산출물 | 릴리스 공학 → 정책 | **내려감(§0-B)** — 빌드는 멱등(실측). 남은 것은 post-GA 추적 정책 선택 |
 | ~~F-07~~ | `clean-machine-runtime` 이 후보가 아니라 HEAD 를 검증 | 검증 범위 | **CLOSED (attempt-009)** — 후보 커밋 `54e4169a` 에서 재실행해 `ref: HEAD` 로 **후보 전체(3001 파일, 이전 2877 = 낡은 HEAD)** 를 아카이브·검증했다. **순서 규율은 남는다**: 태그 SHA 에서 마지막으로 다시 돌려야 한다(R-3) |
 | ~~F-12~~ | **빌드 provenance 치킨-에그** — `buildStamp.ts` 가 `AGK_BUILD_ID` 기본값으로 `git short SHA` 를 써서 **커밋된 번들은 자기 커밋의 SHA 를 담을 수 없고**, 커밋 직후 `dashboard-build` 가 자산 22개를 교체해 커밋된 후보에서 단일 지문 20/20 을 완주할 수 없었다 | 릴리스 공학(구조) | **CLOSED (attempt-009)** — 해석 순서 `env → 커밋된 핀 → git → null` + 번들 재생성. **핀 ≠ HEAD 는 정상**(핀=번들을 만든 소스 리비전). F-01 의 "빌드 멱등"을 조건부로 정정 |
+| ~~F-14~~ | **기록이 같은 attempt 의 증거와 다른 수치를 인용했다** — attempt-009 기록의 `frontend 846 passed(80 files)` vs 그 보고서 `849 passed(81 files)` | 기록 정합(advisory) | **CLOSED (attempt-010)** — F-12 가 추가한 테스트 3건 이전 값이 넘어왔다. 이 저장소가 반복해 잡아 온 **'주장 ≠ 측정'** 병과 같은 모양이므로 수치를 정정하고 **그 attempt 의 `gate-report.json` 에서 직접 인용**하도록 못박았다(D-54). **부수 교훈**: 지문 예외는 `docs/`·`.omo/` **접두사뿐**이라 README·테스트를 고치는 행위 자체가 증거를 낡게 만든다(D-51) |
 | F-13 | 중첩 저장소 `vault_data` 의 런타임 이벤트 로그가 계속 자라 부모 `git status` 가 **영구히 dirty** 다(gitlink SHA 자체는 불변) | repo 위생(advisory) | **OPEN** — 커밋에는 영향 없고 required gate 도 아니지만 `git.dirty: true` 가 보고서에 남아 'clean 후보' 판정을 흐린다. 선택지: untrack / vault 안에서 로그 ignore / dirty 판정 정교화(신호 약화라 비선호) — D-50 |
 | ~~F-03~~ | release 문서 파이썬 라이선스 판독이 고지문/SBOM 으로 갈라짐(+마커 환경 의존) | 계약(REL-01) | **CLOSED (attempt-005)** — 판독 체인 통일, 회귀 17건. 고지문 미상 41 → 2건 |
 | ~~F-06~~ | mermaid 경유 `uuid@9.0.1` moderate — 실측상 원인은 **의존 하한**(두 lock 모두 9.x)이었고 취약 서명(`buf`)에는 도달하지 않았다 | 잔여 위험 → 하한 | **CLOSED (attempt-006)** — 상류 선언 범위 안의 override `11.1.1` + 두 lock 동기화 + 출하 번들 재빌드 + 증인 C 축 + 회귀 8건. prod 취약 0건 |
