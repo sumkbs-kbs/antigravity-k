@@ -71,9 +71,30 @@
 
 권장: 고침 전/후를 같은 입력으로 재는 형태(A)는 다음 재확인에도 그대로 쓸 수 있다.
 
-### 측정 결과
+### 측정 결과 (측정 완료)
 
-_아래 수치는 마감 뒤 기록 커밋에서 갱신한다(이 카드가 값의 유일한 선언 자리다)._
+**required gate 21/21 을 커밋된 후보 `ed9e225a` 에서 되돌리기 0회 · 단일 지문 `37b76cb8…` 에서
+완주**했다. 이번에는 초록이 덮는 범위가 **넓어졌다** — 스킵이 줄었다:
+
+  | | attempt-022 | **attempt-023** |
+  | --- | --- | --- |
+  | python-tests passed | 6289 | **6291** |
+  | python-tests skipped | 15 | **13** |
+  | python-tests deselected | 16 | 16 |
+
+  증가분 **+2** = 되살린 두 테스트 · 감소분 **−2** = 같은 두 건이 스킵에서 빠졌다.
+  나머지: python-benchmark 16(6304 deselected · 18.21s) · dashboard-test **81 files / 849 tests** ·
+  docker-build 35.82s · clean-machine-runtime 43.64s(클린머신 재현 성공) · master-e2e ✅6/❌0 ·
+  api-e2e 9(20.20s) · accessibility 35 · dependency-audit-python PASS(high/critical 0 · 예외 5) ·
+  dependency-audit-dashboard 0건 · python-mypy **482 files clean** · python-basedpyright 0 errors ·
+  **드리프트 0** · 실행 후 지문 재측정 **동일**. 세 배치가 **별개 프로세스**로 스스로 이어받았다
+  (`새 보고서로 시작한다`(18) → `이어받는다`(19) → `이어받는다`(21)). 보고서 편입 뒤
+  **마감 검사 PASS(exit 0)** — 편입 전에는 같은 검사가 FAIL exit 1 이었다(보고서를 뺀 사본으로
+  재구성해 실측 — `logs/close-check.txt`).
+
+  기록 커밋(`docs/` 전용) 뒤에도 지문 불변 · `candidate..HEAD` 코드 스코프 변경 `[]` · close PASS.
+  등록부의 남은 스킵은 **13건**이고 **전부 소유자가 있다**(mlx 4 · unsloth 7 · access-pin 2) —
+  **소유자 없는 스킵 0건** · **미검증 능력 0건**(경계 문서가 그 문장을 명시한다).
 
 ## attempt-022 갱신 (2026-09-13) — 배포된 코드가 **config 에서 찾는 이름**을 config 가 소유한다 (F-31 · `config-models-unregistered` 폐쇄)
 
@@ -946,10 +967,10 @@ timeout 7200초). `ga_gate.py --merge-into`가 **같은 후보 SHA + 같은 mani
    ⚠️ **게이트를 손대면 계약이 먼저 깨진다** — `tests/test_cr14_gate_env_pinning.py`(도구 출처) · `test_cr14_gate_load_isolation.py`(성능 검사 위치) · `test_cr14_login_state_isolation.py`(보안 상태 격리) · `TestCandidateGateInventory`(필수 목록).
    ⚠️ **`uv run --isolated --frozen <tool>` 만 써 놓고 extra 를 빠뜨리지 말 것** — uv 는 호출 셀의 PATH 로 떨어진다.
 
-0-f. ~~**남은 감사(기술, 선택)** — R-8: pinned 환경의 skipped 40 과 ambient 의 6/13 은 **다른 자의 눈금**이다~~ — **attempt-021 에서 완료했다**(감사 수행 + F-30 폄쇄, 대상은 `scripts/gate_skip_register.json` 으로 옮겼다). 감사 결과: 그 차이는 실재했고 **세 가지로 갈렸다** — ① **출하 능력** `documents`(pypdf)를 **어떤 파이프라인도 설치하지 않아** PDF/DOCX 수집을 재는 23건이 게이트·CI·주간 어디서도 안 돌았다 → 게이트에 그 extra 를 넣어 복원(실측 87 passed / 0 skipped). ② `mlx`·`unsloth` 는 **소유자가 있다**(`ci.yml` 매트릭스 · `weekly-drift.yml` — 계약이 워크플로 안에서 파일 이름을 확인한다). ③ **어디서도 안 도는 제품 능력 4건**: 에이전트 실행 루프(프로그램 생성·품질 재시도 — `OrchestratorAgent` 리팩토링 뒤 **조건 없는** `@pytest.mark.skip`) · 제품 설정 약속(gemma-4-31B · collective-council 콤보 — `config.yaml` 에 항목이 없다). ③은 `KNOWN_GAP` 으로 owner·plan·만료일을 갖고 `docs/ga/CR14_GATE_COVERAGE_BOUNDARY.md` 에 적힌다 — 그 문서가 `21/21` 의 **경계**다. **다음 기술 작업**: `orchestrator-refactor-rewrite` 의 두 테스트를 state graph 구조에 맞게 재작성해 능력을 되살리는 것(가장 값싼 다음 걸음은 `config-models-unregistered` 를 설정으로 닫는 것이다).
+0-f. ~~**남은 감사(기술, 선택)** — R-8: pinned 환경의 skipped 40 과 ambient 의 6/13 은 **다른 자의 눈금**이다~~ — **attempt-021 에서 완료했다**(감사 수행 + F-30 폄쇄, 대상은 `scripts/gate_skip_register.json` 으로 옮겼다). 감사 결과: 그 차이는 실재했고 **세 가지로 갈렸다** — ① **출하 능력** `documents`(pypdf)를 **어떤 파이프라인도 설치하지 않아** PDF/DOCX 수집을 재는 23건이 게이트·CI·주간 어디서도 안 돌았다 → 게이트에 그 extra 를 넣어 복원(실측 87 passed / 0 skipped). ② `mlx`·`unsloth` 는 **소유자가 있다**(`ci.yml` 매트릭스 · `weekly-drift.yml` — 계약이 워크플로 안에서 파일 이름을 확인한다). ③ **어디서도 안 도는 제품 능력 4건**: 에이전트 실행 루프(프로그램 생성·품질 재시도 — `OrchestratorAgent` 리팩토링 뒤 **조건 없는** `@pytest.mark.skip`) · 제품 설정 약속(gemma-4-31B · collective-council 콤보 — `config.yaml` 에 항목이 없다). ③은 `KNOWN_GAP` 으로 owner·plan·만료일을 갖고 `docs/ga/CR14_GATE_COVERAGE_BOUNDARY.md` 에 적힌다 — 그 문서가 `21/21` 의 **경계**다. **다음 기술 작업**: `orchestrator-refactor-rewrite` 의 두 테스트를 되살리는 것 — attempt-023 이 완료했다(**그리고 "재작성"이 아니라 "계약 정렬"이었다** — F-32).
 
 0-f-2. ~~**`config-models-unregistered` 를 설정으로 닫기(가장 값싼 다음 걸음)**~~ — **attempt-022 에서 완료했다**(**F-31** 을 함께 폐쇄). 닫는 방식은 **삭제가 아니라 능력 복원**이다: `collective-council` 을 `strategy: collective` 콤보로, gemma-4-31B 를 reasoning 로스터로 되돌렸다(둘 다 2026-05 세대 정리 `e462a8aa`·`d131dc71` 이 **의도 기록 없이** 지운 항목이다). 이유는 그 콤보가 테스트만의 약속이 아니라 **배포 경로**였기 때문이다 — `BenchmarkHarness._default_targets()` 가 그 이름을 코드에 갖고 있어 `/benchmark run` 이 매번 오류 행(점수 0)을 기록했고, 유일한 회귀 테스트는 `_raw` 에 합성 매핑을 주입해 그 사실을 볼 수 없었다. 계약 `tests/test_cr14_default_target_config_contract.py` 6건(이빨 2건 — tmp 실제 YAML 에서 콤보·멤버를 지우면 실패) · 등록부는 `observed_files` 로 관측을 고정(항목을 닫아도 관측이 줄지 않는다) · 스킵 17 → **15**.
-   ⚠️ **남은 것은 `orchestrator-refactor-rewrite` 다** — 에이전트 실행 루프(프로그램 생성·실행, 코드 전용 답변의 품질 재시도) 두 테스트는 state graph 구조에 맞게 **새로 쓰는 일**이다(조건 없는 `@pytest.mark.skip`).
+   ⚠️ ~~**남은 것은 `orchestrator-refactor-rewrite` 다** — state graph 구조에 맞게 **새로 쓰는 일**이다~~ — **attempt-023 이 이 문장을 뒤집었다**: 그 판단은 **증거 없이** 내려진 것이었고, 관측해 보니 두 루프는 **돌고 있었다**(실패는 더블·승인 게이트·셀 경로 경계에서 났다 — 계약 드리프트). "다시 쓰는 일"이 아니라 **다섯 자리를 계약에 맞추는 일**이었고, 재작성보다 **훨씬 쌌다**. 교훈: 스킵 표기를 "제품이 못 한다"로 읽기 전에 **실패 이유를 먼저 관측한다**.
 
 0. ~~**CR-01~CR-14 커밋 → clean full SHA 고정 → 그 SHA 에서 20-gate 재실행**~~ — **attempt-009·010 에서 완료했다.**
    SHA `54e4169a`(attempt-009) → **clean HEAD `5ccb938e`**(attempt-010) · 커밋된 후보에서 20/20 PASS ·
