@@ -53,7 +53,19 @@ ambient 실행(attempt-011/012)의 스킵은 **13·6건**이었고 고정 뒤(at
   있음을 드러냈다(F-29 와 **같은 병**이 내 계약에 있었다). 조항을 자기모순 검사로 좁히고 런타임 쪽은
   대조 계약에 맡겼다 — 증인이 계약을 고친 두 번째 사례다.
 - **검증(측정 완료)** — **required gate 21/21 을 커밋된 후보 `1b0a024c` 에서 되돌리기 0회·단일 지문
-  `15e79e84…` 에서 완주**(측정 결과·한계는 이어서 기재).
+  `15e79e84…` 에서 완주**했다. 그리고 이번 초록은 **같은 21/21 이지만 덮는 범위가 넓다**:
+  | | attempt-020 | **attempt-021** |
+  | --- | --- | --- |
+  | python-tests passed | 6251 | **6280** |
+  | python-tests skipped | **40** | **17** |
+  | deselected | 16 | 16 |
+
+  **스킵이 줄어든 것이 이 attempt 의 초록이다.** 배치 셋이 **별개 프로세스**로 스스로 이어받았고
+  (`새 보고서로 시작한다`(18) → `이어받는다`(19) → `이어받는다`(21)), 보고서 편입 뒤 **마감 검사
+  PASS(exit 0)** — 편입 전에는 같은 검사가 `FAIL exit 1`(지문 `15e79e84ec357ac8…`)이었다.
+  나머지: python-benchmark 16(`6297 deselected`) · dashboard-test **81 files passed** ·
+  docker-build 237.44s · clean-machine-runtime 42.11s · master-e2e 6/6 · api-e2e 9 ·
+  accessibility 35 · dependency-audit-python high/critical 0건 · **드리프트 0** · 실행 후 지문 재측정 동일.
 - **한계** — **R-8 은 닫혔다**(감사를 수행했고 대상이 등록부로 옮겨졌다) · R-5 닫힘 · R-11 닫힘 ·
   R-13 · R-14(러너 실행은 러너만이 답한다) · R-15 · R-2/R-3/R-4/R-6/R-7. 그리고 이번 감사가 남긴
   **R-16(신규)**: 등록부는 **게이트 `python-tests` 의 환경**만 소유한다 — `python-benchmark`·`api-e2e`
