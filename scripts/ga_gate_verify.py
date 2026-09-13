@@ -15,6 +15,7 @@ gate runner(`ga_gate.py`)의 결과 JSON이 승인 가능한 형태인지 **구�
 
 - 필수(required) gate가 하나라도 누락되면 FAIL — 빈 목록 all([])==true 승인 불가
 - gate 결과 정합: status "passed" <=> exit_code 0, duration > 0, 시작/종료 시각 존재
+  (status `interrupted`·`tree_moved` 는 명령의 결과가 아닌 상태라 exit_code 0 과 모순되지 않는다)
 - source SHA: 40-hex 형식, --expected-sha 지정 시 완전 일치
 - summary 재계산 일치(false metric 방지)
 - VAL-02 soak artifact(선택): all_pass, missing_required 공백, 실측 soak duration이
@@ -57,7 +58,10 @@ def verify_gate_report(report: dict[str, Any], manifest: dict[str, Any], expecte
         exit_code = gate.get("exit_code")
         if status == "passed" and exit_code != 0:
             _fail(problems, gate_id, f"status 'passed' but exit_code={exit_code}")
-        if status != "passed" and exit_code == 0 and status != "interrupted":
+        # `interrupted` 와 `tree_moved` 는 **명령의 결과가 아닌 상태**다: 앞은 실행이 끊긴 것,
+        # 뒤는 명령이 성공했지만 그 게이트가 측정 대상 코드를 바꾼 것(F-34)이다. 둘 다 exit_code
+        # 0 과 모순되지 않으므로 구조 위반으로 적지 않는다 — 빨간 판정은 아래 required_red 가 맡는다.
+        if status != "passed" and exit_code == 0 and status not in {"interrupted", "tree_moved"}:
             _fail(problems, gate_id, f"exit_code=0 but status={status!r}")
         duration = gate.get("duration_seconds")
         if not isinstance(duration, (int, float)) or duration <= 0:

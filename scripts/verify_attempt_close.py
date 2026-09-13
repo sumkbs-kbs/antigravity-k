@@ -41,6 +41,10 @@
      게이트 계약(`tests/test_cr14_gate_skip_register.py`)은 자기 실행 안에서 `python-tests` 의
      환경만 재현할 수 있으므로(docker·dashboard·playwright 를 안에서 돌릴 수 없고 보고서는
      게이트가 끝나야 생긴다) 다른 게이트의 관측은 **여기가 유일하게 측정 가능한 자리**다.
+  9. **게이트가 측정 대상 코드를 바꾸지 않았는가 (F-34 · attempt-026)** — 게이트 러너가 게이트
+     앞뒤의 **경로별 내용 지도**를 비교해, 트리를 옮긴 게이트의 status 를 `tree_moved` 로 적는다.
+     required 여부로 거르지 않는다: non-required 게이트가 트리를 옮기면 요약상 초록인 채로 남을
+     수 있고, 그때 여기가 유일한 거부 지점이다. 실물은 `dashboard-build`(추적 번들을 다시 쓴다)다.
 
 이 검사는 gate inventory 에 **넣지 않는다** — 넣으면 순환이 생겨 영원히 실패한다(위 주석 참조).
 """
@@ -365,6 +369,21 @@ def close_violations(
         # 게이트 계약은 자기 실행 안에서 `python-tests` 만 재현할 수 있으므로(다른 게이트를 안에서
         # 돌릴 수 없고 보고서는 끝나야 생긴다) 이 관측의 자리는 마감 단계다 — R-16.
         problems.extend(skip_visibility_violations(latest, label=label, repo_root=repo_root))
+        # (9) 게이트가 **측정 대상 코드를 바꾸지 않았는가**(F-34). required 로 거르지 않는 이유는
+        # 위 항목 9 주석 참조 — non-required 게이트가 트리를 옮기면 보고서 요약은 초록인 채로 남는다.
+        moved_by = [str(gate.get("id")) for gate in gates if gate.get("status") == "tree_moved"]
+        if moved_by:
+            examples = []
+            for gate in gates:
+                if gate.get("status") != "tree_moved":
+                    continue
+                names = [str(name) for name in (gate.get("tree_moved") or [])[:3]]
+                examples.append(f"{gate.get('id')}: {', '.join(names) or '(경로 미기록)'}")
+            problems.append(
+                f"{label}: 게이트가 **측정 대상 코드를 바꿨다** {moved_by} — 이 보고서는 단일 코드 "
+                "상태의 초록이 아니다. 그 게이트가 다시 쓴 추적 산출물을 소스와 함께 커밋하고 "
+                f"재측정하라: {'; '.join(examples)}"
+            )
 
     # (7) 울타리 — 후보..HEAD 에 코드 스코프 변경이 없어야 한다.
     head = _git(repo_root, "rev-parse", "HEAD")

@@ -136,17 +136,24 @@ class _Fixture:
         self,
         attempt: str,
         *,
-        gates: list[tuple[str, str]],
+        gates: list[tuple[str, str]] | None = None,
+        raw_gates: list[dict[str, object]] | None = None,
         fingerprint: str | None = None,
         sha: str | None = None,
         generated_at: str = "2026-09-13T00:00:00+00:00",
         manifest_sha: str | None = None,
         outputs: dict[str, str] | None = None,
     ) -> Path:
+        """보고서 하나를 쓴다 — `gates` 는 (id, status) 쌍, `raw_gates` 는 기록을 그대로 준다.
+
+        `raw_gates` 가 필요한 이유: status 가 `passed`/`failed` 뿐이라고 가정하면 러너가 만들 수
+        있는 **다른 상태**(`tree_moved` — F-34)를 이 하네스가 표현할 수 없고, 표현할 수 없는
+        보고서는 검사할 수도 없다.
+        """
         directory = self.evidence / attempt
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / "gate-report.json"
-        records = [
+        records = raw_gates or [
             {
                 "id": gate_id,
                 "status": status,
@@ -155,7 +162,7 @@ class _Fixture:
                 "duration_seconds": 1.0,
                 "stdout": (outputs or {}).get(gate_id, ""),
             }
-            for gate_id, status in gates
+            for gate_id, status in (gates or [])
         ]
         passed = sum(1 for record in records if record["status"] == "passed")
         path.write_text(
@@ -317,6 +324,38 @@ def test_exit_codes_match_the_verdict(closer: ModuleType, fixture: _Fixture) -> 
     assert closer.main(base) == 1
     (fixture.evidence / "attempt-001" / "gate-report.json").write_text("{not json", encoding="utf-8")
     assert closer.main([*base, "--card", str(fixture.root / "missing-card.md")]) == 2
+
+
+# ---------------------------------------------------------------------------
+# F-34 (attempt-026) — 게이트가 측정 대상 코드를 바꾸면 그 보고서는 단일 코드 상태가 아니다
+# ---------------------------------------------------------------------------
+
+
+def test_teeth_gate_that_moved_the_tree_is_rejected(closer: ModuleType, fixture: _Fixture) -> None:
+    """게이트가 추적 산출물을 다시 쓴 보고서 — required 실패가 하나도 없어도 마감할 수 없다.
+
+    `tree_moved` 는 명령이 exit 0 인 상태라 `not_passed`/`bad_exit` 가 그것을 잡지 못하는 자리다.
+    """
+    fixture.write_report(
+        "attempt-002",
+        raw_gates=[
+            {"id": "alpha", "status": "passed", "exit_code": 0, "required": True, "duration_seconds": 1.0},
+            {
+                "id": "beta",
+                "status": "tree_moved",
+                "exit_code": 0,
+                "required": True,
+                "duration_seconds": 1.0,
+                "tree_moved": ["src/antigravity_k/dashboard_dist/assets/index-abc.js"],
+            },
+        ],
+        generated_at="2026-09-13T01:00:00+00:00",
+    )
+    problems = fixture.check(closer, _card_text(fixture.candidate, fixture.fingerprint, (2, 1, 0, 1)))
+    assert any("측정 대상 코드를 바꿨다" in problem for problem in problems), problems
+    assert any("dashboard_dist/assets/index-abc.js" in problem for problem in problems), (
+        f"어느 파일이 움직였는지 대지 않으면 다음 사람이 원인을 찾을 수 없다: {problems}"
+    )
 
 
 # ---------------------------------------------------------------------------

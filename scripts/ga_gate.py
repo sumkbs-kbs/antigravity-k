@@ -13,6 +13,12 @@
 #     --output .artifacts/commercial-ga.json --only python-tests --merge-into
 # --merge-into는 **같은 후보 SHA·같은 manifest**의 결과만 이어받고, 같은 gate id는
 # 이번 실행 결과로 교체한다. 다른 후보의 초록을 섞으려 하면 exit 2로 거부한다.
+#
+# 게이트는 **측정 대상 코드를 바꾸지 않는다**(F-34). 추적 산출물을 다시 쓰는 게이트
+# (예: 커밋된 번들을 소스에서 다시 만드는 `dashboard-build`)가 있으면 그 게이트의 status는
+# `tree_moved`가 되고 실행 전체가 exit 1로 끝난다 — 명령이 exit 0이어도 이 보고서는 더 이상
+# 단일 코드 상태의 초록이 아니기 때문이다. 그 게이트는 `tree_moved`(경로 목록)·`tree_moved_count`
+# 를 달고, 이유를 `stderr`에 남긴다.
 
 from __future__ import annotations
 
@@ -115,6 +121,64 @@ FINGERPRINT_EXCLUDED_PREFIXES: Final = ("docs/", ".omo/")
 MISSING_CONTENT: Final = "missing"
 
 
+# 게이트가 **측정 대상 코드를 바꿨을 때**의 표기. 명령은 exit 0 이지만 그 게이트가 다시 쓴
+# 추적 산출물 때문에 보고서는 더 이상 "21개 초록이 한 코드 상태의 것"이라고 주장할 수 없다.
+# 이 상태를 만드는 실물은 `dashboard-build` 가 추적 번들(`dashboard_dist`)을 다시 쓰는 경우다(F-34).
+TREE_MOVED_STATUS: Final = "tree_moved"
+# 보고서에 싣는 경로 수의 상한 — 재빌드 하나가 100개 가까운 자산을 바꿀 수 있다. 전수는 세어서 남긴다.
+MAX_REPORTED_MOVED_PATHS: Final = 50
+
+
+def _path_order(name: str) -> bytes:
+    """경로 정렬 키 — 파일명은 **바이트** 순서로 정렬한다(`git ls-files -z` 와 같은 순서)."""
+    return name.encode("utf-8", "surrogateescape")
+
+
+def tree_digests(root: Path) -> dict[str, str]:
+    """**코드** 작업 트리의 경로별 내용 sha256 — 지문과 이동 탐지의 **유일한 규칙**이다.
+
+    지문(`_fingerprint_of`)은 이 map 의 digest 이고, "게이트가 코드를 바꿨는가"는 두 map 의
+    차이다(`changed_paths`). 두 관측을 따로 구현하면 한쪽만 넓어져 조용한 자리가 생긴다 —
+    F-34 는 정확히 그 자리였다: 지문은 게이트 **앞에서** 한 번 재고 끝났고, 게이트가 그 뒤에
+    무엇을 바꿨는지 묻는 자리가 없었다.
+    """
+    listing = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout.split(b"\0")
+    digests: dict[str, str] = {}
+    for raw in sorted(entry for entry in listing if entry):
+        relative = raw.decode("utf-8", "surrogateescape")
+        if relative.startswith(FINGERPRINT_EXCLUDED_PREFIXES):
+            continue
+        try:
+            digests[relative] = _sha256(root / relative)
+        except OSError:
+            digests[relative] = MISSING_CONTENT
+    return digests
+
+
+def _fingerprint_of(digests: Mapping[str, str]) -> str:
+    """경로 map → 지문. 규칙(경로 바이트 · NUL · 내용 sha256 · LF)은 `tree_fingerprint_of_commit` 과 같다."""
+    digest = hashlib.sha256()
+    for relative in sorted(digests, key=_path_order):
+        digest.update(_path_order(relative))
+        digest.update(b"\0")
+        digest.update(digests[relative].encode())
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def changed_paths(before: Mapping[str, str], after: Mapping[str, str]) -> list[str]:
+    """두 map 사이에서 내용이 달라졌거나 **나타나거나 사라진** 경로(정렬)."""
+    return sorted(
+        (name for name in set(before) | set(after) if before.get(name) != after.get(name)),
+        key=_path_order,
+    )
+
+
 def _tree_fingerprint(root: Path) -> str:
     """**코드** 작업 트리 내용의 지문.
 
@@ -123,26 +187,7 @@ def _tree_fingerprint(root: Path) -> str:
     이어 붙이지 못하도록 추적+미추적 코드 파일의 내용 hash 를 모아 지문을 만든다.
     `docs/`·`.omo/` 는 증거·문서 산출물이라 제외한다(C14-01 주석 참조).
     """
-    listing = subprocess.run(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    ).stdout.split(b"\0")
-    digest = hashlib.sha256()
-    for raw in sorted(entry for entry in listing if entry):
-        relative = raw.decode("utf-8", "surrogateescape")
-        if relative.startswith(FINGERPRINT_EXCLUDED_PREFIXES):
-            continue
-        digest.update(raw)
-        digest.update(b"\0")
-        path = root / relative
-        try:
-            digest.update(_sha256(path).encode())
-        except OSError:
-            digest.update(MISSING_CONTENT.encode())
-        digest.update(b"\n")
-    return digest.hexdigest()
+    return _fingerprint_of(tree_digests(root))
 
 
 def worktree_fingerprint(root: Path) -> str:
@@ -414,6 +459,34 @@ def _ordered_gates(manifest: Manifest, carried: dict[str, dict[str, JsonValue]])
     return [carried[gate.id] for gate in manifest.gates if gate.id in carried]
 
 
+def _tree_moved_gates(results: Sequence[GateResult]) -> list[str]:
+    """측정 대상 코드를 바꾼 게이트 id — **required 가 아니어도** 실행 전체를 빨갛게 만든다.
+
+    required 여부로 갈라 두면, 게이트를 non-required 로 추가하는 순간 같은 결함이 조용해진다.
+    """
+    return [str(result["id"]) for result in results if result.get("status") == TREE_MOVED_STATUS]
+
+
+def _mark_tree_moved(result: GateResult, gate: Gate, moved: Sequence[str]) -> None:
+    """게이트 하나가 자기 대상 코드를 바꿨다 — 그 사실을 **그 게이트에** 기록한다(F-34).
+
+    명령 자체의 결과(`exit_code`)는 지우지 않는다: 그 게이트의 명령은 성공했고 실패한 것은
+    "게이트는 측정 대상 코드를 바꾸지 않는다"는 계약이다. 그 구분이 사라지면 다음 사람이
+    성공한 명령을 디버깅하게 된다.
+    """
+    result["status"] = TREE_MOVED_STATUS
+    result["tree_moved"] = list(moved[:MAX_REPORTED_MOVED_PATHS])
+    result["tree_moved_count"] = len(moved)
+    if len(moved) > MAX_REPORTED_MOVED_PATHS:
+        result["tree_moved_note"] = f"{len(moved)}개 중 앞 {MAX_REPORTED_MOVED_PATHS}개만 실었다"
+    result["stderr"] = (
+        f"{result['stderr']}\n[TREE-MOVED] `{gate.id}` 가 측정 대상 코드 {len(moved)}개를 바꿨다 — "
+        f"예: {', '.join(moved[:5])}. 명령은 exit 0 이지만 이 게이트가 추적 산출물을 다시 썼으므로, "
+        "이 보고서는 더 이상 **단일 코드 상태**의 초록이 아니다. 소스에서 다시 만든 산출물을 "
+        "함께 커밋하고 재측정해야 한다."
+    )
+
+
 def _atomic_write(path: Path, report: dict[str, JsonValue]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -495,7 +568,13 @@ def main(
     interrupted = False
     for gate in selected:
         typer.echo(f"[{gate.id}] {' '.join(gate.command)}")
+        # 기준선은 **게이트 직전에** 다시 잰다 — 보고서를 쓰는 것 같은 게이트 밖의 변화를
+        # 다음 게이트의 탓으로 돌리지 않기 위해서다(지문 1회 측정은 0.1초 규모다).
+        before = tree_digests(root)
         result, interrupted = _run_gate(gate, root)
+        moved = changed_paths(before, tree_digests(root))
+        if moved:
+            _mark_tree_moved(result, gate, moved)
         results[gate.id] = result
         report["gates"] = _ordered_gates(manifest, results)
         report["summary"] = _summary(report["gates"])
@@ -508,7 +587,7 @@ def main(
     _atomic_write(output, report)
     if interrupted:
         raise typer.Exit(code=130)
-    if _summary(ordered)["required_failed"] > 0:
+    if _summary(ordered)["required_failed"] > 0 or _tree_moved_gates(ordered):
         raise typer.Exit(code=1)
 
 
