@@ -39,7 +39,6 @@ attempt-013 에서 실제로 일어난 일 (F-22)
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import re
@@ -108,71 +107,32 @@ def index_modes(root: Path) -> dict[str, str]:
     return modes
 
 
-def _blob_hashes(root: Path, object_ids: Sequence[str]) -> dict[str, str]:
-    """여러 blob 의 내용 sha256 을 **한 프로세스**로 읽는다(파일 3000개를 다 돌면 게이트가 느려진다)."""
-    if not object_ids:
-        return {}
-    stream = subprocess.run(
-        ["git", "cat-file", "--batch"],
-        cwd=root,
-        input=("\n".join(object_ids) + "\n").encode(),
-        check=True,
-        capture_output=True,
-    ).stdout
-    hashes: dict[str, str] = {}
-    offset = 0
-    for _ in object_ids:
-        newline = stream.index(b"\n", offset)
-        header = stream[offset:newline].decode("utf-8", "replace").split()
-        offset = newline + 1
-        if len(header) < 3:  # `<oid> missing`
-            hashes[header[0] if header else ""] = "missing"
-            continue
-        size = int(header[2])
-        hashes[header[0]] = hashlib.sha256(stream[offset : offset + size]).hexdigest()
-        offset += size + 1  # blob 내용 뒤의 LF
-    return hashes
+# 커밋측 지문·울타리 판정은 **게이트가 실제로 쓰는 함수**에서 온다. 여기서 다시 구현하면
+# 규칙이 갈라져 계약이 옛 규칙을 검사하는 거짓 통과가 된다(attempt-013 F-18 과 같은 병).
+# `prefixes` 를 주지 않으면 게이트 모듈의 전역을 읽으므로, 이빨이 그 전역을 바꿔 끼울 수 있다.
+_commit_fingerprint = cast(
+    "Callable[[Path, str, Sequence[str] | None], str]", getattr(_GATE, "tree_fingerprint_of_commit")
+)
+_code_scope_changes = cast(
+    "Callable[[Path, str, str, Sequence[str] | None], list[str]]", getattr(_GATE, "code_scope_changes")
+)
 
 
 def commit_fingerprint(root: Path, rev: str, prefixes: tuple[str, ...] | None = None) -> str:
     """`rev` 커밋 **트리**의 코드 지문 — 작업 트리를 건드리지 않고 git 객체만으로 계산한다.
 
-    `ga_gate._tree_fingerprint` 와 **같은 규칙**(경로 bytes · NUL · 내용 sha256 · LF)을 쓴다.
     내용을 git blob 에서 읽으므로 커밋을 체크아웃하지 않고도 과거 후보를 잴 수 있고, 그 덕분에
     "그때의 초록이 지금도 이 후보의 것인가"를 미커밋 상태와 무관하게 물을 수 있다.
-
     gitlink(160000)는 내용이 없어 `missing` 으로 본다 — 작업 트리에서 그 경로는 디렉터리라
     게이트의 `_sha256` 도 `OSError` 로 같은 값에 도달한다(F-13 의 ` M vault_data` 가 지문을
     움직이지 않는 이유가 이것이다).
     """
-    scope = excluded_prefixes() if prefixes is None else prefixes
-    entries = git_bytes(root, "ls-tree", "-r", "-z", "--full-tree", rev).split(b"\0")
-    scoped: list[tuple[bytes, str]] = []  # (경로 bytes, blob oid) — blob 이 아니면 oid 대신 "missing"
-    for entry in entries:
-        if not entry:
-            continue
-        meta, _, raw_path = entry.partition(b"\t")
-        _mode, kind, object_id = meta.split(b" ")
-        relative = raw_path.decode("utf-8", "surrogateescape")
-        if not in_code_scope(relative, scope):
-            continue
-        scoped.append((raw_path, object_id.decode() if kind == b"blob" else "missing"))
-    hashes = _blob_hashes(root, [oid for _path, oid in scoped if oid != "missing"])
-    digest = hashlib.sha256()
-    for raw_path, oid in sorted(scoped):
-        digest.update(raw_path)
-        digest.update(b"\0")
-        digest.update(hashes.get(oid, "missing").encode())
-        digest.update(b"\n")
-    return digest.hexdigest()
+    return _commit_fingerprint(root, rev, prefixes)
 
 
 def code_scope_changes(root: Path, base: str, head: str, prefixes: tuple[str, ...] | None = None) -> list[str]:
     """`base`..`head` 에서 **코드 스코프**가 바뀐 경로 — 빈 목록이면 울타리는 그대로다."""
-    scope = excluded_prefixes() if prefixes is None else prefixes
-    listing = git_bytes(root, "diff", "--name-only", "-z", base, head).split(b"\0")
-    names = [entry.decode("utf-8", "surrogateescape") for entry in listing if entry]
-    return [name for name in names if in_code_scope(name, scope)]
+    return _code_scope_changes(root, base, head, prefixes)
 
 
 def worktree_code_scope_dirt(root: Path, prefixes: tuple[str, ...] | None = None) -> list[str]:

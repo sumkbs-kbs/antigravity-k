@@ -109,6 +109,12 @@ def _git(root: Path, *args: str) -> str:
 FINGERPRINT_EXCLUDED_PREFIXES: Final = ("docs/", ".omo/")
 
 
+# 내용을 읽을 수 없는 항목(gitlink)을 표시하는 값. 작업 트리에서 gitlink(`vault_data`)는
+# 디렉터리라 `_sha256` 이 `OSError` 로 떨어지고, 커밋 트리에서는 blob 이 아니다 — 두 경로가
+# **같은 값**에 도달해야 커밋 지문과 작업 트리 지문을 비교할 수 있다(C14-F23 의 전제).
+MISSING_CONTENT: Final = "missing"
+
+
 def _tree_fingerprint(root: Path) -> str:
     """**코드** 작업 트리 내용의 지문.
 
@@ -134,9 +140,93 @@ def _tree_fingerprint(root: Path) -> str:
         try:
             digest.update(_sha256(path).encode())
         except OSError:
-            digest.update(b"missing")
+            digest.update(MISSING_CONTENT.encode())
         digest.update(b"\n")
     return digest.hexdigest()
+
+
+def _blob_content_hashes(root: Path, object_ids: Sequence[str]) -> dict[str, str]:
+    """여러 blob 의 내용 sha256 을 **한 프로세스**로 읽는다.
+
+    파일 3000개에 `git cat-file` 을 3000번 띄우면 지문 계산이 게이트만큼 느려진다 —
+    `--batch` 는 요청을 한 번에 넣고 헤더(`<oid> <type> <size>` + LF + 내용 + LF)를 순서대로 돌려준다.
+    """
+    if not object_ids:
+        return {}
+    stream = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        cwd=root,
+        input=("\n".join(object_ids) + "\n").encode(),
+        check=True,
+        capture_output=True,
+    ).stdout
+    hashes: dict[str, str] = {}
+    offset = 0
+    for _ in object_ids:
+        newline = stream.index(b"\n", offset)
+        header = stream[offset:newline].decode("utf-8", "replace").split()
+        offset = newline + 1
+        if len(header) < 3:  # `<oid> missing`
+            if header:
+                hashes[header[0]] = MISSING_CONTENT
+            continue
+        size = int(header[2])
+        hashes[header[0]] = hashlib.sha256(stream[offset : offset + size]).hexdigest()
+        offset += size + 1  # blob 내용 ë¤의 LF
+    return hashes
+
+
+def tree_fingerprint_of_commit(root: Path, rev: str, prefixes: Sequence[str] | None = None) -> str:
+    """커밋 **트리**의 코드 지문 — 작업 트리를 쓰지 않고 git 객체만으로 계산한다.
+
+    `_tree_fingerprint` 와 **같은 규칙**(경로 bytes · NUL · 내용 sha256 · LF)을 쓴다. 작업 트리를
+    읽지 않으므로 체크아웃/미커밋 상태와 무관하게 과거 후보를 잴 수 있고, 그 성질 덕분에
+    "선언된 증거가 지금도 그 후보의 것인가"를 물을 수 있다(C14-F23, `scripts/verify_attempt_close.py`).
+    gitlink(모드 160000)는 blob 이 아니므로 `MISSING_CONTENT` 로 본다 — 작업 트리 경로도 같은 값에
+    도달한다(위 주석 참조).
+    """
+    excluded = FINGERPRINT_EXCLUDED_PREFIXES if prefixes is None else tuple(prefixes)
+    entries = subprocess.run(
+        ["git", "ls-tree", "-r", "-z", "--full-tree", rev],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout.split(b"\0")
+    scoped: list[tuple[bytes, str]] = []  # (경로 bytes, blob oid) — blob 이 아니면 oid 자리에 MISSING_CONTENT
+    for entry in entries:
+        if not entry:
+            continue
+        meta, _, raw_path = entry.partition(b"\t")
+        _mode, kind, object_id = meta.split(b" ")
+        relative = raw_path.decode("utf-8", "surrogateescape")
+        if relative.startswith(excluded):
+            continue
+        scoped.append((raw_path, object_id.decode() if kind == b"blob" else MISSING_CONTENT))
+    hashes = _blob_content_hashes(root, [oid for _path, oid in scoped if oid != MISSING_CONTENT])
+    digest = hashlib.sha256()
+    for raw_path, oid in sorted(scoped):
+        digest.update(raw_path)
+        digest.update(b"\0")
+        digest.update(hashes.get(oid, MISSING_CONTENT).encode())
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def code_scope_changes(root: Path, base: str, head: str, prefixes: Sequence[str] | None = None) -> list[str]:
+    """`base`..`head` 에서 **코드 스코프**(지문에 들어가는 범위)가 바뀐 경로.
+
+    비어 있으면 두 리비전의 코드 트리는 같다 — 기록 커밋이 `docs/` 전용이었는지를 이 한 줄로
+    판정할 수 있다(attempt-013 F-22: 기록 커밋이 `README.md` 를 고쳐 지문을 옮겼다).
+    """
+    excluded = FINGERPRINT_EXCLUDED_PREFIXES if prefixes is None else tuple(prefixes)
+    listing = subprocess.run(
+        ["git", "diff", "--name-only", "-z", base, head],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout.split(b"\0")
+    names = [entry.decode("utf-8", "surrogateescape") for entry in listing if entry]
+    return [name for name in names if not name.startswith(excluded)]
 
 
 def _load_manifest(path: Path) -> Manifest:
