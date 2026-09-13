@@ -2,16 +2,20 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+import { createAliases } from './vite.alias';
+import { buildStampDefine } from './buildStamp';
+
 const backendTarget = process.env.VITE_BACKEND_URL
   || process.env.AGK_BACKEND_URL
   || 'http://127.0.0.1:8000';
 
 export default defineConfig({
   plugins: [react()],
+  // CR-10: BUILD 지표가 하드코딩 대신 실제 빌드 provenance를 쓰도록 주입한다.
+  define: buildStampDefine,
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    // CR-09: mermaid(cytoscape 깊은 import)와 monaco 워커 해석 규칙을 테스트와 공유한다.
+    alias: createAliases(),
   },
   server: {
     port: 5173,

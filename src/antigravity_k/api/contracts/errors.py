@@ -18,6 +18,8 @@ CONTEXT_ERROR_HTTP_STATUS: Final[dict[str, int]] = {
     "conversation_not_found": 404,
     "project_root_invalid": 403,
     "stale_conversation_revision": 409,
+    "conversation_integrity_error": 409,
+    "conversation_storage_migration_required": 503,
 }
 
 
@@ -71,6 +73,30 @@ class StaleConversationRevisionError(ExecutionContextError):
     detail: str = "Conversation revision does not match the authoritative store"
 
 
+class ConversationIntegrityError(ExecutionContextError):
+    """CR-01: stored bytes do not belong to the requested conversation identity.
+
+    Raised instead of returning an empty/other conversation when a storage
+    record is corrupt or its embedded ids do not exactly match the request.
+    """
+
+    status_code: int = 409
+    error_code: str = "conversation_integrity_error"
+    detail: str = "Stored conversation data does not match the requested identity"
+
+
+class ConversationStorageMigrationRequiredError(ExecutionContextError):
+    """CR-01: legacy (pre-v2) conversation files must be migrated first.
+
+    The store refuses reads/writes until the one-time, verified migration has
+    produced its completion marker, so new writes cannot fork the data set.
+    """
+
+    status_code: int = 503
+    error_code: str = "conversation_storage_migration_required"
+    detail: str = "Conversation storage migration to the v2 layout has not completed"
+
+
 _ERROR_BY_CODE: Final[dict[str, type[ExecutionContextError]]] = {
     "missing_execution_context": MissingExecutionContextError,
     "invalid_execution_context": InvalidExecutionContextError,
@@ -79,6 +105,8 @@ _ERROR_BY_CODE: Final[dict[str, type[ExecutionContextError]]] = {
     "conversation_not_found": ConversationNotFoundError,
     "invalid_conversation_revision": InvalidConversationRevisionError,
     "stale_conversation_revision": StaleConversationRevisionError,
+    "conversation_integrity_error": ConversationIntegrityError,
+    "conversation_storage_migration_required": ConversationStorageMigrationRequiredError,
 }
 
 
@@ -95,7 +123,9 @@ def execution_context_error_from_code(
 
 __all__ = [
     "CONTEXT_ERROR_HTTP_STATUS",
+    "ConversationIntegrityError",
     "ConversationNotFoundError",
+    "ConversationStorageMigrationRequiredError",
     "ExecutionContextError",
     "InvalidConversationRevisionError",
     "InvalidExecutionContextError",

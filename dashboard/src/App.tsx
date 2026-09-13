@@ -5,8 +5,8 @@
  */
 
 import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { useUiStore } from './stores/uiStore';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { useUiStore, type SystemStatus } from './stores/uiStore';
 import { useChatStore } from './stores/chatStore';
 import { checkHealth, fetchSystemMetrics } from './api/client';
 import ToastContainer from './components/UI/ToastContainer';
@@ -27,6 +27,7 @@ import {
   readLegacyAccessPin,
   readStoredAccessToken,
 } from './utils/accessPinCredential';
+import AppErrorBoundary from './components/UI/AppErrorBoundary';
 
 /* ─── Sidebar loading skeleton ──────────────────────────── */
 const SidebarFallback: React.FC = () => (
@@ -106,6 +107,8 @@ const MutationDashboardPage = lazy(() => import('./pages/MutationDashboardPage')
 const StudioPage = lazy(() => import('./pages/StudioPage'));
 const ModelHubPage = lazy(() => import('./pages/ModelHubPage'));
 const AgentStartPage = lazy(() => import('./pages/AgentStartPage'));
+/* CR-07: 없는 경로 안내(404). 오류 경계와 함께 라우팅 복구를 담당한다. */
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 // ─── Lazy-loaded layout chunks ────────────────────────────
 const Sidebar = lazy(() => import('./components/Layout/Sidebar'));
@@ -123,6 +126,7 @@ const KeyboardShortcutsModal = lazy(() => import('./components/UI/KeyboardShortc
 type BottomPanelTab = 'terminal' | 'output';
 
 const AppContent: React.FC = () => {
+  const location = useLocation();
   const { setSystemStatus } = useUiStore();
   const { loadFromStorage } = useChatStore();
   const terminalVisible = useTerminalStore(s => s.visible);
@@ -228,29 +232,56 @@ const AppContent: React.FC = () => {
     };
     window.addEventListener('agk:pin-required', handlePinRequired);
 
+    // CR-10: 실제 API 값만 반영한다. 미응답은 0/true로 뭉개지 않고 UNKNOWN/null로 남기며,
+    // 마지막 성공 관측 시각(observedAt)을 기록해 화면이 stale을 구분할 수 있게 한다.
     const pollSystemStatus = async () => {
+      let observed = false;
+      let disconnected = false;
+
       try {
         const health = await checkHealth();
         setSystemStatus({
           healthy: health.status === 'ok',
           backends: health.backends || {},
-          ragFiles: health.rag_index_files ?? 0,
+          ragFiles: health.rag_index_files ?? null,
           covActive: health.cov_active || false,
+          // /health는 이미 실제 버전을 준다 — 하드코딩 대신 연결한다.
+          version: health.version ?? null,
+          buildId: health.build?.build_id ?? null,
         });
+        observed = true;
       } catch {
-        setSystemStatus({ healthy: false });
+        disconnected = true;
+        // 연결이 끊기면 health를 주장할 수 없다. 마지막 값을 healthy로 두지 않는다.
+        setSystemStatus({ healthy: null });
       }
 
       try {
         const metrics = await fetchSystemMetrics();
         if (metrics.ok) {
           setSystemStatus({
-            cpuPercent: metrics.cpu_percent || 0,
-            memoryMb: metrics.memory_mb || 0,
-            totalTokens: metrics.total_tokens || 0,
+            cpuPercent: metrics.cpu_percent ?? null,
+            memoryPercent: metrics.memory_percent ?? metrics.memory_mb ?? null,
+            totalTokens: metrics.total_tokens ?? null,
+            uptimeSeconds: metrics.uptime_seconds ?? null,
+            startedAt: metrics.uptime_started_at ?? null,
+            processId: metrics.process_id ?? null,
+            version: metrics.version ?? null,
+            buildId: metrics.build?.build_id ?? null,
           });
+          observed = true;
         }
-      } catch { /* silent */ }
+      } catch {
+        disconnected = true;
+      }
+
+      // 주의: 실패 시 observedAt을 undefined로 덮어쓰면 마지막 성공 시각이 지워진다.
+      // 관측에 성공했을 때만 갱신한다.
+      const connection: { state: SystemStatus['state']; observedAt?: number } = {
+        state: observed ? 'live' : disconnected ? 'disconnected' : 'unknown',
+      };
+      if (observed) connection.observedAt = Date.now();
+      setSystemStatus(connection);
     };
 
     pollSystemStatus();
@@ -309,6 +340,12 @@ const AppContent: React.FC = () => {
         <SessionDisclosureBanner />
         <main className="main-content">
           <h1 className="visually-hidden">Ssak-Ai Dashboard</h1>
+          {/*
+           * CR-07: route 수준 오류 경계. 페이지 하나가 던져도 셸(사이드바·배너)은
+           * 살아남고, key가 경로라서 다른 화면으로 이동하면 경계가 초기화된다.
+           * Suspense는 계속 loading만 담당한다.
+           */}
+          <AppErrorBoundary scope="route" key={location.pathname}>
           <Suspense fallback={<PageLoadingFallback />}>
             <Routes>
               <Route path="/" element={<ChatPage />} />
@@ -326,8 +363,11 @@ const AppContent: React.FC = () => {
               <Route path="/plugins/*" element={<PluginPanelRoutes />} />
               <Route path="/plugins" element={<PluginPage />} />
               <Route path="/mutation" element={<MutationDashboardPage />} />
+              {/* CR-07: 어떤 route에도 해당하지 않으면 안내와 홈 복귀를 보여준다. */}
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
+          </AppErrorBoundary>
         </main>
         {/* Bottom Panel: Terminal + Output (toggleable) */}
         <div
@@ -445,7 +485,11 @@ const App: React.FC = () => {
           <PinModal />
         </Suspense>
       ) : (
-        <AppContent />
+        /* CR-07: 최상위 최후 boundary — 셸까지 실패해도 복구 UI를 보여준다.
+         * PinModal은 이 경계 바깥이라 로그인 흐름이 fallback에 묻히지 않는다. */
+        <AppErrorBoundary scope="app">
+          <AppContent />
+        </AppErrorBoundary>
       )}
     </BrowserRouter>
   );

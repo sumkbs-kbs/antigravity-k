@@ -20,6 +20,7 @@ import {
   ModelOperationsStatusSchema,
   SetAllLogLevelsResponseSchema,
   SettingsResponseSchema,
+  SettingsDeleteResponseSchema,
   SettingsSaveResponseSchema,
   SessionDisclosureSchema,
   SystemMetricsSchema,
@@ -56,6 +57,7 @@ import type {
   ModelQualityCalibrationStatus,
   SetAllLogLevelsResponse,
   SettingsData,
+  SettingsDeleteResponse,
   SettingsSaveResponse,
   SessionDisclosure,
   DisclosureLevel,
@@ -93,6 +95,7 @@ export type {
   McpOAuthStatusResponse,
   McpOAuthStartResponse,
   SettingsData,
+  SettingsDeleteResponse,
   SettingsSaveResponse,
 };
 
@@ -101,6 +104,28 @@ const API_BASE = '/v1';
 export interface ApiOptions extends RequestInit {
   suppressLog?: boolean;
   skipPinModal?: boolean;
+}
+
+/**
+ * JSON API 호출이 2xx가 아닌 응답을 받았을 때 던지는 오류 (CR-06).
+ *
+ * 메시지 형식은 예전과 같은 `HTTP <status>: <statusText>`로 유지하되,
+ * 호출자가 문자열을 파싱하지 않고 상태 코드로 분기할 수 있게 `status`를 싣는다
+ * (예: 설정 화면이 401을 기존 PIN 흐름 안내로 연결한다).
+ */
+export class ApiHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number, statusText: string) {
+    super(`HTTP ${status}: ${statusText}`);
+    this.name = 'ApiHttpError';
+    this.status = status;
+  }
+}
+
+/** 401(PIN 인증 필요) 응답인가 — 페이지가 인증 안내를 띄울 때 쓴다. */
+export function isAuthRequiredError(error: unknown): boolean {
+  return error instanceof ApiHttpError && error.status === 401;
 }
 
 export type ChatCompletionPayload = Readonly<Record<string, unknown>>;
@@ -123,6 +148,26 @@ export class ConversationRevisionConflictError extends Error {
     super(payload.detail || 'Conversation revision conflict');
     this.name = 'ConversationRevisionConflictError';
     this.payload = payload;
+  }
+}
+
+/**
+ * CR-01: typed failure for conversation API errors that are not revision conflicts.
+ *
+ * `code` carries the frozen wire error code (`conversation_not_found`,
+ * `conversation_integrity_error`, `conversation_storage_migration_required`, ...)
+ * so the UI can distinguish "this conversation does not exist yet" from
+ * "the server cannot serve this conversation's stored bytes".
+ */
+export class ConversationRequestError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(message: string, code: string, status: number) {
+    super(message);
+    this.name = 'ConversationRequestError';
+    this.code = code;
+    this.status = status;
   }
 }
 
@@ -168,7 +213,7 @@ async function requestJson(
         // PIN auth required — dispatch event for PIN modal
         window.dispatchEvent(new CustomEvent('agk:pin-required'));
       }
-      throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      throw new ApiHttpError(resp.status, resp.statusText);
     }
 
     const raw: unknown = await resp.json();
@@ -636,6 +681,18 @@ export async function saveSettings(settings: Record<string, string>): Promise<Se
   return SettingsSaveResponseSchema.parse(raw);
 }
 
+/**
+ * CR-05: 명시적으로 선택한 API 키를 서버 `.env`에서 삭제한다.
+ * 빈 입력(=유지)과 구분되는 경로이며, 삭제할 키 이름만 보낸다.
+ */
+export async function deleteSettingsKeys(keys: string[]): Promise<SettingsDeleteResponse> {
+  const raw = await requestJson('/api/settings/env/delete', '/api/settings/env/delete', {
+    method: 'POST',
+    body: JSON.stringify(keys),
+  });
+  return SettingsDeleteResponseSchema.parse(raw);
+}
+
 
 /* ─── CTX-01 conversation revision protocol ───────────────── */
 
@@ -680,11 +737,20 @@ async function parseConversationResponse<T>(response: Response): Promise<T> {
     if (body && body.error === 'stale_conversation_revision') {
       throw new ConversationRevisionConflictError(body);
     }
-    throw new Error(`Conversation conflict (${response.status})`);
+    const code = body && typeof body.error === 'string' ? body.error : 'conversation_conflict';
+    throw new ConversationRequestError(`Conversation conflict (${response.status}): ${code}`, code, response.status);
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    throw new Error(`Conversation API ${response.status}: ${detail.slice(0, 200)}`);
+    let code = 'conversation_api_error';
+    try {
+      const parsed = JSON.parse(detail) as { error?: unknown };
+      if (parsed && typeof parsed.error === 'string') code = parsed.error;
+    } catch {
+      // Non-JSON error body — keep the generic code.
+    }
+    // Prefix is asserted by e2e/tests/conversation-compaction.spec.ts.
+    throw new ConversationRequestError(`Conversation API ${response.status}: ${code}`, code, response.status);
   }
   return await response.json() as T;
 }

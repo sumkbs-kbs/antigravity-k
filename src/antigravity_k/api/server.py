@@ -603,6 +603,7 @@ from antigravity_k.api.error_handler import (  # noqa: E402
     correlation_id_var,
     global_exception_handler,
     http_exception_handler,
+    session_persistence_exception_handler,
     validation_exception_handler,
 )
 
@@ -663,6 +664,16 @@ from fastapi.exceptions import RequestValidationError  # noqa: E402
 
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
+# CR-02: 세션 저장 실패는 409(stale)/503(persistence)으로 명시한다.
+from antigravity_k.engine.session_manager import SessionPersistenceError  # noqa: E402
+
+app.add_exception_handler(SessionPersistenceError, session_persistence_exception_handler)
+# CR-04: shell 실행 경계 거부(403 ASK/DENY, 503 sandbox, 504 timeout)는 전용
+# 핸들러로 처리한다 — base Exception 핸들러는 응답 전송 후 재raise하므로
+# 정상 응답을 보장하지 못한다.
+from antigravity_k.api.contracts.shell import ShellBoundaryError  # noqa: E402
+
+app.add_exception_handler(ShellBoundaryError, global_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 
 import httpx

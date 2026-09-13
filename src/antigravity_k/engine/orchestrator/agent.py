@@ -27,7 +27,7 @@ from antigravity_k.engine.orchestrator.setup import (
     create_watchdog,
     load_agent_models,
 )
-from antigravity_k.engine.session_manager import SessionManager
+from antigravity_k.engine.session_manager import SessionManager, SessionPersistenceError
 from antigravity_k.engine.task_state_store import (
     TaskExecutionContext,
     TaskStateStore,
@@ -192,6 +192,10 @@ class OrchestratorAgent:
         # 세션 자동 시작
         try:
             _ = self.session_manager.start_session(project_path=self.project_root)
+        except SessionPersistenceError:
+            # CR-02: 저장 실패를 "non-critical"로 숨기지 않는다. 세션이 디스크에
+            # 없을 수 있음을 명시적으로 남기고, 다음 저장에서 재시도한다.
+            logger.error("Session persistence failed during agent init", exc_info=True)
         except (RuntimeError, ConnectionError, AttributeError):
             logger.warning("Session start failed (non-critical)", exc_info=True)
 

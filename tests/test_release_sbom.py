@@ -48,6 +48,9 @@ class _LockPackagePatch(TypedDict):
     dependencies: NotRequired[dict[str, str]]
     name: NotRequired[str]
     version: NotRequired[str]
+    resolved: NotRequired[str]
+    integrity: NotRequired[str]
+    license: NotRequired[str]
     devDependencies: NotRequired[dict[str, str]]
 
 
@@ -220,6 +223,90 @@ def test_real_dashboard_lock_includes_transitive_runtime_packages() -> None:
     names = {dependency.name for dependency in dependencies.dependencies}
     assert "scheduler" in names
     assert len(dependencies.dependencies) > 20
+
+
+def test_real_dashboard_lock_source_of_license_is_recorded_per_package() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    dependencies = {dependency.name: dependency for dependency in dashboard_runtime_dependencies(root).dependencies}
+
+    # lock의 license 필드가 있는 패키지는 lock을 출처로 기록한다.
+    assert dependencies["mermaid"].license_id == "MIT"
+    assert dependencies["mermaid"].license_source == "lock"
+    # khroma는 registry/lock에 license 메타데이터가 없고 provenance 선언으로만 채워진다.
+    assert dependencies["khroma"].license_id == "MIT"
+    assert dependencies["khroma"].license_source == "provenance-declared"
+
+
+def _write_provenance(project: Path, declared: tuple[str, ...]) -> None:
+    entries = ",\n".join(f'    "{entry}"' for entry in declared)
+    payload = "\n".join(
+        (
+            "schema_version = 1",
+            "",
+            "[distribution]",
+            "source_roots = []",
+            "manifest_roots = []",
+            "prohibited_spdx = []",
+            "declared_licenses = [",
+            entries,
+            "]",
+            "",
+        ),
+    )
+    _ = (project / "THIRD_PARTY_PROVENANCE.toml").write_text(payload, encoding="utf-8")
+
+
+def _add_unlicensed_runtime_package(project: Path) -> None:
+    lock_path = project / "dashboard" / "package-lock.json"
+    payload = TypeAdapter(_LockPatch).validate_json(lock_path.read_text(encoding="utf-8"))
+    payload["packages"]["node_modules/unreadable-lib"] = {
+        "version": "9.9.9",
+        "resolved": "https://registry.npmjs.org/unreadable-lib/-/unreadable-lib-9.9.9.tgz",
+        "integrity": "sha512-unreadable",
+    }
+    payload["packages"]["node_modules/runtime-lib"]["dependencies"]["unreadable-lib"] = "^9.0.0"
+    _ = lock_path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_declared_license_fills_missing_lock_metadata_and_records_source(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    _add_unlicensed_runtime_package(project)
+    _write_provenance(project, ("npm:unreadable-lib@9.9.9=MIT",))
+
+    documents = generate_release_documents(project)
+
+    # 라이선스/출처는 TypedDict 헬퍼가 떨어뜨리므로 원본 JSON을 직접 읽는다.
+    raw_components = json.loads(documents.dashboard_sbom.read_text(encoding="utf-8"))["components"]
+    component = next(item for item in raw_components if item["name"] == "unreadable-lib")
+    assert component["licenses"] == [{"license": {"id": "MIT"}}]
+    properties = {property_["name"]: property_["value"] for property_ in component.get("properties", [])}
+    assert properties["agk:license-source"] == "provenance-declared"
+    notices = documents.notices.read_text(encoding="utf-8")
+    assert "unreadable-lib 9.9.9 — MIT (provenance-declared" in notices
+
+
+def test_missing_license_without_declaration_stays_unknown(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    _add_unlicensed_runtime_package(project)
+
+    documents = generate_release_documents(project)
+
+    raw_components = json.loads(documents.dashboard_sbom.read_text(encoding="utf-8"))["components"]
+    component = next(item for item in raw_components if item["name"] == "unreadable-lib")
+    # 합성하지 않는다: 선언이 없으면 라이선스 필드도, 출처 속성도 없다.
+    assert "licenses" not in component
+    assert "properties" not in component
+    notices = documents.notices.read_text(encoding="utf-8")
+    assert "unreadable-lib 9.9.9 — license metadata unavailable" in notices
+
+
+def test_malformed_declared_license_fails_instead_of_passing_the_gate(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    _write_provenance(project, ("npm-unreadable-lib",))
+
+    with pytest.raises(ReleaseDependencyError, match="Malformed declared license"):
+        _ = dashboard_runtime_dependencies(project)
 
 
 def test_dashboard_lock_rejects_an_unresolved_runtime_dependency(tmp_path: Path) -> None:

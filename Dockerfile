@@ -44,8 +44,18 @@ RUN pip install --upgrade pip \
 # ─── Stage 3: Dashboard Build ───────────────────────────────────
 # REL-02: 단일 package manager = pnpm (pnpm-lock.yaml이 단일 진실원).
 # frozen install로 lockfile과 package.json의 불일치를 빌드 시점에 차단한다.
-# pnpm 11은 node:sqlite builtin이 필요해 node:22-alpine 기반을 사용한다.
-FROM node:22-alpine AS dashboard-builder
+# CR-11: pnpm@11.3.0은 node:sqlite builtin을 쓰므로 engines가 `node >=22.13`이다.
+#        `node:22`(플로팅 메이저) 태그는 22.13 미만으로 해석될 수 있어 마이너까지 고정한다
+#        (dashboard/package.json `engines.node`와 동일 값 — CI도 같은 값을 쓴다).
+FROM node:22.13-alpine AS dashboard-builder
+
+# CR-14 F-05: `pnpm run build` 는 `tsc -b && vite build` 이고, `tsc -b` 는 대시보드 전체를
+# 콜드 타입체크한다. node 이미지의 기본 V8 힙 상한은 **실측 2096MB**(컨테이너 메모리와
+# 무관하게 고정 — `--memory=4g`/`12g` 모두 2096MB)이고, 그 지점에서 heap OOM 으로 죽어
+# required gate `docker-build` 가 실패했다(14.5s, 재현 2/2). 로컬에서는 같은 입력이
+# 기본 힙으로도 통과하므로 musl/node 조합의 여유가 더 필요하다.
+# 빌드 단계에서만 힙을 올린다 — 런타임 이미지에는 영향이 없다.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 WORKDIR /app/dashboard
 RUN npm install -g pnpm@11.3.0 && pnpm --version

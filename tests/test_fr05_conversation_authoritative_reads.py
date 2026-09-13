@@ -9,7 +9,8 @@ workers) and across two OS processes:
   success and the final message count matches the success count
 - append vs compact race: only one CAS wins
 - state survives store restart; deleted files invalidate the cache
-- corrupt payloads invalidate cached state instead of reanimating it
+- corrupt payloads raise ConversationIntegrityError (CR-01) instead of being
+  reported as an empty/not-found conversation
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from pathlib import Path
 import pytest
 
 from antigravity_k.api.contracts.errors import (
-    ConversationNotFoundError,
+    ConversationIntegrityError,
     StaleConversationRevisionError,
 )
 from antigravity_k.engine.conversation_store import ConversationStore
@@ -186,15 +187,23 @@ class TestCrossWorkerReads:
         assert reader.get(project_id="p", conversation_id="conv") is None
 
     def test_corrupt_payload_does_not_reuse_cached_record(self, tmp_path: Path) -> None:
+        """CR-01: corrupt bytes are an integrity failure, never an empty conversation.
+
+        The old contract degraded corruption to ``None`` (i.e. "not found"),
+        which hid real data loss behind a normal empty/404 path. CR-01 requires
+        an explicit integrity error and no reuse of the cached record.
+        """
         storage = _mk_storage(tmp_path, "corrupt")
         _seed(storage)
         reader = _store(storage)
         assert reader.get_revision(project_id="p", conversation_id="conv") == 1
         reader._path_for("p", "conv").write_text("{not json", encoding="utf-8")
 
-        assert reader.get(project_id="p", conversation_id="conv") is None
-        assert reader.get_revision(project_id="p", conversation_id="conv") is None
-        with pytest.raises(ConversationNotFoundError):
+        with pytest.raises(ConversationIntegrityError):
+            reader.get(project_id="p", conversation_id="conv")
+        with pytest.raises(ConversationIntegrityError):
+            reader.get_revision(project_id="p", conversation_id="conv")
+        with pytest.raises(ConversationIntegrityError):
             reader.snapshot(project_id="p", conversation_id="conv")
 
     def test_restart_sees_same_state(self, tmp_path: Path) -> None:

@@ -16,6 +16,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { Uri } from 'monaco-editor';
+// CR-09: Monaco를 CDN이 아니라 설치된 로컬 번들/워커에서 로드하도록 고정한다.
+// 이 모듈은 React.lazy 경계 안에서만 로드되므로 초기 로드에는 영향이 없다.
+import { configureLocalMonacoRuntime } from '../../utils/monacoRuntime';
+
+configureLocalMonacoRuntime();
 import { useProblemsStore } from '../../stores/problemsStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useInlineEditStore } from '../../stores/inlineEditStore';

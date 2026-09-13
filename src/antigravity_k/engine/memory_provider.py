@@ -239,6 +239,13 @@ class BuiltinMemoryProvider(MemoryProvider):
             self._session_manager.add_turn(role="user", content=user_message)
             self._session_manager.add_turn(role="assistant", content=assistant_response)
         except Exception as e:
+            from antigravity_k.engine.session_manager import SessionPersistenceError
+
+            if isinstance(e, SessionPersistenceError):
+                # CR-02: 턴 저장 실패를 debug 로그로 숨기지 않는다(턴 유실 신호).
+                # 이 훅은 응답 이후 호출되고 반환 오류 채널이 없어 비치명적으로 둔다.
+                logger.error("BuiltinMemoryProvider.sync_turn persistence failed: %s", e)
+                return
             logger.exception("Unhandled exception")
             logger.debug("BuiltinMemoryProvider.sync_turn error: %s", e)
 

@@ -131,8 +131,8 @@ class TestSandboxBoundary:
 
     @pytest.mark.skipif(not IS_MACOS, reason="seatbelt backend required")
     def test_external_sentinel_read_denied(self, workdir: Path) -> None:
-        # Sentinel must live inside the user tree (denied root), not under the
-        # pytest temp tree (/private/var/folders), which is outside the deny set.
+        # CR-03 이후 사용자 트리와 사용자/공용 임시 루트(/var/folders 포함)가 모두
+        # deny 대상이다. 이 케이스는 사용자 트리 경로를 그대로 사용한다.
         outside_dir = Path(tempfile.mkdtemp(prefix="fr01_outside_", dir=os.path.expanduser("~")))
         outside = outside_dir / "secret.txt"
         outside.write_text("TOP-SECRET-SENTINEL", encoding="utf-8")

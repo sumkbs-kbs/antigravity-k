@@ -4,9 +4,22 @@
  * Tests the chatMessageAreEqual comparator and React.memo behavior.
  */
 
-import { describe, it, expect, vi, afterAll } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import ChatMessage, { chatMessageAreEqual } from '../ChatMessage';
+
+/*
+ * CR-09(F05): mermaid는 CDN 전역(`window.mermaid`)이 아니라 로컬 런타임 모듈에서
+ * 지연 로드된다. 이 테스트는 그 계약을 검증한다.
+ */
+const mermaidRuntimeMock = vi.hoisted(() => ({
+  loadMermaid: vi.fn(),
+  peekMermaid: vi.fn(() => null),
+  resetMermaidRuntimeForTests: vi.fn(),
+  MERMAID_CONFIG: Object.freeze({}),
+}));
+
+vi.mock('../../../utils/mermaidRuntime', () => mermaidRuntimeMock);
 
 /* ─── Fixtures ─────────────────────────────────────────────── */
 
@@ -195,11 +208,21 @@ function mermaidContent(): string {
 }
 
 describe('ChatMessage Mermaid diagram', () => {
-  afterAll(() => {
-    delete window.mermaid;
+  beforeEach(() => {
+    mermaidRuntimeMock.loadMermaid.mockReset();
   });
 
-  it('shows error when mermaid library not loaded', async () => {
+  it('CR-09: window.mermaid CDN 전역에 의존하지 않는다', () => {
+    expect('mermaid' in window).toBe(false);
+  });
+
+  it('CR-09: 다이어그램이 없으면 mermaid 런타임을 로드하지 않는다', () => {
+    render(<ChatMessage message={createMessage({ role: 'assistant', content: 'plain text only' })} />);
+    expect(mermaidRuntimeMock.loadMermaid).not.toHaveBeenCalled();
+  });
+
+  it('shows a load error when the local mermaid runtime cannot be loaded', async () => {
+    mermaidRuntimeMock.loadMermaid.mockRejectedValue(new Error('Failed to fetch dynamically imported module: mermaid'));
     const { container } = render(
       <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
     );
@@ -207,10 +230,11 @@ describe('ChatMessage Mermaid diagram', () => {
     expect(container.textContent).toMatch(/mermaid/i);
   });
 
-  it('renders mermaid diagram when library is available', async () => {
-    window.mermaid = {
+  it('renders mermaid diagram when the local runtime is available', async () => {
+    mermaidRuntimeMock.loadMermaid.mockResolvedValue({
+      initialize: vi.fn(),
       render: vi.fn().mockResolvedValue({ svg: '<svg>test</svg>' }),
-    };
+    });
 
     render(
       <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
@@ -221,9 +245,10 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('shows loading state while rendering diagram', async () => {
-    window.mermaid = {
+    mermaidRuntimeMock.loadMermaid.mockResolvedValue({
+      initialize: vi.fn(),
       render: vi.fn().mockReturnValue(new Promise(() => {})),
-    };
+    });
 
     render(
       <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
@@ -234,9 +259,10 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('shows error message when mermaid render throws', async () => {
-    window.mermaid = {
+    mermaidRuntimeMock.loadMermaid.mockResolvedValue({
+      initialize: vi.fn(),
       render: vi.fn().mockRejectedValue(new Error('Syntax error in graph')),
-    };
+    });
 
     render(
       <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
@@ -249,9 +275,10 @@ describe('ChatMessage Mermaid diagram', () => {
     const renderDeferred: { resolve: (value: { svg: string }) => void } = { resolve: () => {} };
     const renderPromise = new Promise<{ svg: string }>(resolve => { renderDeferred.resolve = resolve; });
 
-    window.mermaid = {
+    mermaidRuntimeMock.loadMermaid.mockResolvedValue({
+      initialize: vi.fn(),
       render: vi.fn().mockReturnValue(renderPromise),
-    };
+    });
 
     const { unmount } = render(
       <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
@@ -428,6 +455,21 @@ describe('ChatMessage code block', () => {
     expect(pres.length).toBeGreaterThanOrEqual(1);
     const codeInPre = pres[0]?.querySelector('code');
     expect(codeInPre).toBeInTheDocument();
+  });
+
+  it('CR-09: 하이라이트 토큰 span을 평문으로 치환하지 않는다', async () => {
+    const content = '```typescript\nconst x = 1;\n```';
+    const { container } = render(
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
+    );
+    await screen.findAllByText('📋 복사');
+
+    // 로컬로 가져온 하이라이트 테마가 색을 칠할 수 있도록 토큰 span을 유지한다.
+    const keyword = container.querySelector('.code-block code .hljs-keyword');
+    expect(keyword).not.toBeNull();
+    expect(keyword?.textContent).toBe('const');
+    // 토큰 트리를 그대로 렌더하면서도 마지막 개행은 남기지 않는다.
+    expect(container.querySelector('.code-block code')?.textContent).not.toMatch(/\n$/);
   });
 
   it('renders Ssak-Ai thinking box when think tags are present', () => {

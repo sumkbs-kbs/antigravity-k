@@ -67,7 +67,9 @@ function formatUptime(seconds: number): string {
 /* ─── Agent Status Card ────────────────────────────────────── */
 
 const AgentStatusCard: React.FC = () => {
-  const { agentStatus, activeTool, uptime, memoryMb, cpuPercent, totalTokens } = useAgentMonitorStore();
+  const {
+    agentStatus, activeTool, uptime, uptimeObservedAt, memoryPercent, cpuPercent, totalTokens,
+  } = useAgentMonitorStore();
   const cfg = STATUS_CONFIG[agentStatus];
 
   // Live tool duration counter
@@ -102,8 +104,11 @@ const AgentStatusCard: React.FC = () => {
       <div className="agent-status-metrics">
         <div className="metric-item">
           <span className="metric-icon">⏱</span>
-          <span className="metric-label">Uptime</span>
-          <span className="metric-value">{formatUptime(uptime)}</span>
+          {/* CR-10: API 서버 프로세스 가동 시간이다(탭 열린 시간이 아님). 미관측이면 UNKNOWN. */}
+          <span className="metric-label">API Uptime</span>
+          <span className="metric-value" data-testid="agent-uptime">
+            {uptimeObservedAt === null ? 'UNKNOWN' : formatUptime(uptime)}
+          </span>
         </div>
         <div className="metric-item">
           <span className="metric-icon">🧠</span>
@@ -113,7 +118,7 @@ const AgentStatusCard: React.FC = () => {
         <div className="metric-item">
           <span className="metric-icon">💾</span>
           <span className="metric-label">RAM</span>
-          <span className="metric-value">{memoryMb}%</span>
+          <span className="metric-value">{memoryPercent}%</span>
         </div>
         <div className="metric-item">
           <span className="metric-icon">⚙️</span>

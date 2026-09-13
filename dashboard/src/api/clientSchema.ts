@@ -57,9 +57,18 @@ export const ModelOperationsStatusSchema = z.object({
   quality_calibration: ModelQualityCalibrationStatusSchema,
 });
 
+/** CR-10: 실행 중인 빌드의 provenance. 미기록 값은 null(서버가 추측하지 않는다). */
+export const BuildInfoSchema = z.object({
+  version: z.string().optional(),
+  build_id: z.string().nullish(),
+  built_at: z.string().nullish(),
+  channel: z.string().nullish(),
+});
+
 export const HealthStatusSchema = z.object({
   status: z.string(),
   version: z.string().optional(),
+  build: BuildInfoSchema.optional(),
   backends: z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())]).optional(),
   rag_index_files: z.number().optional(),
   cov_active: z.boolean().optional(),
@@ -70,11 +79,18 @@ export const HealthStatusSchema = z.object({
 export const SystemMetricsSchema = z.object({
   ok: z.boolean(),
   status: z.string().optional(),
+  /** legacy 키. 실제 값은 percent이며 MB가 아니다 — memory_percent를 쓴다. */
   memory_mb: z.number().optional(),
+  memory_percent: z.number().optional(),
   cpu_percent: z.number().optional(),
   total_tokens: z.number().optional(),
   uptime_seconds: z.number().optional(),
+  /** API 프로세스 시작 시각(ISO 8601). */
+  uptime_started_at: z.string().optional(),
+  /** 응답한 API 프로세스 ID — 다중 worker 식별. */
+  process_id: z.number().optional(),
   version: z.string().optional(),
+  build: BuildInfoSchema.optional(),
 });
 
 export const CacheEntrySchema = z.object({
@@ -195,7 +211,8 @@ export const DebugModeResponseSchema = z.discriminatedUnion('ok', [
 ]);
 
 export const SettingsDataSchema = z.object({
-  api_keys: z.record(z.string(), z.string()).optional(),
+  // CR-05: 서버는 키 원문/부분값을 보내지 않는다. provider별 '설정됨' 상태만 온다.
+  api_keys_configured: z.record(z.string(), z.boolean()).optional(),
   server: z.object({
     host: z.string().optional(),
     port: z.union([z.string(), z.number()]).optional(),
@@ -203,6 +220,11 @@ export const SettingsDataSchema = z.object({
   model: z.object({
     provider: z.string().optional(),
     name: z.string().optional(),
+  }).optional(),
+  // CR-06: 서버가 강제하는 비용 한도(config.yaml `cost`). 0도 유효한 값이다.
+  cost: z.object({
+    daily_budget_usd: z.union([z.number(), z.string()]).optional(),
+    hourly_action_limit: z.union([z.number(), z.string()]).optional(),
   }).optional(),
 }).passthrough();
 
@@ -223,6 +245,13 @@ export const SettingsSaveResponseSchema = z.discriminatedUnion('ok', [
   }),
 ]);
 
+// CR-05: 명시적 키 삭제 응답(빈 입력·누락과 구분되는 경로).
+export const SettingsDeleteResponseSchema = z.object({
+  ok: z.boolean(),
+  deleted: z.number().optional(),
+  message: z.string().optional(),
+});
+
 export const ChatCompletionChunkSchema = z.object({
   choices: z.array(z.object({
     delta: z.object({
@@ -236,6 +265,7 @@ export type ModelProviderCapability = z.infer<typeof ModelProviderCapabilitySche
 export type ModelOperationalMetric = z.infer<typeof ModelOperationalMetricSchema>;
 export type ModelQualityCalibrationStatus = z.infer<typeof ModelQualityCalibrationStatusSchema>;
 export type ModelOperationsStatus = z.infer<typeof ModelOperationsStatusSchema>;
+export type BuildInfo = z.infer<typeof BuildInfoSchema>;
 export type HealthStatus = z.infer<typeof HealthStatusSchema>;
 export type SystemMetrics = z.infer<typeof SystemMetricsSchema>;
 export type CacheStats = z.infer<typeof CacheStatsSchema>;
@@ -251,6 +281,7 @@ export type DebugModeResponse = z.infer<typeof DebugModeResponseSchema>;
 export type SettingsData = z.infer<typeof SettingsDataSchema>;
 export type SettingsResponse = z.infer<typeof SettingsResponseSchema>;
 export type SettingsSaveResponse = z.infer<typeof SettingsSaveResponseSchema>;
+export type SettingsDeleteResponse = z.infer<typeof SettingsDeleteResponseSchema>;
 
 /* ─── Desktop & Workspace Contract Schemas ─────────────────────── */
 export const ProjectRecordSchema = z.object({
@@ -519,6 +550,8 @@ export const ExecutionContextErrorCodeSchema = z.enum([
   "conversation_not_found",
   "project_root_invalid",
   "stale_conversation_revision",
+  "conversation_integrity_error",
+  "conversation_storage_migration_required",
 ]);
 
 export const EXECUTION_CONTEXT_ERROR_HTTP_STATUS = {
@@ -529,6 +562,10 @@ export const EXECUTION_CONTEXT_ERROR_HTTP_STATUS = {
   conversation_not_found: 404,
   project_root_invalid: 403,
   stale_conversation_revision: 409,
+  // CR-01: stored conversation bytes no longer match the requested identity.
+  conversation_integrity_error: 409,
+  // CR-01: legacy layout must be migrated before the API serves conversations.
+  conversation_storage_migration_required: 503,
 } as const;
 
 export type RequestExecutionContextWire = z.infer<typeof RequestExecutionContextWireSchema>;

@@ -21,6 +21,7 @@ import {
 } from '../../features/command-palette/commandRegistry';
 import type { PaletteCommand } from '../../features/command-palette/commandRegistry';
 import { usePluginCommands } from '../../plugin/PluginManager';
+import { useModalDialog } from '../../hooks/useModalDialog';
 import { useUiStore } from '../../stores/uiStore';
 
 const CommandPalette: React.FC = () => {
@@ -29,6 +30,7 @@ const CommandPalette: React.FC = () => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<readonly PaletteCommand[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRequestRef = useRef(0);
@@ -66,14 +68,11 @@ const CommandPalette: React.FC = () => {
     return () => clearTimeout(timer);
   }, [commandPaletteVisible, query, getLocalMatches]);
 
-  // Focus input when opened
-  useEffect(() => {
-    if (commandPaletteVisible) {
-      const focusTimer = setTimeout(() => inputRef.current?.focus(), 50);
-      return () => clearTimeout(focusTimer);
-    }
-    return undefined;
-  }, [commandPaletteVisible]);
+  /*
+   * CR-08(F04-b): dialog modal 계약 — 초기 focus, Tab 순환, 닫을 때 focus 복귀,
+   * 열려 있는 동안 배경 inert. Escape 닫기는 아래 전역 단축키가 담당한다.
+   */
+  useModalDialog({ active: commandPaletteVisible, containerRef: overlayRef, initialFocusRef: inputRef });
 
   const performSearch = useCallback(async (value: string) => {
     if (value.trim().length === 0) {
@@ -132,6 +131,12 @@ const CommandPalette: React.FC = () => {
   }, [hideAfterAction, reportExecutionError]);
 
   const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
+    /*
+     * CR-08(F04-c): 한글 IME 조합을 확정하는 Enter는 명령 실행이 아니다.
+     * 조합 중 keydown은 isComposing=true(또는 legacy keyCode 229)로 들어온다.
+     */
+    const native = e.nativeEvent as KeyboardEvent;
+    if (native.isComposing || native.keyCode === 229) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setSelectedIndex((index) => results.length === 0 ? 0 : Math.min(index + 1, results.length - 1));
@@ -165,8 +170,8 @@ const CommandPalette: React.FC = () => {
   if (!commandPaletteVisible) return null;
 
   return (
-    <div className="command-palette-overlay" style={{ display: 'flex' }} onClick={handleOverlayClick} role="presentation">
-      <div className="command-palette" role="dialog" aria-label="명령 팔레트">
+    <div ref={overlayRef} className="command-palette-overlay" style={{ display: 'flex' }} onClick={handleOverlayClick} role="presentation">
+      <div className="command-palette" role="dialog" aria-modal="true" aria-label="명령 팔레트">
         <div className="cmd-header">
           <span className="cmd-icon"><CommandIcon icon="search" /></span>
           <input

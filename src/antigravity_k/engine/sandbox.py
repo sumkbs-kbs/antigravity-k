@@ -6,6 +6,8 @@ macOS의 sandbox-exec(seatbelt)와 Docker 컨테이너를 지원합니다.
 
 보안 모델:
   - 파일 시스템: 프로젝트 디렉토리만 쓰기 허용, 나머지 읽기 전용
+  - 읽기 경계(restrict_reads): 사용자 트리·공용/사용자 임시 디렉터리를 차단하고
+    작업 디렉터리·인터프리터 런타임·호출자가 명시한 경로만 다시 허용한다.
   - 네트워크: config의 sandbox_network 설정 (none = 차단)
   - 프로세스: 자식 프로세스 생성 제한
   - 타임아웃: 무한 실행 방지
@@ -27,10 +29,61 @@ import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Final
 
 from antigravity_k.engine.limited_process_runner import LimitedProcessRunner
 
 logger = logging.getLogger("antigravity_k.sandbox")
+
+
+# CR-03: 읽기 경계에서 항상 차단하는 트리(다른 프로세스·다른 사용자 데이터).
+# macOS의 per-user 임시 루트 ``/var/folders``(canonical ``/private/var/folders``)는
+# pytest/`tempfile.mkdtemp()`가 실제로 쓰는 위치라 과거 경계에 빠져 있었다.
+RESTRICTED_DENIED_ROOTS: Final[tuple[str, ...]] = (
+    "/tmp",  # nosec B108 - 샌드박스 deny 규칙이며 파일 생성 경로가 아니다
+    "/private/tmp",
+    "/var/tmp",
+    "/private/var/tmp",
+    "/var/folders",
+    "/private/var/folders",
+)
+
+
+def _realpath_forms(path: str) -> list[str]:
+    """seatbelt가 canonical 경로로 매칭하므로 원문과 realpath를 함께 돌려준다."""
+    forms: list[str] = []
+    for candidate in (os.path.realpath(path), path):
+        if candidate and candidate != "/" and candidate not in forms:
+            forms.append(candidate)
+    return forms
+
+
+def restricted_denied_roots() -> list[str]:
+    """restrict_reads에서 차단할 루트 목록(정렬·중복 제거)."""
+    roots: list[str] = []
+    user_tree = _user_tree_denied_root()
+    if user_tree:
+        roots.extend(_realpath_forms(user_tree))
+    for denied in RESTRICTED_DENIED_ROOTS:
+        roots.extend(_realpath_forms(denied))
+    return list(dict.fromkeys(roots))
+
+
+def ancestor_literal_read_allows(targets: Sequence[str], denied_roots: Sequence[str]) -> list[str]:
+    """denied 트리 안에 놓인 대상의 조상 디렉터리를 literal로만 다시 연다.
+
+    literal은 그 디렉터리 자체(entry 이름 해석·패키지 탐색)만 열고 하위 트리는
+    열지 않는다. 이 규칙이 없으면 임시 디렉터리 아래 workspace의 부모 stat/list가
+    EPERM이 되어 pytest 수집과 패키지 import가 실패한다(실측).
+    """
+    ancestors: list[str] = []
+    for target in dict.fromkeys(targets):
+        current = os.path.dirname(os.path.realpath(target))
+        while current and current != "/":
+            if any(current == denied or current.startswith(f"{denied}{os.sep}") for denied in denied_roots):
+                ancestors.append(current)
+            current = os.path.dirname(current)
+    return sorted(dict.fromkeys(ancestors))
 
 
 def _user_tree_denied_root() -> str | None:
@@ -78,10 +131,11 @@ def run_sandboxed_argv(
     with the parent process privileges.
 
     Read access is restricted to the working directory, the Python interpreter
-    runtime that must execute the code, explicit ``extra_read_paths`` and the
-    system runtime locations in ``_RESTRICTED_SYSTEM_READ_PATHS``. The parent's
-    ``os.environ`` is never inherited: ``env=None`` falls back to a minimal
-    environment so caller secrets cannot leak into generated-code processes.
+    runtime that must execute the code and explicit ``extra_read_paths``; the
+    user tree and shared/user temporary roots (``restricted_denied_roots()``)
+    stay blocked. The parent's ``os.environ`` is never inherited: ``env=None``
+    falls back to a minimal environment so caller secrets cannot leak into
+    generated-code processes.
     """
     if not args:
         return SandboxResult(
@@ -102,6 +156,7 @@ def run_sandboxed_argv(
         timeout=effective_timeout,
         max_output_bytes=max_output_bytes,
         restrict_reads=True,
+        require_sandbox=True,
         read_allow_paths=read_paths,
     )
     return runner.execute(
@@ -172,6 +227,7 @@ class SandboxRunner:
         max_memory_mb: int = 2_048,
         max_processes: int = 64,
         restrict_reads: bool = False,
+        require_sandbox: bool = False,
         read_allow_paths: Sequence[str] = (),
     ):
         """Initialize the SandboxRunner.
@@ -183,6 +239,8 @@ class SandboxRunner:
             timeout: 기본 타임아웃 (초)
             restrict_reads: True면 읽기를 명시적 허용 경로로 제한한다.
                 False(기본)는 기존 호출자 호환을 위해 전체 읽기를 허용한다.
+            require_sandbox: True면 ``enabled``와 무관하게 실제 샌드박스 실행만
+                허용한다(설정으로 꺼져 있으면 raw 실행 대신 fail-closed).
             read_allow_paths: restrict_reads=True일 때 추가로 읽기를 허용할 경로.
 
         """
@@ -194,6 +252,7 @@ class SandboxRunner:
         self.max_memory_mb: int = max(128, max_memory_mb)
         self.max_processes: int = max(1, max_processes)
         self.restrict_reads: bool = restrict_reads
+        self.require_sandbox: bool = require_sandbox
         self.read_allow_paths: tuple[str, ...] = tuple(
             os.path.realpath(os.path.abspath(p)) for p in read_allow_paths if p
         )
@@ -219,6 +278,15 @@ class SandboxRunner:
         effective_timeout = timeout or self.timeout
 
         if not self.enabled:
+            if self.require_sandbox:
+                # CR-03: 설정으로 꺼진 상태에서 host raw 실행으로 대체하지 않는다.
+                logger.warning("샌드박스가 설정으로 비활성 — raw 실행을 거부")
+                return SandboxResult(
+                    success=False,
+                    return_code=-1,
+                    sandboxed=True,
+                    error="Sandbox is disabled by configuration; raw execution is refused.",
+                )
             return self._execute_raw(command, effective_timeout, env, cwd)
 
         # 플랫폼별 샌드박스
@@ -249,6 +317,16 @@ class SandboxRunner:
         profile_path = None
         try:
             profile = self._build_seatbelt_profile()
+        except Exception as exc:
+            # CR-03: 정책 생성 실패는 실행 전에 fail-closed(raw 폴백 없음).
+            logger.warning("샌드박스 정책 생성 실패 — 실행을 차단: %s", exc)
+            return SandboxResult(
+                success=False,
+                return_code=-1,
+                sandboxed=True,
+                error="Sandbox policy construction failed; raw execution is disabled.",
+            )
+        try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".sb", delete=False, encoding="utf-8") as f:
                 _ = f.write(profile)
                 profile_path = f.name
@@ -320,8 +398,9 @@ class SandboxRunner:
           - /tmp, /var/tmp: 읽기/쓰기 (빌드 산출물)
           - 네트워크: config에 따라 차단 또는 허용
           - fork/exec: 허용 (명령 실행 필요)
-          - restrict_reads=True면 읽기를 시스템 런타임과 명시적 허용
-            경로로 제한해 사용자 비밀 파일 접근을 차단한다.
+          - restrict_reads=True면 사용자 트리/공용·사용자 임시 루트를 deny하고
+            작업 디렉터리·런타임·호출자 경로만 다시 허용해 다른 프로세스의
+            비밀·임시 파일 접근을 차단한다(자식 프로세스에도 그대로 적용).
         """
         root = self.project_root
         allow_net = self.network != "none"
@@ -331,26 +410,23 @@ class SandboxRunner:
         network_policy = "(allow network*)\n;; network allowed" if allow_net else "(deny network*)\n;; network blocked"
 
         if self.restrict_reads:
-            # 실험적으로 검증된 macOS 26 동작: subpath 기반 좁은 read allow는
-            # 인터프리터 로딩 단계에서 SIGABRT를 유발한다. 대신 전체 읽기 허용
-            # 뒤에 사용자 트리/공유 임시 디렉토리 deny를 두고, 필요한 경로만
-            # 다시 허용한다. seatbelt는 같은 구체성에서 나중에 오는 규칙을
-            # 우선 적용하므로 deny 이후의 allow가 재허용으로 동작한다.
-            denied_roots = []
-            user_tree = _user_tree_denied_root()
-            if user_tree:
-                denied_roots.append(user_tree)
-            # 다른 프로세스의 임시 파일(시크릿 포함 가능) 격리
-            # These paths are sandbox deny-list entries, not file creation targets.
-            denied_roots.extend(
-                ["/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"]  # nosec B108
-            )
+            # CR-03 실측(macOS 26.6.2, arm64): (deny default) 뒤의 좁은 read allow
+            # 목록은 CPython 부팅을 SIGABRT로 죽이고(인터프리터 로더), 임시 트리
+            # 아래 workspace는 부모 stat EPERM으로 pytest 수집이 실패한다.
+            # 따라서 경계를 "민감 트리 deny + workspace/런타임/호출자 경로만
+            # 재허용 + 조상 metadata"로 구성한다. seatbelt는 같은 구체성에서
+            # 나중에 오는 규칙을 우선 적용하므로 deny 뒤의 allow가 재허용이다.
+            # 탐색·근거: .omo/evidence/commercial-reliability/CR-03/attempt-001/repro/.
+            denied_roots = restricted_denied_roots()
             read_rules = ["(allow file-read*)"]
             for denied in denied_roots:
                 read_rules.append(f'(deny file-read* (subpath "{denied}"))')
+            allowed = list(dict.fromkeys([root, *self.read_allow_paths]))
+            for ancestor in ancestor_literal_read_allows(allowed, denied_roots):
+                read_rules.append(f'(allow file-read* (literal "{ancestor}"))')
             # 재허용: 작업 디렉토리/런타임/호출자 지정 경로가 차단 트리
-            # 안에 있더라도 정확히 그 prefix만 다시 연다.
-            for p in dict.fromkeys([root, *self.read_allow_paths]):
+            # 안에 있더라도 정확히 그 prefix(subpath)만 다시 연다.
+            for p in allowed:
                 read_rules.append(f'(allow file-read* (literal "{p}"))')
                 read_rules.append(f'(allow file-read* (subpath "{p}"))')
             read_section = "\n".join(read_rules)
@@ -388,7 +464,12 @@ class SandboxRunner:
         env: Mapping[str, str] | None,
         cwd: str | None,
     ) -> SandboxResult:
-        """Docker 컨테이너 내부에서 명령을 실행합니다."""
+        """Docker 컨테이너 내부에서 명령을 실행합니다.
+
+        읽기 경계는 bind mount가 담당한다: host의 project root만 ``/workspace``로
+        올라가므로 그 밖의 host 경로(HOME·/tmp·/var/folders)는 컨테이너에서 보이지
+        않는다. restrict_reads의 deny 목록을 컨테이너 내부에 추가로 적용하지 않는다.
+        """
         network_flag = "--network=none" if self.network == "none" else ""
         working_dir = "/workspace"
         if cwd:

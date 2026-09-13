@@ -94,6 +94,47 @@ class DashboardDependency:
     version: str
     source_url: str | None
     license_id: str | None
+    # "lock" = package-lock.json의 license 필드, "provenance-declared" =
+    # THIRD_PARTY_PROVENANCE.toml의 declared_licenses, None = 미상(gate 실패).
+    license_source: str | None = None
+
+
+# 배포물에 라이선스 메타데이터가 없는 런타임 의존성을 사람이 승인해 **선언**한다.
+# 정책 단일 진실원은 THIRD_PARTY_PROVENANCE.toml `[distribution].declared_licenses`이며
+# 형식은 "<ecosystem>:<name>@<version>=<spdx>"이다. 선언이 없으면 라이선스는 미상으로
+# 남고 license gate가 실패한다 — 메타데이터를 합성하지 않는다.
+_DECLARED_LICENSE_PATTERN = re.compile(
+    r"^(?P<ecosystem>[a-z]+):(?P<name>[^=@]+)@(?P<version>[^=]+)=(?P<spdx>[A-Za-z0-9.+-]+)$",
+)
+
+
+def declared_licenses(project_root: Path) -> dict[str, str]:
+    """provenance 정책이 승인한 라이선스 선언을 `<ecosystem>:<name>@<version>` → SPDX 맵으로 읽는다.
+
+    정책 파일이 없으면 빈 맵을 반환한다(선언 없음 = 미상 유지). 형식 오류는
+    조용히 넘기지 않고 ReleaseDependencyError로 실패시킨다 — 잘못된 정책이
+    gate를 통과시키는 것을 막는다.
+    """
+    provenance = project_root / "THIRD_PARTY_PROVENANCE.toml"
+    if not provenance.is_file():
+        return {}
+    try:
+        data = tomllib.loads(provenance.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise ReleaseDependencyError(f"Could not read provenance policy: {provenance}") from error
+    distribution = data.get("distribution")
+    raw = distribution.get("declared_licenses", ()) if isinstance(distribution, dict) else ()
+    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+        message = "THIRD_PARTY_PROVENANCE.toml declared_licenses must be a list of strings"
+        raise ReleaseDependencyError(message)
+    declared: dict[str, str] = {}
+    for item in raw:
+        match = _DECLARED_LICENSE_PATTERN.match(item)
+        if match is None:
+            raise ReleaseDependencyError(f"Malformed declared license entry: {item!r}")
+        identifier = f"{match['ecosystem']}:{match['name']}@{match['version']}"
+        declared[identifier] = match["spdx"]
+    return declared
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,8 +211,9 @@ def dashboard_runtime_dependencies(project_root: Path) -> DashboardRuntimeDepend
             if dependency_path not in selected:
                 selected[dependency_path] = dependency
                 pending.append((dependency_path, dependency))
+    declared = declared_licenses(project_root)
     dependencies = tuple(
-        _dashboard_dependency(dependency_path, dependency) for dependency_path, dependency in selected.items()
+        _dashboard_dependency(dependency_path, dependency, declared) for dependency_path, dependency in selected.items()
     )
     return DashboardRuntimeDependencies(
         root_name=root.name,
@@ -222,14 +264,30 @@ def _python_dependency(package: _LockPackage) -> PythonDependency:
     )
 
 
-def _dashboard_dependency(package_path: str, package: _NpmPackage) -> DashboardDependency:
+def _dashboard_dependency(
+    package_path: str,
+    package: _NpmPackage,
+    declared: Mapping[str, str],
+) -> DashboardDependency:
     if package.version is None:
         raise ReleaseDependencyError(f"Locked dashboard package has no version: {package_path}")
+    name = _npm_package_name(package_path, package)
+    declared_spdx = declared.get(f"npm:{name}@{package.version}")
+    if package.license is not None:
+        license_id: str | None = package.license
+        license_source: str | None = "lock"
+    elif declared_spdx is not None:
+        license_id = declared_spdx
+        license_source = "provenance-declared"
+    else:
+        license_id = None
+        license_source = None
     return DashboardDependency(
-        name=_npm_package_name(package_path, package),
+        name=name,
         version=package.version,
         source_url=package.resolved,
-        license_id=package.license,
+        license_id=license_id,
+        license_source=license_source,
     )
 
 

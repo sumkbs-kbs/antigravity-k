@@ -1,1 +1,0 @@
-import{r,a0 as n}from"./api-client-DLBGRr3X.js";async function c(){const e=r();if(e===null)return null;try{const t=await n("/auth/ws-ticket",{method:"POST",headers:{Authorization:`Bearer ${e}`}});return typeof(t==null?void 0:t.ticket)=="string"&&t.ticket.length>0?t.ticket:null}catch{return null}}export{c as f};

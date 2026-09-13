@@ -198,6 +198,10 @@ def license_gate_verdict(
                 notes.append(f"{identifier}: 알려진 악성/스푸핑 패키지")
                 continue
             license_id = _component_license_id(component)
+            if license_id is not None and _license_is_provenance_declared(component):
+                # 출처를 숨기지 않는다: lock이 아니라 provenance 정책의 명시 승인으로
+                # 채워진 라이선스임을 gate 출력에 남긴다.
+                notes.append(f"{identifier}: provenance-declared ({license_id})")
             if license_id is None:
                 if name.lower() in {p.lower() for p in marker_platform_packages}:
                     notes.append(f"{identifier}: marker-allowed (플랫폼 마커 패키지 — 메타데이터 부재 승인)")
@@ -214,6 +218,18 @@ def license_gate_verdict(
         unknown_license=tuple(sorted(unknown)),
         prohibited=tuple(sorted(prohibited)),
         notes=tuple(notes),
+    )
+
+
+def _license_is_provenance_declared(component: dict[str, object]) -> bool:
+    properties = component.get("properties")
+    if not isinstance(properties, list):
+        return False
+    return any(
+        isinstance(entry, dict)
+        and entry.get("name") == "agk:license-source"
+        and entry.get("value") == "provenance-declared"
+        for entry in properties
     )
 
 

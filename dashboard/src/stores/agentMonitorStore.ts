@@ -60,8 +60,13 @@ export interface AgentMonitorState {
   // Execution history timeline (recent events)
   timeline: ExecutionEvent[];
   // System metrics (updated live)
+  // CR-10: uptime은 **API 서버 프로세스** 가동 시간(초)이다. 대시보드 탭이 열린
+  // 시간이 아니며 둘을 섮으면 안 된다. 값이 언제 관측됐는지는 uptimeObservedAt에 있다.
   uptime: number;
-  memoryMb: number;
+  /** 마지막으로 uptime을 관측한 시각(ms epoch). null = 아직 관측 전(UNKNOWN). */
+  uptimeObservedAt: number | null;
+  /** 메모리 사용률(%). `/api/system/status`의 memory_percent이며 MB가 아니다. */
+  memoryPercent: number;
   cpuPercent: number;
   totalTokens: number;
 
@@ -73,8 +78,8 @@ export interface AgentMonitorState {
   addTask: (task: TaskProgress) => void;
   removeTask: (taskId: string) => void;
   addTimelineEvent: (event: Omit<ExecutionEvent, 'id' | 'timestamp'>) => void;
-  updateMetrics: (metrics: { memoryMb?: number | null; cpuPercent?: number | null; totalTokens?: number | null }) => void;
-  setUptime: (uptime: number) => void;
+  updateMetrics: (metrics: { memoryPercent?: number | null; cpuPercent?: number | null; totalTokens?: number | null }) => void;
+  setUptime: (uptime: number, observedAt?: number) => void;
   clearLogs: () => void;
   reset: () => void;
 }
@@ -97,7 +102,8 @@ export const useAgentMonitorStore = create<AgentMonitorState>((set) => ({
   currentTasks: [],
   timeline: [],
   uptime: 0,
-  memoryMb: 0,
+  uptimeObservedAt: null,
+  memoryPercent: 0,
   cpuPercent: 0,
   totalTokens: 0,
 
@@ -157,13 +163,13 @@ export const useAgentMonitorStore = create<AgentMonitorState>((set) => ({
 
   updateMetrics: (metrics) => {
     set(state => ({
-      memoryMb: metrics.memoryMb ?? state.memoryMb,
+      memoryPercent: metrics.memoryPercent ?? state.memoryPercent,
       cpuPercent: metrics.cpuPercent ?? state.cpuPercent,
       totalTokens: metrics.totalTokens ?? state.totalTokens,
     }));
   },
 
-  setUptime: (uptime) => set({ uptime }),
+  setUptime: (uptime, observedAt = Date.now()) => set({ uptime, uptimeObservedAt: observedAt }),
 
   clearLogs: () => set({ logs: [] }),
 

@@ -13,16 +13,50 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import Final, TypedDict, cast
 
 from .cost_guard import CostGuard
 
 logger = logging.getLogger("antigravity_k.usage_tracker")
+
+
+# ─── 기본 DB 경로 (단일 패치 지점) ────────────────────────────────────
+#
+# 이전에는 호출자(`api/dependencies.py`)가 `UsageTracker(db_path="data/token_usage.json")`
+# 처럼 **CWD 상대 경로를 하드코딩**했다. `data/token_usage.json` 은 **추적 파일**이고
+# `record()` 는 ``auto_save_interval``(기본 50)건마다 `_save()` 를 호출하므로, 사용량을
+# 50건 이상 기록하는 테스트 조합 하나면 **검증 실행이 후보 트리를 바꿨다** —
+# F-02(benchmark_harness)와 같은 결함이 두 번째 경로에 남아 있었다.
+#
+# 이제 경로 결정은 이 한 곳에서만 일어난다. 프로덕션 기본값은 그대로다(누적 사용량 DB).
+USAGE_DB_ENV_VAR: Final[str] = "AGK_USAGE_DB"
+DEFAULT_USAGE_DB_RELATIVE: Final[Path] = Path("data/token_usage.json")
+
+
+def resolve_usage_db_path(environ: Mapping[str, str] | None = None) -> Path:
+    """환경 값으로부터 사용량 DB 경로를 계산하는 **순수** 함수.
+
+    ``tests/conftest.py`` 가 :func:`default_usage_db_path` 를 패치하므로, 우선순위
+    규칙 자체는 이 순수 함수로 검증해야 한다(패치된 함수를 부르면 **규칙이 아니라
+    패치 결과**를 검증하게 된다 — CR-14 D-15 와 같은 이유).
+    """
+    source = os.environ if environ is None else environ
+    override = source.get(USAGE_DB_ENV_VAR, "").strip()
+    if override:
+        return Path(override).expanduser()
+    return DEFAULT_USAGE_DB_RELATIVE
+
+
+def default_usage_db_path() -> Path:
+    """사용량 DB 의 기본 경로(테스트에서는 conftest 가 이 지점을 바꾼다)."""
+    return resolve_usage_db_path()
 
 
 class UsageRecordPayload(TypedDict):

@@ -9,6 +9,10 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import type { DiffOnMount } from '@monaco-editor/react';
+// CR-09: diff 편집기도 로컬 Monaco/워커를 쓴다(CDN 로더 기본값 제거).
+import { configureLocalMonacoRuntime } from '../../utils/monacoRuntime';
+
+configureLocalMonacoRuntime();
 import type { ProposedChange } from '../../stores/changeStore';
 import { useUiStore } from '../../stores/uiStore';
 

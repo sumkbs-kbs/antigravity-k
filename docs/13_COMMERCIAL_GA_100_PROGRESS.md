@@ -1240,3 +1240,25 @@ tags: [commercialization, progress, evidence, multi-agent]
   - 클라우드 어댑터: 실제 클라우드 자격증명 부재로 `BLOCKED_EXTERNAL` 기록 유지.
   - 보고서: `.omo/evidence/final-review-remediation/RP-11/attempt-001/review.md` -> **DONE 승격**.
 - **누적 현황**: 15개 과제 중 **12개 완료(DONE)** (RP-00 포함 13/15; RP-01~11, RP-13 DONE; RP-12 soak-006 진행 중; RP-14 대기).
+
+### 2026-09-11 19:20 KST · 전체 개선 스위트(133 tests) 및 브라우저 E2E 통합 재실측 확인, soak-006 순항
+
+- **전체 개선 테스트 스위트 일괄 통과 (`tests/test_fr*.py`, 133/133 passed in 18.2s)**:
+  - RP-01 Sandbox 격리: 12 tests passed
+  - RP-02 Shell 실행 경계: 30 tests passed
+  - RP-03 Transaction 격리/복구: 15 tests passed
+  - RP-04 RSI 격리/동시삭제 보존: 11 tests passed
+  - RP-05 Multi-Worker API/대화 CAS: 13 tests passed (uvicorn live worker + authoritative read)
+  - RP-07 Staging/Model Registry: 9 tests passed
+  - RP-11 Gate Verifier: 18 tests passed
+  - RP-13 Release Manifest & DR: 8 tests passed
+  - RP-08/09 Workspace Prompt Binding & Context Compaction: 17 tests passed
+- **Playwright 브라우저 E2E 전원 통과 (Chromium 6/6 passed in 1.7s)**:
+  - `ws-04-project-switch.spec.ts`: desktop (1.2s), narrow viewport (1.2s)
+  - `conversation-compaction.spec.ts`: 수동 버튼 클릭, aria-busy 진행 상태, HTTP 409 리비전 동기화, HTTP 500 에러 처리 (4 passed)
+- **RP-12 soak-006 현황**:
+  - PID 52583 (`val02_staging.py --soak-seconds 28800`): 6시간 15분 경과 (78.2% 달성, 목표 완료 21:03:29 KST / 12:03:29 UTC).
+  - CPU 99%, RSS 1.0~1.3% 대역 유지, SQLite 및 대화 트랜잭션 정상 기록 중.
+- **RP-14 출시 판정 준비**:
+  - 5-Axis 상용화 준비도 사전 평가서(`.omo/evidence/final-review-remediation/RP-14/attempt-001/pre-review-assessment.md`) 완비.
+  - soak-006 종료 즉시 결과 파일 검증(`ga_gate_verify.py`) 및 최종 독립 출시 판정(GO/NO-GO) 진입 예정.

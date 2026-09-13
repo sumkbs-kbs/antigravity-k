@@ -142,6 +142,32 @@ def _get_correlation_id() -> str:
     return correlation_id_var.get("") or uuid.uuid4().hex[:12]
 
 
+async def session_persistence_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """CR-02: 세션 저장 실패를 명시적 409/503으로 매핑한다.
+
+    저장 실패를 200 성공으로 감추지 않는다. 내부 경로/스택은 응답에 넣지 않는다.
+    """
+    from antigravity_k.engine.session_manager import SessionPersistenceError, StaleSessionWriteError
+
+    if not isinstance(exc, SessionPersistenceError):  # pragma: no cover - 방어적 분기
+        return await global_exception_handler(request, exc)
+    cid = _get_correlation_id()
+    status_code = 409 if isinstance(exc, StaleSessionWriteError) else 503
+    error_code = exc.error_code
+    detail = exc.public_detail
+    logger.warning(
+        "SessionPersistenceError [correlation_id=%s] on %s %s: %s",
+        cid,
+        request.method,
+        request.url,
+        exc,
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content={"ok": False, "error": error_code, "detail": detail, "correlation_id": cid},
+    )
+
+
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catch-all exception handler with structured error response.
 

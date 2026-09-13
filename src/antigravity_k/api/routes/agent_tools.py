@@ -18,11 +18,18 @@ from antigravity_k.api.browser_session_state import (
     BrowserSessionRegistry,
     BrowserSessionState,
 )
+from antigravity_k.api.contracts.shell import (
+    ShellApprovalRequiredError,
+    ShellPolicyDeniedError,
+    ShellSandboxUnavailableError,
+    ShellTimeoutError,
+)
 from antigravity_k.config import config
-from antigravity_k.engine.sandbox import SandboxRunner
+from antigravity_k.engine.access_mode import AccessMode, get_access_mode
+from antigravity_k.engine.sandbox import SandboxRunner, _minimal_child_env, _python_runtime_read_paths
 from antigravity_k.tools.egress_policy import EgressPolicyError, validate_egress_url, validate_httpx_request_async
 from antigravity_k.tools.permission_gate import PermissionGate
-from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
+from antigravity_k.tools.tool_contracts import Permission, PermissionDecision, ToolInvocation, ToolSpec
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -142,8 +149,107 @@ async def _guard_browser_route(route: object, request: object) -> None:
     _ = await route_obj.continue_()
 
 
-def _permission_gate() -> PermissionGate:
-    return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
+# ─── CR-04: 실행 경계 — 권한 모드와 요청 root 스냅샷 ────────────────────
+#
+# 이전 구현은 `mode="auto-pilot"`을 상수로 고정해, 사용자가 대시보드에서 선택한
+# 실행 권한 모드(전체 액세스 / 읽기 전용)를 무시하고 high-risk 도구(셸 실행)를
+# 항상 자동 승인했다. 이제는 현재 요청의 기존 권한 모드에서 모드를 도출한다:
+#  - FULL_ACCESS(사용자가 명시적으로 허용)  → auto-pilot: high-risk 도구 자동 승인
+#  - READ_ONLY(읽기 전용)                   → balanced: high-risk 도구는 ASK(prompt)
+# 별도 승인 workflow가 없는 동기 API이므로 ASK는 실행 없이 403을 반환한다
+# (allow로 승격하지 않는다). DENY도 실행 0회다.
+_PERMISSION_MODE_BY_ACCESS_MODE: dict[AccessMode, str] = {
+    AccessMode.FULL_ACCESS: "auto-pilot",
+    AccessMode.READ_ONLY: "balanced",
+}
+_SHELL_TOOL_NAME = "run_bash_command"
+
+
+def _permission_mode() -> str:
+    """현재 요청의 기존 권한 모드 → PermissionGate 모드."""
+    return _PERMISSION_MODE_BY_ACCESS_MODE.get(get_access_mode(), "balanced")
+
+
+def _shell_request_root(req: "ShellRunRequest", request: Request) -> str:
+    """셸 실행 root를 요청 시작 시점에 1회 확정한다(재조회·재바인딩 없음).
+
+    우선순위:
+    1. 이미 바인딩된 ARC-01 요청 실행 컨텍스트(chat/task가 실행한 경우)
+    2. 클라이언트가 명시한 ``project_id``(ARC-01 resolution)
+    3. ``X-AGK-Session-Id``로 명시된 session active-project binding
+    4. 그 외 구형 클라이언트는 서버 기본 root(기존 동작)
+
+    """
+    from antigravity_k.api.project_binding import (
+        SESSION_ID_HEADER,
+        get_request_project_root,
+        get_session_active_project,
+        resolve_project_execution_context,
+    )
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    bound = get_request_project_root()
+    if bound:
+        return os.path.realpath(bound)
+
+    project_id = (req.project_id or "").strip()
+    if not project_id:
+        header_session = request.headers.get(SESSION_ID_HEADER)
+        binding = get_session_active_project(header_session) if header_session else None
+        if binding is None:
+            return os.path.realpath(str(config.paths.project_root))
+        project_id = binding.project_id
+
+    context = resolve_project_execution_context(
+        payload=None,
+        project_id=project_id,
+        registry=get_project_registry(),
+        bind=False,
+    )
+    return os.path.realpath(context.canonical_project_root)
+
+
+def _permission_gate(root: str | None = None) -> PermissionGate:
+    return PermissionGate(project_root=root or str(config.paths.project_root), mode=_permission_mode())
+
+
+def _decide_shell_permission(*, root: str, command: str, cwd: str) -> PermissionDecision:
+    """셸 실행 전 권한 결정 — 검사 경로와 실행 경로를 같은 root로 고정한다."""
+    return _permission_gate(root).decide(
+        ToolInvocation(
+            ToolSpec(name=_SHELL_TOOL_NAME, risk_level="high", category="api"),
+            {"command": command, "cwd": cwd},
+        ),
+    )
+
+
+def _enforce_shell_permission(*, root: str, command: str, cwd: str) -> None:
+    """ASK/DENY는 실행 0회로 끝낸다. 승인 workflow 없이 allow로 승격하지 않는다."""
+    # 실행 모드(Plan/Build/Interactive)가 도구를 막으면 권한 gate 이전에 거부한다.
+    from antigravity_k.api.dependencies import get_mode_manager
+
+    execution_mode = get_mode_manager().current_mode
+    if not execution_mode.tool_is_allowed(_SHELL_TOOL_NAME):
+        raise ShellPolicyDeniedError(
+            detail=execution_mode.get_block_reason(_SHELL_TOOL_NAME),
+            context={"tool": _SHELL_TOOL_NAME, "execution_mode": execution_mode.value},
+        )
+
+    decision = _decide_shell_permission(root=root, command=command, cwd=cwd)
+    access_mode = get_access_mode().value
+    if decision.permission is Permission.PROMPT:
+        raise ShellApprovalRequiredError(
+            detail=(
+                "Shell execution requires explicit approval in the current permission mode "
+                "(ASK); no approval workflow is attached to this endpoint"
+            ),
+            context={"tool": _SHELL_TOOL_NAME, "access_mode": access_mode, "permission_mode": _permission_mode()},
+        )
+    if decision.permission is not Permission.ALLOW:
+        raise ShellPolicyDeniedError(
+            detail="Shell execution was denied by policy (DENY)",
+            context={"tool": _SHELL_TOOL_NAME, "access_mode": access_mode, "reason": decision.reason},
+        )
 
 
 def _require_allowed(tool_name: str, args: dict[str, object], risk_level: str) -> None:
@@ -157,8 +263,8 @@ def _require_allowed(tool_name: str, args: dict[str, object], risk_level: str) -
         )
 
 
-def _resolve_project_cwd(cwd: str | None) -> str:
-    project_root = Path(config.paths.project_root).resolve()
+def _resolve_project_cwd(cwd: str | None, *, root: str | None = None) -> str:
+    project_root = Path(root or config.paths.project_root).resolve()
     candidate = (project_root if not cwd else Path(cwd).expanduser()).resolve()
     try:
         _ = candidate.relative_to(project_root)
@@ -209,6 +315,8 @@ class ShellRunRequest(BaseModel):
     command: str
     cwd: str | None = None
     timeout: int = 30
+    # CR-04: ARC-01 프로젝트를 명시한 요청은 그 프로젝트 root에서만 실행한다.
+    project_id: str | None = None
 
 
 @router.post("/api/agent/tools/fs/read")
@@ -242,27 +350,55 @@ def write_file(req: FileWriteRequest):
 
 
 @router.post("/api/agent/tools/shell/run")
-def run_shell(req: ShellRunRequest):
-    """터미널 명령을 샌드박스에서 실행합니다."""
-    cwd = _resolve_project_cwd(req.cwd)
-    _require_allowed("run_bash_command", {"command": req.command, "path": cwd}, "high")
+def run_shell(req: ShellRunRequest, request: Request):
+    """터미널 명령을 OS 샌드박스에서 실행합니다 (CR-04 실행·승인 경계).
+
+    실행 권한 모드(전체 액세스/읽기 전용)와 요청 root는 요청 시작 시점에 확정한다.
+    - ASK → 실행 없이 403 ``shell_approval_required``
+    - DENY → 실행 0회, 403 ``shell_policy_denied``
+    - ALLOW → CR-03 제한 읽기 + 최소 env의 sandbox 실행(폴백 없음)
+    """
+    root = _shell_request_root(req, request)
+    cwd = _resolve_project_cwd(req.cwd, root=root)
+    _enforce_shell_permission(root=root, command=req.command, cwd=cwd)
     timeout = max(1, min(req.timeout, int(config.security.max_execution_time)))
     try:
-        result = SandboxRunner(
-            project_root=str(config.paths.project_root),
+        runner = SandboxRunner(
+            project_root=root,
             enabled=bool(config.security.sandbox_enabled),
             network=str(config.security.sandbox_network),
             timeout=timeout,
             max_output_bytes=int(config.security.max_output_bytes),
             max_memory_mb=int(config.security.max_memory_mb),
             max_processes=int(config.security.max_processes),
-        ).execute(
+            # CR-03 경계 재사용: 민감 트리 deny + 작업 디렉토리/런타임만 재허용.
+            restrict_reads=True,
+            # 설정으로 꺼졌거나 backend가 없으면 raw host 실행으로 대체하지 않는다.
+            require_sandbox=True,
+            read_allow_paths=[cwd, *_python_runtime_read_paths()],
+        )
+        result = runner.execute(
             req.command,
             timeout=timeout,
+            # 부모 os.environ(모델 provider 키·서버 PIN/token secret) 상속 금지.
+            env=_minimal_child_env(cwd),
             cwd=cwd,
         )
+        if result.timed_out:
+            raise ShellTimeoutError(
+                detail=f"Shell command exceeded the {timeout}s execution time limit",
+                context={"tool": _SHELL_TOOL_NAME, "timeout_seconds": timeout},
+            )
         if result.error:
-            raise HTTPException(status_code=503, detail=result.error)
+            # 내부 오류 문자열(경로·환경)은 응답에 넣지 않고 로그에만 남긴다.
+            logger.warning("sandboxed shell failed to start: %s", result.error)
+            raise ShellSandboxUnavailableError(
+                detail=(
+                    "OS sandbox could not run this command; raw host execution is disabled. "
+                    "Check security.sandbox_enabled and the sandbox backend."
+                ),
+                context={"tool": _SHELL_TOOL_NAME},
+            )
         return {
             "ok": result.success,
             "stdout": result.stdout,
@@ -270,11 +406,14 @@ def run_shell(req: ShellRunRequest):
             "returncode": result.return_code,
             "sandboxed": result.sandboxed,
             "output_truncated": result.output_truncated,
+            "timed_out": result.timed_out,
         }
-    except HTTPException:
+    except (ShellApprovalRequiredError, ShellPolicyDeniedError, ShellSandboxUnavailableError, ShellTimeoutError):
         raise
     except (OSError, ValueError) as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # 실행 환경 전체(경로·env)를 노출하지 않는다.
+        logger.warning("shell execution failed: %s", e)
+        raise HTTPException(status_code=500, detail="Shell execution failed") from e
 
 
 class BrowserActionRequest(BaseModel):

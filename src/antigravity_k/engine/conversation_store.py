@@ -3,10 +3,25 @@
 Server-owned message history. Clients send new turns + expected revision only;
 append/compact advance revision via compare-and-set. Two concurrent writers
 never silently overwrite — losers get stale_conversation_revision (HTTP 409).
+
+CR-01 identity contract:
+- The storage key of a conversation is the full SHA-256 hex digest of the raw
+  UTF-8 ``project_id`` / ``conversation_id`` strings (``v2/<sha(project)>/
+  <sha(conversation)>.json``). Raw ids are never normalised, substituted, or
+  truncated, so ``a.b`` and ``a_b`` — or ``Conv`` and ``conv`` on a
+  case-insensitive filesystem — stay distinct conversations.
+- Every read verifies that the embedded ids of the stored record exactly match
+  the requested ids. Corrupt or mismatched bytes raise
+  ``ConversationIntegrityError`` instead of degrading to an empty conversation.
+- Until the one-time legacy migration has produced its completion marker
+  (``migration_v2.json``), reads and writes fail with
+  ``ConversationStorageMigrationRequiredError`` so new writes cannot fork the
+  data set before it is verified.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -22,7 +37,9 @@ from typing import Any, Final, Literal, Mapping
 
 from antigravity_k.api.contracts.conversation import ConversationSnapshot
 from antigravity_k.api.contracts.errors import (
+    ConversationIntegrityError,
     ConversationNotFoundError,
+    ConversationStorageMigrationRequiredError,
     InvalidConversationRevisionError,
     StaleConversationRevisionError,
 )
@@ -35,6 +52,29 @@ MessageRole = Literal["user", "assistant", "system", "tool"]
 
 _DEFAULT_RETAIN_TAIL: Final[int] = 6
 _SUMMARY_MESSAGE_ID: Final[str] = "msg_summary"
+
+# CR-01: versioned identity layout + one-time migration marker.
+_IDENTITY_SCHEMA_VERSION: Final[str] = "v2"
+MIGRATION_MARKER_NAME: Final[str] = "migration_v2.json"
+_IGNORED_STORAGE_ENTRIES: Final[frozenset[str]] = frozenset({MIGRATION_MARKER_NAME, ".cas.lock", ".DS_Store"})
+
+
+def conversation_identity_digest(value: str) -> str:
+    """Return the full SHA-256 hex digest of a raw UTF-8 identifier."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def conversation_storage_relative_path(project_id: str, conversation_id: str) -> Path:
+    """Return the storage-relative CR-01 v2 path for raw ids.
+
+    ``v2/<sha256(project_id)>/<sha256(conversation_id)>.json``. The digest is
+    the key; the raw ids are re-verified from the record body on every read.
+    """
+    return (
+        Path(_IDENTITY_SCHEMA_VERSION)
+        / conversation_identity_digest(project_id)
+        / f"{conversation_identity_digest(conversation_id)}.json"
+    )
 
 
 @dataclass(frozen=True)
@@ -165,6 +205,80 @@ class ConversationStore:
         # 단일 프로세스 스레드 경쟁은 기존 threading.RLock으로 충분하다.
         self._flock_path = self._storage_dir / ".cas.lock"
         self._flock_fd: int | None = None
+        # CR-01: legacy layout detection is memoised per process; the operator
+        # runs the migration with the service stopped.
+        self._layout_checked = False
+        self._legacy_paths: tuple[Path, ...] = ()
+
+    # ── CR-01 identity / migration state ────────────────────────────────
+
+    def migration_marker_path(self) -> Path:
+        """Path of the one-time migration completion marker."""
+        return self._storage_dir / MIGRATION_MARKER_NAME
+
+    def migration_completed(self) -> bool:
+        """True when a valid completion marker exists for the v2 layout."""
+        marker = self.migration_marker_path()
+        if not marker.is_file():
+            return False
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return (
+            isinstance(data, dict) and data.get("layout") == _IDENTITY_SCHEMA_VERSION and data.get("completed") is True
+        )
+
+    def legacy_storage_paths(self) -> tuple[Path, ...]:
+        """Return pre-v2 record files still present under the storage root.
+
+        Path names are never used to reconstruct ids; callers must read the
+        record body for the authoritative ids. Migration tooling consumes this.
+        """
+        if not self._storage_dir.is_dir():
+            return ()
+        found: list[Path] = []
+        for entry in sorted(self._storage_dir.iterdir()):
+            name = entry.name
+            if name in _IGNORED_STORAGE_ENTRIES or name.startswith("."):
+                continue
+            if entry.is_dir():
+                if name == _IDENTITY_SCHEMA_VERSION:
+                    continue
+                found.extend(sorted(p for p in entry.rglob("*.json") if p.is_file()))
+            elif entry.is_file() and entry.suffix == ".json":
+                found.append(entry)
+        return tuple(found)
+
+    def storage_layout_state(self) -> str:
+        """Return ``v2`` or ``legacy_requires_migration`` for this storage root."""
+        if not self._layout_checked:
+            self._legacy_paths = self.legacy_storage_paths()
+            self._layout_checked = True
+        if not self._legacy_paths:
+            return _IDENTITY_SCHEMA_VERSION
+        return _IDENTITY_SCHEMA_VERSION if self.migration_completed() else "legacy_requires_migration"
+
+    def refresh_storage_layout(self) -> str:
+        """Drop the memoised layout scan (tests / post-migration reload)."""
+        self._layout_checked = False
+        self._legacy_paths = ()
+        return self.storage_layout_state()
+
+    def _assert_storage_ready(self) -> None:
+        """Fail closed while unmigrated legacy records exist."""
+        if self.storage_layout_state() == "legacy_requires_migration":
+            raise ConversationStorageMigrationRequiredError(
+                detail=(
+                    "Legacy conversation files require the one-time v2 migration before reads or writes are served"
+                ),
+                context={
+                    "storage_dir": str(self._storage_dir),
+                    "legacy_record_count": len(self._legacy_paths),
+                    "marker_path": str(self.migration_marker_path()),
+                    "migration_script": "scripts/migrate_conversation_storage.py",
+                },
+            )
 
     # ── ConversationRevisionStore protocol ──────────────────────────────
 
@@ -187,32 +301,69 @@ class ConversationStore:
 
         ``self._lock``과 ``_cross_process_lock``을 이미 보유한 상태에서만
         호출한다. 파일이 삭제됐으면 캐시도 무효화한다(삭제된 대화를 되살리지
-        않는다). 손상된 JSON은 기존 계약(예외 삼킴+로그, 캐시 유지)을 따른다.
+        않는다).
+
+        CR-01: 손상된 JSON이나 다른 식별자의 레코드는 조용히 None/빈 대화로
+        낮추지 않고 ``ConversationIntegrityError``로 전파한다.
         """
         key = (project_id, conversation_id)
-        path = self._path_for(project_id, conversation_id)
-        if not path.is_file():
-            self._records.pop(key, None)
-            return None
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                self._records.pop(key, None)
-                return None
-            disk_record = ConversationRecord.from_dict(data)
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            logger.exception(
-                "Failed to load conversation %s/%s",
-                project_id,
-                conversation_id,
-            )
+        disk_record = self._read_record(project_id, conversation_id)
+        if disk_record is None:
             self._records.pop(key, None)
             return None
         self._records[key] = disk_record
         return disk_record
 
+    def _read_record(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
+        """Read one record and verify its embedded identity against the request.
+
+        Returns None only when no file exists for this identity. Any other
+        failure (unreadable bytes, invalid JSON, id mismatch) raises
+        ``ConversationIntegrityError``.
+        """
+        path = self._path_for(project_id, conversation_id)
+        if not path.is_file():
+            return None
+        context: dict[str, Any] = {
+            "project_id": project_id,
+            "conversation_id": conversation_id,
+            "storage_path": str(path),
+        }
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ConversationIntegrityError(
+                detail="Conversation record could not be read from storage",
+                context={**context, "reason": type(exc).__name__},
+            ) from exc
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ConversationIntegrityError(
+                detail="Conversation record is not valid JSON",
+                context={**context, "reason": "json_decode"},
+            ) from exc
+        if not isinstance(data, dict):
+            raise ConversationIntegrityError(
+                detail="Conversation record must contain a JSON object",
+                context={**context, "reason": "not_an_object"},
+            )
+        record = ConversationRecord.from_dict(data)
+        if record.project_id != project_id or record.conversation_id != conversation_id:
+            raise ConversationIntegrityError(
+                detail="Conversation record ids do not match the requested identity",
+                context={
+                    **context,
+                    "reason": "identity_mismatch",
+                    "record_project_id": record.project_id,
+                    "record_conversation_id": record.conversation_id,
+                },
+            )
+        return record
+
     def get_revision(self, *, project_id: str, conversation_id: str) -> int | None:
         with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
             record = self._refresh_latest(project_id, conversation_id)
             return None if record is None else record.revision
 
@@ -230,6 +381,7 @@ class ConversationStore:
         안에서 디스크 최신 상태를 대상으로 이뤄진다.
         """
         with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
             record = self._refresh_latest(project_id, conversation_id)
             if record is None:
                 if expected_revision != 0:
@@ -255,6 +407,7 @@ class ConversationStore:
         # FR-05/RP-05: 모든 공개 읽기는 프로세스 간 lock 아래 디스크 최신
         # 상태로 갱신한다(다른 worker의 append/compact을 즉시 관찰).
         with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
             record = self._refresh_latest(project_id, conversation_id)
             return None if record is None else deepcopy(record)
 
@@ -271,6 +424,7 @@ class ConversationStore:
         critical section 안에서 이뤄진다.
         """
         with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
             record = self._refresh_latest(project_id, conversation_id)
             if record is not None:
                 if record.revision != expected_revision:
@@ -304,6 +458,7 @@ class ConversationStore:
 
     def snapshot(self, *, project_id: str, conversation_id: str) -> ConversationSnapshot:
         with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
             record = self._refresh_latest(project_id, conversation_id)
             if record is None:
                 raise ConversationNotFoundError(
@@ -343,6 +498,7 @@ class ConversationStore:
         # 디스크 최신 상태를 재적재한 뒤 CAS를 평가한다 (stale 메모리 캐시로
         # 인한 침묵 덮어쓰기 방지).
         with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
             record = self._refresh_latest(project_id, conversation_id)
             if record is None:
                 if not create_if_missing or expected_revision != 0:
@@ -420,6 +576,7 @@ class ConversationStore:
         retain_tail = max(0, int(retain_tail))
 
         with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
             record = self._refresh_latest(project_id, conversation_id)
             if record is None:
                 raise ConversationNotFoundError(
@@ -486,6 +643,7 @@ class ConversationStore:
     ) -> ConversationSnapshot:
         """Fork conversation at current (or expected) revision into a new id at revision 0."""
         with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
             source = self._refresh_latest(project_id, source_conversation_id)
             if source is None:
                 raise ConversationNotFoundError(
@@ -570,9 +728,12 @@ class ConversationStore:
     # ── Persistence ─────────────────────────────────────────────────────
 
     def _path_for(self, project_id: str, conversation_id: str) -> Path:
-        safe_project = "".join(c if c.isalnum() or c in "-_" else "_" for c in project_id)[:64]
-        safe_conv = "".join(c if c.isalnum() or c in "-_" else "_" for c in conversation_id)[:64]
-        return self._storage_dir / safe_project / f"{safe_conv}.json"
+        """CR-01 v2 identity path (full SHA-256 of the raw UTF-8 ids).
+
+        Character substitution / truncation is gone: distinct raw ids always
+        produce distinct paths, including on case-insensitive filesystems.
+        """
+        return self._storage_dir / conversation_storage_relative_path(project_id, conversation_id)
 
     def _persist(self, record: ConversationRecord) -> None:
         path = self._path_for(record.project_id, record.conversation_id)
@@ -586,19 +747,11 @@ class ConversationStore:
         os.replace(tmp, path)
 
     def _load(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
-        path = self._path_for(project_id, conversation_id)
-        if not path.is_file():
+        record = self._read_record(project_id, conversation_id)
+        if record is None:
             return None
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                return None
-            record = ConversationRecord.from_dict(data)
-            self._records[(project_id, conversation_id)] = record
-            return record
-        except Exception:
-            logger.exception("Failed to load conversation %s/%s", project_id, conversation_id)
-            return None
+        self._records[(project_id, conversation_id)] = record
+        return record
 
     def _ensure_loaded(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
         key = (project_id, conversation_id)
@@ -645,6 +798,9 @@ __all__ = [
     "ConversationMessage",
     "ConversationRecord",
     "ConversationStore",
+    "MIGRATION_MARKER_NAME",
+    "conversation_identity_digest",
+    "conversation_storage_relative_path",
     "get_conversation_store",
     "reset_conversation_store_for_tests",
 ]

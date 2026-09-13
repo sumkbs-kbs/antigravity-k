@@ -2,7 +2,7 @@
   "schema_version": 1,
   "task_id": "RP-10",
   "attempt": 1,
-  "status": "REVIEW",
+  "status": "DONE",
   "owner": "zcode-remediation-agent",
   "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
   "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
@@ -22,8 +22,8 @@
     {"id": "readme-consistency", "required": true, "expected": "README matches readiness/progress/claims", "observed": "README table now carries final-review row linking report/plan/index", "verdict": "PASS"}
   ],
   "commands_log": "commands.jsonl",
-  "reviewer": null,
-  "review_verdict": null,
+  "reviewer": "rp10_verify",
+  "review_verdict": "APPROVE",
   "blocked_reason": null,
   "limitations": [
     "R10-06 (handover of actual legal/privacy approval artifacts) not done — requires human owners; remains BLOCKED_EXTERNAL and a final-GO blocker.",

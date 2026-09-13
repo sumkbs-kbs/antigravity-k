@@ -24,6 +24,7 @@ import { useFileStore } from '../../stores/fileStore';
 import {
   streamChatCompletion,
   ConversationRevisionConflictError,
+  ConversationRequestError,
   compactConversation,
   fetchConversationHistory,
   fetchModels,
@@ -209,12 +210,19 @@ export const ChatPage: React.FC = () => {
             content: m.content,
           })),
         });
-      } catch {
-        // Conversation may not exist yet on server — keep local projection.
+      } catch (error: unknown) {
+        if (error instanceof ConversationRequestError && error.code === 'conversation_not_found') {
+          // CR-01: 새 로컬 대화는 아직 서버에 없다. 로컬 투영을 유지하되 다른
+          // 대화로 자동 대체하지 않는다.
+          return;
+        }
+        // CR-01: 무결성/마이그레이션/서버 오류를 빈 대화로 숨기지 않고 알린다.
+        const detail = error instanceof Error ? error.message : String(error);
+        addToast(`서버 대화 이력을 확인하지 못했습니다: ${detail}`, 'error');
       }
     };
     void syncConversation();
-  }, [loadFromStorage, loadLocalModels]);
+  }, [loadFromStorage, loadLocalModels, addToast]);
 
   const reloadWorkspaceContext = useCallback(() => {
     const store = useProjectStore.getState();

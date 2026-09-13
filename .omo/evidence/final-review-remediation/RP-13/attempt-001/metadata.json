@@ -2,7 +2,7 @@
   "schema_version": 1,
   "task_id": "RP-13",
   "attempt": 1,
-  "status": "REVIEW",
+  "status": "REJECTED",
   "owner": "zcode-remediation-agent",
   "source_sha": "4b202113f254a766fdd26db30e4f65e417f77c28",
   "candidate_checkout": "/Users/mr.k/program/coding/ssak_comp/ssak-rp12-candidate",
@@ -62,8 +62,8 @@
     }
   ],
   "commands_log": "commands.jsonl",
-  "reviewer": null,
-  "review_verdict": null,
+  "reviewer": "rp13-gate-reviewer",
+  "review_verdict": "REJECTED",
   "blocked_reason": null,
   "limitations": [
     "R13-07 rollback-to-previous-artifact: no prior release artifact exists; downgrade path covered only via reinstall/rehearsal. Upgrade/migration rehearsal is provided by dr_rehearsal.project_migration.",

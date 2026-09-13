@@ -2,7 +2,7 @@
   "schema_version": 1,
   "task_id": "RP-11",
   "attempt": 1,
-  "status": "REVIEW",
+  "status": "DONE",
   "owner": "zcode-remediation-agent",
   "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
   "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
@@ -24,8 +24,8 @@
     {"id": "val01-real-tool-exec", "required": true, "expected": "tool listing not counted as execution success", "observed": "ollama_tool_registry scenario now executes read_file through the permission boundary and asserts the file content", "verdict": "PASS"}
   ],
   "commands_log": "commands.jsonl",
-  "reviewer": null,
-  "review_verdict": null,
+  "reviewer": "rp11_verify",
+  "review_verdict": "APPROVE",
   "blocked_reason": null,
   "limitations": [
     "R11-05 (explicit cloud-provider scenario adapter): no cloud credential in this environment — provider abstraction exists (model_manager) but no cloud staging scenario was added; carries to RP-12 with the real-provider run (BLOCKED_EXTERNAL for credentials).",

@@ -175,6 +175,10 @@ def _dashboard_component(dependency: DashboardDependency) -> dict[str, object]:
     }
     if dependency.license_id is not None:
         component["licenses"] = [{"license": {"id": dependency.license_id}}]
+    if dependency.license_source == "provenance-declared":
+        # 출처를 숨기지 않는다: lock의 license 필드가 아니라 provenance 정책의
+        # 명시 승인으로 채워진 값임을 SBOM 소비자(audit gate 포함)가 알 수 있게 한다.
+        component["properties"] = [{"name": "agk:license-source", "value": "provenance-declared"}]
     if dependency.source_url is not None:
         component["externalReferences"] = [{"type": "distribution", "url": dependency.source_url}]
     return component
@@ -197,6 +201,8 @@ def _notices(
     lines.extend(("", "Dashboard dependencies (dashboard/package-lock.json):"))
     for dashboard_dep in dashboard_dependencies:
         license_id = dashboard_dep.license_id or "license metadata unavailable"
+        if dashboard_dep.license_source == "provenance-declared":
+            license_id = f"{license_id} (provenance-declared — THIRD_PARTY_PROVENANCE.toml)"
         lines.append(f"- {dashboard_dep.name} {dashboard_dep.version} — {license_id}")
     lines.extend(("", "Missing license or notice metadata is reported explicitly and never synthesized."))
     return "\n".join(lines) + "\n"
@@ -312,11 +318,31 @@ def _looks_like_spdx(value: str) -> bool:
 
 
 def _python_license(name: str) -> str:
+    """고지문에 쓸 파이썬 라이선스 표기 — SBOM 과 **같은 판독 체인**을 쓴다.
+
+    이전에는 이 함수만 `License` 필드를 직접 읽었다. PEP 639 이후 대부분의 배포물은
+    `License-Expression` 에 SPDX id를 쓰고 `License` 필드는 비워 두므로, 같은 실행의
+    `python.cdx.json` 은 `MIT` 를 적는데 `THIRD_PARTY_NOTICES.txt` 는 "license metadata
+    unavailable" 을 적었다(CR-14 F-03 — 실측 42건 불일치, 그중 35건은 메타데이터가
+    있는데도 미상으로 적힌 판독 실패). 같은 질문에 두 산출물이 다른 답을 하면 어느 쪽도
+    승인 근거가 될 수 없다.
+
+    순서: SPDX id 판독(PEP 639 → License → 분류기 → 별명표) → 원문 `License` 필드 →
+    미상 표기. 값을 합성하지 않는다 — 판독 불가는 계속 명시한다.
+    """
+    license_id = _python_license_id(name)
+    if license_id is not None:
+        return license_id
     try:
-        value = metadata.metadata(name).get("License", "")
+        raw = metadata.metadata(name).get("License", "") or ""
     except metadata.PackageNotFoundError:
+        # 현재 플랫폼에 설치되지 않는 마커 패키지(colorama/pywin32)이 대표적인 경우다.
+        # 그 집합은 저장소 정책(`marker_platform_packages`)이 관리하고
+        # `tests/test_cr14_python_license_determinism.py` 가 고정한다.
         return "license metadata unavailable"
-    return value or "license metadata unavailable"
+    # 원문은 여러 줄일 수 있다 — `- name version — license` 한 줄 형식을 깨지 않도록
+    # 공백만 정규화한다. 자르거나 합성하지 않는다.
+    return " ".join(raw.split()) or "license metadata unavailable"
 
 
 def _write_json(path: Path, payload: Mapping[str, object]) -> None:

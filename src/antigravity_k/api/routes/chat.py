@@ -598,7 +598,7 @@ async def chat_completions(
     messages = _messages_value(guarded_messages)
 
     from antigravity_k.api import dependencies as api_dependencies
-    from antigravity_k.engine.session_manager import SessionManager
+    from antigravity_k.engine.session_manager import SessionManager, SessionPersistenceError
 
     get_session_manager = cast(
         "Callable[..., SessionManager]",
@@ -868,6 +868,10 @@ async def chat_completions(
                 target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
                 return translator.translate_response(internal_resp, target=target_format)
         except Exception as e:
+            if isinstance(e, SessionPersistenceError):
+                # CR-02: 세션 저장 실패를 "빠른 검색 실패"로 오인해 조용히 정상 모드로
+                # 대체하지 않는다. 저장되지 않은 턴을 성공 응답으로 넘기지 않는다.
+                raise
             logger.exception("Unhandled exception")
             logger_auto.error("Fast search failed: %s. Falling back to normal mode.", e)
 

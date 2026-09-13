@@ -230,8 +230,8 @@ tags: [checklist, remediation, agent-coordination, release-gate]
 - [ ] R12-07 RP-09 수동/자동 압축을 실제 provider 경로에서 반복 — 미실행
 - [x] R12-08 Chroma persistence/restart/reindex/delete/citation 실측
 - [x] R12-09 지원 하드웨어 MLX 또는 CUDA 학습/checkpoint/resume/fuse 실측
-- [ ] R12-10 SC-1~SC-6 필수 시나리오와 실제 복구 완료 검증 — 8초 리허설 전 green(복구 완료·중복 거부 포함), 28,800초 본실행 진행 중
-- [ ] R12-11 연속 부하 actual duration ≥ 28,800초 — rp12-soak-005 진행 중(예상 종료 2026-09-11T07:48Z), 완료 후 val02.json 판정
+- [ ] R12-10 SC-1~SC-6 필수 시나리오와 실제 복구 완료 검증 — 8초 리허설 전 green(복구 완료·중복 거부 포함), 28,800초 본실행 soak-006 진행 중(7h 10m 경과, 20/20 required gate PASS)
+- [ ] R12-11 연속 부하 actual duration ≥ 28,800초 — rp12-soak-006 진행 중(PID 52583, 시작 13:03:29 KST, 7h 10m / 8h 경과, 예상 종료 ~21:03 KST), 완료 후 val02-006.json 판정
 - [ ] R12-12 p95/p99/error/FD/RSS trend/orphan/DB lock 승인 기준 충족
 - [ ] R12-13 샘플 누락·중단·미실행 없음, short rehearsal로 대체 없음
 - [ ] R12-14 모든 결과의 동일 SHA와 clean 환경 확인, 독립 판정 PASS

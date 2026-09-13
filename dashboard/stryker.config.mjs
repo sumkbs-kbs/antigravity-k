@@ -16,6 +16,12 @@
 // @ts-check
 /** @type {import('@stryker-mutator/api/core').StrykerOptions} */
 const config = {
+  // CR-14 F-10: pnpm 의 격리(심볼릭 링크) 레이아웃에서는 Stryker 의 **자동 플러그인 탐색**이
+  // `@stryker-mutator/*` 를 자기 자신의 설치 디렉터리에서만 스캔한다 — 그 디렉터리에는 core 의
+  // 의존(api·instrumenter·util)만 있고 devDependency 인 vitest-runner 는 없다. 그래서 러너를
+  // **명시적으로** 선언한다. 이 한 줄이 없으면 `Cannot find TestRunner plugin "vitest"` 로 죽고,
+  // 아래 `vitest: {...}` 옵션도 스키마에 기여되지 않아 "Unknown stryker config option" 경고가 난다.
+  plugins: ['@stryker-mutator/vitest-runner'],
   testRunner: 'vitest',
   vitest: {
     configFile: 'vitest.config.ts',

@@ -52,7 +52,9 @@
     "project_not_found": 404,
     "conversation_not_found": 404,
     "project_root_invalid": 403,
-    "stale_conversation_revision": 409
+    "stale_conversation_revision": 409,
+    "conversation_integrity_error": 409,
+    "conversation_storage_migration_required": 503
   },
   "stale_conflict_example": {
     "ok": false,

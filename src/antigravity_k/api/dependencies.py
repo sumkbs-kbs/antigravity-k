@@ -690,10 +690,14 @@ def get_model_manager() -> ModelManager:
     global model_manager
     if model_manager is None:
         logger.info("Lazy initializing ModelManager...")
-        from antigravity_k.engine.usage_tracker import UsageTracker
+        from antigravity_k.engine.usage_tracker import UsageTracker, default_usage_db_path
 
         registry = ModelRegistry()
-        tracker = UsageTracker(db_path="data/token_usage.json")
+        # 경로를 하드코딩하지 않는다 — 기본 경로는 `default_usage_db_path()` 한 곳에서 정해진다.
+        # `data/token_usage.json` 은 추적 파일이라, 테스트가 이 경로를 그대로 쓰면
+        # 50건 자동 저장 임계값을 넘기는 순간 검증 실행이 후보 트리를 바꾼다(F-08).
+        # `AGK_USAGE_DB` 로 배포·격리 실행에서 위치를 바꿀 수 있다.
+        tracker = UsageTracker(db_path=str(default_usage_db_path()))
         model_manager = ModelManager(registry, tracker=tracker)
     return model_manager
 

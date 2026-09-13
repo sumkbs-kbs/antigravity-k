@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -31,6 +32,45 @@ from antigravity_k.engine.quality_gate import QualityGate
 
 logger = logging.getLogger("antigravity_k.benchmark_harness")
 _PROVIDER_ERROR_PREFIX: Final[str] = "[API Error for "
+
+# CR-14 F-02: 기본 벤치마크 DB 위치를 **단일 결정 지점**으로 분리한다.
+#
+# 이전에는 클래스 상수 `Path("data/benchmark_results.json")`(CWD 상대)가 유일한 정의였고,
+# API 런타임이 `AgentRuntime(task_outcome_recorder=benchmark_harness.record_task_outcome)` 로
+# **모든 작업 완료를 그 파일에 기록**했다(`api/dependencies.py`). 그 결과 작업을 실행하는
+# 테스트가 하나라도 있으면 검증 실행이 **저장소 추적 파일을 다시 써서** 후보 트리를 더럽혔고
+# (CR-13 R03 드리프트의 뿌리), 게이트 코드 지문도 실행마다 이동했다.
+#
+# 프로덕션 기본값(`data/benchmark_results.json`)은 그대로 둔다 — 이 파일은 추적되는 누적
+# 결과 DB라는 제품 계약이 있다. 대신 **테스트·배포가 인자 없이도 경로를 바꿀 수 있게**
+# 리졸버 하나로 모은다. `tests/conftest.py` 는 CR-02 D-07(`default_session_base_dir`)과
+# 같은 방식으로 이 함수를 패치해 사용자 저장소를 보호한다.
+BENCHMARK_DB_ENV_VAR: Final[str] = "AGK_BENCHMARK_DB"
+DEFAULT_BENCHMARK_DB_RELATIVE: Final[Path] = Path("data/benchmark_results.json")
+
+
+def resolve_benchmark_db_path(environ: Mapping[str, str] | None = None) -> Path:
+    """환경 값으로부터 DB 경로를 계산하는 **순수** 함수(전역 상태를 읽지 않는다).
+
+    ``environ`` 을 주면 그 매핑을, 주지 않으면 ``os.environ`` 을 읽는다. 순수 함수로 분리한
+    이유: ``tests/conftest.py`` 가 ``default_benchmark_db_path`` 를 패치해 저장소 파일을
+    보호하므로, 우선순위 규칙 자체는 패치와 무관하게 검증할 수 있어야 한다.
+    ``~`` 는 확장한다. 빈 값/공백은 '설정하지 않음'으로 본다.
+    """
+    source = os.environ if environ is None else environ
+    override = source.get(BENCHMARK_DB_ENV_VAR, "").strip()
+    if override:
+        return Path(override).expanduser()
+    return DEFAULT_BENCHMARK_DB_RELATIVE
+
+
+def default_benchmark_db_path() -> Path:
+    """기본 벤치마크 결과 DB 경로.
+
+    ``AGK_BENCHMARK_DB`` 가 설정되어 있으면 그 경로를(``~`` 확장 후), 아니면 프로덕션
+    기본값을 돌려준다. 테스트는 이 함수를 패치할 수 있다(저장소 파일 보호).
+    """
+    return resolve_benchmark_db_path()
 
 
 class BenchmarkResultDict(TypedDict):
@@ -446,7 +486,9 @@ class BenchmarkReport:
 class BenchmarkHarness:
     """Collective-council vs 단일 모델 벤치마크 실행기."""
 
-    DEFAULT_DB_PATH: ClassVar[Path] = Path("data/benchmark_results.json")
+    # 하위 호환을 위해 상수는 남기지만, 실제 기본값은 `default_benchmark_db_path()` 가
+    # 결정한다(테스트/배포가 그 한 지점만 바꾸면 된다).
+    DEFAULT_DB_PATH: ClassVar[Path] = DEFAULT_BENCHMARK_DB_RELATIVE
     _manager: ModelManager
     _db_path: Path
     _quality_gate: QualityGate
@@ -469,7 +511,7 @@ class BenchmarkHarness:
 
         """
         self._manager = model_manager
-        self._db_path = db_path or self.DEFAULT_DB_PATH
+        self._db_path = db_path or default_benchmark_db_path()
         self._quality_gate = quality_gate or QualityGate(max_retries=2)
         self._task_calibration_updater = task_calibration_updater
         self._prompt_builder = PromptBuilder()

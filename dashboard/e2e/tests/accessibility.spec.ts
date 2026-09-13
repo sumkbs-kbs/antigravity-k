@@ -1,8 +1,11 @@
 /**
  * UI-01 · 실제 BrowserRouter 접근성 gate
  * =========================================
- * GA-100 plan §UI-01 — hash URL(`#!`)을 제거하고 실제 16개 BrowserRouter URL을
+ * GA-100 plan §UI-01 — hash URL(`#!`)을 제거하고 실제 BrowserRouter URL을
  * desktop/mobile viewport에서 연다.
+ *
+ * CR-08: 매트릭스에 "없는 경로(404)" 화면을 추가해 17 route로 확장했다.
+ * (CR-07이 남긴 blocker — 404 화면이 접근성 게이트에 포함되지 않았던 문제 해소)
  *
  * 거짓 통과 방지 계약:
  *  - 각 case가 예상 pathname과 고유 route marker를 assertion한다.
@@ -26,7 +29,7 @@ import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-/* ─── 16개 실제 BrowserRouter route (App.tsx + PluginPanelRoutes 기준) ─── */
+/* ─── 17개 route = 실제 16 route(App.tsx + PluginPanelRoutes) + 404 화면 ─── */
 
 interface RouteCase {
   /** 실제 pathname — Browser History API로 직접 이동한다 (hash 불사용). */
@@ -57,6 +60,8 @@ const ROUTES: RouteCase[] = [
   { pathname: '/plugins/job-operations', name: 'plugins-job-operations', marker: '.job-operations-page' },
   { pathname: '/plugins/hello-world', name: 'plugins-hello-world', marker: '.hello-plugin-content' },
   { pathname: '/mutation', name: 'mutation', marker: '.page-header-hero:has-text("Mutation test history")' },
+  /* CR-08: 셸 안에서 렌더되는 404 화면(CR-07)도 접근성 게이트 대상에 포함한다. */
+  { pathname: '/cr08-unknown-route', name: 'not-found', marker: '[data-testid="cr07-not-found"]' },
 ];
 
 /* ─── Viewport matrix ─── */
@@ -180,8 +185,8 @@ for (const viewport of VIEWPORTS) {
 
 /* ─── 요약 test: gate 자체의 계약 고정 (스펙 회귀 방지) ─── */
 
-test('[UI-01] gate 스펙 — 16 route × 2 viewport 매트릭스 고정', async () => {
-  expect(ROUTES, 'UI-01은 실제 16개 route를 검사해야 한다').toHaveLength(16);
+test('[UI-01] gate 스펙 — 17 route × 2 viewport 매트릭스 고정', async () => {
+  expect(ROUTES, 'UI-01은 실제 16 route + 404 화면 = 17개를 검사해야 한다').toHaveLength(17);
   const pathnames = new Set(ROUTES.map(r => r.pathname));
   expect(pathnames.size, 'route pathname 중복 없음').toBe(ROUTES.length);
   for (const route of ROUTES) {

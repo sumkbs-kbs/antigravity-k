@@ -44,12 +44,20 @@ from antigravity_k.api.dependencies import (
     get_memory_manager as _get_shared_memory_manager,
 )
 from antigravity_k.api.routes.session_state import get_active_session
+from antigravity_k.build_info import get_build_info
 from antigravity_k.config import config
 from antigravity_k.engine.api_cache import TAG_SKILLS, TAG_SYSTEM, api_cache, cached
 from antigravity_k.engine.audit_logger import get_audit_logger
 from antigravity_k.engine.log_level_manager import LogLevelManager
 from antigravity_k.engine.memory_provider import normalize_memory_scope
 from antigravity_k.engine.runtime_recovery import SystemHealth
+from antigravity_k.engine.secret_settings import (
+    EnvSettingError,
+    apply_env_settings,
+    configured_secret_status,
+    resolve_env_file_path,
+    scrub_config_secrets,
+)
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
 
@@ -365,9 +373,24 @@ async def session_messages():
 
 @router.post("/api/session/save")
 async def session_save():
-    """Session Save."""
+    """Session Save.
+
+    CR-02: 저장 실패를 성공으로 응답하지 않는다. 다른 writer가 먼저 저장했으면
+    409, 원자 저장이 실패했으면 503으로 실패를 명시한다.
+    """
+    from antigravity_k.engine.session_manager import (
+        SessionPersistenceError,
+        StaleSessionWriteError,
+    )
+
     sm = _get_session_manager()
-    sm.save()
+    try:
+        sm.save()
+    except StaleSessionWriteError as exc:
+        # 내부 경로/스택은 응답에 넣지 않는다(public_detail만 노출).
+        raise HTTPException(status_code=409, detail=exc.public_detail) from exc
+    except SessionPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=exc.public_detail) from exc
     return {"ok": True, "message": "Session saved."}
 
 
@@ -579,8 +602,14 @@ async def harness_trend():
 # ─── System API (Status & Restart) ─────────────────
 
 
-# 서버 시작 시간 (업타임 계산용)
-START_TIME = time.time()
+# CR-10: 업타임은 **현재 API 서버 프로세스의 가동 시간**이다.
+# START_TIME은 monotonic 시계라 시스템 시계 변경(NTP/수동 조정)에 영향받지 않는다.
+# 호스트 uptime이나 대시보드 탭이 열린 시간과 절대 혼합하지 않는다.
+START_TIME = time.monotonic()
+# 운영자가 로그와 대조할 수 있는 실제 프로세스 시작 시각(UTC 벽시계).
+STARTED_AT = datetime.now(UTC)
+# 다중 worker 배포에서 어느 프로세스가 응답했는지 식별하는 값.
+PROCESS_ID = os.getpid()
 
 
 @router.get("/api/system/status")
@@ -590,7 +619,7 @@ async def system_status():
         from antigravity_k.api.dependencies import get_model_manager
 
         mem_info = psutil.virtual_memory()
-        uptime_seconds = int(time.time() - START_TIME)
+        uptime_seconds = max(0, int(time.monotonic() - START_TIME))
 
         # Get global token usage from tracker
         model_manager = get_model_manager()
@@ -599,11 +628,16 @@ async def system_status():
         return {
             "ok": True,
             "status": "online",
-            "memory_mb": cast(float, mem_info.percent),  # Returns percentage despite the legacy key name
+            # legacy 키 이름이지만 실제 값은 percent다. 오해를 막기 위해 정직한 키를 함께 준다.
+            "memory_mb": cast(float, mem_info.percent),
+            "memory_percent": cast(float, mem_info.percent),
             "cpu_percent": await asyncio.to_thread(psutil.cpu_percent, interval=0.1),
             "total_tokens": total_tokens,
             "uptime_seconds": uptime_seconds,
+            "uptime_started_at": STARTED_AT.isoformat(),
+            "process_id": PROCESS_ID,
             "version": __version__,
+            "build": get_build_info(),
         }
     except (psutil.Error, OSError, RuntimeError) as e:
         logger.error("Status error: %s", e)
@@ -2065,7 +2099,12 @@ async def get_system_error_detail(error_id: str) -> dict[str, object]:
 
 @router.get("/api/settings")
 async def get_settings() -> JSONDict:
-    """Retrieve settings — .env에서 API 키 상태를 포함하여 반환."""
+    """Retrieve settings — provider별 '설정됨' 상태만 포함하여 반환 (CR-05).
+
+    이전 구현은 `.env` 값의 앞 4자를 그대로 돌려줬다(부분 비밀 노출). 이제는
+    키 원문/부분값을 절대 싣지 않고 ``api_keys_configured`` 불리언 맵만 보낸다.
+    config.yaml의 ``api_keys``·``security.access_pin`` 같은 비밀 경로도 제거한다.
+    """
     # __file__ = src/antigravity_k/api/routes/legacy.py → 5번 dirname = 프로젝트 루트
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
     config_file = os.path.join(project_root, "config.yaml")
@@ -2075,88 +2114,90 @@ async def get_settings() -> JSONDict:
         with open(config_file, encoding="utf-8") as f:
             cfg = _as_json_object(cast(object, yaml.safe_load(f)))
 
-        # .env에서 API 키 상태 확인 (마스킹)
-        env_keys = [
-            "OPENROUTER_API_KEY",
-            "NVIDIA_API_KEY",
-            "OPENAI_API_KEY",
-            "GEMINI_API_KEY",
-            "ZAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-        ]
-        api_keys: dict[str, str] = {}
-        for k in env_keys:
-            val = os.environ.get(k, "")
-            if val and len(val) > 4:
-                api_keys[k] = val[:4] + "*" * (len(val) - 4)
-            elif val:
-                api_keys[k] = "****"
-            else:
-                api_keys[k] = ""
-        cfg["api_keys"] = api_keys
-        model = _as_json_object(cfg.get("model"))
-        cfg["model"] = model
-        defaults = cfg.get("defaults", {})
+        scrubbed = scrub_config_secrets(cfg)
+        # 비밀은 값이 아니라 상태만 노출한다(원문·부분값 없음).
+        # 프로세스 env + 지속 .env 둘 다 보므로 방금 저장/삭제한 결과가 바로 반영된다.
+        scrubbed["api_keys_configured"] = configured_secret_status(
+            env_path=resolve_env_file_path(_settings_project_root()),
+        )
+        model = _as_json_object(scrubbed.get("model"))
+        scrubbed["model"] = model
+        defaults = scrubbed.get("defaults", {})
         defaults_obj: JSONDict = _as_json_object(defaults)
         model["name"] = defaults_obj.get("reasoning", "")
         model["provider"] = model.get("api_engine", "")
-        return {"settings": cfg}
-    except Exception as e:
-        logger.exception("Unhandled exception")
-        return {"settings": {"error": str(e)}}
+        return {"settings": scrubbed}
+    except Exception:
+        # 예외 원문에는 경로·환경값이 섞일 수 있으므로 로그에만 남기고
+        # 응답에는 고정 코드만 싣는다(CR-05 C05-04).
+        logger.exception("Failed to read settings")
+        return {"settings": {"error": "settings_unavailable"}}
+
+
+def _settings_project_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 
 
 @router.post("/api/settings/env")
 async def save_env_settings(request: Request):
-    """사용자가 설정한 API 키 등을 .env 파일에 저장합니다."""
+    """사용자가 설정한 API 키 등을 .env 파일에 저장합니다 (CR-05).
+
+    계약:
+    - 본문에 없는 키 → **유지**
+    - 빈 문자열 값 → **전송하지 않음**(기존 서버 키를 삭제하지 않는다)
+    - 비어 있지 않은 새 값 → **교체**
+    - 삭제는 별도 엔드포인트 ``POST /api/settings/env/delete``로만 한다.
+
+    저장은 allowlist 키에 대해서만, 개행/제어문자 없는 값으로만, 원자적
+    tempfile+replace로 수행하고 결과 파일 권한을 0600으로 맞춘다.
+    """
     body = (await _parse_json_body(request, _EnvSettingsRequest)).root
 
+    # 감사 인자에는 키 이름만 넣는다(값 금지).
     _require_allowed(
         "save_env_settings",
         {"keys": sorted(key for key, value in body.items() if value)},
         "critical",
     )
 
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-    env_path = os.path.join(project_root, ".env")
-
-    # 기존 .env 읽기
-    existing_lines: list[str] = []
-    existing_keys: dict[str, int] = {}
-    if os.path.exists(env_path):
-        with open(env_path, encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                existing_lines.append(line.rstrip("\n"))
-                if "=" in line and not line.startswith("#"):
-                    key = line.split("=", 1)[0].strip()
-                    existing_keys[key] = i
-
-    # API 키와 설정값 업데이트
-    env_var_keys = [
-        "OPENROUTER_API_KEY",
-        "NVIDIA_API_KEY",
-        "OPENAI_API_KEY",
-        "GEMINI_API_KEY",
-        "ZAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "AGK_DAILY_BUDGET_USD",
-        "AGK_HOURLY_ACTION_LIMIT",
-    ]
-    updated_count = 0
-    for key, value in body.items():
-        if not value:
-            continue
-        if key in env_var_keys or key.endswith("_API_KEY"):
-            if key in existing_keys:
-                existing_lines[existing_keys[key]] = f"{key}={value}"
-            else:
-                existing_lines.append(f"{key}={value}")
-            updated_count += 1
-
-    with open(env_path, "w", encoding="utf-8") as f:
-        _ = f.write("\n".join(existing_lines) + "\n")
+    try:
+        updated_count, _ = apply_env_settings(
+            resolve_env_file_path(_settings_project_root()),
+            updates=body,
+        )
+    except EnvSettingError:
+        logger.warning("Rejected settings write: %s", "invalid env key or value")
+        raise HTTPException(status_code=400, detail="Invalid env setting") from None
 
     return {"ok": True, "updated": updated_count, "message": "설정이 .env에 저장되었습니다."}
+
+
+class _EnvSettingsDeleteRequest(RootModel[list[StrictStr]]):
+    root: list[StrictStr]
+
+
+@router.post("/api/settings/env/delete")
+async def delete_env_settings(request: Request):
+    """명시적으로 선택한 API 키를 `.env`에서 삭제합니다 (CR-05).
+
+    빈 입력·누락과 구분되는 **의도적 삭제** 전용 경로다. 존재하지 않는 키는
+    조용히 0건으로 처리한다(멱등).
+    """
+    keys = (await _parse_json_body(request, _EnvSettingsDeleteRequest)).root
+
+    _require_allowed("delete_env_settings", {"keys": sorted(set(keys))}, "critical")
+
+    try:
+        _, deleted_count = apply_env_settings(
+            resolve_env_file_path(_settings_project_root()),
+            updates={},
+            deletions=keys,
+        )
+    except EnvSettingError:
+        logger.warning("Rejected settings delete: %s", "invalid env key")
+        raise HTTPException(status_code=400, detail="Invalid env key") from None
+
+    return {"ok": True, "deleted": deleted_count, "message": "선택한 키가 .env에서 삭제되었습니다."}
 
 
 # ─── Codex / Ssak-Ai Desktop Support Endpoints ──────────────────────────

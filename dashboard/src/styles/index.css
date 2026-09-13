@@ -57,9 +57,14 @@
   --info-glow: rgba(56, 189, 248, 0.2);
 
   /* === Typography === */
-  --font-serif: 'Newsreader', 'Instrument Serif', Georgia, serif;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+  /*
+   * CR-09(F05): 이 세 스택은 Google Fonts CDN 없이 동작해야 한다.
+   * 앞쪽 패밀리는 사용자가 로컬에 설치했을 때만 쓰이고, 없으면 시스템 폰트로
+   * 자연스럽게 내려간다(웹폰트 다운로드 없음 → 오프라인에서도 동일 레이아웃).
+   */
+  --font-serif: 'Newsreader', 'Instrument Serif', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, 'SF Mono', monospace;
 
   --text-xs: 11px;
   --text-sm: 12px;
@@ -416,6 +421,11 @@ html, body {
 .telemetrics-stat-amber {
   color: var(--accent-color);
   font-weight: 600;
+}
+
+/* CR-10: 값이 아직 관측되지 않았음(UNKNOWN). 0/false로 위장하지 않는다. */
+.telemetrics-stat-dim {
+  color: var(--text-muted);
 }
 
 /* ─── Glass Panel System (TERMINAL-7 Hairline Style) ─────────────── */
@@ -2820,6 +2830,20 @@ html, body {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/*
+ * CR-09: 모션 최소화 설정을 존중한다. 페이드 중에는 색이 흐려 보이고(대비 측정도
+ * 흔들린다 — e2e C08-04가 실측), 모션을 줄이려는 사용자에게는 곧바로 표시한다.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .command-palette {
+    animation: none;
+  }
+
+  .cmd-item {
+    transition: none;
+  }
+}
+
 .cmd-header {
   display: flex;
   align-items: center;
@@ -2924,6 +2948,15 @@ html, body {
   font-size: 11px;
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+/*
+ * CR-08: 선택/호버 배경(accent-glow)에서 --text-muted는 3.87:1로 AA 미달이었다
+ * (axe serious color-contrast, 11px). 선택 상태에서만 한 단계 밝은 토큰을 쓴다.
+ */
+.cmd-item.selected .cmd-item-subtitle,
+.cmd-item:hover .cmd-item-subtitle {
+  color: var(--text-secondary);
 }
 
 /* ─── Terminal Panel ──────────────────────────────────────────── */

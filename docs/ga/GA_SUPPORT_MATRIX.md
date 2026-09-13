@@ -19,9 +19,9 @@ today; do not convert a configuration entry into a customer claim.
 
 | Surface | Classification | Current repository evidence | Missing gate / owner |
 |---|---|---|---|
-| macOS on Apple Silicon, local Ollama | Experimental | README lists macOS Apple Silicon and Ollama; `config.yaml` defaults to Ollama. | VAL-01 staging with the advertised model, install/upgrade/restart evidence; release coordinator. |
-| macOS on Apple Silicon, direct MLX | Experimental | `pyproject.toml` has an MLX extra; `model_manager.py` only loads direct MLX on Darwin. | VAL-01 MLX hardware run and model-license review; release coordinator. |
-| Linux x86_64, containerized CPU/local runtime | Experimental | Dockerfile and Kubernetes manifests exist. | VAL-01 clean host install, local provider run, persistence and restore rehearsal; operations owner. |
+| macOS on Apple Silicon, local Ollama | Experimental | README lists macOS Apple Silicon and Ollama; `config.yaml` defaults to Ollama. | VAL-01 staging with the advertised model, install/upgrade/restart evidence; release coordinator. `BLOCKED_EXTERNAL` (external host) |
+| macOS on Apple Silicon, direct MLX | Experimental | `pyproject.toml` has an MLX extra; `model_manager.py` only loads direct MLX on Darwin. | VAL-01 MLX hardware run and model-license review; release coordinator. `BLOCKED_EXTERNAL` (Apple Silicon hardware + model terms) |
+| Linux x86_64, containerized CPU/local runtime | Experimental | Dockerfile and Kubernetes manifests exist. | VAL-01 clean host install, local provider run, persistence and restore rehearsal; operations owner. `BLOCKED_EXTERNAL` (clean host) |
 | Linux x86_64, NVIDIA CUDA | Unsupported | No CUDA runtime support matrix or validated CUDA delivery path is documented. | New scoped CUDA task, hardware/provider validation, then an ADR update. |
 | Windows | Unsupported | No Windows installation or release validation evidence; direct MLX rejects non-Darwin. | New Windows support task, clean install/run evidence, then an ADR update. |
 | Native packaged desktop application | Unsupported | Repository provides a web dashboard; no package/distribution evidence establishes a native desktop app. | Packaging task and platform validation, then an ADR update. |
@@ -35,14 +35,14 @@ labels below do not authorize a general “private” claim; see
 
 | Provider/runtime | Classification | Current implementation/configuration evidence | Missing gate / owner |
 |---|---|---|---|
-| Ollama loopback runtime | Experimental | Default engine and `http://localhost:11434` profile are configured. | VAL-01 run, selected-model terms review, and local-only egress proof; release + legal owner. |
-| LM Studio local OpenAI-compatible runtime | Experimental | Loopback profile and optional token environment variable are configured. | VAL-01 run and provider/model terms review; release + legal owner. |
-| Direct MLX | Experimental | MLX extra and Darwin-only loader are present. | Apple Silicon staging and model terms review; release + legal owner. |
-| OpenRouter | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. |
-| NVIDIA NIM | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. |
-| OpenAI | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. |
-| Google Gemini | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. |
-| ZAI / Zhipu | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. |
+| Ollama loopback runtime | Experimental | Default engine and `http://localhost:11434` profile are configured. | VAL-01 run, selected-model terms review, and local-only egress proof; release + legal owner. `BLOCKED_EXTERNAL` (legal approver) |
+| LM Studio local OpenAI-compatible runtime | Experimental | Loopback profile and optional token environment variable are configured. | VAL-01 run and provider/model terms review; release + legal owner. `BLOCKED_EXTERNAL` (legal approver) |
+| Direct MLX | Experimental | MLX extra and Darwin-only loader are present. | Apple Silicon staging and model terms review; release + legal owner. `BLOCKED_EXTERNAL` (Apple Silicon hardware + legal approver) |
+| OpenRouter | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. `BLOCKED_EXTERNAL` (provider credential + legal approver) |
+| NVIDIA NIM | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. `BLOCKED_EXTERNAL` (provider credential + legal approver) |
+| OpenAI | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. `BLOCKED_EXTERNAL` (provider credential + legal approver) |
+| Google Gemini | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. `BLOCKED_EXTERNAL` (provider credential + legal approver) |
+| ZAI / Zhipu | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. `BLOCKED_EXTERNAL` (provider credential + legal approver) |
 | Any unlisted provider, model, accelerator, or deployment | Unsupported | No GOV-01 evidence record. | New scoped validation and ADR update. |
 
 
@@ -51,12 +51,20 @@ labels below do not authorize a general “private” claim; see
 | Surface | Classification | Current repository evidence | Missing gate / owner |
 |---|---|---|---|
 | Single interactive operator on one local/self-hosted instance | GA target disposition (not a load certification) | ADR-0003 single-operator boundary; no marketed seat count | Product owner; keep wording as single-operator only |
-| Concurrent / simultaneous multi-user interactive sessions on one instance | Experimental — single-operator use remains the GA target | VAL-02 multi-process staging evidence exists (`codex/val-02-resilience` @ `74271a9`): task CAS race 32 tasks × 8 procs 0 contradiction, conversation CAS 6 procs 0 loss, registry flock 5 procs × 40 projects 0 loss, kill -9 recovery PASS, P95 3.14 ms / soak 60 s RSS +0.4 MB. Multi-seat product claim still requires release-coordinator review. | Release coordinator disposition; RC-01 candidate-SHA gate. |
+| Concurrent / simultaneous multi-user interactive sessions on one instance | Experimental — single-operator use remains the GA target | VAL-02 multi-process staging evidence exists (`codex/val-02-resilience` @ `74271a9`): task CAS race 32 tasks × 8 procs 0 contradiction, conversation CAS 6 procs 0 loss, registry flock 5 procs × 40 projects 0 loss, kill -9 recovery PASS, P95 3.14 ms / soak 60 s RSS +0.4 MB. Multi-seat product claim still requires release-coordinator review. | Release coordinator disposition; RC-01 candidate-SHA gate. `BLOCKED_EXTERNAL` (release-coordinator decision) |
 | Multi-tenant or multi-customer concurrent tenancy | Unsupported / excluded | SaaS excluded by ADR-0003 | SaaS expansion gate before `RC-01` |
 
 Do not convert “single tenant” into a concurrent-user capacity number. Any marketed concurrent-user limit requires candidate-SHA `VAL-02` evidence and release-coordinator approval.
 
 ## How to use the matrix
+
+`BLOCKED_EXTERNAL` marks a row whose remaining gate depends on something this
+repository cannot produce: external hardware, a provider credential, or a named
+approver (legal, privacy, security, release coordinator). The implementation work
+continues, but the row can never be promoted by editing this file — only the named
+external party can clear it. Absence of approval is recorded on purpose; see the
+disposition vocabulary in [the claim and review
+register](GA_CLAIMS_AND_REVIEW_REGISTER.md#disposition-vocabulary).
 
 - Sales may describe an experimental row only as “available for evaluation”; it
   may not call it supported, certified, secure, private, or production-ready.

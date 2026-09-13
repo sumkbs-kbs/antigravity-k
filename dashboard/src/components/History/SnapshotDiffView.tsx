@@ -8,6 +8,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import type { DiffOnMount } from '@monaco-editor/react';
+// CR-09: 스냅샷 diff도 로컬 Monaco/워커를 쓴다(CDN 로더 기본값 제거).
+import { configureLocalMonacoRuntime } from '../../utils/monacoRuntime';
+
+configureLocalMonacoRuntime();
 import { useLocalHistoryStore, type FileSnapshot } from '../../stores/localHistoryStore';
 
 /* ─── Custom Theme ─────────────────────────────────────────── */

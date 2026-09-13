@@ -152,6 +152,25 @@ def test_license_gate_passes_with_licenses_present() -> None:
     assert verdict.checked_packages == 2
 
 
+def test_license_gate_notes_provenance_declared_license_source() -> None:
+    dashboard = _sbom(
+        [
+            {
+                "name": "khroma",
+                "version": "2.1.0",
+                "licenses": [{"license": {"id": "MIT"}}],
+                "properties": [{"name": "agk:license-source", "value": "provenance-declared"}],
+            },
+        ],
+    )
+
+    verdict = license_gate_verdict(_sbom([]), dashboard, prohibited_licenses=_POLICY)
+
+    assert verdict.ok is True
+    assert verdict.unknown_license == ()
+    assert "npm:khroma@2.1.0: provenance-declared (MIT)" in verdict.notes
+
+
 def test_license_gate_rejects_missing_license() -> None:
     python = _sbom([{"name": "mystery", "version": "1.0"}])
     dashboard = _sbom([])

@@ -4,7 +4,7 @@
  * Ported from Vanilla JS. API keys, model selection, search engine, cost control.
  */
 
-import React, { useEffect, useReducer, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { GlassPanel } from '../components/shared';
 import { useThemeStore } from '../stores/themeStore';
 import { useLocalHistoryStore } from '../stores/localHistoryStore';
@@ -14,8 +14,10 @@ import McpOAuthPanel from '../components/shared/McpOAuthPanel';
 import ModelOperationsPanel from '../components/shared/ModelOperationsPanel';
 import SessionDisclosurePanel from '../components/shared/SessionDisclosurePanel';
 import {
+  deleteSettingsKeys,
   fetchLogLevels,
   fetchSettings,
+  isAuthRequiredError,
   saveSettings,
   setLogLevel,
   setAllLogLevels,
@@ -23,6 +25,7 @@ import {
   type LogLevelInfo,
   type SettingsData,
 } from '../api/client';
+import { readBrowserSettings, writeBrowserSettings } from '../utils/browserSettings';
 
 const PROVIDERS = [
   { key: 'OPENROUTER_API_KEY', label: 'OpenRouter', icon: '🌐', hint: 'openrouter.ai/keys' },
@@ -41,120 +44,310 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function readStoredSettings(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem('agk_user_settings:v1') ?? localStorage.getItem('agk_user_settings');
-    const value: unknown = JSON.parse(raw || '{}');
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-    return Object.fromEntries(
-      Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
-    );
-  } catch {
-    return {};
+/**
+ * 후보 중 **제공된** 첫 값을 쓴다 (CR-06).
+ *
+ * `||`와 달리 `0`/`'0'`을 '값 없음'으로 보지 않는다 — 서버가 보고한 유효한
+ * 0 예산·0 한도를 하드코딩 기본값으로 바꾸면 화면이 서버의 진실과 어긋난다.
+ * `null`/`undefined`/공백 문자열만 '없음'이다.
+ */
+function firstProvided(...candidates: (string | number | null | undefined)[]): string {
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) continue;
+    const text = String(candidate).trim();
+    if (text !== '') return text;
   }
+  return '';
 }
 
+/** 서버·브라우저 어디에도 값이 없을 때만 쓰는 화면 표시 기본값(제공된 값을 덮지 않는다). */
+const DISPLAY_DEFAULTS = {
+  searchEngine: 'searxng',
+  dailyBudget: '50',
+  hourlyLimit: '100',
+} as const;
+
+/**
+ * 화면이 서버의 진실을 아는 단계 (CR-06).
+ *
+ * `loading → ready | load-error`, `ready → saving → ready | save-error`.
+ * 서버의 진실을 모르는 단계(loading/load-error)에서는 저장을 허용하지 않는다.
+ */
+type SettingsPhase = 'loading' | 'ready' | 'load-error' | 'saving' | 'save-error';
+
 interface SettingsFormState {
+  phase: SettingsPhase;
   config: SettingsData;
+  /** 입력 중에만 존재하는 메모리 상태 — 어떤 저장소에도 영속하지 않는다 (CR-05). */
   apiKeys: Record<string, string>;
+  /** 서버가 보고한 provider별 '설정됨' 상태(원문·부분값 아님). */
+  configuredKeys: Record<string, boolean>;
+  /** 사용자가 명시적으로 삭제를 선택한 키(저장 시 별도 경로로 전송). */
+  pendingDeleteKeys: string[];
   defaultModel: string;
   searchEngine: string;
   dailyBudget: string;
   hourlyLimit: string;
-  loading: boolean;
 }
 
+/** 서버의 진실로 폼을 채우는 값 묶음(phase는 전이로만 바뀐다). */
+type SettingsHydration = Omit<SettingsFormState, 'phase'>;
+
 type SettingsFormAction =
-  | { type: 'hydrate'; value: Omit<SettingsFormState, 'loading'> }
+  | { type: 'loadStart' }
+  | { type: 'hydrate'; value: SettingsHydration }
+  | { type: 'loadError' }
+  | { type: 'saveStart' }
+  | { type: 'saveFailed' }
+  | { type: 'saveSucceeded' }
+  | { type: 'refreshServerFields'; value: SettingsData; defaultModel: string }
   | { type: 'setApiKey'; key: string; value: string }
+  | { type: 'markDelete'; key: string }
+  | { type: 'unmarkDelete'; key: string }
+  | { type: 'clearApiKeys' }
+  | { type: 'setConfiguredKeys'; value: Record<string, boolean> }
   | { type: 'setDefaultModel'; value: string }
   | { type: 'setSearchEngine'; value: string }
   | { type: 'setDailyBudget'; value: string }
-  | { type: 'setHourlyLimit'; value: string }
-  | { type: 'setLoading'; value: boolean };
+  | { type: 'setHourlyLimit'; value: string };
 
 const initialSettingsForm: SettingsFormState = {
+  phase: 'loading',
   config: {},
   apiKeys: {},
+  configuredKeys: {},
+  pendingDeleteKeys: [],
   defaultModel: '',
-  searchEngine: 'searxng',
-  dailyBudget: '50',
-  hourlyLimit: '100',
-  loading: true,
+  searchEngine: '',
+  dailyBudget: '',
+  hourlyLimit: '',
 };
 
 function settingsFormReducer(state: SettingsFormState, action: SettingsFormAction): SettingsFormState {
   switch (action.type) {
-    case 'hydrate': return { ...state, ...action.value, loading: false };
+    case 'loadStart': return { ...state, phase: 'loading' };
+    case 'hydrate': return { ...state, ...action.value, phase: 'ready' };
+    case 'loadError': return { ...state, phase: 'load-error' };
+    case 'saveStart': return { ...state, phase: 'saving' };
+    case 'saveFailed': return { ...state, phase: 'save-error' };
+    case 'saveSucceeded': return { ...state, phase: 'ready' };
+    // 저장 후 재조회: 서버가 관리하는 값만 서버의 최신 값으로 바꾸고,
+    // 사용자가 방금 저장한 로컬 선호 입력(검색 엔진·예산·한도)은 유지한다.
+    case 'refreshServerFields': return {
+      ...state,
+      config: action.value,
+      configuredKeys: action.value.api_keys_configured ?? {},
+      defaultModel: action.defaultModel,
+    };
     case 'setApiKey': return { ...state, apiKeys: { ...state.apiKeys, [action.key]: action.value } };
+    case 'markDelete': return {
+      ...state,
+      apiKeys: { ...state.apiKeys, [action.key]: '' },
+      pendingDeleteKeys: state.pendingDeleteKeys.includes(action.key)
+        ? state.pendingDeleteKeys
+        : [...state.pendingDeleteKeys, action.key],
+    };
+    case 'unmarkDelete': return {
+      ...state,
+      pendingDeleteKeys: state.pendingDeleteKeys.filter(key => key !== action.key),
+    };
+    // 키는 메모리에서도 지운다(성공 저장·페이지 이탈).
+    case 'clearApiKeys': return { ...state, apiKeys: {}, pendingDeleteKeys: [] };
+    case 'setConfiguredKeys': return { ...state, configuredKeys: action.value };
     case 'setDefaultModel': return { ...state, defaultModel: action.value };
     case 'setSearchEngine': return { ...state, searchEngine: action.value };
     case 'setDailyBudget': return { ...state, dailyBudget: action.value };
     case 'setHourlyLimit': return { ...state, hourlyLimit: action.value };
-    case 'setLoading': return { ...state, loading: action.value };
   }
 }
 
 const SettingsPage: React.FC = () => {
   const { accentColor, fontSize, showMinimap, wordWrap, tabSize, setPref, reset: resetTheme } = useThemeStore();
   const { autoSaveEnabled, setAutoSaveEnabled } = useLocalHistoryStore();
-  const [{ config, apiKeys, defaultModel, searchEngine, dailyBudget, hourlyLimit, loading }, dispatch] = useReducer(settingsFormReducer, initialSettingsForm);
+  const [
+    { phase, config, apiKeys, configuredKeys, pendingDeleteKeys, defaultModel, searchEngine, dailyBudget, hourlyLimit },
+    dispatch,
+  ] = useReducer(settingsFormReducer, initialSettingsForm);
   const [statusMsg, setStatusMsg] = useState('');
-  const [saving, setSaving] = useState(false);
+  /** 진행 중 저장 요청 표시(연속 클릭 방지) — 렌더 전에 동기적으로 막는다. */
+  const savingRef = useRef(false);
+  /** 서버가 실제로 강제하는 비용 한도 — 화면은 읽기 전용 맥락으로만 보여준다. */
+  const serverDailyBudget = firstProvided(config.cost?.daily_budget_usd);
+  const serverHourlyLimit = firstProvided(config.cost?.hourly_action_limit);
+
+  /**
+   * 서버가 준 설정으로 폼을 채운다 (CR-06).
+   *
+   * 서버가 관리하는 값(model.name·cost.*)이 우선이고, 브라우저에 남아 있는
+   * 오래된 값은 서버가 그 값을 주지 않을 때만 쓴다.
+   */
+  const hydrateFromServer = useCallback((cfg: SettingsData) => {
+    // CR-05: 브라우저에는 비밀 아닌 preference만 남긴다.
+    const savedPrefs = readBrowserSettings();
+    const cost = cfg.cost ?? {};
+    dispatch({
+      type: 'hydrate',
+      value: {
+        config: cfg,
+        // 서버는 마스킹 값이 아니라 provider별 '설정됨' 상태만 준다.
+        configuredKeys: cfg.api_keys_configured ?? {},
+        pendingDeleteKeys: [],
+        apiKeys: {},
+        defaultModel: firstProvided(cfg.model?.name) || firstProvided(savedPrefs.default_model),
+        searchEngine: firstProvided(savedPrefs.search_engine) || DISPLAY_DEFAULTS.searchEngine,
+        // 서버의 0은 유효한 한도다 — 기본값으로 바꾸지 않는다.
+        dailyBudget:
+          firstProvided(cost.daily_budget_usd) ||
+          firstProvided(savedPrefs.daily_budget_usd) ||
+          DISPLAY_DEFAULTS.dailyBudget,
+        hourlyLimit:
+          firstProvided(cost.hourly_action_limit) ||
+          firstProvided(savedPrefs.hourly_action_limit) ||
+          DISPLAY_DEFAULTS.hourlyLimit,
+      },
+    });
+  }, []);
+
+  const loadSettings = useCallback(async () => {
+    dispatch({ type: 'loadStart' });
+    try {
+      hydrateFromServer(await fetchSettings());
+    } catch {
+      // 기본값 폼을 정상 설정처럼 보여주지 않는다 — 재시도 전에는 저장 금지.
+      dispatch({ type: 'loadError' });
+    }
+  }, [hydrateFromServer]);
 
   useEffect(() => {
-    const savedSettings = readStoredSettings();
-    void fetchSettings()
-      .then((cfg: SettingsData) => {
-        dispatch({
-          type: 'hydrate',
-          value: {
-            config: cfg,
-            defaultModel: savedSettings.default_model || cfg.model?.name || '',
-            searchEngine: savedSettings.search_engine || 'searxng',
-            dailyBudget: savedSettings.daily_budget_usd || '50',
-            hourlyLimit: savedSettings.hourly_action_limit || '100',
-            apiKeys: savedSettings,
-          },
-        });
-      })
-      .catch(() => dispatch({ type: 'setLoading', value: false }));
+    void loadSettings();
+  }, [loadSettings]);
+
+  // 키는 입력 중에만 메모리에 둔다 — 페이지 이탈/언마운트에서 지운다.
+  useEffect(() => {
+    const clearKeys = () => dispatch({ type: 'clearApiKeys' });
+    window.addEventListener('pagehide', clearKeys);
+    return () => {
+      window.removeEventListener('pagehide', clearKeys);
+      dispatch({ type: 'clearApiKeys' });
+    };
   }, []);
 
   const handleSave = async () => {
-    const settings: Record<string, string> = { ...apiKeys };
-    settings.default_model = defaultModel;
-    settings.search_engine = searchEngine;
-    settings.daily_budget_usd = dailyBudget;
-    settings.hourly_action_limit = hourlyLimit;
+    // 서버의 진실을 모르는 동안(loading/load-error)에는 저장하지 않는다(C06-01).
+    if (phase === 'loading' || phase === 'load-error') return;
+    // 진행 중인 요청이 있으면 연속 클릭을 무시한다(중복 요청 금지, C06-03).
+    if (savingRef.current) return;
 
-    localStorage.setItem('agk_user_settings:v1', JSON.stringify(settings));
+    // 비밀 아닌 preference만 브라우저에 저장한다(API 키는 저장하지 않는다).
+    writeBrowserSettings({
+      default_model: defaultModel,
+      search_engine: searchEngine,
+      daily_budget_usd: dailyBudget,
+      hourly_action_limit: hourlyLimit,
+    });
+
+    // 비어 있는 입력은 **전송하지 않는다**(기존 서버 키 유지).
+    const keyUpdates: Record<string, string> = {};
+    for (const provider of PROVIDERS) {
+      const value = apiKeys[provider.key];
+      if (value) keyUpdates[provider.key] = value;
+    }
+    // 새 값을 입력한 키는 삭제 대상이 아니다.
+    const keyDeletions = pendingDeleteKeys.filter(key => !keyUpdates[key]);
+
+    if (Object.keys(keyUpdates).length === 0 && keyDeletions.length === 0) {
+      setStatusMsg('✅ 브라우저 설정을 저장했습니다. (서버로 보낼 API 키 변경 없음)');
+      return;
+    }
+
+    savingRef.current = true;
+    dispatch({ type: 'saveStart' });
     setStatusMsg('⏳ 저장 중...');
-    setSaving(true);
 
     try {
-      const data = await saveSettings(settings);
-      if (data.ok) {
-        setStatusMsg(`✅ 저장 완료! ${data.updated || 0}개 항목이 .env에 저장되었습니다.`);
-      } else {
-        setStatusMsg(`⚠️ ${data.error || data.detail || '저장 실패 — PIN을 확인하세요'}`);
+      let updated = 0;
+      let deleted = 0;
+      if (Object.keys(keyUpdates).length > 0) {
+        const data = await saveSettings(keyUpdates);
+        if (!data.ok) {
+          dispatch({ type: 'saveFailed' });
+          setStatusMsg(`⚠️ ${data.error || data.detail || '저장 실패 — PIN/권한을 확인하세요'}`);
+          return;
+        }
+        updated = data.updated ?? 0;
       }
+      if (keyDeletions.length > 0) {
+        const deletionResult = await deleteSettingsKeys(keyDeletions);
+        deleted = deletionResult.deleted ?? 0;
+      }
+      // 성공 저장 후에는 입력값을 지우고(원문 재주입 없음), 서버 관리 값을 재조회한다.
+      dispatch({ type: 'clearApiKeys' });
+      dispatch({ type: 'saveSucceeded' });
+      let refreshNote = '';
+      try {
+        const refreshed = await fetchSettings();
+        dispatch({
+          type: 'refreshServerFields',
+          value: refreshed,
+          defaultModel: firstProvided(refreshed.model?.name) || defaultModel,
+        });
+      } catch {
+        refreshNote = ' (서버 값 재조회 실패)'; // 저장 자체는 성공했다.
+      }
+      setStatusMsg(`✅ 저장 완료! 키 ${updated}건 갱신, ${deleted}건 삭제 (서버 재시작 후 적용)${refreshNote}`);
     } catch (error) {
-      setStatusMsg(`⚠️ localStorage에 저장됨 (.env 동기화 실패: ${errorMessage(error)})`);
+      dispatch({ type: 'saveFailed' });
+      // 401은 client가 agk:pin-required 이벤트를 쏘아 기존 PIN 모달을 연다.
+      setStatusMsg(
+        isAuthRequiredError(error)
+          ? '🔒 PIN 인증이 필요합니다. 잠금을 해제한 뒤 다시 저장하세요.'
+          : `⚠️ 서버 저장 실패: ${errorMessage(error)}`,
+      );
     } finally {
-      setSaving(false);
+      savingRef.current = false;
     }
   };
 
   const handleReset = () => {
-    if (confirm('모든 설정을 초기화하시겠습니까?')) {
-      localStorage.removeItem('agk_user_settings:v1');
+    if (
+      confirm(
+        '브라우저에 저장된 일반 설정(모델·검색 엔진·비용 한도)을 초기화하시겠습니까?\n서버에 저장된 API 키는 각 항목의 삭제 버튼으로 지웁니다.',
+      )
+    ) {
+      writeBrowserSettings({});
       window.location.reload();
     }
   };
 
-  if (loading) {
-    return <div className="page-container"><div className="loading-state">설정 불러오는 중...</div></div>;
+  // 서버의 진실을 확인하기 전 단계 — 폼을 렌더하지 않으므로 저장할 수 없다(C06-01).
+  if (phase === 'loading') {
+    return (
+      <div className="page-container">
+        <div className="loading-state" data-testid="settings-loading">설정 불러오는 중...</div>
+      </div>
+    );
+  }
+
+  if (phase === 'load-error') {
+    return (
+      <div className="page-container" style={{ maxWidth: 640, margin: '0 auto' }}>
+        <GlassPanel title={<><span className="section-index">01</span> 설정을 불러오지 못했습니다</>} variant="section">
+          <div data-testid="settings-load-error" role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p className="settings-desc" style={{ margin: 0 }}>
+              서버에서 현재 설정을 읽지 못했습니다. 이 상태에서는 <strong>기본값을 정상 설정처럼 저장할 수 없습니다</strong>.
+            </p>
+            <p className="settings-desc" style={{ margin: 0, fontSize: 12 }}>
+              서버가 실행 중인지, 인증(PIN)이 필요한 상태인지 확인한 뒤 다시 시도하세요.
+            </p>
+            <div>
+              <button type="button" className="btn-primary" data-testid="settings-retry" onClick={() => void loadSettings()}>
+                ↻ 다시 시도
+              </button>
+            </div>
+          </div>
+        </GlassPanel>
+      </div>
+    );
   }
 
   return (
@@ -172,28 +365,68 @@ const SettingsPage: React.FC = () => {
         {/* 1. API Keys */}
         <GlassPanel title={<><span className="section-index">01</span> API 키 설정</>} variant="section" className="settings-section">
           <p className="settings-desc">
-            사용할 프로바이더의 API 키를 입력하세요. 입력된 키는 서버 재시작 후 적용됩니다.
+            사용할 프로바이더의 API 키를 입력하세요. 키는 <strong>입력 중에만 메모리에</strong> 있고,
+            저장하면 서버로만 전송됩니다 — 브라우저에는 남지 않습니다. 반영에는 서버 재시작이 필요합니다.
+          </p>
+          <p className="settings-desc" style={{ marginTop: -6, fontSize: 12 }}>
+            이전 버전에서 브라우저에 저장된 키는 자동으로 전송되지 않으며, 제거되었을 수 있으니 필요하면 다시 입력하세요.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {PROVIDERS.map(p => {
-              const isSet = !!apiKeys[p.key];
+              const configured = configuredKeys[p.key] === true;
+              const pendingDelete = pendingDeleteKeys.includes(p.key);
+              const typed = apiKeys[p.key] ?? '';
+              const isSet = configured && !pendingDelete;
               return (
                 <div key={p.key} className="settings-row">
                   <div className="settings-row-label">
-                    <div className="settings-row-title">{p.icon} {p.label}</div>
+                    {/* CR-08(F04-a): 위 입력의 aria-labelledby 대상 — 보이는 이름을 그대로 쓴다. */}
+                    <div className="settings-row-title" id={`api-key-label-${p.key}`}>{p.icon} {p.label}</div>
                     <div className="settings-row-hint">{p.hint}</div>
                   </div>
                   <input
                     type="password"
+                    autoComplete="off"
                     className="text-input settings-row-input"
-                    placeholder={isSet ? '•••••••• (재입력 시 덮어쓰기)' : 'API 키 입력'}
-                    value={apiKeys[p.key] || ''}
+                    data-testid={`api-key-input-${p.key}`}
+                    id={`api-key-input-${p.key}`}
+                    /*
+                     * CR-08(F04-a): 여섯 provider 입력의 접근성 이름이 placeholder로
+                     * 같아져 화면 낭독으로 구분할 수 없었다. 보이는 provider 이름을
+                     * aria-labelledby로 연결해 고유한 이름을 준다.
+                     */
+                    aria-labelledby={`api-key-label-${p.key}`}
+                    placeholder={isSet ? '•••••••• (새 값을 입력하면 교체됩니다)' : 'API 키 입력'}
+                    value={typed}
                     onChange={e => dispatch({ type: 'setApiKey', key: p.key, value: e.target.value })}
                   />
-                  <div className="settings-row-status" style={{ width: 80, textAlign: 'right' }}>
+                  <div className="settings-row-status" style={{ width: 150, textAlign: 'right' }}>
                     {isSet
                       ? <span className="status-badge success">✓ 설정됨</span>
                       : <span className="status-badge muted">⚪ 미설정</span>}
+                    {configured && (
+                      pendingDelete
+                        ? (
+                          <button
+                            type="button"
+                            className="btn-ghost"
+                            data-testid={`api-key-undo-${p.key}`}
+                            onClick={() => dispatch({ type: 'unmarkDelete', key: p.key })}
+                          >
+                            삭제 취소
+                          </button>
+                        )
+                        : (
+                          <button
+                            type="button"
+                            className="btn-ghost"
+                            data-testid={`api-key-delete-${p.key}`}
+                            onClick={() => dispatch({ type: 'markDelete', key: p.key })}
+                          >
+                            삭제
+                          </button>
+                        )
+                    )}
                   </div>
                 </div>
               );
@@ -206,10 +439,11 @@ const SettingsPage: React.FC = () => {
           <div className="settings-row">
             <div className="settings-row-label">
               <div className="settings-row-title">🤖 기본 추론 모델</div>
-              <div className="settings-row-hint">모델 ID를 입력하세요</div>
+              <div className="settings-row-hint">서버 구성(defaults.reasoning) 값을 보여줍니다</div>
             </div>
             <input
               type="text"
+              data-testid="settings-default-model"
               className="text-input settings-row-input"
               placeholder="예: qwen3.6:latest, openai/gpt-4o-mini"
               value={defaultModel}
@@ -254,20 +488,25 @@ const SettingsPage: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {/* 현재 한도 상태 고지 (설정 입력 바로 위) */}
             <SessionDisclosurePanel />
+            {/* CR-06: 서버가 실제로 강제하는 한도를 read-only로 보여준다. */}
+            <div className="settings-desc" data-testid="settings-server-cost" style={{ margin: 0, fontSize: 12 }}>
+              서버 강제 한도: 일일 ${serverDailyBudget || '미설정'} · 시간당 {serverHourlyLimit || '미설정'} 액션
+              <span style={{ opacity: 0.75 }}> (config.yaml `cost` / `AGK_DAILY_BUDGET_USD`·`AGK_HOURLY_ACTION_LIMIT`, 서버 재시작 후 반영)</span>
+            </div>
             <div className="settings-row">
               <div className="settings-row-label">
                 <div className="settings-row-title">💰 일일 예산 (USD)</div>
-                <div className="settings-row-hint">초과 시 LLM 호출 차단</div>
+                <div className="settings-row-hint">이 브라우저에 저장되는 표시 선호 — 서버 한도는 위 값을 따른다</div>
               </div>
                   {/* UI-01 (axe label): number 입력에 접근 가능한 이름 제공 */}
-                  <input type="number" aria-label="일일 예산 (USD)" className="text-input settings-row-input-narrow" value={dailyBudget} onChange={e => dispatch({ type: 'setDailyBudget', value: e.target.value })} />
+                  <input type="number" data-testid="settings-daily-budget" aria-label="일일 예산 (USD)" className="text-input settings-row-input-narrow" value={dailyBudget} onChange={e => dispatch({ type: 'setDailyBudget', value: e.target.value })} />
             </div>
             <div className="settings-row">
               <div className="settings-row-label">
                 <div className="settings-row-title">⏱ 시간당 액션 한도</div>
-                <div className="settings-row-hint">분당 호출 수 제한</div>
+                <div className="settings-row-hint">이 브라우저에 저장되는 표시 선호 — 서버 한도는 위 값을 따른다</div>
               </div>
-                  <input type="number" aria-label="시간당 액션 한도" className="text-input settings-row-input-narrow" value={hourlyLimit} onChange={e => dispatch({ type: 'setHourlyLimit', value: e.target.value })} />
+                  <input type="number" data-testid="settings-hourly-limit" aria-label="시간당 액션 한도" className="text-input settings-row-input-narrow" value={hourlyLimit} onChange={e => dispatch({ type: 'setHourlyLimit', value: e.target.value })} />
             </div>
           </div>
         </GlassPanel>
@@ -417,13 +656,36 @@ const SettingsPage: React.FC = () => {
         {/* Save / Reset */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center', paddingTop: 8 }}>
           {statusMsg && (
-            <div style={{ fontSize: 12, flex: 1, textAlign: 'left', minHeight: 18 }}>{statusMsg}</div>
+            phase === 'save-error'
+              ? (
+                <div
+                  role="alert"
+                  data-testid="settings-save-error"
+                  style={{ fontSize: 12, flex: 1, textAlign: 'left', minHeight: 18, color: 'var(--text-warning, #f59e0b)' }}
+                >
+                  {statusMsg}
+                </div>
+              )
+              : (
+                <div
+                  role="status"
+                  data-testid="settings-status"
+                  style={{ fontSize: 12, flex: 1, textAlign: 'left', minHeight: 18 }}
+                >
+                  {statusMsg}
+                </div>
+              )
           )}
           <button className="btn-ghost" onClick={handleReset}>
             🗑️ 초기화
           </button>
-          <button className={`btn-primary save-anim ${saving ? 'saving' : ''}`} onClick={handleSave} disabled={saving}>
-            {saving ? (
+          <button
+            className={`btn-primary save-anim ${phase === 'saving' ? 'saving' : ''}`}
+            data-testid="settings-save"
+            onClick={handleSave}
+            disabled={phase === 'saving'}
+          >
+            {phase === 'saving' ? (
               <><span className="spinner spinner-sm" /> 저장 중...</>
             ) : (
               '💾 설정 저장'

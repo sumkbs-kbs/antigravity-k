@@ -2,14 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   apiRequest,
+  ApiHttpError,
   checkHealth,
+  ConversationRequestError,
   ConversationRevisionConflictError,
   fetchCacheStats,
+  fetchConversationHistory,
   fetchLogLevels,
   fetchModelOperations,
   fetchModels,
   fetchSettings,
   fetchSystemMetrics,
+  isAuthRequiredError,
   saveSettings,
   setAllLogLevels,
   setDebugMode,
@@ -105,6 +109,32 @@ describe('shared API client', () => {
         'HTTP 401: Unauthorized',
       );
       expect(pinRequired).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener('agk:pin-required', pinRequired);
+    }
+  });
+
+  it('CR-06: a 401 rejects with a typed error the settings page can route to the PIN flow', async () => {
+    const pinRequired = vi.fn();
+    window.addEventListener('agk:pin-required', pinRequired);
+    fetchMock.mockResolvedValue(new Response(null, {
+      status: 401,
+      statusText: 'Unauthorized',
+    }));
+
+    try {
+      const error = await saveSettings({ OPENAI_API_KEY: 'sk-cr06-client-fake' }).catch(
+        (err: unknown) => err,
+      );
+
+      // 기존 PIN 모달 트리거는 그대로 유지된다.
+      expect(pinRequired).toHaveBeenCalledOnce();
+      // 문자열을 파싱하지 않고도 인증 실패로 분기할 수 있다.
+      expect(error).toBeInstanceOf(ApiHttpError);
+      expect((error as ApiHttpError).status).toBe(401);
+      expect(isAuthRequiredError(error)).toBe(true);
+      expect(isAuthRequiredError(new Error('HTTP 401: Unauthorized'))).toBe(false);
+      expect((error as Error).message).toBe('HTTP 401: Unauthorized');
     } finally {
       window.removeEventListener('agk:pin-required', pinRequired);
     }
@@ -472,5 +502,63 @@ describe('shared API client', () => {
     expect(onDone).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledOnce();
     expect(onError).toHaveBeenCalledWith(new Error('network down'));
+  });
+});
+
+describe('CR-01 conversation error mapping', () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function errorResponse(status: number, body: unknown): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  it('maps 404 to conversation_not_found instead of a generic error', async () => {
+    fetchMock.mockResolvedValue(errorResponse(404, { error: 'conversation_not_found' }));
+
+    const error = await fetchConversationHistory('a.b', 'p').catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ConversationRequestError);
+    expect((error as ConversationRequestError).code).toBe('conversation_not_found');
+    expect((error as ConversationRequestError).status).toBe(404);
+    expect((error as Error).message).toContain('Conversation API 404');
+  });
+
+  it('maps integrity and migration failures to their wire codes', async () => {
+    fetchMock.mockResolvedValueOnce(errorResponse(409, { error: 'conversation_integrity_error' }));
+    const integrity = await fetchConversationHistory('a.b', 'p').catch((err: unknown) => err);
+    expect(integrity).toBeInstanceOf(ConversationRequestError);
+    expect((integrity as ConversationRequestError).code).toBe('conversation_integrity_error');
+    expect(integrity).not.toBeInstanceOf(ConversationRevisionConflictError);
+
+    fetchMock.mockResolvedValueOnce(errorResponse(503, { error: 'conversation_storage_migration_required' }));
+    const migration = await fetchConversationHistory('a.b', 'p').catch((err: unknown) => err);
+    expect((migration as ConversationRequestError).code).toBe('conversation_storage_migration_required');
+    expect((migration as ConversationRequestError).status).toBe(503);
+  });
+
+  it('keeps stale revision conflicts on the typed conflict error', async () => {
+    fetchMock.mockResolvedValue(errorResponse(409, {
+      ok: false,
+      error: 'stale_conversation_revision',
+      detail: 'stale',
+      conversation_id: 'a.b',
+      expected_revision: 1,
+      current_revision: 2,
+    }));
+
+    const error = await fetchConversationHistory('a.b', 'p').catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ConversationRevisionConflictError);
   });
 });

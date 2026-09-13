@@ -16,13 +16,178 @@ import hashlib
 import json
 import logging
 import os
+import tempfile
+import threading
 import time
+import uuid
+from collections.abc import Generator, Mapping
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import TypedDict, cast, final
+from typing import Final, TypedDict, cast, final
 
 from antigravity_k.engine.memory_contracts import JsonValue
 
 logger = logging.getLogger(__name__)
+
+# CR-02: 세션 저장 무결성 계약
+SESSION_REVISION_FIELD: Final[str] = "revision"
+SESSION_LOCK_DIR_NAME: Final[str] = ".locks"
+
+
+class SessionPersistenceError(RuntimeError):
+    """CR-02: 세션 저장 실패. 마지막 정상 파일 바이트는 보존된다.
+
+    호출자(API/CLI/UI)는 이 예외를 저장 성공으로 응답해서는 안 된다.
+    ``public_detail``은 응답에 넣어도 안전한 문구다(내부 경로/스택 미포함).
+    """
+
+    error_code: str = "session_persistence_error"
+    public_detail: str = "Session state could not be persisted; the last good file is preserved"
+
+
+class SessionDurabilityUncertainError(SessionPersistenceError):
+    """CR-02: replace는 성공했으나 디렉터리 fsync가 실패했다.
+
+    새 완전한 JSON이 이미 관측될 수 있으므로 오래된 데이터로 되돌리지 않는다.
+    """
+
+    error_code: str = "session_durability_uncertain"
+    public_detail: str = "Session bytes were written but durability could not be confirmed; reload before retrying"
+
+
+class StaleSessionWriteError(SessionPersistenceError):
+    """CR-02: 다른 writer가 먼저 저장해 메모리 스냅샷이 뒤처졌다.
+
+    잠금만이 아니라 디스크 revision 비교로 판정한다. 전체 메모리 덮어쓰기를 거부한다.
+    """
+
+    error_code: str = "stale_session_write"
+    public_detail: str = "Session was modified by another writer; reload before saving"
+
+
+def default_session_base_dir() -> str:
+    """기본 세션 저장 루트. 테스트는 이 함수를 패치해 사용자 홈을 보호한다."""
+    return os.path.join(os.path.expanduser("~"), ".antigravity", "sessions")
+
+
+def _serialize_session(payload: Mapping[str, object]) -> str:
+    """세션 직렬화 (테스트에서 serialize 실패를 주입할 수 있게 분리)."""
+    return json.dumps(dict(payload), ensure_ascii=False, indent=2)
+
+
+def _fsync_fd(fd: int) -> None:
+    """파일/디렉터리 fsync (테스트에서 실패 주입 지점)."""
+    os.fsync(fd)
+
+
+def _write_session_text(fd: int, text: str) -> None:
+    """임시 파일 fd에 직렬화 결과를 쓰고 flush/fsync한다."""
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            _fsync_fd(handle.fileno())
+    except BaseException:
+        with suppress(OSError):
+            os.close(fd)
+        raise
+
+
+def _replace_file(source: Path, destination: Path) -> None:
+    """원자적 교체 (테스트에서 실패 주입 지점)."""
+    os.replace(source, destination)
+
+
+def _fsync_directory(path: Path) -> None:
+    """디렉터리 엔트리 내구성 확보. 미지원 플랫폼에서는 조용히 통과한다."""
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        dir_fd = os.open(str(path), flags)
+    except OSError:
+        # 디렉터리 fsync를 지원하지 않는 파일시스템은 내구성 판정 대상이 아니다.
+        return
+    try:
+        _fsync_fd(dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
+def _read_session_revision(path: Path) -> int | None:
+    """디스크 세션의 revision. 구형 레코드(필드 없음)는 0, 손상은 None."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    raw = data.get(SESSION_REVISION_FIELD, 0)
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        return 0
+    return raw
+
+
+def _quarantine_session_file(path: Path) -> Path:
+    """손상된 세션 파일을 보존한 뒤 치운다(삭제하지 않는다)."""
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    target = path.with_name(f"{path.name}.corrupt-{stamp}")
+    try:
+        os.replace(path, target)
+    except OSError as exc:
+        raise SessionPersistenceError(f"Damaged session file cannot be quarantined: {path}") from exc
+    return target
+
+
+def _record_revision(session: "SessionData", revision: int) -> None:
+    """메모리 세션 스냅샷에 revision을 반영한다(상수 키 → literal-required 회피)."""
+    session["revision"] = revision
+
+
+def _session_lock_name(session_id: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_." else "_" for c in session_id)[:96]
+
+
+def _new_session_id(project_hash: str) -> str:
+    """CR-02: 신규 세션 ID = 프로젝트 식별 정보 + UUID (시간 비의존).
+
+    과거 ID(`{project_hash}_{epoch초}`)는 resume/list에서 계속 읽힌다.
+    """
+    return f"{project_hash}_{uuid.uuid4().hex}"
+
+
+def _write_session_file_atomically(path: Path, payload: Mapping[str, object]) -> str:
+    """CR-02: 직렬화 → 고유 임시파일 → flush/fsync → atomic replace → 디렉터리 fsync.
+
+    replace 이전의 모든 실패는 원본 파일 바이트를 그대로 둔다. replace 이후
+    디렉터리 fsync 실패는 되돌리지 않고 내구성 불확실 오류로 전달한다.
+    """
+    text = _serialize_session(payload)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    tmp = Path(tmp_name)
+    try:
+        os.chmod(tmp, 0o600)
+        _write_session_text(fd, text)
+        _replace_file(tmp, path)
+    except OSError as exc:
+        # 자신이 만든 임시 파일만 정리한다. replace 이전 실패는 마지막 정상
+        # 파일 바이트를 그대로 둔다. 저수준 errno는 노출하지 않고 체인으로 보존한다.
+        with suppress(OSError):
+            tmp.unlink()
+        raise SessionPersistenceError(f"Session bytes could not be persisted: {path}") from exc
+    except BaseException:
+        # 직렬화/프로그래밍 오류는 원형을 유지한다(임시 파일만 정리).
+        with suppress(OSError):
+            tmp.unlink()
+        raise
+    try:
+        _fsync_directory(path.parent)
+    except OSError as exc:
+        raise SessionDurabilityUncertainError(
+            f"Session bytes were replaced but the directory fsync failed: {path}"
+        ) from exc
+    return text
 
 
 class SessionMetadata(TypedDict):
@@ -39,6 +204,7 @@ class SessionData(TypedDict):
     created_at: float
     updated_at: float
     turn_count: int
+    revision: int
     messages: list[dict[str, str]]
     working_memory: dict[str, object]
     metadata: SessionMetadata
@@ -93,15 +259,14 @@ class SessionManager:
             base_dir (str | None): str | None base dir.
 
         """
-        self.base_dir = base_dir or os.path.join(
-            os.path.expanduser("~"),
-            ".antigravity",
-            "sessions",
-        )
+        self.base_dir = base_dir or default_session_base_dir()
         os.makedirs(self.base_dir, exist_ok=True)
 
         self._current_session: SessionData | None = None
         self._session_id: str | None = None
+        # CR-02: 메모리 스냅샷이 근거하는 디스크 revision과 저장 직렬화 락.
+        self._base_revision: int = 0
+        self._save_lock = threading.RLock()
 
     # ─────────── 세션 라이프사이클 ───────────
 
@@ -134,8 +299,9 @@ class SessionManager:
                 logger.info("Resumed session: %s", self._session_id)
                 return self._session_id or ""
 
-        # 새 세션 생성
-        self._session_id = f"{project_hash}_{int(time.time())}"
+        # 새 세션 생성 — CR-02: 시간이 아니라 UUID로 유일성을 보장한다.
+        self._session_id = _new_session_id(project_hash)
+        self._base_revision = 0
         self._current_session = {
             "id": self._session_id,
             "project_path": os.path.abspath(project_path),
@@ -143,6 +309,7 @@ class SessionManager:
             "created_at": time.time(),
             "updated_at": time.time(),
             "turn_count": 0,
+            "revision": 0,
             "messages": [],  # Session Memory
             "working_memory": {},  # Working Memory (장기)
             "metadata": {
@@ -201,7 +368,8 @@ class SessionManager:
         self._current_session["turn_count"] += 1
         self._current_session["updated_at"] = time.time()
 
-        # 자동 저장 (5턴마다)
+        # 자동 저장 (5턴마다). CR-02: 저장 실패는 숨기지 않고 호출자에게 전파한다
+        # (UI/API가 저장 성공으로 응답하거나 세션을 비워 재생성하지 않도록).
         if self._current_session["turn_count"] % 5 == 0:
             self._save_session()
 
@@ -296,6 +464,7 @@ class SessionManager:
                 session_path.unlink()
             self._current_session = None
             self._session_id = None
+            self._base_revision = 0
             return deleted
 
         if not self._current_session:
@@ -465,6 +634,8 @@ class SessionManager:
                             "created_at": data.get("created_at", 0),
                             "updated_at": data.get("updated_at", 0),
                             "turn_count": data.get("turn_count", 0),
+                            # CR-02: 구형 레코드는 revision 0으로 노출한다.
+                            "revision": data.get(SESSION_REVISION_FIELD, 0),
                         },
                     )
                 except (json.JSONDecodeError, KeyError):
@@ -502,16 +673,74 @@ class SessionManager:
 
     # ─────────── 내부 메서드 ───────────
 
+    def _session_path(self, session_id: str) -> Path:
+        return Path(self.base_dir) / f"{session_id}.json"
+
+    @contextmanager
+    def _session_process_lock(self, session_id: str) -> Generator[None, None, None]:
+        """CR-02: 같은 세션을 쓰는 다른 프로세스와 배타적으로 직렬화한다.
+
+        잠금 파일은 `.locks/` 하위에 두어 `list_sessions`/retention이 세션 JSON으로
+        오인하지 않게 한다. `fcntl`이 없는 플랫폼은 스레드 락 + revision CAS만으로
+        동작한다(지원 OS는 macOS/Linux).
+        """
+        try:
+            import fcntl
+        except ImportError:  # pragma: no cover - 지원 범위 밖(Windows)
+            yield
+            return
+        lock_dir = Path(self.base_dir) / SESSION_LOCK_DIR_NAME
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_dir / f"{_session_lock_name(session_id)}.lock"
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            with suppress(OSError):
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
     def _save_session(self) -> None:
-        """세션을 디스크에 저장합니다."""
+        """CR-02: 원자 저장 + per-session 프로세스 잠금 + revision CAS.
+
+        직렬화 → 고유 임시파일 → flush/fsync → atomic replace → 디렉터리 fsync.
+        replace 이전 실패는 마지막 정상 파일을 보존하고, 실패를 그대로 전파한다.
+        디스크 revision이 메모리 기준보다 앞서 있으면 stale write를 거부한다.
+        """
         if not self._current_session or not self._session_id:
             return
-        fpath = os.path.join(self.base_dir, f"{self._session_id}.json")
-        try:
-            with open(fpath, "w", encoding="utf-8") as f:
-                json.dump(self._current_session, f, ensure_ascii=False, indent=2)
-        except Exception:
-            logger.exception("Failed to save session")
+        self._current_session["updated_at"] = time.time()
+        session_id = self._session_id
+        path = self._session_path(session_id)
+        with self._save_lock, self._session_process_lock(session_id):
+            disk_revision: int | None = None
+            if path.is_file():
+                disk_revision = _read_session_revision(path)
+                if disk_revision is None:
+                    # 손상 잔재(예: 과거 truncate-dump 중단)는 삭제하지 않고 격리한다.
+                    quarantined = _quarantine_session_file(path)
+                    logger.error("Damaged session file preserved as %s", quarantined)
+            if disk_revision is not None and disk_revision != self._base_revision:
+                raise StaleSessionWriteError(
+                    f"Session {session_id} was modified by another writer "
+                    f"(disk revision {disk_revision}, memory revision {self._base_revision})"
+                )
+            next_revision = (disk_revision if disk_revision is not None else 0) + 1
+            payload = dict(self._current_session)
+            payload[SESSION_REVISION_FIELD] = next_revision
+            try:
+                _write_session_file_atomically(path, payload)
+            except SessionDurabilityUncertainError:
+                # 새 완전한 JSON이 이미 보일 수 있다. 오래된 데이터로 되돌리지 않고
+                # 재조회로 실제 저장 상태를 반영한 뒤 오류를 전달한다.
+                observed = _read_session_revision(path) if path.is_file() else None
+                if observed is not None:
+                    self._base_revision = observed
+                    _record_revision(self._current_session, observed)
+                raise
+            self._base_revision = next_revision
+            _record_revision(self._current_session, next_revision)
 
     def _load_session(self, fpath: str) -> None:
         """디스크에서 세션을 로드합니다."""
@@ -524,25 +753,58 @@ class SessionManager:
             self._current_session = cast(SessionData, cast(object, data))
             session_id = data.get("id")
             self._session_id = session_id if isinstance(session_id, str) else None
+            # CR-02: 구형 레코드는 revision 기본값 0으로 읽는다(잠금 안에서 비교).
+            raw_revision = data.get(SESSION_REVISION_FIELD, 0)
+            self._base_revision = (
+                raw_revision
+                if isinstance(raw_revision, int) and not isinstance(raw_revision, bool) and raw_revision >= 0
+                else 0
+            )
         except Exception:
             logger.exception("Failed to load session")
             self._current_session = None
             self._session_id = None
+            self._base_revision = 0
 
     def _find_latest_session(self, project_hash: str) -> str | None:
-        """프로젝트 해시로 최근 세션 파일을 찾습니다."""
-        candidates: list[tuple[str, float]] = []
-        for fname in os.listdir(self.base_dir):
-            if fname.startswith(project_hash) and fname.endswith(".json"):
-                fpath = os.path.join(self.base_dir, fname)
-                mtime = os.path.getmtime(fpath)
-                candidates.append((fpath, mtime))
+        """프로젝트 해시로 최근 세션 파일을 찾습니다.
 
-        if candidates:
-            candidates.sort(key=lambda x: x[1], reverse=True)
-            fpath = candidates[0][0]
-            return fpath
-        return None
+        CR-02: 파일명 prefix만으로 선택하지 않는다. 구형 `{hash}_{epoch}`과 신형
+        `{hash}_{uuid}`의 suffix를 시간으로 해석하지 않고, 레코드의 ``project_hash``
+        메타데이터를 실제 식별자로 확인한 뒤 ``updated_at`` 기준으로 고른다.
+        손상/타 프로젝트 레코드는 후보에서 제외한다(빈 세션으로 대체하지 않는다).
+        """
+        candidates: list[tuple[float, str]] = []
+        for fname in os.listdir(self.base_dir):
+            if not fname.endswith(".json") or not fname.startswith(project_hash):
+                continue
+            fpath = os.path.join(self.base_dir, fname)
+            try:
+                with open(fpath, encoding="utf-8") as session_file:
+                    raw = cast(object, json.load(session_file))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(raw, dict):
+                continue
+            record = cast(dict[str, object], raw)
+            stored_hash = record.get("project_hash")
+            if isinstance(stored_hash, str) and stored_hash != project_hash:
+                continue
+            updated_at = record.get("updated_at")
+            stamp = (
+                float(updated_at) if isinstance(updated_at, (int, float)) and not isinstance(updated_at, bool) else 0.0
+            )
+            if stamp <= 0:
+                try:
+                    stamp = os.path.getmtime(fpath)
+                except OSError:
+                    continue
+            candidates.append((stamp, fpath))
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][1]
 
     # ─────────── 자동 컨텍스트 복원 (P1-5) ───────────
 

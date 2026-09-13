@@ -57,25 +57,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+      # CR-11: src-layout 모듈은 editable 설치나 PYTHONPATH에 기대지 않는다.
+      # uv.lock을 frozen으로 따르는 **비-editable** 환경에서만 게이트를 돌린다.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: |
-            pyproject.toml
-            setup.py
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+      - name: Sync locked environment (non-editable)
+        run: uv sync --locked --no-editable --extra dev
 
       - name: Ruff Lint Check
-        run: ruff check src/ tests/ scripts/
+        run: uv run --no-sync ruff check src/ tests/ scripts/
 
       - name: Ruff Format Check
-        run: ruff format --check src/ tests/ scripts/
+        run: uv run --no-sync ruff format --check src/ tests/ scripts/
 
   typecheck:
     name: "Type Check"
@@ -86,27 +84,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+      # CR-11: src-layout 모듈은 editable 설치나 PYTHONPATH에 기대지 않는다.
+      # uv.lock을 frozen으로 따르는 **비-editable** 환경에서만 게이트를 돌린다.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: |
-            pyproject.toml
-            setup.py
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-          pip install mypy pydantic types-PyYAML
+      - name: Sync locked environment (non-editable)
+        run: uv sync --locked --no-editable --extra dev
 
+      # CR-11: 도구도 잠금 환경에서 실행한다(`mypy`를 PATH에서 찾지 않는다).
       - name: Mypy Check
-        run: mypy src/
+        run: uv run --no-sync mypy src/
 
       - name: BasedPyright Strict Core Gate
         run: |
-          basedpyright \
+          uv run --no-sync basedpyright \
             src/antigravity_k/engine/sandbox.py \
             src/antigravity_k/tools/search_benchmark.py
 
@@ -229,58 +225,68 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+      # CR-11(R01): 내부 모듈(`python -m antigravity_k...`)은 프로젝트가 설치된
+      # 환경에서만 돈다. 설치 없이 돌리면 새 머신에서 ModuleNotFoundError다.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: |
-            pyproject.toml
-            setup.py
 
-      - name: Install Build Tools
-        run: |
-          python -m pip install --upgrade pip build
+      - name: Sync locked environment (non-editable, dev extra)
+        run: uv sync --locked --no-editable --extra dev
+
+      # CR-11(C11-05): 추적 중인 `dashboard_dist`가 낙아 있어도 그대로 포장하지 않는다.
+      # 대시보드를 다시 빌드하고, 그 번들이 wheel에 들어갔는지 hash로 대조한다.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+          run_install: false
+
+      - name: Set up Node.js 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13
+          cache: "pnpm"
+          cache-dependency-path: dashboard/pnpm-lock.yaml
 
       - name: Generate release SBOMs and notices
         run: |
-          python -m pip install "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
-          python -m antigravity_k.engine.release_sbom generate \
+          uv run --no-sync python -m antigravity_k.engine.release_sbom generate \
             --project-root . \
             --release-root src/antigravity_k/release
 
       - name: Build wheel + sdist
-        run: |
-          python -m build
+        run: uv build --no-sources
 
-      - name: Verify wheel installs cleanly
-        run: |
-          pip install dist/*.whl
-          python -c "from antigravity_k import __version__; print(f'Package version: {__version__}')" 2>/dev/null || \
-          python -c "import antigravity_k; print('Package imported successfully')"
+      - name: Verify fresh dashboard bundle inside the wheel
+        run: bash scripts/verify_dashboard_bundle.sh
+
+      # CR-11(C11-04): 저장소 밖 신규 venv에 설치해 CLI/API/auth를 실행한다.
+      - name: Verify distributions outside the repository (CLI/API/auth)
+        run: bash scripts/verify_release_artifacts.sh --skip-build
 
       - name: Verify built distribution metadata
         run: |
-          python -m antigravity_k.engine.release_metadata \
+          uv run --no-sync python -m antigravity_k.engine.release_metadata \
             --distribution-root dist \
             --git-ref "$GITHUB_REF"
 
       - name: Verify release SBOMs and notices
         run: |
-          python -m antigravity_k.engine.release_sbom verify \
+          uv run --no-sync python -m antigravity_k.engine.release_sbom verify \
             --distribution-root dist \
             --release-root src/antigravity_k/release \
             --output dist/release-supply-chain.json
 
-      - name: Install provenance verifier
-        run: python -m pip install "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
-
       - name: Record and verify Python distribution provenance
         run: |
           mkdir -p .artifacts
-          python src/antigravity_k/engine/artifact_provenance.py \
+          uv run --no-sync python src/antigravity_k/engine/artifact_provenance.py \
             create dist --root . --output .artifacts/python-dist.json
-          python src/antigravity_k/engine/artifact_provenance.py \
+          uv run --no-sync python src/antigravity_k/engine/artifact_provenance.py \
             verify .artifacts/python-dist.json --root .
 
       - name: Resolve Python provenance task
@@ -332,19 +338,27 @@ jobs:
       - name: Install provenance verifier
         run: python -m pip install "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
 
+      # CR-11: pnpm@11.3.0의 engines.node는 `>=22.13`이다(package.json engines와 동일).
+      # Node 20을 쓰면 pnpm이 node:sqlite builtin을 찾지 못해 설치 단계가 깨진다.
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 11.3.0
+          run_install: false
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22.13
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.13
           cache: "pnpm"
           cache-dependency-path: dashboard/pnpm-lock.yaml
 
-      - name: Install Dependencies
+      - name: Record Node/pnpm combination
+        run: |
+          echo "NODE: $(node --version)"
+          echo "PNPM: $(pnpm --version)"
+
+      - name: Install Dependencies (frozen)
         run: pnpm --dir dashboard install --frozen-lockfile
 
       - name: Lint Dashboard
@@ -353,14 +367,20 @@ jobs:
       - name: Test Dashboard
         run: pnpm --dir dashboard test
 
+      # CR-11(C11-05): 대시보드를 다시 빌드해 vite outDir(src/antigravity_k/dashboard_dist)를
+      # 갱신하고, **방금 빌드한 번들이 wheel에 그대로 들어가는지 hash로 대조**한다.
+      # 추적 중인 오래된 번들이 있어도 성공처럼 포장하지 않는다.
       - name: Build Dashboard
         run: pnpm --dir dashboard build
+
+      - name: Verify fresh dashboard bundle inside the wheel
+        run: bash scripts/verify_dashboard_bundle.sh
 
       - name: Record and verify dashboard provenance
         run: |
           mkdir -p .artifacts
           python src/antigravity_k/engine/artifact_provenance.py \
-            create dashboard/dist --root . --output .artifacts/dashboard-dist.json
+            create src/antigravity_k/dashboard_dist --root . --output .artifacts/dashboard-dist.json
           python src/antigravity_k/engine/artifact_provenance.py \
             verify .artifacts/dashboard-dist.json --root .
 
@@ -407,15 +427,16 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 11.3.0
+          run_install: false
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22.13
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.13
           cache: "pnpm"
           cache-dependency-path: dashboard/pnpm-lock.yaml
 
-      - name: Install Dependencies
+      - name: Install Dependencies (frozen)
         run: pnpm --dir dashboard install --frozen-lockfile
 
       - name: Run Stryker Mutation Testing
@@ -458,30 +479,46 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: true
 
-      # ── 2. Python dependency audit (pip-audit) ─────────────────
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+      # ── 2. Python dependency audit ─────────────────────────────────
+      # CR-11(R02): 감사는 **제품이 실제 출하하는 의존성**(base + Dockerfile extras)을
+      # 대상으로 한다. 설치 안 된 환경을 훑는 `pip-audit --strict`는 "프로젝트 전체 감사"가
+      # 아니다. 입력 기록과 취약점/인프라 오류 구분은 감사 스크립트가 담당한다.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: pyproject.toml
 
-      - name: Dependency Audit (pip-audit)
+      - name: Dependency Audit (base + shipped extras)
+        env:
+          AGK_AUDIT_RECORD: .artifacts/python-audit-inputs.json
         run: |
-          python -m pip install --upgrade pip pip-audit
-          # Audit the resolved environment against the PyPI advisory database.
-          # Uses pyproject.toml + uv.lock/requirements.txt as the source.
-          pip-audit --strict --desc
+          mkdir -p .artifacts
+          bash scripts/audit_python_dependencies.sh
+
+      - name: Upload audit inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-audit-inputs
+          path: .artifacts/python-audit-inputs.json
+          retention-days: 30
+          if-no-files-found: warn
 
       # ── 3. SAST (bandit) ───────────────────────────────────────
+      - name: Sync locked environment (non-editable, dev extra)
+        run: uv sync --locked --no-editable --extra dev
+
       - name: SAST Scan (bandit)
         run: |
-          python -m pip install bandit
           # Scan src/ for common security issues; fail on MEDIUM+ severity.
-          bandit -r src/antigravity_k -ll -ii -ii -x src/antigravity_k/engine/secret_scanner.py \
+          uv run --no-sync bandit -r src/antigravity_k -ll -ii -ii \
+            -x src/antigravity_k/engine/secret_scanner.py \
             -f sarif -o bandit-results.sarif || true
           # Re-run to get a pass/fail exit code for the gate (level MEDIUM+).
-          bandit -r src/antigravity_k -ll -x src/antigravity_k/engine/secret_scanner.py
+          uv run --no-sync bandit -r src/antigravity_k -ll \
+            -x src/antigravity_k/engine/secret_scanner.py
 
       - name: Upload Bandit SARIF
         if: always()
@@ -491,12 +528,11 @@ jobs:
           path: bandit-results.sarif
 
       # ── 4. Internal secret scanner (legacy, kept for coverage) ─
+      # CR-11(C11-01): non-editable 잠금 설치를 쓴다 — `sys.path.insert('src')`로
+      # 우연히 import되던 경로를 없앤다.
       - name: Secret Scan (internal scanner)
         run: |
-          python -m pip install -e ".[dev]"
-          python -c "
-          import sys
-          sys.path.insert(0, 'src')
+          uv run --no-sync python -c "
           from antigravity_k.engine.secret_scanner import scan_for_secrets, is_sensitive_file
           import os
 
@@ -542,31 +578,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+      # CR-11(C11-01): src-layout 모듈은 editable 설치나 PYTHONPATH=src에 기대지 않는다.
+      # 잠금파일을 frozen으로 따르는 **비-editable** 환경에서만 E2E를 돌린다.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: pyproject.toml
 
-      - name: Install Python Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+      - name: Sync locked environment (non-editable, dev extra)
+        run: uv sync --locked --no-editable --extra dev
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 11.3.0
+          run_install: false
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22.13
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.13
           cache: "pnpm"
           cache-dependency-path: dashboard/pnpm-lock.yaml
 
-      - name: Install Dashboard Dependencies
+      - name: Install Dashboard Dependencies (frozen)
         run: pnpm --dir dashboard install --frozen-lockfile
 
       - name: Install Playwright Browsers
@@ -575,13 +612,16 @@ jobs:
       - name: Build Dashboard (static)
         run: pnpm --dir dashboard build
 
+      - name: Verify fresh dashboard bundle inside the wheel
+        run: bash scripts/verify_dashboard_bundle.sh --skip-build
+
       - name: Start Backend Server
         run: |
           E2E_STATE="$(mktemp -d)"
           printf '%s' "e2e-secret-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" > "$E2E_STATE/token_secret"
           AGK_SEC_TOKEN_SECRET_FILE="$E2E_STATE/token_secret" \
           AGK_SEC_PIN_HASH_FILE="$E2E_STATE/auth_hash" \
-          PYTHONPATH=src python -m uvicorn antigravity_k.api.server:app \
+          .venv/bin/python -m uvicorn antigravity_k.api.server:app \
             --host 127.0.0.1 --port 8000 &
           SERVER_PID=$!
           echo "Server PID: $SERVER_PID"
@@ -600,7 +640,7 @@ jobs:
       - name: Run Python E2E Smoke Tests
         run: |
           set -o pipefail
-          python -m pytest tests/test_e2e_smoke.py -v --tb=short 2>&1 | tee e2e-smoke-results.txt
+          uv run --no-sync python -m pytest tests/test_e2e_smoke.py -v --tb=short 2>&1 | tee e2e-smoke-results.txt
 
       - name: Run Accessibility E2E Tests (Playwright)
         env:
@@ -680,26 +720,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+      # CR-11(R01): 설치 없이 내부 모듈을 돌리지 않는다.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: pyproject.toml
+
+      - name: Sync locked environment (non-editable, dev extra)
+        run: uv sync --locked --no-editable --extra dev
 
       - name: Generate release SBOMs and notices
         run: |
-          python -m pip install --upgrade pip "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
-          python -m antigravity_k.engine.release_sbom generate \
+          uv run --no-sync python -m antigravity_k.engine.release_sbom generate \
             --project-root . \
             --release-root src/antigravity_k/release
 
       - name: Build SBOM distribution
-        run: python -m pip install --upgrade build && python -m build
+        run: uv build --no-sources
 
       - name: Verify release SBOM distribution
         run: |
-          python -m antigravity_k.engine.release_sbom verify \
+          uv run --no-sync python -m antigravity_k.engine.release_sbom verify \
             --distribution-root dist \
             --release-root src/antigravity_k/release \
             --output release-supply-chain.json

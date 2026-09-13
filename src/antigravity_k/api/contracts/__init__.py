@@ -20,7 +20,9 @@ from antigravity_k.api.contracts.conversation import (
 )
 from antigravity_k.api.contracts.errors import (
     CONTEXT_ERROR_HTTP_STATUS,
+    ConversationIntegrityError,
     ConversationNotFoundError,
+    ConversationStorageMigrationRequiredError,
     ExecutionContextError,
     InvalidConversationRevisionError,
     InvalidExecutionContextError,
@@ -36,11 +38,20 @@ from antigravity_k.api.contracts.execution_context import (
     RequestExecutionContext,
     RequestExecutionContextWire,
 )
+from antigravity_k.api.contracts.shell import (
+    SHELL_ERROR_HTTP_STATUS,
+    ShellApprovalRequiredError,
+    ShellBoundaryError,
+    ShellPolicyDeniedError,
+    ShellSandboxUnavailableError,
+    ShellTimeoutError,
+)
 
 __all__ = [
     "CONVERSATION_REVISION_MIN",
     "CONTEXT_ERROR_HTTP_STATUS",
     "REQUEST_EXECUTION_CONTEXT_SCHEMA_VERSION",
+    "SHELL_ERROR_HTTP_STATUS",
     "ActorSessionRef",
     "ConversationAppendRequest",
     "ConversationCompactRequest",
@@ -48,10 +59,12 @@ __all__ = [
     "ConversationForkRequest",
     "ConversationHistoryMessage",
     "ConversationHistoryResponse",
+    "ConversationIntegrityError",
     "ConversationNewTurn",
     "ConversationNotFoundError",
     "ConversationRef",
     "ConversationSnapshot",
+    "ConversationStorageMigrationRequiredError",
     "ExecutionContextError",
     "InvalidConversationRevisionError",
     "InvalidExecutionContextError",
@@ -60,6 +73,11 @@ __all__ = [
     "ProjectRootInvalidError",
     "RequestExecutionContext",
     "RequestExecutionContextWire",
+    "ShellApprovalRequiredError",
+    "ShellBoundaryError",
+    "ShellPolicyDeniedError",
+    "ShellSandboxUnavailableError",
+    "ShellTimeoutError",
     "StaleConversationRevisionError",
     "execution_context_error_from_code",
 ]

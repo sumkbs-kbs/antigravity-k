@@ -5,6 +5,14 @@
 # ///
 # ─── How to run ───
 # uv run scripts/ga_gate.py --manifest scripts/commercial_ga_gates.json --output .artifacts/commercial-ga.json
+#
+# 20개 gate는 한 프로세스 창에 다 들어가지 않을 수 있다. 이때는 단계별로 실행한다:
+#   uv run scripts/ga_gate.py --manifest scripts/commercial_ga_gates.json \
+#     --output .artifacts/commercial-ga.json --only python-ruff --only python-format
+#   uv run scripts/ga_gate.py --manifest scripts/commercial_ga_gates.json \
+#     --output .artifacts/commercial-ga.json --only python-tests --merge-into
+# --merge-into는 **같은 후보 SHA·같은 manifest**의 결과만 이어받고, 같은 gate id는
+# 이번 실행 결과로 교체한다. 다른 후보의 초록을 섞으려 하면 exit 2로 거부한다.
 
 from __future__ import annotations
 
@@ -25,6 +33,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from pydantic_core import PydanticCustomError
 
 type JsonValue = None | bool | int | float | str | Sequence[JsonValue] | Mapping[str, JsonValue]
+
+# gate 하나의 결과 레코드. `JsonValue` 와 같은 별칭을 쓰지 않으면 dict 값 타입이
+# 불변(invariant)이라 단계별 병합 결과를 주고받을 때 basedpyright 가 막는다.
+GateResult = dict[str, JsonValue]
 
 OUTPUT_ENCODING: Final = "utf-8"
 OUTPUT_ERRORS: Final = "backslashreplace"
@@ -91,6 +103,42 @@ def _git(root: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
 
 
+# gate 결과를 무효화하는 것은 **코드·lock·workflow·설정** 변경이다. 계획서가 요구하는
+# "결과 문서 커밋은 코드 후보와 별도"를 지키려면, 증거·계획 문서를 쓰는 것만으로 gate
+# 결과가 낡아서는 안 된다. 그래서 지문에서 문서·증거 트리를 제외한다.
+FINGERPRINT_EXCLUDED_PREFIXES: Final = ("docs/", ".omo/")
+
+
+def _tree_fingerprint(root: Path) -> str:
+    """**코드** 작업 트리 내용의 지문.
+
+    커밋 SHA 만으로는 미커밋 후보를 구분할 수 없고, `git status --porcelain` 만으로는
+    내용 변화를 구분할 수 없다. 단계별 `--merge-into` 가 **다른 코드 상태의 초록**을
+    이어 붙이지 못하도록 추적+미추적 코드 파일의 내용 hash 를 모아 지문을 만든다.
+    `docs/`·`.omo/` 는 증거·문서 산출물이라 제외한다(C14-01 주석 참조).
+    """
+    listing = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout.split(b"\0")
+    digest = hashlib.sha256()
+    for raw in sorted(entry for entry in listing if entry):
+        relative = raw.decode("utf-8", "surrogateescape")
+        if relative.startswith(FINGERPRINT_EXCLUDED_PREFIXES):
+            continue
+        digest.update(raw)
+        digest.update(b"\0")
+        path = root / relative
+        try:
+            digest.update(_sha256(path).encode())
+        except OSError:
+            digest.update(b"missing")
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def _load_manifest(path: Path) -> Manifest:
     return Manifest.model_validate_json(path.read_bytes())
 
@@ -118,7 +166,7 @@ def _terminate(process: subprocess.Popen[str]) -> None:
             process.kill()
 
 
-def _run_gate(gate: Gate, root: Path) -> tuple[dict[str, bool | float | int | list[str] | str], bool]:
+def _run_gate(gate: Gate, root: Path) -> tuple[GateResult, bool]:
     started_at = _utc_now()
     started = monotonic()
     try:
@@ -168,7 +216,7 @@ def _run_gate(gate: Gate, root: Path) -> tuple[dict[str, bool | float | int | li
         exit_code = 130
         status = "interrupted"
         interrupted = True
-    result: dict[str, bool | float | int | list[str] | str] = {
+    result: GateResult = {
         "id": gate.id,
         "category": gate.category,
         "command": list(gate.command),
@@ -187,7 +235,7 @@ def _run_gate(gate: Gate, root: Path) -> tuple[dict[str, bool | float | int | li
     return result, interrupted
 
 
-def _summary(results: list[dict[str, bool | float | int | list[str] | str]]) -> dict[str, int]:
+def _summary(results: Sequence[GateResult]) -> dict[str, int]:
     passed = sum(result["status"] == "passed" for result in results)
     required_failed = sum(result["required"] is True and result["status"] != "passed" for result in results)
     return {
@@ -196,6 +244,52 @@ def _summary(results: list[dict[str, bool | float | int | list[str] | str]]) -> 
         "required_failed": required_failed,
         "total": len(results),
     }
+
+
+class _CarriedError(ValueError):
+    """이어받을 수 없는 이전 결과(다른 후보·다른 manifest)."""
+
+
+def _load_carried_gates(
+    path: Path, sha: str, manifest_sha: str, tree_fingerprint: str
+) -> dict[str, dict[str, JsonValue]]:
+    """--merge-into: 이전 실행 결과를 같은 후보에 한해 이어받는다.
+
+    한 번의 프로세스 창(예: 10분 clamp) 안에 20개 gate를 끝낼 수 없을 때 단계별로
+    실행하되, **다른 후보나 다른 manifest의 결과는 절대 섞지 않는다**. 같은 gate id는
+    이번 실행 결과로 교체되므로 오래된 초록이 남지 않는다.
+    """
+    if not path.is_file():
+        return {}
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise _CarriedError(f"cannot read previous report {path}: {error}") from error
+    if not isinstance(previous, dict):
+        raise _CarriedError(f"previous report {path} is not an object")
+    previous_sha = str((previous.get("git") or {}).get("sha", ""))
+    if previous_sha != sha:
+        raise _CarriedError(f"previous report is for candidate {previous_sha!r}, not {sha!r}")
+    previous_manifest = str((previous.get("manifest") or {}).get("sha256", ""))
+    if previous_manifest != manifest_sha:
+        raise _CarriedError("previous report was produced from a different gate manifest")
+    previous_fingerprint = str((previous.get("git") or {}).get("tree_fingerprint", ""))
+    if previous_fingerprint != tree_fingerprint:
+        raise _CarriedError(
+            "previous report was produced from a different working tree "
+            f"({previous_fingerprint[:16]}… != {tree_fingerprint[:16]}…) — "
+            "results from another code state must not be stitched into this candidate"
+        )
+    carried: dict[str, dict[str, JsonValue]] = {}
+    for gate in previous.get("gates") or []:
+        if isinstance(gate, dict) and gate.get("id"):
+            carried[str(gate["id"])] = gate
+    return carried
+
+
+def _ordered_gates(manifest: Manifest, carried: dict[str, dict[str, JsonValue]]) -> list[dict[str, JsonValue]]:
+    """manifest 순서로 정렬해 결과 목록을 만든다(결과를 dict 로 두면 순서가 흔들린다)."""
+    return [carried[gate.id] for gate in manifest.gates if gate.id in carried]
 
 
 def _atomic_write(path: Path, report: dict[str, JsonValue]) -> None:
@@ -214,6 +308,13 @@ def main(
     output: Annotated[Path | None, typer.Option("--output", dir_okay=False)] = None,
     list_only: Annotated[bool, typer.Option("--list", help="Validate and list gates without executing them.")] = False,
     only: Annotated[list[str] | None, typer.Option("--only", help="Run only the named gate; repeat for more.")] = None,
+    merge_into: Annotated[
+        bool,
+        typer.Option(
+            "--merge-into",
+            help="Carry earlier results from --output when they belong to the same candidate and manifest.",
+        ),
+    ] = False,
 ) -> None:
     root = Path(__file__).resolve().parents[1]
     try:
@@ -235,10 +336,25 @@ def main(
     if output is None:
         typer.echo("--output is required unless --list is used", err=True)
         raise typer.Exit(code=2)
+    sha = _git(root, "rev-parse", "HEAD")
+    manifest_sha = _sha256(manifest_path)
+    tree_fingerprint = _tree_fingerprint(root)
+    carried: dict[str, dict[str, JsonValue]] = {}
+    if merge_into:
+        try:
+            carried = _load_carried_gates(output, sha, manifest_sha, tree_fingerprint)
+        except _CarriedError as error:
+            typer.echo(f"cannot merge: {error}", err=True)
+            raise typer.Exit(code=2) from error
     report: dict[str, JsonValue] = {
         "schema_version": 1,
         "generated_at": _utc_now(),
-        "git": {"sha": _git(root, "rev-parse", "HEAD"), "dirty": bool(_git(root, "status", "--porcelain"))},
+        "git": {
+            "sha": sha,
+            "dirty": bool(_git(root, "status", "--porcelain")),
+            "tree_fingerprint": tree_fingerprint,
+            "tree_fingerprint_scope": "code (docs/ and .omo/ excluded)",
+        },
         "platform": {
             "system": platform.system(),
             "release": platform.release(),
@@ -246,26 +362,31 @@ def main(
             "python_implementation": platform.python_implementation(),
             "python_version": platform.python_version(),
         },
-        "manifest": {"path": str(manifest_path), "sha256": _sha256(manifest_path)},
+        "manifest": {"path": str(manifest_path), "sha256": manifest_sha},
         "output_decoding": {"encoding": OUTPUT_ENCODING, "errors": OUTPUT_ERRORS},
         "dependency_locks": locks,
+        "merged": merge_into,
         "gates": [],
         "summary": {"failed": 0, "passed": 0, "required_failed": 0, "total": 0},
     }
-    results: list[dict[str, bool | float | int | list[str] | str]] = []
+    results: dict[str, GateResult] = {gate_id: gate for gate_id, gate in carried.items()}
     interrupted = False
     for gate in selected:
         typer.echo(f"[{gate.id}] {' '.join(gate.command)}")
         result, interrupted = _run_gate(gate, root)
-        results.append(result)
-        report["gates"] = results
-        report["summary"] = _summary(results)
+        results[gate.id] = result
+        report["gates"] = _ordered_gates(manifest, results)
+        report["summary"] = _summary(report["gates"])
         _atomic_write(output, report)
         if interrupted:
             break
+    ordered = _ordered_gates(manifest, results)
+    report["gates"] = ordered
+    report["summary"] = _summary(ordered)
+    _atomic_write(output, report)
     if interrupted:
         raise typer.Exit(code=130)
-    if _summary(results)["required_failed"] > 0:
+    if _summary(ordered)["required_failed"] > 0:
         raise typer.Exit(code=1)
 
 

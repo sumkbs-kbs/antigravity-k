@@ -28,7 +28,7 @@ test.afterAll(async () => {
   await server.cleanup();
 });
 
-/* ─── 16개 실제 BrowserRouter route (UI-01 ROUTES와 동일 매트릭스) ─── */
+/* ─── 17개 route = 실제 16 route + 404 화면 (UI-01 ROUTES와 동일 매트릭스) ─── */
 
 interface RouteCase {
   pathname: string;
@@ -53,6 +53,7 @@ const ROUTES: RouteCase[] = [
   { pathname: '/plugins/job-operations', name: 'plugins-job-operations', marker: '.job-operations-page' },
   { pathname: '/plugins/hello-world', name: 'plugins-hello-world', marker: '.hello-plugin-content' },
   { pathname: '/mutation', name: 'mutation', marker: '.page-header-hero:has-text("Mutation test history")' },
+  { pathname: '/cr08-unknown-route', name: 'not-found', marker: '[data-testid="cr07-not-found"]' },
 ];
 
 const VIEWPORTS = [
@@ -110,8 +111,8 @@ for (const viewport of VIEWPORTS) {
 
 /* ─── 스펙 회귀 방지: 매트릭스 계약 고정 ─── */
 
-test('[UI-02] gate 스펙 — UI-01과 동일 16 route 매트릭스 고정', async () => {
-  expect(ROUTES).toHaveLength(16);
+test('[UI-02] gate 스펙 — UI-01과 동일 17 route 매트릭스 고정', async () => {
+  expect(ROUTES).toHaveLength(17);
   const pathnames = new Set(ROUTES.map(r => r.pathname));
   expect(pathnames.size).toBe(ROUTES.length);
   expect(VIEWPORTS.map(v => v.name)).toEqual(['desktop', 'mobile']);

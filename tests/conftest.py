@@ -44,6 +44,73 @@ def _reset_bound_execution_context() -> Iterator[None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _isolate_default_session_storage() -> Iterator[None]:
+    """세션 전체: 인자를 생략한 ``SessionManager()``가 사용자 홈을 쓰지 않게 격리한다.
+
+    CR-02 이전에는 ``EngineContext``/``OrchestratorAgent``를 session_manager 없이
+    만드는 테스트가 실제 ``~/.antigravity/sessions``에 세션 파일을 썼다(회귀 실행마다
+    파일 증가). 기본 루트를 세션 임시 디렉터리로 돌려 사용자 데이터를 보호한다.
+    """
+    import antigravity_k.engine.session_manager as session_manager_mod
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="agk-default-sessions-"))
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(session_manager_mod, "default_session_base_dir", lambda: str(tmpdir))
+    yield
+    patcher.undo()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_default_benchmark_db() -> Iterator[None]:
+    """세션 전체: 인자를 생략한 ``BenchmarkHarness()``가 **저장소 추적 파일**을 쓰지 않게 격리한다.
+
+    CR-14 F-02: API 런타임은 ``AgentRuntime(task_outcome_recorder=benchmark_harness.record_task_outcome)``
+    로 모든 작업 완료를 기록한다. 기본 경로가 CWD 상대 ``data/benchmark_results.json``(추적 파일)
+    이라, 작업을 실행하는 테스트가 하나라도 있으면 **검증 실행이 후보 트리를 바꿨다** —
+    CR-13 R03 드리프트의 뿌리이자 게이트 코드 지문이 실행마다 이동한 원인이다.
+
+    기본 경로를 세션 임시 디렉터리로 돌린다. 프로덕션 기본값은 그대로이고(추적 파일은 계속
+    누적 결과 DB 다), 테스트만 저장소 밖에서 돈다 — CR-02 D-07 과 같은 방식이다.
+    """
+    import antigravity_k.engine.benchmark_harness as benchmark_harness_mod
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="agk-default-benchmark-"))
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(
+        benchmark_harness_mod,
+        "default_benchmark_db_path",
+        lambda: tmpdir / "benchmark_results.json",
+    )
+    yield
+    patcher.undo()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_default_usage_db() -> Iterator[None]:
+    """세션 전체: 인자를 생략한 사용량 추적이 **저장소 추적 파일**을 쓰지 않게 격리한다.
+
+    CR-14 F-08: API 런타임은 ``UsageTracker(db_path=default_usage_db_path())`` 로 ModelManager 를
+    만들고, ``record()`` 는 ``auto_save_interval``(기본 50)건마다 ``_save()`` 를 호출한다.
+    기본 경로가 추적 파일 ``data/token_usage.json`` 이라, 사용량을 50건 이상 기록하는 테스트
+    조합 하나면 **검증 실행이 후보 트리를 바꿨다**(실측: ``M data/token_usage.json``) —
+    F-02(benchmark_harness)와 같은 결함의 두 번째 경로다.
+
+    F-02 와 같은 방식으로 기본 경로를 세션 임시 디렉터리로 돌린다. 프로덕션 기본값은 그대로다.
+    """
+    import antigravity_k.engine.usage_tracker as usage_tracker_mod
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="agk-default-usage-"))
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(
+        usage_tracker_mod,
+        "default_usage_db_path",
+        lambda: tmpdir / "token_usage.json",
+    )
+    yield
+    patcher.undo()
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _sec01_test_auth_harness() -> Iterator[None]:
     """세션 전체: SEC-01 명시적 dev 익명 허용 + 자격증명 격리."""
     from antigravity_k.config import config

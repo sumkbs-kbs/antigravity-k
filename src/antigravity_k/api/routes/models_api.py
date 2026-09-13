@@ -20,6 +20,7 @@ from antigravity_k.api.dependencies import (
     get_vault_engine,
 )
 from antigravity_k.api.models import EmbeddingData, EmbeddingRequest, EmbeddingResponse, UsageStats
+from antigravity_k.build_info import get_build_info
 from antigravity_k.config import config
 from antigravity_k.engine.agent_runtime import AgentRuntime
 from antigravity_k.engine.audit_logger import get_audit_logger
@@ -87,6 +88,8 @@ def health_check() -> dict[str, object]:
     return {
         "status": "ok",
         "version": __version__,
+        # CR-10: 실제 실행 중인 빌드 provenance(미기록 값은 None).
+        "build": get_build_info(),
         "backends": backends,
         "rag_index_files": rag_files,
         "cov_active": cov_active,

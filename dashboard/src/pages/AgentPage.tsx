@@ -6,7 +6,7 @@
  * execution timeline, and system metrics.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import AgentMonitorPanel from '../components/Agent/AgentMonitorPanel';
 import { useAgentMonitorStore } from '../stores/agentMonitorStore';
 import { useEventWebSocket } from '../hooks/useEventWebSocket';
@@ -21,7 +21,6 @@ const AgentPage: React.FC = () => {
     addTimelineEvent, setActiveTool, updateMetrics, setUptime,
   } = useAgentMonitorStore();
   const { setSystemStatus } = useUiStore();
-  const [startTime] = useState(() => Date.now());
 
   // ── WebSocket integration for real-time monitoring ──────────
   useEventWebSocket({
@@ -127,6 +126,8 @@ const AgentPage: React.FC = () => {
   });
 
   // ── Poll system metrics ─────────────────────────────────────
+  // CR-10: UPTIME은 **API 서버 프로세스**의 가동 시간이다. 대시보드 탭이 열린 시간을
+  // 업타임으로 쓰지 않는다(둘을 섞지 않는다). 미응답이면 값을 조작하지 않고 그대로 둔다.
   useEffect(() => {
     const poll = async () => {
       try {
@@ -139,31 +140,28 @@ const AgentPage: React.FC = () => {
         const metrics = await fetchSystemMetrics();
         if (metrics.ok) {
           updateMetrics({
-            memoryMb: metrics.memory_mb,
-            cpuPercent: metrics.cpu_percent,
-            totalTokens: metrics.total_tokens,
+            memoryPercent: metrics.memory_percent ?? metrics.memory_mb ?? null,
+            cpuPercent: metrics.cpu_percent ?? null,
+            totalTokens: metrics.total_tokens ?? null,
           });
+          if (metrics.uptime_seconds !== undefined) {
+            setUptime(metrics.uptime_seconds);
+          }
         }
-
-        // Update uptime
-        setUptime(Math.floor((Date.now() - startTime) / 1000));
       } catch (caught: unknown) {
         if (!(caught instanceof Error)) throw caught;
-        setSystemStatus({ healthy: false, backends: {} });
+        // 연결이 끊기면 health를 주장할 수 없다.
+        setSystemStatus({ healthy: null, backends: {} });
       }
     };
 
     poll();
     const interval = setInterval(poll, 5000);
-    const uptimeInterval = setInterval(() => {
-      setUptime(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
 
     return () => {
       clearInterval(interval);
-      clearInterval(uptimeInterval);
     };
-  }, [setSystemStatus, startTime, setUptime, updateMetrics]);
+  }, [setSystemStatus, setUptime, updateMetrics]);
 
   return (
     <div className="page-container full-height-page agent-page">

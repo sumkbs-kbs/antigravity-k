@@ -14,6 +14,8 @@ import remarkBreaks from 'remark-breaks';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { preprocessContent, sanitizeMarkdown } from '../../utils/formatContent';
+// CR-09(F05): mermaid는 CDN 전역이 아니라 다이어그램을 그릴 때 로컬에서 지연 로드한다.
+import { loadMermaid } from '../../utils/mermaidRuntime';
 
 interface Props {
   message: ChatMessageType;
@@ -67,16 +69,7 @@ const GitHubAlert: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 // ─── Mermaid Diagram ──────────────────────────────────────────────
 declare global {
-  interface MermaidRenderResult {
-    readonly svg: string;
-  }
-
-  interface MermaidRuntime {
-    readonly render: (id: string, definition: string) => Promise<MermaidRenderResult>;
-  }
-
   interface Window {
-    mermaid?: MermaidRuntime;
     previewArtifact?: (filePath: string, fileName: string) => Promise<void>;
   }
 }
@@ -88,17 +81,16 @@ const MermaidDiagram: React.FC<{ code: string }> = ({ code }) => {
   const renderId = `mermaid-${useId().replaceAll(':', '')}`;
 
   useEffect(() => {
-    const mermaid = window.mermaid;
-    if (!containerRef.current || !mermaid) {
-      setError('Mermaid library not loaded');
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
 
     const render = async () => {
       try {
+        if (!containerRef.current) return;
+        /*
+         * CR-09(F05): CDN의 window.mermaid 대신 로컬 의존성을 지연 로드한다.
+         * 로드 실패는 아래 catch가 그대로 사용자 오류 화면으로 보여준다.
+         */
+        const mermaid = await loadMermaid();
         if (!containerRef.current) return;
         containerRef.current.innerHTML = '';
         const { svg } = await mermaid.render(renderId, code);
@@ -207,6 +199,19 @@ function extractCodeText(children: React.ReactNode): string {
   return '';
 }
 
+/**
+ * CR-09: 하이라이트 span 트리를 렌더할 때 마지막 개행을 제거한다. 예전에는 평문으로
+ * 치환하면서 `\n` 하나를 떼어냈기 때문에, 그대로 두면 코드 블록 아래에 빈 줄이 생긴다.
+ */
+function trimTrailingNewline(children: React.ReactNode): React.ReactNode {
+  if (typeof children === 'string') return children.replace(/\n$/, '');
+  if (Array.isArray(children)) {
+    const last = children.at(-1);
+    if (typeof last === 'string') return [...children.slice(0, -1), last.replace(/\n$/, '')];
+  }
+  return children;
+}
+
 /** Extract the language name from a className like 'hljs language-typescript'. */
 function extractLanguage(className?: string): string {
   if (!className) return '';
@@ -243,7 +248,13 @@ const CodeBlock: React.FC<{ className?: string; children: React.ReactNode }> = (
         </button>
       </div>
       <pre>
-        <code className={className}>{code}</code>
+        {/*
+         * CR-09: rehype-highlight가 만든 토큰 span(hljs-keyword 등)을 그대로 렌더한다.
+         * 이전에는 평문(code)으로 치환해 토큰 색이 사라졌고, 로컬 번들로 가져온
+         * tokyo-night-dark 테마는 기저 색만 칠할 수 있었다. span은 이미
+         * rehype-sanitize의 `span: ['className', ...]` 스키마를 통과한 노드다.
+         */}
+        <code className={className}>{trimTrailingNewline(children)}</code>
       </pre>
     </div>
   );
