@@ -53,7 +53,11 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GATE_FILE = REPO_ROOT / "scripts" / "commercial_ga_gates.json"
 SHIM_MARKER = "AMBIENT_SHIM_RAN"
-PYTHON_BACKEND_EXTRAS = ("dev", "rag")
+# `documents` 는 **출하하는 선택 extra** 다(data_recipes 의 PDF/DOCX 수집). 스위트에는 그 능력을
+# 재는 테스트가 23건 있는데, 이 extra 가 게이트 환경에 없으면 그 23건이 **조용히 스킵**된다 —
+# 게이트는 초록이고 아무도 그 능력을 재지 않는다(CR-14 F-30). 순수 파이썬 의존성이라
+# (pypdf·python-docx) 설치 비용이 사실상 없고 lock 에도 있다.
+PYTHON_BACKEND_EXTRAS = ("dev", "rag", "documents")
 COMMON_EXTRAS = ("dev",)
 
 requires_uv = pytest.mark.skipif(shutil.which("uv") is None, reason="uv 없이는 게이트 환경을 잴 수 없다")
@@ -103,7 +107,9 @@ def test_every_uv_gate_pins_its_extras() -> None:
     """정적 계약 — 도구가 lock 에서 오려면 게이트가 필요한 extra 를 명시해야 한다.
 
     `python_backend` 게이트는 스위트를 돌리므로 chromadb(`rag`)까지 필요하다 —
-    그것이 빠지면 F-19 로 16건이 실패한다.
+    그것이 빠지면 F-19 로 16건이 실패한다. 같은 이유로 출하 extra `documents` 도 필요하다:
+    그 extra 를 재는 테스트가 스킵되지 않아야 한다는 것이 F-30 이다(스킵되면 게이트는 초록인데
+    그 능력은 어디서도 검증되지 않는다).
 
     도구가 `python`(`python -m <module>` 형태)이면 extra 를 요구하지 않는다 — 인터프리터와
     프로젝트 패키지는 임시환경이 항상 제공한다(그 사실은 기능 계약이 PATH 오염으로 잰다).

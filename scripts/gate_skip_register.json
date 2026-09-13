@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "scope": "게이트 `python-tests` 의 환경(`uv run --isolated --frozen --extra dev --extra rag --extra documents`)에서 **실제로 스킵되는** 테스트. 다른 파이프라인(개발자 ambient·CI matrix·weekly job)의 스킵은 이 등록부의 소관이 아니다 — 그쪽 환경은 각자 소유자가 있다.",
+  "why": "게이트 초록은 \"이 후보가 검증됐다\"는 주장인데, **스킵은 그 주장에서 조용히 빠지는 자리**다. CR-14 attempt-011/012 는 ambient 도구로 돌아 스킵이 13·6건이었고, F-18 로 게이트 환경을 lock 에 고정한 뒤(attempt-013) 스킵이 **40건**이 됐다 — 도구 출처는 바로잡혔지만 그 대가가 조용했다(R-8). attempt-021 이 그 대가를 세어 이 등록부로 옮겼다: 40 → **17**(23건은 출하 extra `documents` 를 게이트에 넣어 복원했고, 나머지 17건은 각각 소유자 또는 명시된 미검증 능력이다).",
+  "measured_by": "tests/test_cr14_gate_skip_register.py — 같은 게이트 환경을 다시 돌려 이 등록부와 **한 건씩** 대조한다. 등록되지 않은 스킵이 생기거나, 등록된 스킵이 사라지면 계약이 실패한다(양쪽 다 \"무엇이 바뀌었는지 적어라\"는 뜻이다).",
+  "classes": {
+    "ENV_PLATFORM": "플랫폼·선택 의존성 때문에 게이트 환경에서 실행할 수 없다. **다른 파이프라인이 그 파일을 실제로 돈다**는 사실을 owner_run 으로 증명해야 한다(그 파일이 그 워크플로에서 안 돌면 계약이 실패한다).",
+    "ENV_CONFIG": "런타임 설정에 따라 달라진다. 이 환경에서 스킵되지만 **같은 경계를 다른 required 게이트가 잰다** — 그 사실을 note 에 적고 파일을 가리킨다.",
+    "KNOWN_GAP": "제품 능력을 재는 테스트인데 **어디서도 돌지 않는다** = 미검증 능력. owner·plan·review_due 를 반드시 채운다. review_due 가 지나면 계약이 실패한다 — 그 자리를 다시 보라는 뜻이다(감사 예외의 만료와 같은 규율)."
+  },
+  "entries": [
+    {
+      "id": "mlx-extra-skipped",
+      "class": "ENV_PLATFORM",
+      "skips": [
+        {
+          "file": "tests/test_mlx_command_flags.py",
+          "reason": "mlx-lm 미설치 (mlx 환경에서만 실행)",
+          "count": 4
+        }
+      ],
+      "why": "mlx-lm 은 Apple Silicon 전용 무거운 extra 다 — 게이트(Linux 러너 포함)에 넣을 수 없다. 대신 생성된 학습 명령의 플래그가 최신 mlx-lm 에서 아직 유효한지 매주 본다.",
+      "owner": ".github/workflows/weekly-drift.yml",
+      "owner_run": ["tests/test_mlx_command_flags.py"],
+      "covers_elsewhere": [
+        {
+          "pipeline": ".github/workflows/ci.yml",
+          "how": "test 매트릭스에 `deps: [base, rag, mlx]`(macOS·Linux) 가 있어 그 축에서는 이 파일이 돈다"
+        },
+        {
+          "pipeline": ".github/workflows/weekly-drift.yml",
+          "how": "mlx-lm 을 최신 릴리스로 올린 뒤 `pytest tests/test_mlx_command_flags.py` 를 돌린다(드리프트 감지)"
+        }
+      ]
+    },
+    {
+      "id": "unsloth-extra-skipped",
+      "class": "ENV_PLATFORM",
+      "skips": [
+        {
+          "file": "tests/test_unsloth_script_api_drift.py",
+          "reason": "unsloth/trl 미설치 (deps=unsloth 환경에서만 실행)",
+          "count": 7
+        }
+      ],
+      "why": "unsloth 는 extra 로 **선언하지 않는다**(pyproject 주석): datasets<4.4 요구가 finetune extra(datasets>=5)와 정면 충돌해 extra 조합 해석이 깨진다. 대신 주간 job 이 `uv pip install` 로 직접 설치해 생성된 스크립트가 최신 API 에서 아직 유효한지 본다.",
+      "owner": ".github/workflows/weekly-drift.yml",
+      "owner_run": ["tests/test_unsloth_script_api_drift.py"],
+      "covers_elsewhere": [
+        {
+          "pipeline": ".github/workflows/weekly-drift.yml",
+          "how": "unsloth-drift job 이 최신 unsloth·trl 을 설치한 뒤 이 파일을 돌린다"
+        }
+      ]
+    },
+    {
+      "id": "access-pin-disabled",
+      "class": "ENV_CONFIG",
+      "skips": [
+        {
+          "file": "tests/test_api_server.py",
+          "reason": "Access PIN is disabled for this environment",
+          "count": 2
+        }
+      ],
+      "why": "이 두 테스트는 **설정에 PIN 이 있을 때만** 의미가 있다(없으면 401 을 기대할 수 없다). 게이트 환경은 PIN 을 설정하지 않으므로 스킵된다.",
+      "note": "PIN(인증) 경계는 **required 게이트 안에서 다른 파일이 잰다** — `tests/test_cr04_shell_api_boundary.py` 가 `config.security.access_pin` 을 세우고 토큰 없는 요청이 401 로 끝나는 것을 확인한다(그 파일은 게이트에서 스킵되지 않는다). 그래서 이 스킵은 \"인증 경계가 미검증\"을 뜻하지 않는다 — 이 특정 파일의 두 테스트만 그 환경에서 안 돈다.",
+      "owner": "tests/test_cr04_shell_api_boundary.py",
+      "owner_run": []
+    },
+    {
+      "id": "config-models-unregistered",
+      "class": "KNOWN_GAP",
+      "skips": [
+        {
+          "file": "tests/test_upgrade_v6_9.py",
+          "reason": "config.yaml에 gemma-4-31B 모델 미등록",
+          "count": 1
+        },
+        {
+          "file": "tests/test_upgrade_v6_9.py",
+          "reason": "config.yaml에 collective-council 콤보 미등록",
+          "count": 1
+        }
+      ],
+      "why": "이 테스트들은 **제품 설정의 약속**을 잰다(gemma-4-31B 가 등록돼 있고 collective-council 콤보가 세 모델을 갖는가). 지금 `config.yaml` 에 그 항목이 없어 스킵된다 — 즉 \"그 약속이 이행됐는가\"를 아무도 재지 않는다.",
+      "capability": "집단지성 모델 가용성(Issue #57) — 모델 등록과 콤보 구성",
+      "owner": "제품 설정 소관 (출시 책임자 미배정 — C14-08 배정 대상)",
+      "plan": "둘 중 하나를 결정한다: (a) `config.yaml` 에 gemma-4-31B·collective-council 을 등록하고 이 테스트를 되살린다(능력 복원), (b) 그 능력이 출하 범위가 아니라고 결정하고 테스트를 삭제한다(약속 철회). 어느 쪽이든 스킵으로 남기지 않는다.",
+      "review_due": "2026-10-15"
+    },
+    {
+      "id": "orchestrator-refactor-rewrite",
+      "class": "KNOWN_GAP",
+      "skips": [
+        {
+          "file": "tests/test_agent_program_creation.py",
+          "reason": "OrchestratorAgent has been significantly refactored (state graph + engine context). This integration test needs comprehensive updates to match the new architecture.",
+          "count": 1
+        },
+        {
+          "file": "tests/test_planning_and_rendering_quality.py",
+          "reason": "OrchestratorAgent 대규모 리팩토링으로 EngineContext 의존성 불일치 — 향후 재작성 필요",
+          "count": 1
+        }
+      ],
+      "why": "두 테스트는 **에이전트의 핵심 루프**를 잰다(에이전트가 프로그램을 만들고 실행하는가 · 코드 전용 답변에서 품질 재시도가 도는가). OrchestratorAgent 가 state graph + engine context 로 리팩토링되면서 둘 다 **무조건 스킵**이 됐다 — 조건이 아니라 `@pytest.mark.skip` 이므로 어떤 환경에서도 돌지 않는다. 작성자는 \"향후 재작성 필요\"라고 적었지만 그 일을 소유한 사람은 없다.",
+      "capability": "에이전트 실행 루프 — 프로그램 생성·실행, 코드 전용 답변의 품질 재시도",
+      "owner": "오케스트레이터 소관 (출시 책임자 미배정 — C14-08 배정 대상)",
+      "plan": "state graph + EngineContext 구조에 맞게 두 테스트를 재작성해 능력을 다시 잰다. 재작성이 이번 릴리스 범위가 아니면 **그 사실을 판정서 §6 과 이 등록부에 함께 적어** 미검증 능력으로 남긴다(조용한 스킵으로 두지 않는다).",
+      "review_due": "2026-10-15"
+    }
+  ],
+  "removed_by_f30": {
+    "documents-extra": {
+      "skips": 23,
+      "files": [
+        "tests/test_pdf_source_options.py",
+        "tests/test_data_recipes.py",
+        "tests/test_docx_source_options.py"
+      ],
+      "how": "게이트 환경에 출하 extra `documents` 를 넣었다(`python_backend` 게이트 6종). 그 23건은 게이트 안에서 **실제로 통과한다**(87 passed / 0 skipped 실측) — 스킵이 아니라 검증이 됐으므로 등록부에서 빠진다.",
+      "found_by": "R-8 감사(attempt-021). 어떤 파이프라인도 pypdf 를 설치하지 않았고(CI matrix 는 base/rag/mlx, weekly 는 mlx/unsloth), 그래서 이 능력은 어디서도 검증되지 않았다."
+    }
+  }
+}
