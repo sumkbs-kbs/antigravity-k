@@ -47,6 +47,14 @@ _DECLARED = re.compile(r"코드 지문 \*\*`([0-9a-f]{64})`\*\*")
 _EXCLUDED = re.compile(r"FINGERPRINT_EXCLUDED_PREFIXES[^=\n]*=\s*\(([^)]*)\)")
 _OWNER_POINTER = "CR14_FINAL_CANDIDATE_VERDICT"
 _FULL_FINGERPRINT_PREFIX = 16  # 산문에서 `d4a42ab8…` 처럼 쓰는 길이
+# F-22 — README 의 **휘발성 값**(후보 SHA·게이트 수)도 같은 병을 만든다: 값을 박으면 다음
+# 기록 커밋이 `README.md` 를 고쳐야 하고(값이 낡았으니까), `README.md` 는 지문 **안**이라
+# 그 순간 gate 증거가 낡는다. attempt-013 의 기록 커밋이 실제로 이 경로로 지문을 옮겼다.
+# 앞자리 `(?=[0-9a-f]*[a-f])` 는 날짜·버전 같은 순수 숫자열을 오탐하지 않기 위한 것이다.
+_HEX_TOKEN = re.compile(r"\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+_GATE_COUNT = re.compile(r"required gate\s*\d+")
+# 기록 커밋이 `docs/` 밖을 건드리면 지문이 옮겨진다 — 그 규율을 기록 문서가 말해야 한다.
+_DOCS_ONLY_RULE = "기록 커밋은 `docs/` 전용"
 
 
 def _read(path: Path) -> str:
@@ -77,6 +85,27 @@ def readme_violations(text: str, declared: str) -> list[str]:
     if _OWNER_POINTER not in text:
         problems.append("README 가 지문을 소유한 문서를 가리키지 않는다")
     return problems
+
+
+def readme_value_violations(text: str) -> list[str]:
+    """F-22 — README 가 **휘발성 릴리스 값**을 담았는지(빈 목록 = 통과).
+
+    값을 담으면 다음 기록 커밋이 README 를 고쳐야 하고, README 는 지문 안이므로 그때
+    증거가 낡는다. 값의 소유자는 판정 카드 하나다.
+    """
+    problems: list[str] = []
+    tokens = sorted(set(_HEX_TOKEN.findall(text)))
+    if tokens:
+        problems.append("README 가 커밋 SHA·지문으로 보이는 값을 담고 있다: " + ", ".join(tokens))
+    counts = _GATE_COUNT.findall(text)
+    if counts:
+        problems.append("README 가 required gate 개수 값을 담고 있다: " + ", ".join(counts))
+    return problems
+
+
+def docs_only_rule_violations(text: str) -> list[str]:
+    """F-22 — 기록 문서가 '기록 커밋은 docs 전용' 규율을 말하는지."""
+    return [] if _DOCS_ONLY_RULE in text else ["기록 커밋 docs 전용 규율 없음"]
 
 
 def code_scope_violations(declared: str, root: Path = REPO_ROOT) -> list[str]:
@@ -118,6 +147,24 @@ def test_readme_does_not_pin_the_tree_fingerprint() -> None:
     assert not problems, "README 가 지문을 직접 고정하고 있다: " + " / ".join(problems)
 
 
+def test_readme_carries_no_volatile_release_values() -> None:
+    """C14-F22-1/2 — README 는 값(후보 SHA·게이트 수)을 담지 않는다.
+
+    값을 담으면 기록 커밋이 README 를 고쳐야 하고, 그 순간 지문이 옮겨 증거가 낡는다.
+    attempt-013 의 기록 커밋이 정확히 그렇게 지문을 `2c5a15c8…` → 다른 값으로 옮겼다.
+    """
+    problems = readme_value_violations(_read(_README))
+    assert not problems, "README 가 휘발성 값을 직접 고정하고 있다: " + " / ".join(problems)
+
+
+def test_record_documents_state_that_recording_is_docs_only() -> None:
+    """C14-F22-3 — 기록 커밋은 `docs/` 전용이다(README·`tests/**` 는 지문 안)."""
+    for path in (_OWNER_DOC, _CHECKLIST, _PLAN):
+        assert not docs_only_rule_violations(_read(path)), (
+            f"{path.name} 이 '기록 커밋은 docs 전용' 규율을 밝히지 않는다"
+        )
+
+
 def test_code_scope_does_not_quote_the_declared_fingerprint() -> None:
     """C14-F15-3 — 지문 스코프 안의 파일은 현재 지문을 인용하지 않는다."""
     declared = declared_fingerprint(_read(_OWNER_DOC))
@@ -147,6 +194,27 @@ def test_record_documents_state_the_fingerprint_boundary() -> None:
 # ---------------------------------------------------------------------------
 # 이빨 — 계약이 **실제로 잡는지** 위반을 심어 확인한다
 # ---------------------------------------------------------------------------
+
+
+def test_teeth_readme_volatile_value_is_detected() -> None:
+    healthy = _read(_README)
+    cases = {
+        "후보 SHA 박음": healthy + "\n| 후보 | `0593dd27` |\n",
+        "게이트 수 박음": healthy + "\nrequired gate 21/21 PASS\n",
+        "지문 앞 16자 박음": healthy + "\n진행 중 지문 `2c5a15c8dbea4a7b`\n",
+    }
+    if readme_value_violations(healthy):
+        pytest.fail("기준 README 가 이미 값을 담고 있다: " + ", ".join(readme_value_violations(healthy)))
+    for label, text in cases.items():
+        assert readme_value_violations(text), f"이빨 없음 — 심은 값을 놓쳤다: {label}"
+
+
+def test_teeth_docs_only_rule_removal_is_detected() -> None:
+    doc = _read(_OWNER_DOC)
+    assert not docs_only_rule_violations(doc), "기준 판정서에 docs 전용 규율이 없다"
+    assert docs_only_rule_violations(doc.replace(_DOCS_ONLY_RULE, "기록 커밋은 어디든 쓴다")), (
+        "이빨 없음 — 규율 문장을 지웠는데도 통과했다"
+    )
 
 
 def test_teeth_readme_violation_is_detected() -> None:
