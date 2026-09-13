@@ -10,7 +10,8 @@
 # uv run scripts/run_attempt_close.py --attempt attempt-017 --stage close   # 보고서 편입 + 마감 검사
 #   (한 번에 돌리려면 --stage all. 게이트 21개 전체는 10분 이상 걸린다.)
 #
-# exit code: 0 = 마감 가능, 1 = gate 실패 또는 마감 검사 FAIL, 2 = 사용/파일 오류.
+# exit code: 0 = 마감 가능, 1 = gate 실패 또는 마감 검사 FAIL, 2 = 사용/파일 오류
+#   (보고서가 **다른 코드 상태**의 것이라 이어받을 수 없을 때도 2 다 — 조용히 새로 시작하지 않는다: F-27).
 
 """attempt 마감 **절차** — 게이트 → 보고서 편입 → 마감 검사 → 기록 확인 (CR-14 R-10).
 
@@ -33,6 +34,15 @@ attempt-016 은 "선언한 초록의 출처"를 확인하는 마감 검사(`veri
 게이트 목록은 **manifest 에서 읽는다**(스크립트에 개수를 박지 않는다 — F-21 이 개수 고정을
 목록 고정으로 바꾼 이유와 같다). `heavy` 로 분류된 세 개만 배치 경계를 위해 이름으로 지정하고,
 나머지는 전부 `fast` 로 간다: manifest 에 게이트를 추가하면 **빠짐없이 fast 에 들어간다**.
+
+이어받기(F-26·F-27)
+==================
+각 `--stage` 는 **별개 프로세스**다 — 그 안에서는 "내가 첫 배치인가"를 알 수 없다. 그래서
+판단 근거는 프로세스 기억이 아니라 **보고서 파일의 정체성**이다. 그 정체성의 정의는 이
+스크립트가 아니라 **게이트**(`ga_gate.merge_refusal_reason`: 후보 sha · manifest · 작업 트리
+지문)가 소유하고, 여기서는 **묻기만** 한다 — 복제하면 두 주체가 갈라진다(F-27: 절차는 두
+축만 보았고, 그래서 게이트가 거부하는 조합을 "이어받는다"고 판단해 실행이 중단됐다).
+거부되는 조합에서는 **조용히 새로 시작하지 않고 이유를 대며 끊는다**(exit 2).
 """
 
 from __future__ import annotations
@@ -79,6 +89,8 @@ def _load(path: Path, name: str) -> ModuleType:
 
 
 _CLOSER = _load(_CLOSER_SCRIPT, "attempt_close_verifier")
+# 이어받기 **규칙**은 게이트가 소유한다 — 절차는 그 함수를 **묻기만** 한다(F-27).
+_GATE = _load(_GATE_SCRIPT, "attempt_close_procedure_ga_gate")
 
 
 def required_gate_ids(manifest: dict[str, Any]) -> list[str]:
@@ -128,30 +140,33 @@ def gate_command(  # noqa: PLR0913 — argv 한 벌을 만드는 함수라 인�
     return command
 
 
-def existing_report_identity(output: Path) -> tuple[str, str] | None:
-    """이어받을 수 있는 보고서의 `(후보 sha, manifest sha256)` — 없거나 읽을 수 없으면 `None`."""
-    if not output.is_file():
-        return None
-    try:
-        payload = json.loads(output.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    sha = str((payload.get("git") or {}).get("sha") or "")
-    manifest_sha = str((payload.get("manifest") or {}).get("sha256") or "")
-    if not sha or not manifest_sha:
-        return None
-    return sha, manifest_sha
+def merge_identity(repo_root: Path, manifest_path: Path) -> tuple[str, str, str]:
+    """이어받기 판단에 넘길 **세 축** — 게이트가 보고서에 적는 것과 **같은 값**이다.
 
-
-def should_merge(output: Path, *, head: str, manifest_sha: str) -> bool:
-    """`--merge-into` 를 붙일지 결정한다 — **같은 후보·같은 manifest** 일 때만 이어받는다.
-
-    단계별로 따로 실행하면(각 호출이 별도 프로세스) "첫 배치인가"를 프로세스 안에서 알 수 없다.
-    attempt-017 의 첫 구현이 그 상태로 `--merge-into` 를 **첫 배치에만 안 붙이는** 규칙을 썼고,
-    그래서 `--stage tests` 단독 실행이 fast 18개의 결과를 **덮어썼다**(보고서 total 이 18 → 1).
-    판단 근거를 프로세스 기억이 아니라 **파일의 정체성**으로 옮긴다.
+    지문은 게이트의 `worktree_fingerprint` 를 그대로 쓴다. 절차가 지문을 따로 계산하면
+    규칙이 갈라진다(F-27 · attempt-016 이 `tree_fingerprint_of_commit` 을 한 곳으로 올린 것과
+    같은 이유).
     """
-    return existing_report_identity(output) == (head, manifest_sha)
+    fingerprint = str(_GATE.worktree_fingerprint(repo_root))
+    return _head(repo_root), _manifest_sha256(manifest_path), fingerprint
+
+
+def merge_decision(output: Path, *, sha: str, manifest_sha: str, tree_fingerprint: str) -> str:
+    """이 배치가 이어받을지 — `"fresh"`(보고서 없음) · `"merge"` · 또는 **거부 이유**.
+
+    **규칙을 복제하지 않는다** — 게이트가 쓰는 `merge_refusal_reason` 을 그대로 묻는다.
+    attempt-017 의 첫 구현은 `(후보 sha, manifest sha256)` 만 보는 **부분 복제**였고, 게이트는
+    **작업 트리 지문**까지 보기 때문에 두 주체가 갈라졌다(F-27): 절차가 "이어받는다"고 판단한
+    조합을 게이트가 거부해 `--merge-into` 가 실행을 exit 2 로 끊었다.
+
+    거부를 **조용히 새 시작으로 바꾸지 않는** 것이 나머지 절반이다. 앞 배치의 초록을 버리는
+    경로가 조용하면 아무도 모른다 — F-26 이 한 조용한 경로를 닫았고, 이것이 남은 경로다.
+    새로 시작하려는 사람은 보고서를 **명시적으로 지우게** 한다.
+    """
+    if not output.is_file():
+        return "fresh"
+    reason = _GATE.merge_refusal_reason(output, sha, manifest_sha, tree_fingerprint)
+    return "merge" if reason is None else str(reason)
 
 
 def file_report(source: Path, attempt_dir: Path) -> Path:
@@ -201,7 +216,12 @@ def _close(*, card: Path, evidence_root: Path, manifest: Path, repo_root: Path, 
         print(f"ERROR {error}", file=sys.stderr)
         return 2
     print(f"[close] 보고서 편입: {target}")
-    card_text = card.read_text(encoding="utf-8")
+    try:
+        card_text = card.read_text(encoding="utf-8")
+    except OSError as error:
+        # 사용 오류는 exit 2 라는 관례가 여기서만 깨져 있었다(읽을 수 없는 카드 → traceback).
+        print(f"ERROR 카드를 읽을 수 없다: {card} ({error})", file=sys.stderr)
+        return 2
     try:
         problems = cast(
             "list[str]",
@@ -254,14 +274,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     stages = list(_STAGE_ORDER) if args.stage == "all" else [args.stage]
-    # 이어받기는 **보고서의 정체성**으로 결정한다: 같은 후보·같은 manifest 일 때만.
-    # 그래서 배치를 따로 실행해도 앞 배치의 결과를 덮어쓰지 않는다.
-    try:
-        merge_into = should_merge(output, head=_head(repo_root), manifest_sha=_manifest_sha256(manifest_path))
-    except UsageError as error:
-        print(f"ERROR {error}", file=sys.stderr)
-        return 2
-    print(f"[merge] {'이어받는다' if merge_into else '새 보고서로 시작한다'} ({output})")
+    # 이어받기는 **보고서의 정체성**으로 결정한다 — 그리고 그 정체성의 정의는 게이트가 소유한다
+    # (`merge_refusal_reason`: 후보 sha · manifest · 작업 트리 지문). 복제하면 갈라진다(F-27).
+    # `close` 는 게이트를 돌리지 않으므로 판단이 필요 없다 — 기록 커밋 뒤의 재확인을 막지 않는다.
+    merge_into = False
+    if any(stage != "close" for stage in stages):
+        try:
+            sha, manifest_sha, tree_fingerprint = merge_identity(repo_root, manifest_path)
+        except UsageError as error:
+            print(f"ERROR {error}", file=sys.stderr)
+            return 2
+        decision = merge_decision(output, sha=sha, manifest_sha=manifest_sha, tree_fingerprint=tree_fingerprint)
+        if decision == "fresh":
+            print(f"[merge] 새 보고서로 시작한다 ({output})")
+        elif decision == "merge":
+            merge_into = True
+            print(f"[merge] 이어받는다 ({output})")
+        else:
+            print(f"ERROR 이어받을 수 없다: {decision}", file=sys.stderr)
+            print(
+                f"      앞 배치의 초록을 버리고 새로 시작하려면 보고서를 지우고 다시 실행하라: rm {output}",
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        print("[merge] close 단계는 게이트를 돌리지 않는다 — 이어받기 판단이 필요 없다")
     for stage in stages:
         if stage == "close":
             return _close(

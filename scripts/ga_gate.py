@@ -145,6 +145,15 @@ def _tree_fingerprint(root: Path) -> str:
     return digest.hexdigest()
 
 
+def worktree_fingerprint(root: Path) -> str:
+    """작업 트리 **코드** 지문 — 보고서에 적히는 값과 **같은 함수**다.
+
+    마감 절차(`scripts/run_attempt_close.py`)가 이어받기 판단에 이 값을 넘긴다(F-27).
+    절차가 지문을 따로 계산하면 규칙이 갈라진다 — 지문은 여기서만 만든다.
+    """
+    return _tree_fingerprint(root)
+
+
 def _blob_content_hashes(root: Path, object_ids: Sequence[str]) -> dict[str, str]:
     """여러 blob 의 내용 sha256 을 **한 프로세스**로 읽는다.
 
@@ -340,6 +349,42 @@ class _CarriedError(ValueError):
     """이어받을 수 없는 이전 결과(다른 후보·다른 manifest)."""
 
 
+def merge_refusal_reason(path: Path, sha: str, manifest_sha: str, tree_fingerprint: str) -> str | None:
+    """이 보고서를 이어받을 수 없는 이유 — 이어받을 수 있으면 `None`.
+
+    **규칙의 유일한 자리다.** 게이트(`_load_carried_gates`)와 마감 절차
+    (`scripts/run_attempt_close.py`)가 둘 다 이 함수를 묻는다. 절차가 같은 규칙을 복제하면
+    두 주체가 갈라지고 — 갈라지면 한쪽이 다른 쪽을 검사하지 못한다(F-27): 절차가
+    "이어받는다"고 한 조합을 게이트가 거부해 실행이 중단되거나, 절차가 **조용히** 앞 배치의
+    초록을 버린다.
+
+    세 축을 본다: **후보 sha** · **manifest sha256** · **작업 트리 지문**. 하나라도 다르면
+    이어받지 않는다 — 다른 코드 상태의 초록을 이 후보에 꿰매면 안 된다.
+    """
+    if not path.is_file():
+        return None  # 이어받을 보고서가 없다 — 새로 시작해도 잃을 것이 없다
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return f"cannot read previous report {path}: {error}"
+    if not isinstance(previous, dict):
+        return f"previous report {path} is not an object"
+    previous_sha = str((previous.get("git") or {}).get("sha", ""))
+    if previous_sha != sha:
+        return f"previous report is for candidate {previous_sha!r}, not {sha!r}"
+    previous_manifest = str((previous.get("manifest") or {}).get("sha256", ""))
+    if previous_manifest != manifest_sha:
+        return "previous report was produced from a different gate manifest"
+    previous_fingerprint = str((previous.get("git") or {}).get("tree_fingerprint", ""))
+    if previous_fingerprint != tree_fingerprint:
+        return (
+            "previous report was produced from a different working tree "
+            f"({previous_fingerprint[:16]}… != {tree_fingerprint[:16]}…) — "
+            "results from another code state must not be stitched into this candidate"
+        )
+    return None
+
+
 def _load_carried_gates(
     path: Path, sha: str, manifest_sha: str, tree_fingerprint: str
 ) -> dict[str, dict[str, JsonValue]]:
@@ -348,28 +393,15 @@ def _load_carried_gates(
     한 번의 프로세스 창(예: 10분 clamp) 안에 20개 gate를 끝낼 수 없을 때 단계별로
     실행하되, **다른 후보나 다른 manifest의 결과는 절대 섞지 않는다**. 같은 gate id는
     이번 실행 결과로 교체되므로 오래된 초록이 남지 않는다.
+
+    판단은 `merge_refusal_reason` **한 곳**이 한다 — 마감 절차도 같은 함수를 묻는다(F-27).
     """
+    problem = merge_refusal_reason(path, sha, manifest_sha, tree_fingerprint)
+    if problem is not None:
+        raise _CarriedError(problem)
     if not path.is_file():
         return {}
-    try:
-        previous = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise _CarriedError(f"cannot read previous report {path}: {error}") from error
-    if not isinstance(previous, dict):
-        raise _CarriedError(f"previous report {path} is not an object")
-    previous_sha = str((previous.get("git") or {}).get("sha", ""))
-    if previous_sha != sha:
-        raise _CarriedError(f"previous report is for candidate {previous_sha!r}, not {sha!r}")
-    previous_manifest = str((previous.get("manifest") or {}).get("sha256", ""))
-    if previous_manifest != manifest_sha:
-        raise _CarriedError("previous report was produced from a different gate manifest")
-    previous_fingerprint = str((previous.get("git") or {}).get("tree_fingerprint", ""))
-    if previous_fingerprint != tree_fingerprint:
-        raise _CarriedError(
-            "previous report was produced from a different working tree "
-            f"({previous_fingerprint[:16]}… != {tree_fingerprint[:16]}…) — "
-            "results from another code state must not be stitched into this candidate"
-        )
+    previous = json.loads(path.read_text(encoding="utf-8"))
     carried: dict[str, dict[str, JsonValue]] = {}
     for gate in previous.get("gates") or []:
         if isinstance(gate, dict) and gate.get("id"):
@@ -428,7 +460,7 @@ def main(
         raise typer.Exit(code=2)
     sha = _git(root, "rev-parse", "HEAD")
     manifest_sha = _sha256(manifest_path)
-    tree_fingerprint = _tree_fingerprint(root)
+    tree_fingerprint = worktree_fingerprint(root)
     carried: dict[str, dict[str, JsonValue]] = {}
     if merge_into:
         try:

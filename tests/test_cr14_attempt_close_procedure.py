@@ -9,7 +9,12 @@ attempt-016 은 마감 검사를 만들고 "사람이(또는 절차가) 돌려�
 목록 고정으로 바꾼 이유, C14-01c 이 인벤토리를 못 박은 이유와 같은 병). 그래서 배치 계획을
 **순수 함수**(`plan_stage(stage, gate_ids)`)로 두고, 임의의 목록을 넣어 확인한다.
 
-이 파일은 실제 게이트를 돌리지 않는다(10분이 걸린다) — 그 부분은 attempt-019 실측이 증거다.
+attempt-017 은 그 이어받기 **판단**을 `(후보 sha, manifest sha256)` 으로 정의했는데, 그것은
+게이트 규칙(`ga_gate.merge_refusal_reason`: + **작업 트리 지문**)의 **부분 복제**였다 — 두 주체가
+갈라지는 조합이 실재했고, 그래서 attempt-018 이 판단을 게이트에 **위임**하고 거부를 **조용한
+새 시작**이 아니라 이유를 대는 중단(exit 2)으로 바꿨다(F-27). 그 이빨이 아래에 있다.
+
+이 파일은 실제 게이트를 돌리지 않는다(10분이 걸린다) — 그 부분은 attempt-018 실측이 증거다.
 """
 
 from __future__ import annotations
@@ -85,25 +90,44 @@ def test_close_stage_runs_no_gate(procedure: ModuleType, manifest_ids: list[str]
 
 
 def test_merge_is_decided_by_the_report_identity_not_by_stage_order(procedure: ModuleType, tmp_path: Path) -> None:
-    """F-26 — 이어받기는 **파일의 정체성**으로 결정한다.
+    """F-26 — 이어받기는 **파일의 정체성**으로 결정한다(그리고 F-27 — 세 축을 다 본다).
 
     배치를 따로 실행하면(각 호출이 별도 프로세스) "첫 배치인가"를 프로세스 안에서 알 수 없다.
     첫 구현은 그 상태로 "첫 배치에만 --merge-into 를 안 붙이는" 규칙을 써서, `--stage tests`
     단독 실행이 fast 18개의 결과를 **덮어썼다**(보고서 total 18 → 1).
     """
     output = tmp_path / "report.json"
-    sha, manifest_sha = "a" * 40, "c" * 64
-    should_merge = procedure.should_merge
-    assert isinstance(should_merge, Callable)
-    assert should_merge(output, head=sha, manifest_sha=manifest_sha) is False  # 보고서가 없다
+    sha, manifest_sha, fingerprint = "a" * 40, "c" * 64, "e" * 64
+    decide = procedure.merge_decision
+    assert isinstance(decide, Callable)
+    assert decide(output, sha=sha, manifest_sha=manifest_sha, tree_fingerprint=fingerprint) == "fresh"
 
-    output.write_text(json.dumps({"git": {"sha": sha}, "manifest": {"sha256": manifest_sha}}), encoding="utf-8")
-    assert should_merge(output, head=sha, manifest_sha=manifest_sha) is True  # 같은 후보·같은 manifest
-    assert should_merge(output, head="b" * 40, manifest_sha=manifest_sha) is False  # 다른 후보
-    assert should_merge(output, head=sha, manifest_sha="d" * 64) is False  # 다른 manifest
+    def write_report(*, report_sha: str, report_manifest: str, report_fingerprint: str) -> None:
+        output.write_text(
+            json.dumps(
+                {
+                    "git": {"sha": report_sha, "tree_fingerprint": report_fingerprint},
+                    "manifest": {"sha256": report_manifest},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    write_report(report_sha=sha, report_manifest=manifest_sha, report_fingerprint=fingerprint)
+    assert decide(output, sha=sha, manifest_sha=manifest_sha, tree_fingerprint=fingerprint) == "merge"
+
+    write_report(report_sha="b" * 40, report_manifest=manifest_sha, report_fingerprint=fingerprint)
+    assert decide(output, sha=sha, manifest_sha=manifest_sha, tree_fingerprint=fingerprint) != "merge"  # 다른 후보
+
+    write_report(report_sha=sha, report_manifest="d" * 64, report_fingerprint=fingerprint)
+    assert decide(output, sha=sha, manifest_sha=manifest_sha, tree_fingerprint=fingerprint) != "merge"  # 다른 manifest
+
+    # F-27 — **세 번째 축**이다. attempt-017 의 판단은 이 축을 보지 않아 게이트와 갈라졌다.
+    write_report(report_sha=sha, report_manifest=manifest_sha, report_fingerprint="f" * 64)
+    assert decide(output, sha=sha, manifest_sha=manifest_sha, tree_fingerprint=fingerprint) != "merge"
 
     output.write_text("{ 깨진 보고서", encoding="utf-8")
-    assert should_merge(output, head=sha, manifest_sha=manifest_sha) is False  # 읽을 수 없으면 새로 시작
+    assert decide(output, sha=sha, manifest_sha=manifest_sha, tree_fingerprint=fingerprint) != "merge"
 
 
 def test_unknown_stage_and_missing_gate_are_usage_errors(procedure: ModuleType) -> None:
@@ -198,15 +222,21 @@ def test_teeth_second_stage_does_not_erase_the_first_stage_results(procedure: Mo
     `tests/test_cr14_candidate_evidence.py` 가 따로 고정한다).
     """
     output = tmp_path / "report.json"
-    sha, manifest_sha = "e" * 40, "f" * 64
-    output.write_text(json.dumps({"git": {"sha": sha}, "manifest": {"sha256": manifest_sha}}), encoding="utf-8")
-    assert procedure.should_merge(output, head=sha, manifest_sha=manifest_sha) is True
+    sha, manifest_sha, fingerprint = "e" * 40, "f" * 64, "a" * 64
+    output.write_text(
+        json.dumps({"git": {"sha": sha, "tree_fingerprint": fingerprint}, "manifest": {"sha256": manifest_sha}}),
+        encoding="utf-8",
+    )
+    decides = (
+        procedure.merge_decision(output, sha=sha, manifest_sha=manifest_sha, tree_fingerprint=fingerprint) == "merge"
+    )
+    assert decides is True
     command = list(
         procedure.gate_command(
             ["python-tests"],
             manifest=tmp_path / "gates.json",
             output=output,
-            merge_into=procedure.should_merge(output, head=sha, manifest_sha=manifest_sha),
+            merge_into=decides,
             repo_root=tmp_path,
         )
     )
@@ -289,6 +319,186 @@ def test_teeth_close_stage_fails_when_the_report_is_missing(procedure: ModuleTyp
         ]
     )
     assert code == 2
+
+
+# ---------------------------------------------------------------------------
+# F-27 이빨 — 판단이 게이트 규칙의 **복제**가 아니라 **위임**인가
+# ---------------------------------------------------------------------------
+
+
+def test_merge_decision_delegates_to_the_gate_rule(
+    procedure: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """판단이 **게이트의 함수를 묻는지** — 절차 안에 사본이 있으면 이 이빨이 깨진다.
+
+    게이트의 함수를 바꿔도 답이 그대로라면 그것은 복제다. 답이 따라 움직여야 한다.
+    """
+    output = tmp_path / "report.json"
+    output.write_text(
+        json.dumps({"git": {"sha": "a" * 40, "tree_fingerprint": "e" * 64}, "manifest": {"sha256": "c" * 64}}),
+        encoding="utf-8",
+    )
+    gate = procedure._GATE
+
+    def state() -> str:
+        return str(procedure.merge_decision(output, sha="a" * 40, manifest_sha="c" * 64, tree_fingerprint="e" * 64))
+
+    assert state() == "merge", "기준선 — 보고서는 이어받을 수 있는 상태다"
+    monkeypatch.setattr(gate, "merge_refusal_reason", lambda *args, **kwargs: "게이트가 거부했다")
+    assert state() == "게이트가 거부했다", "절차가 자기 규칙을 들고 있으면 게이트의 답을 따르지 않는다"
+
+
+@pytest.mark.parametrize(
+    ("report_sha", "report_manifest", "report_fingerprint", "merges"),
+    [
+        ("a" * 40, "c" * 64, "e" * 64, True),
+        ("b" * 40, "c" * 64, "e" * 64, False),
+        ("a" * 40, "d" * 64, "e" * 64, False),
+        ("a" * 40, "c" * 64, "f" * 64, False),
+    ],
+)
+def test_the_procedure_never_merges_what_the_gate_would_refuse(
+    procedure: ModuleType,
+    tmp_path: Path,
+    report_sha: str,
+    report_manifest: str,
+    report_fingerprint: str,
+    merges: bool,
+) -> None:
+    """세 축 각각에서 "절차가 이어받는다" == "게이트도 이어받는다" — 두 주체가 갈라지지 않는다."""
+    output = tmp_path / "report.json"
+    output.write_text(
+        json.dumps(
+            {
+                "git": {"sha": report_sha, "tree_fingerprint": report_fingerprint},
+                "manifest": {"sha256": report_manifest},
+            }
+        ),
+        encoding="utf-8",
+    )
+    gate_accepts = procedure._GATE.merge_refusal_reason(output, "a" * 40, "c" * 64, "e" * 64) is None
+    decided = (
+        procedure.merge_decision(output, sha="a" * 40, manifest_sha="c" * 64, tree_fingerprint="e" * 64) == "merge"
+    )
+    assert decided == gate_accepts, "절차와 게이트가 다른 답을 냈다(F-27 이 재현되던 자리)"
+    assert decided is merges
+
+
+def test_teeth_a_refused_merge_aborts_and_keeps_the_report(
+    procedure: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """F-27 — 이어받을 수 없는 보고서를 **조용히 버리지 않는다**.
+
+    attempt-017 의 절차는 이 자리에서 `[merge] 새 보고서로 시작한다` 를 찍고 exit 0 으로 넘어갔다 —
+    게이트 단계를 하나라도 돌리면 앞 배치의 초록이 사라졌다. 이제는 이유를 대며 exit 2 로 끓고,
+    보고서를 **덮어쓰지 않는다**.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_repo(root)
+    output = root / ".artifacts" / "commercial-ga-777-close.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(
+            {
+                "git": {"sha": "0" * 40, "tree_fingerprint": "1" * 64},
+                "manifest": {"sha256": "2" * 64},
+                "gates": [{"id": "python-ruff", "status": "passed", "exit_code": 0, "required": True}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = _sha256(output)
+    code = procedure.main(
+        [
+            "--attempt",
+            "attempt-777",
+            "--stage",
+            "fast",
+            "--manifest",
+            str(_MANIFEST),
+            "--evidence-root",
+            str(root / ".omo"),
+            "--repo-root",
+            str(root),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 2, "다른 코드 상태의 초록 위에 이어 쓰면 안 된다"
+    assert "이어받을 수 없다" in captured.err
+    assert "rm " in captured.err, "새로 시작하려는 사람에게 **명시적** 한 걸음을 알려준다"
+    assert _sha256(output) == before, "거부된 보고서를 덮어쓰면 앞 배치의 초록이 조용히 사라진다"
+
+
+def test_teeth_close_only_does_not_consult_the_merge_decision(
+    procedure: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """기록 커밋 뒤의 `--stage close` 재확인을 이어받기 판단이 막지 않는다.
+
+    `close` 는 게이트를 돌리지 않으므로 이어받을 것이 없다 — 사후 기록 커밋(docs 전용)이 후보
+    SHA 를 옮겨도 이 단계는 계속 돌아야 한다(그것이 지문 불변 확인의 자리다).
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_repo(root)
+    output = root / ".artifacts" / "commercial-ga-778-close.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(
+            {"git": {"sha": "0" * 40, "tree_fingerprint": "1" * 64}, "manifest": {"sha256": "2" * 64}, "gates": []}
+        ),
+        encoding="utf-8",
+    )
+    procedure.main(
+        [
+            "--attempt",
+            "attempt-778",
+            "--stage",
+            "close",
+            "--manifest",
+            str(_MANIFEST),
+            "--card",
+            str(REPO_ROOT / "docs" / "ga" / "CR14_FINAL_CANDIDATE_VERDICT.md"),
+            "--evidence-root",
+            str(root / ".omo"),
+            "--repo-root",
+            str(root),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert "이어받을 수 없다" not in captured.err, "close 는 게이트를 돌리지 않는다 — 판단할 것이 없다"
+    assert "이어받기 판단이 필요 없다" in captured.out
+
+
+def test_teeth_an_unreadable_card_is_a_usage_error(
+    procedure: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """사용 오류는 exit 2 다 — 카드를 읽을 수 없을 때만 그 관례가 깨져 있었다(추적)"""
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_repo(root)
+    output = root / ".artifacts" / "commercial-ga-779-close.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps({"gates": []}), encoding="utf-8")
+    code = procedure.main(
+        [
+            "--attempt",
+            "attempt-779",
+            "--stage",
+            "close",
+            "--manifest",
+            str(_MANIFEST),
+            "--card",
+            str(root / "missing-card.md"),
+            "--evidence-root",
+            str(root / ".omo"),
+            "--repo-root",
+            str(root),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "ERROR" in captured.err
 
 
 def _init_repo(root: Path) -> str:
