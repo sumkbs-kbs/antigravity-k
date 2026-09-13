@@ -335,12 +335,17 @@ class TestMemoryProviderIntegration:
 class TestCollectiveModelAvailability:
     """Issue #57: 집단지성 모델 가용성 테스트.
 
-    NOTE: 이 테스트들은 config.yaml에 특정 모델(gemma-4-31B)과
-    콤보(collective-council)가 등록되어 있어야 합니다.
-    현재 설정에는 해당 항목이 없어 skip 처리합니다.
+    이 두 테스트는 config.yaml에 gemma-4-31B 모델과 collective-council 콤보가 등록되어
+    있어야 한다. 2026-05 세대 정리(e462a8aa·d131dc71)가 두 항목을 조용히 지우고 이 테스트는
+    `@pytest.mark.skip` 으로 남았었다 — 어떤 환경에서도 돌지 않았으므로 "약속이 이행됐는가"를
+    아무도 재지 않았다(CR-14 attempt-021 등록부 `config-models-unregistered`).
+
+    attempt-022 가 설정을 복원했다: `collective-council` 은 이제 `strategy: collective` 콤보이고,
+    gemma-4-31B 는 reasoning 로스터에 있다. 그 콤보는 `/benchmark run` 의 기본 타겟이자
+    `BenchmarkHarness._default_targets()` 가 코드에 갖고 있는 이름이다(F-31) — 설정과 코드의
+    그 일치는 `tests/test_cr14_default_target_config_contract.py` 가 따로 잰다.
     """
 
-    @pytest.mark.skip(reason="config.yaml에 gemma-4-31B 모델 미등록")
     def test_gemma_model_registered(self):
         from antigravity_k.engine import ModelRegistry
 
@@ -349,7 +354,6 @@ class TestCollectiveModelAvailability:
         assert profile is not None, "gemma-4-31B must be registered"
         assert profile.role == "reasoning"
 
-    @pytest.mark.skip(reason="config.yaml에 collective-council 콤보 미등록")
     def test_collective_council_has_three_models(self):
         from antigravity_k.engine import ModelRegistry, ModelRouter
 

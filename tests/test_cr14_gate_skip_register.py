@@ -23,6 +23,14 @@ PDF/DOCX 수집을 재는 **23건**이 게이트·CI·weekly 어디서도 돌지
 판정하지 않고 **대조한다**: 등록부와 (a) 스키마·소유자·만료, (b) **실제로 돌린 게이트 환경의
 스킵 집합**을 한 건씩 맞춘다. 등록되지 않은 스킵이 생기면 실패한다(무엇이 사라졌는지 적어라).
 등록된 스킵이 사라져도 실패한다(등록부가 낡았다). 양쪽 다 "조용한 변화 금지"의 구현이다.
+
+관측 목록은 선언에서 파생하지 않는다 (attempt-022 가 찾은 구멍)
+=============================================================
+처음에는 관측 대상 파일을 `entries` 의 스킵 목록에서 파생했다. 그러면 **항목을 닫는 순간**
+그 파일이 관측에서도 사라진다 — 능력을 되찾아 스킵이 0이 된 파일이 다시 스킵되기 시작해도
+아무도 모른다(무엇보다 **닫는 일이 관측을 줄인다**: 보상을 뒤집은 셈이다). 그래서 관측 대상은
+등록부가 `observed_files` 로 **고정**하고(선언된 파일을 모두 포함해야 한다), 닫힌 항목은
+`closed` 에 적혀 그 파일이 계속 관측된다 — 그 파일에 스킵이 돌아오면 대조가 즉시 실패한다.
 """
 
 from __future__ import annotations
@@ -32,9 +40,10 @@ import re
 import shutil
 import subprocess
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -80,6 +89,11 @@ def _gate_prefix() -> list[str]:
     raise AssertionError(f"게이트 파일에서 {OBSERVED_GATE_ID} 를 찾지 못했다")
 
 
+def _observed_files() -> list[str]:
+    """관측 대상 파일 — 등록부가 **고정 목록**으로 소유한다(선언에서 파생하지 않는다)."""
+    return sorted({str(name) for name in _register()["observed_files"]})
+
+
 def _observed_skips() -> Counter[tuple[str, str]]:
     """게이트 환경을 **그대로 재현해** 실제로 스킵된 (파일, 사유) → 건수를 센다.
 
@@ -87,7 +101,7 @@ def _observed_skips() -> Counter[tuple[str, str]]:
     넣는다)이 이 관측에도 그대로 반영되고, 누군가 그 extra 를 빼면 23건이 다시 스킵되어
     **여기서** 드러난다.
     """
-    files = sorted({file for file, _ in _declared_skips()})
+    files = _observed_files()
     command = [*_gate_prefix(), "pytest", *files, "-q", "-rs", "--no-header"]
     completed = subprocess.run(  # noqa: S603 — 게이트 환경 접두사 + 이 계약의 대상 파일
         command,
@@ -142,6 +156,29 @@ def test_declared_counts_are_unique_per_file_and_reason() -> None:
     ]
     assert len(declared_pairs) == len(set(declared_pairs)), "같은 (파일, 사유)가 여러 항목에 있다"
     assert sum(counted.values()) > 0, "등록부가 한 건도 선언하지 않는다"
+
+
+def test_observed_files_cover_every_declared_skip_and_exist() -> None:
+    """관측 목록 — 선언된 파일을 모두 포함하고, **닫힌 항목의 파일도 잃지 않는다**.
+
+    닫는 일이 관측을 줄이면 안 된다: 닫힌 파일이 관측에서 빠지는 순간 그 자리가 다시 열려도
+    계약은 침묵한다. 그래서 `closed` 의 파일도 관측 목록에 있어야 한다.
+    """
+    observed = set(_observed_files())
+    declared = {file for file, _ in _declared_skips()}
+    assert declared <= observed, (
+        f"선언된 스킵 파일이 관측 목록에 없다: {sorted(declared - observed)} — 그 파일은 재현되지 않아 대조되지 않는다"
+    )
+    for name in sorted(observed):
+        assert (REPO_ROOT / name).is_file(), f"관측 목록에 없는 파일이 있다: {name}"
+
+    for entry_id, closed in cast(Mapping[str, Mapping[str, object]], _register().get("closed") or {}).items():
+        assert int(cast(int, closed["skips"])) > 0, f"closed.{entry_id}: 닫은 스킵 수가 0 이다"
+        assert str(closed["how"]).strip(), f"closed.{entry_id}: 어떻게 닫았는지 적어라"
+        for name in cast(Sequence[object], closed["files"]):
+            assert str(name) in observed, (
+                f"closed.{entry_id}: 닫은 파일 {name} 이 관측 목록에 없다 — 닫은 자리가 다시 열려도 보이지 않는다"
+            )
 
 
 # ─── 소유자: 스킵을 정당화하는 파이프라인이 실제로 도는가 ────────────────

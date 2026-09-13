@@ -1,8 +1,16 @@
 {
   "schema_version": 1,
   "scope": "게이트 `python-tests` 의 환경(`uv run --isolated --frozen --extra dev --extra rag --extra documents`)에서 **실제로 스킵되는** 테스트. 다른 파이프라인(개발자 ambient·CI matrix·weekly job)의 스킵은 이 등록부의 소관이 아니다 — 그쪽 환경은 각자 소유자가 있다.",
-  "why": "게이트 초록은 \"이 후보가 검증됐다\"는 주장인데, **스킵은 그 주장에서 조용히 빠지는 자리**다. CR-14 attempt-011/012 는 ambient 도구로 돌아 스킵이 13·6건이었고, F-18 로 게이트 환경을 lock 에 고정한 뒤(attempt-013) 스킵이 **40건**이 됐다 — 도구 출처는 바로잡혔지만 그 대가가 조용했다(R-8). attempt-021 이 그 대가를 세어 이 등록부로 옮겼다: 40 → **17**(23건은 출하 extra `documents` 를 게이트에 넣어 복원했고, 나머지 17건은 각각 소유자 또는 명시된 미검증 능력이다).",
-  "measured_by": "tests/test_cr14_gate_skip_register.py — 같은 게이트 환경을 다시 돌려 이 등록부와 **한 건씩** 대조한다. 등록되지 않은 스킵이 생기거나, 등록된 스킵이 사라지면 계약이 실패한다(양쪽 다 \"무엇이 바뀌었는지 적어라\"는 뜻이다).",
+  "why": "게이트 초록은 \"이 후보가 검증됐다\"는 주장인데, **스킵은 그 주장에서 조용히 빠지는 자리**다. CR-14 attempt-011/012 는 ambient 도구로 돌아 스킵이 13·6건이었고, F-18 로 게이트 환경을 lock 에 고정한 뒤(attempt-013) 스킵이 **40건**이 됐다 — 도구 출처는 바로잡혔지만 그 대가가 조용했다(R-8). attempt-021 이 그 대가를 세어 이 등록부로 옮겼다: 40 → **17**(23건은 출하 extra `documents` 를 게이트에 넣어 복원했다). attempt-022 가 스킵 2건을 **능력으로** 되돌렸다(`config-models-unregistered` → `closed`): 남은 것은 **15건**이다 — 13건은 각자 소유자가 있고(mlx · unsloth · access-pin), 2건은 명시된 미검증 능력이다.",
+  "measured_by": "tests/test_cr14_gate_skip_register.py — 같은 게이트 환경을 다시 돌려 이 등록부와 **한 건씩** 대조한다. 관측 대상 파일은 `observed_files` 가 소유한다: **항목을 닫아도 그 파일은 관측에서 빠지지 않는다**(등록부에서 지우기만 하면 그 파일의 스킵이 다시는 보이지 않고, 그것이 F-30 의 병을 한 층 위에서 반복한다). 등록되지 않은 스킵이 생기거나, 등록된 스킵이 사라지면 계약이 실패한다(양쪽 다 \"무엇이 바뀌었는지 적어라\"는 뜻이다).",
+  "observed_files": [
+    "tests/test_mlx_command_flags.py",
+    "tests/test_unsloth_script_api_drift.py",
+    "tests/test_api_server.py",
+    "tests/test_agent_program_creation.py",
+    "tests/test_planning_and_rendering_quality.py",
+    "tests/test_upgrade_v6_9.py"
+  ],
   "classes": {
     "ENV_PLATFORM": "플랫폼·선택 의존성 때문에 게이트 환경에서 실행할 수 없다. **다른 파이프라인이 그 파일을 실제로 돈다**는 사실을 owner_run 으로 증명해야 한다(그 파일이 그 워크플로에서 안 돌면 계약이 실패한다).",
     "ENV_CONFIG": "런타임 설정에 따라 달라진다. 이 환경에서 스킵되지만 **같은 경계를 다른 required 게이트가 잰다** — 그 사실을 note 에 적고 파일을 가리킨다.",
@@ -69,27 +77,6 @@
       "owner_run": []
     },
     {
-      "id": "config-models-unregistered",
-      "class": "KNOWN_GAP",
-      "skips": [
-        {
-          "file": "tests/test_upgrade_v6_9.py",
-          "reason": "config.yaml에 gemma-4-31B 모델 미등록",
-          "count": 1
-        },
-        {
-          "file": "tests/test_upgrade_v6_9.py",
-          "reason": "config.yaml에 collective-council 콤보 미등록",
-          "count": 1
-        }
-      ],
-      "why": "이 테스트들은 **제품 설정의 약속**을 잰다(gemma-4-31B 가 등록돼 있고 collective-council 콤보가 세 모델을 갖는가). 지금 `config.yaml` 에 그 항목이 없어 스킵된다 — 즉 \"그 약속이 이행됐는가\"를 아무도 재지 않는다.",
-      "capability": "집단지성 모델 가용성(Issue #57) — 모델 등록과 콤보 구성",
-      "owner": "제품 설정 소관 (출시 책임자 미배정 — C14-08 배정 대상)",
-      "plan": "둘 중 하나를 결정한다: (a) `config.yaml` 에 gemma-4-31B·collective-council 을 등록하고 이 테스트를 되살린다(능력 복원), (b) 그 능력이 출하 범위가 아니라고 결정하고 테스트를 삭제한다(약속 철회). 어느 쪽이든 스킵으로 남기지 않는다.",
-      "review_due": "2026-10-15"
-    },
-    {
       "id": "orchestrator-refactor-rewrite",
       "class": "KNOWN_GAP",
       "skips": [
@@ -111,6 +98,16 @@
       "review_due": "2026-10-15"
     }
   ],
+  "closed": {
+    "config-models-unregistered": {
+      "skips": 2,
+      "files": [
+        "tests/test_upgrade_v6_9.py"
+      ],
+      "how": "**능력 복원**을 택했다(삭제가 아니라). `config.yaml`(워크스페이스 + 패키지 2부)에 `collective-council` 콤보를 `strategy: collective` 로 되돌리고, gemma-4-31B 를 reasoning 로스터에 복원했다 — 두 항목 모두 2026-05 세대 정리(e462a8aa \"refactor: comprehensive engine cleanup\", d131dc71 \"security: ... governance\")에서 **의도 기록 없이** 지워졌고, 그 테스트만 `@pytest.mark.skip` 으로 남아 있었다. 두 테스트는 이제 조건 없이 돌고 **통과**한다(21 passed / 0 skipped 실측). 복원 근거는 삭제가 아니라 **코드가 그 이름을 계속 참조한다**는 사실이다: `BenchmarkHarness._default_targets()` 가 `collective-council` 을 코드에 갖고 있고 `/benchmark run` 의 기본 타겟이 그것이다(F-31).",
+      "found_by": "R-8 감사(attempt-021)가 \"어디서도 돌지 않는 제품 능력 4건\"으로 등록했고, attempt-022 가 그중 2건을 설정으로 닫았다. 닫으면서 **등록부의 관측 방식 자체의 구멍**을 찾았다: 관측 대상 파일을 `entries` 에서 파생하면 항목을 닫는 순간 그 파일이 관측에서 사라져 다시 스킵돼도 아무도 모른다 → `observed_files` 를 분리해 고정했다."
+    }
+  },
   "removed_by_f30": {
     "documents-extra": {
       "skips": 23,

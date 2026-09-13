@@ -100,6 +100,16 @@ models:
     parameter_count_b: 4.0
     context_length: 262144
     description: Gemma 4 26B (OpenRouter 무료, 빠름)
+  - name: hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    repo: hf.co/unsloth/gemma-4-31B-it-GGUF
+    role: reasoning
+    # 이 이름은 로컬 Ollama 가 HF GGUF 를 당겨온 식별자다 — provider 를 비우면
+    # `_infer_provider` 가 슬래시를 원격 프리픽스로 읽어 클라우드로 보낸다.
+    provider: ollama
+    quantization: gguf-q5_k_m
+    estimated_memory_gb: 22.0
+    context_length: 32768
+    description: Gemma 4 31B IT (unsloth Q5_K_M) — Google Gemma 계열, 에이전틱 코딩/추론, 집단지성 핵심 참여자
   - name: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
     repo: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
     role: reasoning
@@ -375,6 +385,16 @@ agent_models:
   ENG_MANAGER: reasoning-swarm
   DESIGNER: reasoning-swarm
 combos:
+  # 집단지성 평의회 — `strategy: collective` 는 제안→비판→중재 합성을 뜻한다.
+  # 소비자는 둘: BenchmarkHarness._default_targets() 가 이 이름을 코드에 갖고 있고,
+  # `/benchmark run`(기본 실행)이 이 콤보를 단일 모델과 비교한다.
+  collective-council:
+    description: 집단지성 평의회 (Qwen3.8 27B + Gemma4-31B unsloth + DeepSeek-R1 70B — 제안/비판/중재)
+    strategy: collective
+    models:
+    - qwen3.8
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    - deepseek-r1:70b
   orchestrator-swarm:
     description: CEO 분석/단순 대화 — Qwen3.8-27B 최우선 실행
     strategy: fallback
