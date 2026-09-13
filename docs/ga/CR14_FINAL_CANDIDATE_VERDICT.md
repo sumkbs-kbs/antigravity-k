@@ -1,10 +1,10 @@
 # CR-14 최종 후보 판정서 — NO-GO
 
-- 판정일: 2026-09-12 (attempt-001) · **attempt-002 갱신: 2026-09-12** · **attempt-003 갱신: 2026-09-12** · **attempt-004 갱신: 2026-09-12** · **attempt-005 갱신: 2026-09-13** · **attempt-006 갱신: 2026-09-13** · **attempt-007 갱신: 2026-09-13** · **attempt-008 갱신: 2026-09-13** · **attempt-009 갱신: 2026-09-13** · **attempt-010 갱신: 2026-09-13** · **attempt-011 갱신: 2026-09-13(최신)**
+- 판정일: 2026-09-12 (attempt-001) · **attempt-002 갱신: 2026-09-12** · **attempt-003 갱신: 2026-09-12** · **attempt-004 갱신: 2026-09-12** · **attempt-005 갱신: 2026-09-13** · **attempt-006 갱신: 2026-09-13** · **attempt-007 갱신: 2026-09-13** · **attempt-008 갱신: 2026-09-13** · **attempt-009 갱신: 2026-09-13** · **attempt-010 갱신: 2026-09-13** · **attempt-011 갱신: 2026-09-13** · **attempt-012 갱신: 2026-09-13(최신)**
 - 후보: 커밋 `08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f` + 미커밋 patch(CR-01~CR-14)
 - 코드 지문(gate 실행 시점, `docs/`·`.omo/` 제외): attempt-001 `11979d6c…` → attempt-002 `ebbbd7f06fab3fb2d10008336ef96ba0d7949ee72007774c6372fc07f1bba0b5`(2544 files) → attempt-003 `eb10aed606ba7e84ecce03a50a19153b92105cacd196b5a167b5e38770f1f448`(2545 files) → attempt-004 `eca54773d5504e40a724a0c86ab9d1724be310986ef3e326f8f4904f52d98dd8`(2546 files) → attempt-005 `1981bfb5143d3f9eac947826bf6ee53655c47194f5be9c4a5bf755ba982a1844` → attempt-006 `3a9a7d66909e2fafaf31b4c429d2338f262d50b0d0d8ef3b5f00b5be0ca41e2d` → attempt-007 `c36327effafcc6dbe4a80970682f5e82eccd98f81951b000c758e888e7b0130a` → attempt-008 `6641446ef41e0562118dd0741637f57eae6412f18fdf18813ea87f777d0b0076` → **attempt-009 `dd34a76bf076ebc09be8c575ad733c52a0a647faa4d5d9758f3b01cf6f667f37`**
-- **코드 후보 full SHA: `54e4169a947d4ba0cbe3fabf92b0c8590b8ccef6`**(attempt-009 — 커밋 `5a717c4a` + F-12 수정 `54e4169a`). `git.dirty: true` 의 원인은 ` M vault_data`(별도 저장소의 런타임 이벤트 로그) **한 줄뿐**이다 — F-13.
-- 증거: `.omo/evidence/commercial-reliability/CR-14/attempt-001/`, `attempt-002/`, `attempt-003/`, `attempt-004/`, `attempt-005/`, `attempt-006/`, `attempt-007/`, `attempt-008/`, **`attempt-009/`(최신)**
+- **코드 후보 full SHA: `1207118d45cdb643b3a3e7bdd5743a5fb7b6ab7d`**(attempt-012 — F-16·F-17 수정). `git.dirty: true` 의 원인은 ` M vault_data`(별도 저장소의 런타임 이벤트 로그) **한 줄뿐**이다 — F-13. **값의 최신 출처는 아래 §5 판정 카드다**(이 머리말의 값도 그 카드를 따라간다).
+- 증거: `.omo/evidence/commercial-reliability/CR-14/attempt-001/`, `attempt-002/`, `attempt-003/`, `attempt-004/`, `attempt-005/`, `attempt-006/`, `attempt-007/`, `attempt-008/`, `attempt-009/`, `attempt-010/`, `attempt-011/`, **`attempt-012/`(최신)**
 - **판정: NO-GO. GA 승인 없음. CR-14는 DONE이 아니다.**
 - 출시 책임자 / 독립 검토자: **미배정 / 미배정**
 
@@ -13,7 +13,31 @@
 
 ---
 
-## attempt-011 갱신 (2026-09-13, 최신) — 계약화 + required gate 가 드러낸 **제품 결함 F-15** 폐쇄
+## attempt-012 갱신 (2026-09-13, 최신) — attempt-011 이 남긴 구조적 잔여(R-4)를 닫았다: **종결 기록의 주인(F-16)** + 취소의 블로킹(F-17)
+
+**판정은 NO-GO 로 유지한다.** attempt-011 은 "F-15 는 분류만 고쳤고 `job.view` 무잠금 쓰기 구조는 그대로다" 를 한계(R-4)로 적었다. 이번 attempt 는 그 문장을 **결함으로 승격**해 재현 → 수정 → 이빨 → 게이트 순서로 갔다.
+
+- 후보: **`1207118d45cdb643b3a3e7bdd5743a5fb7b6ab7d`** · 코드 지문 `7ecb4fc2…`(값 전체는 아래 §5 판정 카드가 소유한다 — `C14-F15-2` 계약이 선언 자리를 하나로 강제한다)
+
+**① F-16 — 종결 기록에 소유자가 없었다**
+
+- 종결 상태(`status`/`termination`/`error`/`finished_at`)를 쓰는 주체가 둘(취소 라우트 · 잡 스레드)인데 "누가 최종 기록을 쓰는가" 규칙이 없어 **나중에 쓴 쪽이 이겼다.**
+- 증인 A(취소가 먼저 기록되고 watchdog 의 `timeout` 이 0.35초 뒤 도착 — 실제 경로에서도 성립하는 순서)에서 **관측된 종결 기록이 두 개**였다: `[('failed','cancelled','cancelled by user'), ('failed','timeout','exit_code=-15')]`. API 는 `200 {"ok": true}` 로 취소를 접수했다고 답했는데 정착한 기록은 `timeout` 이다 — 사용자가 취소했다는 사실이 사라진다.
+- 수정: 쓰기 단일 지점 `_Job.finalize()`(**먼저 확정한 쪽이 소유**, 재호출은 no-op) + `note()`(진행) + `snapshot()`(복사본 — `GET` 이 살아 있는 dict/list 를 넘기지 않는다) + `claim_cancel()`(1회 접수). 취소는 프로세스 종료보다 **먼저** 기록을 쓴다. 소유하지 못하면 `{"ok": false, "detail": "job already finished"}` — 예전에는 그 창에서 **완료된 잡의 기록을 덮고 `ok:true`** 를 돌려줬다.
+- 이빨: 구 코드로 되돌리면 신규 회귀 6/6 실패, 그중 HTTP 회귀는 `assert 'timeout' == 'cancelled'` 로 **동작으로** 실패한다.
+
+**② F-17 — 취소가 이벤트 루프를 세웠다**
+
+- cancel 라우트가 `async def` 인데 본체가 `terminate_process_group`(내부 `proc.wait(grace)` 두 번 = 최대 2×grace)을 그대로 호출했다. 실측(heartbeat 최대 간격): 수정 전 실제 라우트 **1010.7ms**, 수정 후 **6.8ms**. 같은 본체를 루프에서 구동한 옛 모양은 1007.3ms 로 남는다. 요청 소요는 ~1.05초로 **불변** — 빨라진 것이 아니라 서버가 멈추지 않게 됐다.
+- 수정: `def` 라우트(FastAPI 스레드풀). `await` 가 없으므로 동작 변화는 없다.
+
+**검증** — required gate **20/20 을 커밋된 후보 `1207118d` 에서 되돌리기 0회로 단일 지문 `7ecb4fc2…` 에서 완주**(python-tests **6215 passed / 6 skipped** 464.6s · docker 230.4s · clean-machine 41.8s `ref: HEAD` · dashboard-build 드리프트 0 · `data/` 드리프트 0 · 실행 후 지문 재측정 동일). 이번에도 코드를 **측정 전에 커밋**해 HEAD 의존 gate 재실행이 불필요했다(D-52). 이 영역의 회귀는 **8건 신규**(총 29건)다.
+
+**이 attempt 가 닫지 못한 것** — R-1: F-17 회귀는 블로킹을 **패치**해 잰다(절대 시간이 아니라 '루프에서 도는가'를 잰다). R-2: `iscoroutinefunction` 계약은 프록시이고 실제 보증은 heartbeat 회귀다. R-3: 취소 요청이 감독 확정보다 늦으면 취소는 기록을 갖지 못한다(`ok:false`) — 계약은 의도했지만 대시보드 문구는 미검토. R-4: `job.proc` 참조는 여전히 잠금 밖이다(단일 참조 대입). R-6(**미해결 관측**): 같은 lock 3종 sha256 인데 attempt-011 은 `test_unsloth_script_api_drift.py::TestAgainstInstalled` 7건을 **스킵**, 이번 실행은 **통과**시켰다(수집 6213 → 6221 = 신규 8건과 일치, skipped 13 → 6). 원인을 특정하지 못해 게이트 환경 재현성 신호로만 남긴다(`logs/skip-count-observation.txt`).
+
+---
+
+## attempt-011 갱신 (2026-09-13) — 계약화 + required gate 가 드러낸 **제품 결함 F-15** 폐쇄
 
 **판정은 NO-GO 로 유지한다.** 이번 attempt 는 기술 축이 닫힌 상태에서 두 가지를 더 했다: ① attempt-010 이 규율로만 남긴 지문 경계 규칙을 **계약**으로 옮겼고, ② 그 계약을 추가한 지문에서 `python-tests` 가 실패한 것을 **flake 로 넘기지 않고 파고들어 제품 결함을 찾아 닫았다**.
 
@@ -562,21 +586,22 @@ timeout 7200초). `ga_gate.py --merge-into`가 **같은 후보 SHA + 같은 mani
 | F-06 | mermaid 경유 `uuid@9.0.1` moderate(`<11.1.1`, `buf` 인자 경로) | 잔여 위험 | 감사 임계값 `high` 라 **차단되지 않는다** — 상류가 uuid를 올려야 함(attempt-002 신규) |
 | ~~F-07~~ | `clean-machine-runtime` 이 `git archive HEAD` 로 **커밋된 HEAD** 를 검증한다(그 시점 2877 파일, `git.dirty: true`). 후보가 미커밋이면 **초록이 후보가 아닌 다른 코드를 가리킨다** — **attempt-009 에서 닫혔다**(후보 커밋 후 재실행, 3001 파일) | 검증 범위(sequencing) | 코드 결함 아님 — 후보 커밋 뒤 새 HEAD 에서 재실행하면 정확해진다. 그 전까지 이 PASS 를 후보 근거로 인용 금지(attempt-003 신규) |
 
-## 5. 판정 카드 (attempt-011 기준)
+## 5. 판정 카드 (attempt-012 기준)
 
-- code candidate full SHA: **`d72b17111ceca8518d3f9f1fb1f3a22a04c176aa`**(attempt-011 — `5a717c4a` 후보 → `54e4169a` F-12 → `7347c5ee` attempt-009 기록 → `5ccb938e` README 지문 제거 → `552d59be`·`024b0661` attempt-010 기록 → `5521ac5f` 지문 스코프 계약 → `d72b1711` F-15 수정). `git.dirty: true` 의 원인은 ` M vault_data` 한 줄(F-13)이며 **코드·산출물은 clean** 이다. 보조 식별자 **코드 지문 `e428aacc29ec5516b311c831880376a0e128c805429486ddf32a83c68cd9877a`**(`docs/`·`.omo/` 제외, attempt-011)
+- code candidate full SHA: **`1207118d45cdb643b3a3e7bdd5743a5fb7b6ab7d`**(attempt-012 — `5a717c4a` 후보 → `54e4169a` F-12 → `7347c5ee` attempt-009 기록 → `5ccb938e` README 지문 제거 → `552d59be`·`024b0661` attempt-010 기록 → `5521ac5f` 지문 스코프 계약 → `d72b1711` F-15 수정 → `1207118d` F-16·F-17 수정). `git.dirty: true` 의 원인은 ` M vault_data` 한 줄(F-13)이며 **코드·산출물은 clean** 이다. 보조 식별자 **코드 지문 `7ecb4fc25f8b85af77f550f2d5482016f428ac0ddbc04ab7a8ce73b071d7ae0a`**(`docs/`·`.omo/` 제외, attempt-012)
   - **SHA 는 커밋마다 움직이지만 지문이 같으면 같은 코드다** — 증거는 지문으로 읽는다. 지문 제외는 `docs/`·`.omo/` **접두사뿐**이라 `README.md`·`tests/**` 는 지문 안이다(attempt-009 의 `dd34a76b…` 는 기록 커밋이 이 둘을 고쳐서 이동했다 — F-14/D-51)
 - evidence bundle 위치 / manifest SHA256: **attempt-002 는 번들을 만들지 않았다** — 근거는 `attempt-002/gate-report.json` + `reproduction.md`·`decision.md`·`manual-qa.md`·`logs/**`. attempt-001 번들(`attempt-001/bundle/`, `manifest.sha256` sidecar)은 **`evidence_kind: reference`, verify verdict `REFERENCE_ONLY`(exit 3). 승인 artifact가 아니다**로 유지
-- required gate inventory / PASS / FAIL / NOT_RUN: **20 / 20 / 0 / 0**(attempt-011, **동결된 clean HEAD** 에서 되돌리기 없이 단일 지문 `e428aacc…` · 실행 후 지문 재확인 · 코드를 측정 전에 커밋해 HEAD 의존 재실행 불필요 / attempt-010 은 20 / 20 / 0 / 0(`d4a42ab8…`, HEAD 의존 2개는 별도 보고서 2/2) / attempt-009 는 20 / 20 / 0 / 0 이었으나 그 뒤 지문이 이동했다 / attempt-001 은 20 / 14 / 1 / 4 — 과거 기록 보존)
-- backend·frontend·실행 보안·설치/복구·실 provider·8h 결과: backend **6200 passed / 13 skipped**(attempt-011 — skip 13건 중 7건은 unsloth/trl 환경 오버레이 부재이며 uv.lock 에 0건, D-32. attempt-010 은 6189) · frontend **849 passed(81 files)**(F-14 — 종전 기록의 `846/80` 은 F-12 이전 값이었다) · dev 도구 체인 감사 **전체 트리 0건**(attempt-007, F-09 폐쇄) · 실행 보안 PASS · 설치/복구 `clean-machine-runtime` **PASS + 후보를 검증(3001 파일, `ref: HEAD`) · clean HEAD 재실행 PASS(39.2s)** · 컨테이너 `docker-build` **PASS(233.7s)** · 실 provider **미확보** · 8h soak **미실행** · 측정 도구 `stryker:quick` **exit 0 · All files 91.92%(quick 범위 2 파일, attempt-008)**
+- required gate inventory / PASS / FAIL / NOT_RUN: **20 / 20 / 0 / 0**(attempt-012, **커밋된 후보 `1207118d`** 에서 되돌리기 없이 단일 지문 `7ecb4fc2…` · 실행 후 지문 재확인 · 코드를 측정 전에 커밋해 HEAD 의존 재실행 불필요 / attempt-011 은 20 / 20 / 0 / 0(`e428aacc…`, 6200 passed) / attempt-010 은 20 / 20 / 0 / 0(`d4a42ab8…`, HEAD 의존 2개는 별도 보고서 2/2) / attempt-009 는 20 / 20 / 0 / 0 이었으나 그 뒤 지문이 이동했다 / attempt-001 은 20 / 14 / 1 / 4 — 과거 기록 보존)
+- backend·frontend·실행 보안·설치/복구·실 provider·8h 결과: backend **6215 passed / 6 skipped / 수집 6221**(attempt-012 — 신규 회귀 8건이 정확히 반영됐고, skip 은 13 → 6 으로 줄었다: `test_unsloth_script_api_drift.py::TestAgainstInstalled` 7건이 이번엔 스킵되지 않고 **통과**했다. 같은 lock 3종 sha256 인데 결과가 달라 **원인 미특정** — R-6 으로 등록. attempt-011 은 6200 / 13) · frontend **849 passed(81 files)**(F-14 — 종전 기록의 `846/80` 은 F-12 이전 값이었다) · dev 도구 체인 감사 **전체 트리 0건**(attempt-007, F-09 폐쇄) · 실행 보안 PASS · 설치/복구 `clean-machine-runtime` **PASS + 후보를 검증(3001 파일, `ref: HEAD`) · clean HEAD 재실행 PASS(39.2s)** · 컨테이너 `docker-build` **PASS(233.7s)** · 실 provider **미확보** · 8h soak **미실행** · 측정 도구 `stryker:quick` **exit 0 · All files 91.92%(quick 범위 2 파일, attempt-008)**
 - 후보 트리 안정성(attempt-003 실측): **20-gate 전체 실행 후 코드 지문 불변** + `dashboard-build` 재빌드 **바이트 단위 동일** → 이 후보에서 검증은 트리를 바꾸지 않는다
 - 지원 scope / 실제 외부 승인: 미확정 / 없음
 - 독립 리뷰 보고서와 대상 SHA: **미생성 / 미정**
 - 후보 트리 안정성(attempt-005 실측): suite 전후 + **20-gate 전체 실행 전후**에 코드 지문 `1981bfb5…` 가 **동일** — 이 후보에서 검증은 트리를 바꾸지 않는다(되돌리기 0회)
+- 후보 트리 안정성(attempt-012 실측): 커밋된 후보 `1207118d` 에서 20-gate 실행 **후** 코드 지문 `7ecb4fc2…` 가 보고서 값과 **동일**(UNCHANGED) · 실행 후 트리는 ` M vault_data` 한 줄 · `data/` 드리프트 0 — 되돌리기 0회
 - 최종 판정: **NO-GO** (기술 gate 는 초록, 승인·커밋 위생이 차단)
 - 출시 책임자 / 판정 날짜: 미배정 / 2026-09-13
 
-## 6. 재개 순서 (권장, attempt-011 갱신)
+## 6. 재개 순서 (권장, attempt-012 갱신)
 
 0. ~~**CR-01~CR-14 커밋 → clean full SHA 고정 → 그 SHA 에서 20-gate 재실행**~~ — **attempt-009·010 에서 완료했다.**
    SHA `54e4169a`(attempt-009) → **clean HEAD `5ccb938e`**(attempt-010) · 커밋된 후보에서 20/20 PASS ·
@@ -585,8 +610,7 @@ timeout 7200초). `ga_gate.py --merge-into`가 **같은 후보 SHA + 같은 mani
 0-b. ~~**규율을 계약으로**~~ — **attempt-011 에서 완료했다**(`tests/test_cr14_fingerprint_scope_contract.py` 9건, 5건이 이빨).
    ⚠️ 만드는 행위 자체가 지문을 이동시켰다(`d4a42ab8…` → `cdfbbb96…`) — 만들고 나서 새 지문에서 20 gate 를 완주해야 한다(D-56 의 실증).
 
-0-c. **다음 첫 항목 — F-15 의 구조적 잔여**: `job.view` 를 취소 핸들러와 잡 스레드가 **잠금 없이** 쓴다. 상태 전이를
-   한 지점으로 모으는 정리를 별도 attempt 로 하고, 그때도 순서는 재현 → 수정 → 회귀(이빨) → 새 지문에서 20 gate 완주다(attempt-011 R-4).
+0-c. ~~**F-15 의 구조적 잔여**: `job.view` 를 취소 핸들러와 잡 스레드가 **잠금 없이** 쓴다~~ — **attempt-012 에서 완료했다**(F-16: `_Job.finalize()` 단일 지점(first-wins) + `note`/`snapshot`/`claim_cancel`, 회귀 8건·이빨 6건). 그 정리 과정에서 **F-17**(취소가 이벤트 루프를 1010.7ms 세웠다)이 드러나 함께 닫았다(6.8ms). 순서도 지켰다: 재현 → 수정 → 회귀(이빨) → 새 지문 `7ecb4fc2…` 에서 20 gate 완주.
 
 0-d. **그 다음 — C14-03** 을 취소·중단 경로까지 포함해 실행한다(F-15 같은 결함은 전 구간 시나리오에서 드러난다).
    ※ 단 **`git.dirty: true` 는 ` M vault_data` 한 줄 때문**이다(F-13) — "미커밋 코드가 있다"로 읽지 말 것.
@@ -640,7 +664,9 @@ F-10(도구 미동작)·F-11a(선언 범위 미커버리지)와 F-09 의 `qs` �
 | ~~F-01~~ | `dashboard_dist` 가 추적 중인 빌드 산출물 | 릴리스 공학 → 정책 | **내려감(§0-B)** — 빌드는 멱등(실측). 남은 것은 post-GA 추적 정책 선택 |
 | ~~F-07~~ | `clean-machine-runtime` 이 후보가 아니라 HEAD 를 검증 | 검증 범위 | **CLOSED (attempt-009)** — 후보 커밋 `54e4169a` 에서 재실행해 `ref: HEAD` 로 **후보 전체(3001 파일, 이전 2877 = 낡은 HEAD)** 를 아카이브·검증했다. **순서 규율은 남는다**: 태그 SHA 에서 마지막으로 다시 돌려야 한다(R-3) |
 | ~~F-12~~ | **빌드 provenance 치킨-에그** — `buildStamp.ts` 가 `AGK_BUILD_ID` 기본값으로 `git short SHA` 를 써서 **커밋된 번들은 자기 커밋의 SHA 를 담을 수 없고**, 커밋 직후 `dashboard-build` 가 자산 22개를 교체해 커밋된 후보에서 단일 지문 20/20 을 완주할 수 없었다 | 릴리스 공학(구조) | **CLOSED (attempt-009)** — 해석 순서 `env → 커밋된 핀 → git → null` + 번들 재생성. **핀 ≠ HEAD 는 정상**(핀=번들을 만든 소스 리비전). F-01 의 "빌드 멱등"을 조건부로 정정 |
-| ~~F-15~~ | **취소가 `completed` 로 기록된다** — API cancel 은 event set 과 **동시에** 프로세스를 종료하는데 watchdog 은 0.2초 폴링이라 사유를 세우기 전에 루프를 빠져나간다. 감독이 취소를 완료로 분류하고 잡 스레드가 `termination` 을 덮어써 취소 기록이 사라진다 | 제품 결함(TRN-02 분류) | **CLOSED (attempt-011)** — required gate 가 전체 suite 에서 1건 실패(`assert 'completed' == 'cancelled'`)했고 **단독은 5/5 통과**했다. flake 로 넘기지 않고 증인을 썼더니 A 3/3 · B **12/12** 로 재현됐다. 분류를 **관측이 아니라 사실**(`cancel_event` + 비정상 종료 코드)로 바꿔 닫았고, 정상 완료는 오분류하지 않는다. **잔여(R-4)**: `job.view` 무잠금 쓰기 구조는 그대로다(D-57/D-58/D-59) |
+| ~~F-15~~ | **취소가 `completed` 로 기록된다** — API cancel 은 event set 과 **동시에** 프로세스를 종료하는데 watchdog 은 0.2초 폴링이라 사유를 세우기 전에 루프를 빠져나간다. 감독이 취소를 완료로 분류하고 잡 스레드가 `termination` 을 덮어써 취소 기록이 사라진다 | 제품 결함(TRN-02 분류) | **CLOSED (attempt-011)** — required gate 가 전체 suite 에서 1건 실패(`assert 'completed' == 'cancelled'`)했고 **단독은 5/5 통과**했다. flake 로 넘기지 않고 증인을 썼더니 A 3/3 · B **12/12** 로 재현됐다. 분류를 **관측이 아니라 사실**(`cancel_event` + 비정상 종료 코드)로 바꿔 닫았고, 정상 완료는 오분류하지 않는다. **잔여(R-4)**: `job.view` 무잠금 쓰기 구조 — **attempt-012 의 F-16 에서 닫혔다**(D-59~D-61) |
+| ~~F-16~~ | **종결 기록에 소유자가 없어 나중 쫄이 이긴다** — 취소 라우트와 잡 스레드가 같은 `job.view` 를 잠금 없이 써서, 취소와 watchdog `timeout` 이 겹치면 API 는 `ok:true` 인데 뷰는 `timeout` 이었다(취소된 잡의 진행률까지 늦은 쫄이 100 으로 올렸다) | 제품 결함(잡 상태 기계) | **CLOSED (attempt-012)** — `_Job.finalize()` 단일 지점(**first-wins**, 먼저 확정한 쪽이 소유) + `note()`/`snapshot()`/`claim_cancel()`. 증인 A 에서 관측 종결 기록 **2개 → 1개**, 이빨 6/6(HTTP 회귀는 `assert 'timeout' == 'cancelled'`). attempt-011 R-4 의 승격 |
+| ~~F-17~~ | **취소가 이벤트 루프를 세운다** — `async def` 라우트가 `terminate_process_group`(최대 2×grace 블로킹)을 루프에서 호출 | 제품 결함(가용성) | **CLOSED (attempt-012)** — 라우트를 `def` 로(FastAPI 스레드풀). 실측 1010.7ms → 6.8ms, 요청 소요는 ~1.05초로 불변 · 회귀 2건 |
 | ~~F-14~~ | **기록이 같은 attempt 의 증거와 다른 수치를 인용했다** — attempt-009 기록의 `frontend 846 passed(80 files)` vs 그 보고서 `849 passed(81 files)` | 기록 정합(advisory) | **CLOSED (attempt-010)** — F-12 가 추가한 테스트 3건 이전 값이 넘어왔다. 이 저장소가 반복해 잡아 온 **'주장 ≠ 측정'** 병과 같은 모양이므로 수치를 정정하고 **그 attempt 의 `gate-report.json` 에서 직접 인용**하도록 못박았다(D-54). **부수 교훈**: 지문 예외는 `docs/`·`.omo/` **접두사뿐**이라 README·테스트를 고치는 행위 자체가 증거를 낡게 만든다(D-51) |
 | F-13 | 중첩 저장소 `vault_data` 의 런타임 이벤트 로그가 계속 자라 부모 `git status` 가 **영구히 dirty** 다(gitlink SHA 자체는 불변) | repo 위생(advisory) | **OPEN** — 커밋에는 영향 없고 required gate 도 아니지만 `git.dirty: true` 가 보고서에 남아 'clean 후보' 판정을 흐린다. 선택지: untrack / vault 안에서 로그 ignore / dirty 판정 정교화(신호 약화라 비선호) — D-50 |
 | ~~F-03~~ | release 문서 파이썬 라이선스 판독이 고지문/SBOM 으로 갈라짐(+마커 환경 의존) | 계약(REL-01) | **CLOSED (attempt-005)** — 판독 체인 통일, 회귀 17건. 고지문 미상 41 → 2건 |
