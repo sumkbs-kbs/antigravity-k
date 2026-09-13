@@ -697,9 +697,14 @@ class TestApprovalWiring:
         """자동 승인(ALWAYS_ALLOW) 도구는 ApprovalRequired를 발행하지 않는다."""
         from antigravity_k.engine import approval_manager as am
 
+        auto_approved: list[str] = []
+
         class FakeManager:
             def is_always_allowed(self, tool_name):
                 return True
+
+            def record_auto_approval(self, tool_name):
+                auto_approved.append(tool_name)
 
             def consume_one_time_approval(self, tool_name):
                 return False
@@ -734,13 +739,19 @@ class TestApprovalWiring:
         _ = ex.execute("write_file", {"file_path": str(tmp_path / "a.txt"), "content": "x"})
 
         assert all(name != "ApprovalRequired" for name, _ in published)
+        assert auto_approved == ["write_file"]
 
     def test_always_allowed_tool_executes_without_pause(self, tool_registry, permission_gate, tmp_path, monkeypatch):
         from antigravity_k.engine import approval_manager as am
 
+        auto_approved: list[str] = []
+
         class FakeManager:
             def is_always_allowed(self, tool_name):
                 return True
+
+            def record_auto_approval(self, tool_name):
+                auto_approved.append(tool_name)
 
             def consume_one_time_approval(self, tool_name):
                 return False
@@ -766,6 +777,8 @@ class TestApprovalWiring:
         result = ex.execute("write_file", {"file_path": str(tmp_path / "b.txt"), "content": "x"})
 
         assert result == "ok"  # 일시정지 없이 실행됨
+        # 동의 없이 실행된 호출은 부여 기록에 남아야 한다(F-33).
+        assert auto_approved == ["write_file"]
 
     def test_reuses_existing_pending_without_duplicate(self, tool_registry, permission_gate, tmp_path, monkeypatch):
         """동일 도구 PENDING이 있으면 새 요청을 만들지 않고 기존 ID를 재사용한다."""

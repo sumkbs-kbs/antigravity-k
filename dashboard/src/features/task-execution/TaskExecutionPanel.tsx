@@ -14,6 +14,7 @@ export function TaskExecutionPanel() {
       error={state.error}
       pendingAction={state.pendingAction}
       approvals={approvals.approvals}
+      alwaysAllowed={approvals.alwaysAllowed}
       pendingApprovalId={approvals.pendingRequestId}
       approvalError={approvals.error}
       onSelectTask={state.selectTask}
@@ -22,6 +23,7 @@ export function TaskExecutionPanel() {
       onResume={state.resume}
       onFork={state.fork}
       onResolveApproval={approvals.resolve}
+      onRevokeAlwaysAllowed={approvals.revokeAlwaysAllowed}
       onRetry={state.retry}
     />
   );

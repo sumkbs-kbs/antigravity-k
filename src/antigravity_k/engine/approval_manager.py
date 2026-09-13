@@ -142,6 +142,32 @@ class ApprovalRequest:
         }
 
 
+@dataclass
+class AlwaysAllowGrant:
+    """'항상 허용' 부여 한 건.
+
+    부여는 **도구 하나**를 덮으므로(인자·경로·프로젝트와 무관), 사용자가 무엇에 동의했는지와
+    부여가 무엇을 덮는지가 **다를 수 있다** — 그래서 부여 근거(`granted_for`)와 자동 승인
+    횟수(`auto_approved_count`)를 함께 보존해 감사 가능하게 둔다(F-33).
+    """
+
+    tool_name: str
+    granted_at: float
+    granted_for: str = ""
+    auto_approved_count: int = 0
+    last_auto_approved_at: float | None = None
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        """API 응답용 dict."""
+        return {
+            "tool_name": self.tool_name,
+            "granted_at": self.granted_at,
+            "granted_for": self.granted_for,
+            "auto_approved_count": self.auto_approved_count,
+            "last_auto_approved_at": self.last_auto_approved_at,
+        }
+
+
 class ApprovalManager:
     """승인 요청을 관리하는 싱글톤 매니저.
 
@@ -171,7 +197,8 @@ class ApprovalManager:
         """
         self._pending: dict[str, ApprovalRequest] = {}
         self._futures: dict[str, asyncio.Future[ApprovalStatus]] = {}
-        self._always_allowed: set[str] = set()  # "항상 허용"된 도구들
+        # "항상 허용"된 도구들 — 부여 시각·근거·자동 승인 횟수를 함께 보존한다(F-33).
+        self._always_allowed: dict[str, AlwaysAllowGrant] = {}
         self._consumed_approvals: set[str] = set()  # 소비된 일회성 승인 요청 ID
         self._default_timeout: int = default_timeout_sec
         self._event_loop: asyncio.AbstractEventLoop | None = None
@@ -180,6 +207,26 @@ class ApprovalManager:
     def is_always_allowed(self, tool_name: str) -> bool:
         """해당 도구가 '항상 허용'으로 설정되었는지 확인."""
         return tool_name in self._always_allowed
+
+    def always_allowed_grants(self) -> list[AlwaysAllowGrant]:
+        """'항상 허용' 부여 목록(부여 순).
+
+        부여는 도구 단위이고 프로세스 수명 동안 유지된다 — 사용자가 그것을 **읽고 되돌릴 수**
+        있어야 한다(F-33: 보이지 않는 영구 부여는 동의가 아니다).
+        """
+        return sorted(self._always_allowed.values(), key=lambda grant: grant.granted_at)
+
+    def record_auto_approval(self, tool_name: str) -> None:
+        """'항상 허용' 부여로 **동의 없이** 실행된 횟수를 기록한다.
+
+        부여가 없으면 아무것도 하지 않는다(순수 조회인 `is_always_allowed` 와 분리한다 —
+        조회가 감사 기록을 바꾸면 세는 값이 조회 횟수가 된다).
+        """
+        grant = self._always_allowed.get(tool_name)
+        if grant is None:
+            return
+        grant.auto_approved_count += 1
+        grant.last_auto_approved_at = time.time()
 
     def consume_one_time_approval(self, tool_name: str) -> bool:
         """일회성 승인(APPROVED)을 소비한다.
@@ -226,6 +273,7 @@ class ApprovalManager:
         """
         # "항상 허용"된 도구는 자동 승인
         if self.is_always_allowed(tool_name):
+            self.record_auto_approval(tool_name)
             return ApprovalRequest(
                 request_id="auto-" + uuid.uuid4().hex[:8],
                 tool_name=tool_name,
@@ -302,8 +350,13 @@ class ApprovalManager:
             request.status = ApprovalStatus.DENIED
         elif decision == ApprovalDecision.ALWAYS_ALLOW:
             request.status = ApprovalStatus.ALWAYS_ALLOW
-            self._always_allowed.add(request.tool_name)
-            logger.info("[Approval] '항상 허용' 추가: %s", request.tool_name)
+            # 부여는 **도구 하나**를 덮는다(인자·경로·프로젝트 무관) — 그 사실과 근거를 남긴다.
+            self._always_allowed[request.tool_name] = AlwaysAllowGrant(
+                tool_name=request.tool_name,
+                granted_at=request.resolved_at,
+                granted_for=request.description,
+            )
+            logger.info("[Approval] '항상 허용' 부여: %s (근거: %s)", request.tool_name, request.description)
 
         # 대기 중인 Future 해결
         future = self._futures.pop(request_id, None)
@@ -378,10 +431,15 @@ class ApprovalManager:
             logger.debug("[Approval] 해결된 요청 %s개 정리", cleared)
         return cleared
 
-    def reset_always_allowed(self) -> None:
-        """'항상 허용' 목록 초기화."""
+    def reset_always_allowed(self) -> list[str]:
+        """'항상 허용' 목록 초기화.
+
+        반환값은 **되돌린 도구 이름들**이다 — 해제가 무엇을 되돌렸는지 응답이 말할 수 있어야 한다.
+        """
+        revoked = [grant.tool_name for grant in self.always_allowed_grants()]
         self._always_allowed.clear()
-        logger.info("[Approval] '항상 허용' 목록 초기화")
+        logger.info("[Approval] '항상 허용' 목록 초기화: %s", ", ".join(revoked) or "(없음)")
+        return revoked
 
     # ─── diff 미리보기 생성 ──────────────────────────────────────────
 

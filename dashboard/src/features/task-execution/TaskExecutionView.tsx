@@ -1,5 +1,5 @@
 import { ApprovalQueue } from './ApprovalQueue';
-import type { ApprovalDecision, ApprovalRequest } from './approvalApi';
+import type { AlwaysAllowGrant, ApprovalDecision, ApprovalRequest } from './approvalApi';
 import { ExecutionBlockRenderer } from './ExecutionBlockRenderer';
 import { projectTaskExecution } from './taskExecutionProjection';
 import { TaskQueuePanel, type PendingTaskAction } from './TaskQueuePanel';
@@ -23,6 +23,7 @@ export type TaskExecutionViewProps = Readonly<{
   error: string | null;
   pendingAction: PendingTaskAction | null;
   approvals: readonly ApprovalRequest[];
+  alwaysAllowed: readonly AlwaysAllowGrant[];
   pendingApprovalId: string | null;
   approvalError: string | null;
   onSelectTask: (taskId: TaskId) => void;
@@ -31,6 +32,7 @@ export type TaskExecutionViewProps = Readonly<{
   onResume: (taskId: TaskId) => void;
   onFork: (taskId: TaskId) => void;
   onResolveApproval: (requestId: string, decision: ApprovalDecision) => void;
+  onRevokeAlwaysAllowed: () => void;
   onRetry: () => void;
 }>;
 
@@ -42,6 +44,7 @@ export function TaskExecutionView({
   error,
   pendingAction,
   approvals,
+  alwaysAllowed,
   pendingApprovalId,
   approvalError,
   onSelectTask,
@@ -50,6 +53,7 @@ export function TaskExecutionView({
   onResume,
   onFork,
   onResolveApproval,
+  onRevokeAlwaysAllowed,
   onRetry,
 }: TaskExecutionViewProps) {
   const selectedTask =
@@ -94,9 +98,11 @@ export function TaskExecutionView({
         />
         <ApprovalQueue
           approvals={approvals}
+          alwaysAllowed={alwaysAllowed}
           pendingRequestId={pendingApprovalId}
           error={approvalError}
           onResolve={onResolveApproval}
+          onRevokeAlwaysAllowed={onRevokeAlwaysAllowed}
         />
       </div>
 

@@ -405,8 +405,10 @@ class ToolExecutor:
             if manager.consume_one_time_approval(name):
                 return True, ""
 
-            # '항상 허용'은 새 요청/일시정지 없이 즉시 실행
+            # '항상 허용'은 새 요청/일시정지 없이 즉시 실행 — 단, **동의 없이 실행된 횟수**를
+            # 부여 기록에 남긴다(F-33: 보이지 않는 자동 승인은 감사할 수 없다).
             if manager.is_always_allowed(name):
+                manager.record_auto_approval(name)
                 return True, ""
 
             from pydantic import JsonValue

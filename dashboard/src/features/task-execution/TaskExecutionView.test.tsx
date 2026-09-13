@@ -66,6 +66,7 @@ describe('TaskExecutionView', () => {
         error={null}
         pendingAction={null}
         approvals={[]}
+        alwaysAllowed={[]}
         pendingApprovalId={null}
         approvalError={null}
         onSelectTask={vi.fn()}
@@ -74,6 +75,7 @@ describe('TaskExecutionView', () => {
         onResume={vi.fn()}
         onFork={vi.fn()}
         onResolveApproval={vi.fn()}
+        onRevokeAlwaysAllowed={vi.fn()}
         onRetry={vi.fn()}
       />,
     );
@@ -92,6 +94,7 @@ describe('TaskExecutionView', () => {
         error={null}
         pendingAction={null}
         approvals={[]}
+        alwaysAllowed={[]}
         pendingApprovalId={null}
         approvalError={null}
         onSelectTask={vi.fn()}
@@ -100,6 +103,7 @@ describe('TaskExecutionView', () => {
         onResume={vi.fn()}
         onFork={vi.fn()}
         onResolveApproval={vi.fn()}
+        onRevokeAlwaysAllowed={vi.fn()}
         onRetry={vi.fn()}
       />,
     );
@@ -169,6 +173,7 @@ describe('TaskExecutionView', () => {
         error={null}
         pendingAction={null}
         approvals={[]}
+        alwaysAllowed={[]}
         pendingApprovalId={null}
         approvalError={null}
         onSelectTask={vi.fn()}
@@ -177,6 +182,7 @@ describe('TaskExecutionView', () => {
         onResume={vi.fn()}
         onFork={vi.fn()}
         onResolveApproval={vi.fn()}
+        onRevokeAlwaysAllowed={vi.fn()}
         onRetry={vi.fn()}
       />,
     );

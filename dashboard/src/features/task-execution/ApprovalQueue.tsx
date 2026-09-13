@@ -2,13 +2,20 @@ import { useMemo, useState } from 'react';
 
 import DiffViewer from '../../components/Editor/DiffViewer';
 import type { ProposedChange } from '../../stores/changeStore';
-import type { ApprovalDecision, ApprovalRequest, ApprovalReview } from './approvalApi';
+import type {
+  AlwaysAllowGrant,
+  ApprovalDecision,
+  ApprovalRequest,
+  ApprovalReview,
+} from './approvalApi';
 
 type ApprovalQueueProps = Readonly<{
   approvals: readonly ApprovalRequest[];
+  alwaysAllowed: readonly AlwaysAllowGrant[];
   pendingRequestId: string | null;
   error: string | null;
   onResolve: (requestId: string, decision: ApprovalDecision) => void;
+  onRevokeAlwaysAllowed: () => void;
 }>;
 
 function diffPath(lines: readonly string[]): string {
@@ -21,6 +28,10 @@ function reviewLabel(review: ApprovalReview): string {
   if (review.decision === 'approve') return '승인 후보';
   if (review.decision === 'deny') return '거부 권고';
   return '사용자 확인 필요';
+}
+
+function grantedAtLabel(grantedAt: number): string {
+  return new Date(grantedAt * 1_000).toLocaleString();
 }
 
 export function approvalDiffChange(approval: ApprovalRequest): ProposedChange {
@@ -59,7 +70,14 @@ export function approvalDiffChange(approval: ApprovalRequest): ProposedChange {
   };
 }
 
-export function ApprovalQueue({ approvals, pendingRequestId, error, onResolve }: ApprovalQueueProps) {
+export function ApprovalQueue({
+  approvals,
+  alwaysAllowed,
+  pendingRequestId,
+  error,
+  onResolve,
+  onRevokeAlwaysAllowed,
+}: ApprovalQueueProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = approvals.find((approval) => approval.request_id === selectedId) ?? approvals[0] ?? null;
   const change = useMemo(() => selected === null ? null : approvalDiffChange(selected), [selected]);
@@ -73,6 +91,29 @@ export function ApprovalQueue({ approvals, pendingRequestId, error, onResolve }:
         </div>
       </header>
       {error !== null && <p className="approval-queue-error" role="alert">{error}</p>}
+      <section className="approval-grants" aria-labelledby="approval-grants-title">
+        <header>
+          <h5 id="approval-grants-title">항상 허용된 도구 {alwaysAllowed.length}개</h5>
+          <button type="button" disabled={alwaysAllowed.length === 0} onClick={onRevokeAlwaysAllowed}>
+            부여 모두 해제
+          </button>
+        </header>
+        {alwaysAllowed.length === 0 ? (
+          <p className="approval-queue-empty">상시 자동 승인된 도구가 없습니다.</p>
+        ) : (
+          <ul className="approval-grants-list">
+            {alwaysAllowed.map((grant) => (
+              <li key={grant.tool_name}>
+                <strong>{grant.tool_name}</strong>
+                <span>
+                  {grantedAtLabel(grant.granted_at)} 부여 · 동의 없이 {grant.auto_approved_count}회 실행
+                </span>
+                <small>부여 근거: {grant.granted_for || '(기록 없음)'}</small>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       {approvals.length === 0 ? (
         <p className="approval-queue-empty">대기 중인 승인 요청이 없습니다.</p>
       ) : (
@@ -121,7 +162,7 @@ export function ApprovalQueue({ approvals, pendingRequestId, error, onResolve }:
                   type="button"
                   disabled={pendingRequestId === selected.request_id}
                   onClick={() => onResolve(selected.request_id, 'always_allow')}
-                  aria-label={`${selected.description} 항상 허용`}
+                  aria-label={`${selected.tool_name} 도구를 항상 허용 (이후 모든 호출을 승인 없이 실행)`}
                 >
                   항상 허용
                 </button>
@@ -135,6 +176,11 @@ export function ApprovalQueue({ approvals, pendingRequestId, error, onResolve }:
                   승인
                 </button>
               </div>
+              <p className="approval-queue-note">
+                &lsquo;항상 허용&rsquo;은 이 요청이 아니라 <strong>{selected.tool_name} 도구 전체</strong>를 덮습니다 —
+                이후 그 도구의 모든 호출이 인자·경로·프로젝트와 무관하게 승인 없이 실행되고,
+                서버를 다시 시작하거나 위 목록에서 해제할 때까지 유지됩니다.
+              </p>
             </div>
           )}
         </div>

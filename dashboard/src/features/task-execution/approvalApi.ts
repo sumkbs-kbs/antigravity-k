@@ -35,9 +35,30 @@ const ApprovalResolveResponseSchema = z.object({
   status: z.string().min(1),
 }).readonly();
 
+// '항상 허용' 부여 — 도구 단위이며 프로세스 수명 동안 유지된다. 읽고 되돌릴 수 있어야 한다(F-33).
+export const AlwaysAllowGrantSchema = z.object({
+  tool_name: z.string().min(1),
+  granted_at: z.number().nonnegative(),
+  granted_for: z.string(),
+  auto_approved_count: z.number().int().nonnegative(),
+  last_auto_approved_at: z.number().nonnegative().nullable(),
+}).readonly();
+
+const AlwaysAllowListResponseSchema = z.object({
+  grants: z.array(AlwaysAllowGrantSchema).readonly(),
+  count: z.number().int().nonnegative(),
+}).readonly();
+
+const ResetAlwaysAllowedResponseSchema = z.object({
+  ok: z.literal(true),
+  revoked: z.array(z.string()).readonly(),
+  message: z.string(),
+}).readonly();
+
 export type ApprovalDecision = z.infer<typeof ApprovalDecisionSchema>;
 export type ApprovalReview = z.infer<typeof ApprovalReviewSchema>;
 export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
+export type AlwaysAllowGrant = z.infer<typeof AlwaysAllowGrantSchema>;
 
 function accessHeaders(): Headers {
   return createAccessPinHeaders({ Accept: 'application/json' });
@@ -61,4 +82,23 @@ export async function resolveApproval(requestId: string, decision: ApprovalDecis
     timeout: 10_000,
   }).json();
   ApprovalResolveResponseSchema.parse(raw);
+}
+
+export async function fetchAlwaysAllowedGrants(signal: AbortSignal): Promise<readonly AlwaysAllowGrant[]> {
+  const raw: unknown = await ky.get('/api/approval/always-allowed', {
+    headers: accessHeaders(),
+    signal,
+    retry: 1,
+    timeout: 10_000,
+  }).json();
+  return AlwaysAllowListResponseSchema.parse(raw).grants;
+}
+
+export async function resetAlwaysAllowed(): Promise<readonly string[]> {
+  const raw: unknown = await ky.post('/api/approval/reset-always-allowed', {
+    headers: accessHeaders(),
+    retry: 0,
+    timeout: 10_000,
+  }).json();
+  return ResetAlwaysAllowedResponseSchema.parse(raw).revoked;
 }
