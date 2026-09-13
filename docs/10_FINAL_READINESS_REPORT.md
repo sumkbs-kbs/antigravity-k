@@ -4,7 +4,9 @@
 
 ## 결론
 
-> **최신 판정(2026-09-13): GA 출시 판정 NO-GO — attempt-012 에서 attempt-011 이 한계(R-4)로 남긴 `job.view` 무잠금 쓰기를 **결함으로 승격**해 닫았고(**F-16**: 종결 기록에 소유자가 없어 나중 쓰기가 취소를 덮었다 — API 는 `ok:true` 인데 뷰는 `timeout`), 그 정리에서 드러난 **F-17**(취소가 이벤트 루프를 **1010.7ms** 세웠다 → **6.8ms**)까지 닫았으며, **커밋된 후보(`1207118d`)에서 required gate 20/20 을 되돌리기 없이 단일 코드 지문에서 완주**했다. **기술 결함은 0건**이다.**
+> **최신 판정(2026-09-13): GA 출시 판정 NO-GO — attempt-013 에서 attempt-012 가 한계(R-6)로 남긴 관측을 뿌리까지 파서 검증 장치 결함 3건과 테스트 격리 결함 1건을 닫았고, 그 과정에서 **required gate 를 21개로 늘렸다**(`python-benchmark` — 검사를 빼는 대신 wall-clock 검사를 조용한 프로세스로 옮긴 것). 닫은 것은 **F-18**(게이트 도구가 lock 이 아니라 호출 셀의 PATH 에서 왔다 — 같은 lock 으로 돌린 두 실행이 다른 인터프리터·다른 pytest·다른 skip 집합을 냈다) · **F-19**(lock 이 정의하는 환경에서는 chromadb 부재로 스위트가 실패한다) · **F-20**(로그인 보안 상태가 프로세스 전역이라 순서가 결과를 바꿨다 — 레이트리밋과 lockout 이 서로를 가려 왔다) · **F-21**(wall-clock 임계값이 required 게이트 안에서 머심 부하로 끊겼다: 고립 2250~2265ms vs suite 안 6084ms). **커밋된 후보(`0593dd27`)에서 required gate 21/21 을 되돌리기 없이 단일 코드 지문(`2c5a15c8…`)에서 완주**했다. **기술 결함은 0건**이지만, 이번에 밝혀진 것은 **검증 장치가 거짓말하고 있었다**는 사실이다 — attempt-001~012 의 20/20 은 ambient 도구로 측정됐다.
+>
+> **해석 주의(important)**: 이전 초록들은 "스위트가 통과했다"로는 유효하고 "lock 이 검증됐다"로는 유효하지 않았다. 이번 초록이 더 강한 주장인 이유는 게이트가 자기 환경을 스스로 재기 때문이고, 그 사실이 계약 3종(`tests/test_cr14_gate_env_pinning.py`·`test_cr14_gate_load_isolation.py`·`test_cr14_login_state_isolation.py`)으로 고정됐다.
 >
 > **직전 판정 기록(attempt-011)**: GA 출시 판정 NO-GO — attempt-011 에서 지문 경계 규칙을 계약으로 옮기고, 그 계약을 추가한 지문에서 required gate 가 실패한 것을 파고들어 제품 결함 F-15(취소가 `completed` 로 기록된다)를 찾아 닫았으며, 동결된 clean HEAD(`d72b1711`)에서 required gate 20/20 을 되돌리기 없이 완주했다.
 >
@@ -95,7 +97,7 @@
 
 > **attempt-003 추가 실측:** 이 절은 **F-01 의 성질을 정정**하고 **F-07 을 등록**한다(아래 F-01 재평가·F-07 절). F-08 은 다음 절에서 닫혔다.
 
-> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-012 절.** 판정은 attempt-001·002와 같이 **NO-GO** 다. 달라진 것은 **clean 후보를 만들 수 없는 뿌리가 하나 줄었다**는 점이다.
+> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-013 절.** 판정은 attempt-001·002와 같이 **NO-GO** 다. 달라진 것은 **clean 후보를 만들 수 없는 뿌리가 하나 줄었다**는 점이다.
 
 후보: 기준 `08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f` + 미커밋 patch, 코드 지문 **`eb10aed606ba7e84ecce03a50a19153b92105cacd196b5a167b5e38770f1f448`**(2545 files).
 
@@ -128,6 +130,22 @@
 
 ---
 
+## 2026-09-13 CR-14 attempt-013 — **검증 장치가 거짓말하고 있었다: 게이트 환경 비고정(F-18·F-19) · 테스트 격리 누수(F-20) · 부하 의존 임계값(F-21)** (판정 NO-GO 유지)
+
+> **이 절이 최신 실측이다(attempt-013).** attempt-012 는 "같은 lock 3종 sha256 인데 게이트 환경이 달랐다"를 **원인 미특정 한계(R-6)**로 남겼다. 이번 attempt 는 그 관측을 끝까지 따라가 네 건을 닫았고, 결과적으로 **게이트 인벤토리(20 → 21)·`uv.lock`·"이전 초록이 무엇을 증명했는가"의 해석**이 바뀌었다.
+
+후보: **커밋된 후보 `0593dd27dbea4a7bc4796ad9807d14b9f3a62165`** · 코드 지문 **`2c5a15c88570c8e1f56172c6967592860863c140aa6e971890bf4f1ae1567a6f`** (`docs/`·`.omo/` 제외).
+
+- **F-18 (검증 장치)** — 게이트 명령은 `uv run --isolated --frozen <tool>` 이면 hermetic 하다고 전제했지만, dev 도구는 `[project.optional-dependencies].dev` 에 있고 `uv run` 은 그 extra 를 설치하지 **않는다**: 임시환경(64 패키지)에 pytest 가 없고(`find_spec('pytest') is None`), 도구가 없으면 uv 는 **호출 셀의 PATH** 로 떨어진다(`VIRTUAL_ENV` 무관 — PATH 우선순위가 결정). 증거는 같은 `uv.lock` sha256 을 가진 두 게이트 보고서다: attempt-011 `.../.venv/bin/python3` + pytest 9.1.1 + 수집 6213 + skipped 13 vs attempt-012 `/Users/mr.k/miniforge3/bin/python3.13` + pytest 9.0.3 + 수집 6221 + skipped 6. 차이의 정체는 `TestAgainstInstalled` 7건이다(그 클래스 가드가 `import trl; import unsloth`). 증인은 PATH 앞에 가짜 도구를 두고 게이트를 그대로 실행한다 — 수정 전 **HIJACKED 4/4**, 수정 후 pinned. 같은 결함이 범주를 가리지 않았다: 보안 게이트의 `bandit` 은 pyproject 에 **선언조차 없어** conda base 의 1.9.4 를 실행하고 있었다. 수정: 게이트에 필요한 extra 명시 + `bandit` 을 dev extra 에 선언하고 `uv lock`(추가: bandit 1.9.4·stevedore 5.9.1).
+- **F-19 (검증 장치)** — 게이트를 실제로 고정하자 `python-tests` 가 `VectorStore requires chromadb but it is unavailable` 로 실패했다(dev 만: 해당 세 파일 `10 failed / 25 passed` · dev+rag: `35 passed`). chromadb 는 `rag` extra 이고 ambient 환경에 항상 있었기 때문에 20/20 초록이 나왔다 — 즉 그 초록은 “머심에 rag extra 가 설치돼 있었다”에 의존했다. 제품 코드는 바꾸지 않았다(`VectorStore` 는 chromadb 가 없으면 의도적으로 명확히 거부하고 `gbrain` 은 강등한다).
+- **F-20 (테스트 격리)** — 로그인 보안 상태의 두 전역 기계(slowapi `5/minute`, credential gate lockout)가 키를 '호출자 IP'로 쓰고 TestClient 는 항상 같은 주소다. 순서만 다른 A/B: WS 단독 `7 passed` vs 번너+WS `5 failed(429)` · auth 두 파일 `1 failed(403)`. **두 누수가 서로를 가려 왔다는 사실**이 핵심이다 — 레이트리밋이 먼저 차면 lockout 이 켜지지 않는다. 기존 대응은 개별 테스트 우회였고(429만 처리) 실제 도착한 403 을 막지 못했다. 수정: `tests/conftest.py::_reset_login_security_state`(autouse).
+- **F-21 (검증 장치)** — 고립 2250~2265ms 인 성능 테스트가 6200여 개를 도는 같은 프로세스 안에서 **6084ms**(임계값 6000ms)였다. 수정은 검사를 빼는 것이 아니라 **옮기는 것**: `python-tests` 는 `-m "not benchmark"`, **신규 required 게이트 `python-benchmark`** 가 `-m benchmark` 로 조용한 프로세스에서 돈다(16 passed / 16.9s).
+- **증거** — 계약 3종 신규(9건) + 이빨 확인(게이트 `--extra` 제거 → 3 failed · `security-bandit` extra 제거 → 2 failed · conftest 무력화 → 1 failed · 성능 마커 제거 → 3 failed · 인벤토리 목록 편집 → 1 failed, 원복은 shasum 일치) · **required gate 21/21 을 커밋된 후보에서 되돌리기 0회로 단일 지문 `2c5a15c8…` 에서 완주**(python-tests **6174 passed / 40 skipped / 16 deselected** 506.6s · python-benchmark 16 passed · dashboard 81 files/849 · docker 223.0s · clean-machine 39.1s `ref: HEAD` · `data/` 드리프트 0 · 실행 후 지문 재측정 동일) · 로그 6종·증인 5종은 `attempt-013/`.
+- **한계** — R-8(다른 extra 의 조건부 수집 미감사: pinned skipped 40 vs ambient 6/13) · R-10(계약이 `uv run` 을 중첩 실행) · R-11(성능 임계값은 여전히 wall-clock) · R-12(격리는 하네스 수준, 제품은 IP 단일 키) · R-13(`vault_data`).
+- **다음 한 단계** — ① C14-08 배정 + EX-01~06 발송 → ② C14-03/04/05 → ③ 조건부 수집 감사(R-8) → ④ 태그 SHA 에서 `clean-machine-runtime` 마지막 재실행 + `evidence_kind: release` 번들 → 재판정.
+
+> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-013 절.** attempt-012 는 attempt-011 이 한계(R-4)로 남긴 `job.view` 무잠금 쓰기를 결함으로 승격해(F-16) 닫았고, 그 정리에서 드러난 F-17(취소가 이벤트 루프를 1010.7ms 세웠다 → 6.8ms)까지 닫았다.
+
 ## 2026-09-13 CR-14 attempt-012 — **attempt-011 이 한계로 남긴 R-4 를 결함으로 승격(F-16) + 그 정리에서 드러난 F-17** (판정 NO-GO 유지)
 
 > **이 절이 최신 실측이다(attempt-012).** attempt-011 은 "F-15 는 분류만 고쳤고 `job.view` 무잠금 쓰기 구조는 그대로다" 를 한계(R-4)로 적었다. 이번 attempt 는 **한계 문장을 재현 가능한 결함으로 바꾸는 것**에서 시작했고, 그 정리 과정에서 두 번째 결함이 드러났다.
@@ -145,7 +163,7 @@
 
 ## 2026-09-13 CR-14 attempt-011 — **계약화 + required gate 가 드러낸 제품 결함 F-15 폐쇄** (판정 NO-GO 유지)
 
-> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-012 절.** 기술 축이 닫힌 상태에서 두 가지를 더 했다 — 규율을 **계약**으로 옮기고, 그 계약이 드러낸 **제품 결함**을 닫았다.
+> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-013 절.** 기술 축이 닫힌 상태에서 두 가지를 더 했다 — 규율을 **계약**으로 옮기고, 그 계약이 드러낸 **제품 결함**을 닫았다.
 
 후보: **clean HEAD `d72b17111ceca8518d3f9f1fb1f3a22a04c176aa`** · 코드 지문 **`e428aacc29ec5516b311c831880376a0e128c805429486ddf32a83c68cd9877a`**.
 
@@ -176,7 +194,7 @@
 
 ## 2026-09-13 CR-14 attempt-009 — **후보 커밋 + F-12·F-07 폐쇄**: 기술 축을 모두 닫았다 (판정 NO-GO 유지)
 
-> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-012 절.** 달라진 것은 **커밋된 후보에서 20/20 을 완주**했고 **clean-machine 이 후보를 검증**했다는 점이다. 이제 남은 차단 사유는 사람의 영역(승인·검토·장기 검증)뿐이다.
+> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-013 절.** 달라진 것은 **커밋된 후보에서 20/20 을 완주**했고 **clean-machine 이 후보를 검증**했다는 점이다. 이제 남은 차단 사유는 사람의 영역(승인·검토·장기 검증)뿐이다.
 
 후보: **clean full SHA `54e4169a947d4ba0cbe3fabf92b0c8590b8ccef6`**(커밋 `5a717c4a` + F-12 수정 `54e4169a`), 코드 지문 **`dd34a76bf076ebc09be8c575ad733c52a0a647faa4d5d9758f3b01cf6f667f37`**.
 
@@ -224,7 +242,7 @@
 
 ## 2026-09-13 CR-14 attempt-006 — **F-06 폐쇄**: 대시보드 `uuid` 하한과 출하 바이트 (판정 NO-GO 유지)
 
-> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-012 절.** 판정은 attempt-001~005와 같이 **NO-GO** 다. 달라진 것은 **게이트 범위의 기술 결함이 0건**이 됐다는 점이다(남은 축: 커밋·외부 승인·F-07·F-09).
+> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-013 절.** 판정은 attempt-001~005와 같이 **NO-GO** 다. 달라진 것은 **게이트 범위의 기술 결함이 0건**이 됐다는 점이다(남은 축: 커밋·외부 승인·F-07·F-09).
 
 후보: 기준 `08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f` + 미커밋 patch, 코드 지문 **`3a9a7d66909e2fafaf31b4c429d2338f262d50b0d0d8ef3b5f00b5be0ca41e2d`**(attempt-005 의 `1981bfb5…` 에서 이동).
 
@@ -251,7 +269,7 @@
 
 ## 2026-09-12 CR-14 attempt-002 — P1·Docker OOM 폐쇄, **required gate 20/20 PASS** (판정 NO-GO 유지, 기록)
 
-> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-012 절.** 판정 자체(출시 준비 관문)는 attempt-001과 같은 **NO-GO** 다 — 달라진 것은 차단 사유의 성격이다. attempt-001의 차단 사유는 기술적(required gate 실패·미실행, P1)이었지만, attempt-002의 차단 사유는 **사람과 커밋 위생**(필수 외부 승인 부재 · source mismatch)이다.
+> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-013 절.** 판정 자체(출시 준비 관문)는 attempt-001과 같은 **NO-GO** 다 — 달라진 것은 차단 사유의 성격이다. attempt-001의 차단 사유는 기술적(required gate 실패·미실행, P1)이었지만, attempt-002의 차단 사유는 **사람과 커밋 위생**(필수 외부 승인 부재 · source mismatch)이다.
 
 attempt-001이 남긴 P1을 닫고, attempt-001에서 **미실행**이던 required gate가 처음 돌면서 드러난 OOM까지 닫았다. 후보는 기준 `08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f` + 미커밋 patch, 코드 지문 **`ebbbd7f06fab3fb2d10008336ef96ba0d7949ee72007774c6372fc07f1bba0b5`**(2544 files).
 

@@ -1,10 +1,10 @@
 # CR-14 최종 후보 판정서 — NO-GO
 
-- 판정일: 2026-09-12 (attempt-001) · **attempt-002 갱신: 2026-09-12** · **attempt-003 갱신: 2026-09-12** · **attempt-004 갱신: 2026-09-12** · **attempt-005 갱신: 2026-09-13** · **attempt-006 갱신: 2026-09-13** · **attempt-007 갱신: 2026-09-13** · **attempt-008 갱신: 2026-09-13** · **attempt-009 갱신: 2026-09-13** · **attempt-010 갱신: 2026-09-13** · **attempt-011 갱신: 2026-09-13** · **attempt-012 갱신: 2026-09-13(최신)**
+- 판정일: 2026-09-12 (attempt-001) · **attempt-002 갱신: 2026-09-12** · **attempt-003 갱신: 2026-09-12** · **attempt-004 갱신: 2026-09-12** · **attempt-005 갱신: 2026-09-13** · **attempt-006 갱신: 2026-09-13** · **attempt-007 갱신: 2026-09-13** · **attempt-008 갱신: 2026-09-13** · **attempt-009 갱신: 2026-09-13** · **attempt-010 갱신: 2026-09-13** · **attempt-011 갱신: 2026-09-13** · **attempt-012 갱신: 2026-09-13** · **attempt-013 갱신: 2026-09-13(최신)**
 - 후보: 커밋 `08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f` + 미커밋 patch(CR-01~CR-14)
-- 코드 지문(gate 실행 시점, `docs/`·`.omo/` 제외): attempt-001 `11979d6c…` → attempt-002 `ebbbd7f06fab3fb2d10008336ef96ba0d7949ee72007774c6372fc07f1bba0b5`(2544 files) → attempt-003 `eb10aed606ba7e84ecce03a50a19153b92105cacd196b5a167b5e38770f1f448`(2545 files) → attempt-004 `eca54773d5504e40a724a0c86ab9d1724be310986ef3e326f8f4904f52d98dd8`(2546 files) → attempt-005 `1981bfb5143d3f9eac947826bf6ee53655c47194f5be9c4a5bf755ba982a1844` → attempt-006 `3a9a7d66909e2fafaf31b4c429d2338f262d50b0d0d8ef3b5f00b5be0ca41e2d` → attempt-007 `c36327effafcc6dbe4a80970682f5e82eccd98f81951b000c758e888e7b0130a` → attempt-008 `6641446ef41e0562118dd0741637f57eae6412f18fdf18813ea87f777d0b0076` → **attempt-009 `dd34a76bf076ebc09be8c575ad733c52a0a647faa4d5d9758f3b01cf6f667f37`**
-- **코드 후보 full SHA: `1207118d45cdb643b3a3e7bdd5743a5fb7b6ab7d`**(attempt-012 — F-16·F-17 수정). `git.dirty: true` 의 원인은 ` M vault_data`(별도 저장소의 런타임 이벤트 로그) **한 줄뿐**이다 — F-13. **값의 최신 출처는 아래 §5 판정 카드다**(이 머리말의 값도 그 카드를 따라간다).
-- 증거: `.omo/evidence/commercial-reliability/CR-14/attempt-001/`, `attempt-002/`, `attempt-003/`, `attempt-004/`, `attempt-005/`, `attempt-006/`, `attempt-007/`, `attempt-008/`, `attempt-009/`, `attempt-010/`, `attempt-011/`, **`attempt-012/`(최신)**
+- 코드 지문(gate 실행 시점, `docs/`·`.omo/` 제외): attempt-001 `11979d6c…` → attempt-002 `ebbbd7f06fab3fb2d10008336ef96ba0d7949ee72007774c6372fc07f1bba0b5`(2544 files) → attempt-003 `eb10aed606ba7e84ecce03a50a19153b92105cacd196b5a167b5e38770f1f448`(2545 files) → attempt-004 `eca54773d5504e40a724a0c86ab9d1724be310986ef3e326f8f4904f52d98dd8`(2546 files) → attempt-005 `1981bfb5143d3f9eac947826bf6ee53655c47194f5be9c4a5bf755ba982a1844` → attempt-006 `3a9a7d66909e2fafaf31b4c429d2338f262d50b0d0d8ef3b5f00b5be0ca41e2d` → attempt-007 `c36327effafcc6dbe4a80970682f5e82eccd98f81951b000c758e888e7b0130a` → attempt-008 `6641446ef41e0562118dd0741637f57eae6412f18fdf18813ea87f777d0b0076` → **attempt-009 `dd34a76bf076ebc09be8c575ad733c52a0a647faa4d5d9758f3b01cf6f667f37`** → attempt-010 `d4a42ab8…` → attempt-011 `e428aacc…` → attempt-012 `7ecb4fc2…` → **attempt-013 `2c5a15c8…`(최신)** (010 이후 값의 전체 자리는 §5 판정 카드가 소유한다)
+- **코드 후보 full SHA: `0593dd27dbea4a7bc4796ad9807d14b9f3a62165`**(attempt-013 — 게이트 환경 고정·성능 검사 분리·인벤토리 계약·bandit 선언). **attempt-001~012 의 초록은 이 SHA 의 후보에 대한 것이 아니다** — 그 시점의 후보는 `1207118d`(attempt-012)였다. `git.dirty: true` 의 원인은 ` M vault_data`(별도 저장소의 런타임 이벤트 로그) **한 줄뿐**이다 — F-13. **값의 최신 출처는 아래 §5 판정 카드다**(이 머리말의 값도 그 카드를 따라간다).
+- 증거: `.omo/evidence/commercial-reliability/CR-14/attempt-001/`, `attempt-002/`, `attempt-003/`, `attempt-004/`, `attempt-005/`, `attempt-006/`, `attempt-007/`, `attempt-008/`, `attempt-009/`, `attempt-010/`, `attempt-011/`, `attempt-012/`, **`attempt-013/`(최신)**
 - **판정: NO-GO. GA 승인 없음. CR-14는 DONE이 아니다.**
 - 출시 책임자 / 독립 검토자: **미배정 / 미배정**
 
@@ -13,7 +13,22 @@
 
 ---
 
-## attempt-012 갱신 (2026-09-13, 최신) — attempt-011 이 남긴 구조적 잔여(R-4)를 닫았다: **종결 기록의 주인(F-16)** + 취소의 블로킹(F-17)
+## attempt-013 갱신 (2026-09-13, 최신) — 검증 장치가 거짓말하고 있었다: **게이트 환경 비고정(F-18·F-19)** · **테스트 격리 누수(F-20)** · **부하 의존 임계값(F-21)**
+
+**판정은 NO-GO 로 유지한다.** attempt-012 는 "같은 lock 3종 sha256 인데 게이트 환경이 달랐다"를 **원인 미특정 한계(R-6)** 로 남겼다. 이번 attempt 는 그 관측을 끝까지 따라가 네 건을 닫았고, 그 결과 **게이트 인벤토리(20 → 21)·`uv.lock`·"이전 초록이 무엇을 증명했는가"의 해석**이 바뀌었다. **제품 런타임 코드 변경은 0건**이다 — 네 건 중 세 건이 검증 장치의 결함이었다.
+
+- 후보: **`0593dd27dbea4a7bc4796ad9807d14b9f3a62165`** · 코드 지문 `2c5a15c8…`(값 전체는 아래 §5 판정 카드가 소유한다 — `C14-F15-2` 계약이 선언 자리를 하나로 강제한다) · evidence bundle 은 만들지 않았다(GO 판정용 artifact 가 아니다 — attempt-002 와 같다)
+- **F-18(검증 장치)** — 게이트는 `uv run --isolated --frozen <tool>` 이면 hermetic 하다고 전제했지만, dev 도구는 `[project.optional-dependencies].dev` 에 있고 `uv run` 은 그 extra 를 설치하지 **않는다**: 임시환경(64 패키지)에 pytest 가 없고(`find_spec('pytest') is None`), 도구가 없으면 uv 는 **호출 셀의 PATH** 로 떨어진다(`VIRTUAL_ENV` 무관 — PATH 우선순위가 결정했다). 증거는 같은 `uv.lock` sha256 을 가진 두 보고서다 — attempt-011 은 `.../.venv/bin/python3` + pytest 9.1.1 + 수집 6213 + skipped 13, attempt-012 는 `/Users/mr.k/miniforge3/bin/python3.13` + pytest 9.0.3 + 수집 6221 + skipped 6. 차이의 정체는 정확히 `TestAgainstInstalled` 7건(그 클래스 가드가 `import trl; import unsloth` 다) — R-6 의 답이다. PATH 앞에 가짜 도구를 두고 게이트를 그대로 실행하는 증인으로 확인했다: 수정 전 **HIJACKED 4/4**, 수정 후 pinned. **같은 결함이 범주를 가리지 않았다** — 보안 게이트의 `bandit` 은 pyproject 에 **선언조차 없어** conda base 의 1.9.4 를 실행하고 있었다.
+- **F-19(검증 장치)** — 게이트를 실제로 고정하자 `python-tests` 가 `VectorStore requires chromadb but it is unavailable` 로 실패했다(dev 만: 해당 세 파일 `10 failed / 25 passed` · dev+rag: `35 passed`). chromadb 는 `rag` extra 이고 ambient 환경에 항상 있었기 때문에 20/20 초록이 나왔다. 제품 코드는 바꾸지 않았다(`VectorStore` 는 명확히 거부하고 `gbrain` 은 강등한다 — 설계대로).
+- **F-20(테스트 격리)** — 키가 '호출자 IP'인 전역 상태 기계가 둘(slowapi `5/minute`, credential gate lockout)이고 TestClient 는 항상 같은 주소다. 순서만 다른 A/B: WS 통합 테스트 단독 `7 passed` vs 버너+WS `5 failed(429)` · auth 두 파일 `1 failed(403)`. **두 누수가 서로를 가려 왔다는 사실**이 핵심이다 — 레이트리밋이 먼저 차면 lockout 이 켜지지 않는다. 수정은 `tests/conftest.py::_reset_login_security_state`(autouse) 이고 개별 테스트 우회는 제거했다.
+- **F-21(검증 장치)** — 고립 실행 2250~2265ms 인 성능 테스트가 6200여 개를 도는 같은 프로세스 안에서 **6084ms**(임계값 6000ms)였다. 검사를 빼지 않고 **옮겼다**: `python-tests` 는 `-m "not benchmark"`, **신규 required 게이트 `python-benchmark`** 가 `-m benchmark` 로 조용한 프로세스에서 돈다(16 passed / 16.9s).
+- **검증** — 계약 3종 신규(9건) + 이빨 확인(게이트 `--extra` 제거 → 3 failed · `security-bandit` extra 제거 → 2 failed · conftest 무력화 → 1 failed · 성능 마커 제거 → 3 failed · 인벤토리 목록 편집 → 1 failed, 원복은 shasum 일치) · **required gate 21/21 을 커밋된 후보에서 되돌리기 0회로 단일 지문 `2c5a15c8…` 에서 완주**(python-tests **6174 passed / 40 skipped / 16 deselected** 506.6s · python-benchmark 16 passed · dashboard 81 files/849 · docker 223.0s · clean-machine 39.1s `ref: HEAD` · `data/` 드리프트 0 · **실행 후 지문 재측정 동일**).
+- **해석이 바뀐 부분(중요)** — attempt-001~012 의 20/20 은 **ambient 도구**(conda base 또는 `.venv`)로 측정됐다: “스위트가 통과했다”로는 유효하고 “lock 이 검증됐다”로는 유효하지 않았다. F-01~F-17 폐쇄의 근거는 **코드 계약**이라 영향받지 않는다.
+- **한계** — R-8(다른 extra 의 조건부 수집 미감사: pinned skipped 40 vs ambient 6/13) · R-10(계약이 `uv run` 을 중첩 실행해 스위트에 약 30초) · R-11(성능 임계값은 여전히 wall-clock) · R-12(격리는 하네스 수준, 제품은 IP 단일 키) · R-13(`vault_data`).
+
+> **이 절은 그 시점의 실측이다 — 최신은 위의 attempt-013 절.** attempt-012 는 attempt-011 이 한계(R-4)로 남긴 `job.view` 무잠금 쓰기를 결함으로 승격해(F-16) 닫았고, 그 정리에서 드러난 F-17(취소가 이벤트 루프를 1010.7ms 세웠다 → 6.8ms)까지 닫았다.
+
+## attempt-012 갱신 (2026-09-13) — attempt-011 이 남긴 구조적 잔여(R-4)를 닫았다: **종결 기록의 주인(F-16)** + 취소의 블로킹(F-17)
 
 **판정은 NO-GO 로 유지한다.** attempt-011 은 "F-15 는 분류만 고쳤고 `job.view` 무잠금 쓰기 구조는 그대로다" 를 한계(R-4)로 적었다. 이번 attempt 는 그 문장을 **결함으로 승격**해 재현 → 수정 → 이빨 → 게이트 순서로 갔다.
 
@@ -65,7 +80,7 @@
 
 **판정은 NO-GO 로 유지한다.** attempt-009 가 측정한 코드 내용은 그대로이고, 그 내용을 **동결된 커밋 트리**에 묶었다. 대신 그 과정에서 이 저장소가 전제해 온 가정 하나가 **틀렸음**이 드러났다.
 
-- 후보: **clean HEAD `5ccb938e5d31411b16f2a69e3015fc8fb826455d`**(커밋 4개) · 코드 지문 **`d4a42ab87697ba299129719d054c9259a717628a1bc8f80d00cd03ae0e372ce7`**(attempt-009 의 `dd34a76b…` 에서 이동).
+- 후보: **clean HEAD `5ccb938e5d31411b16f2a69e3015fc8fb826455d`**(커밋 4개) · 코드 지문 `d4a42ab87697ba299129719d054c9259a717628a1bc8f80d00cd03ae0e372ce7`(attempt-009 의 `dd34a76b…` 에서 이동). **값의 전체 자리는 §5 판정 카드로 옮겼다** — 선언은 하나여야 한다(attempt-013 에서 이 자리가 낡은 값을 소유하고 있었다).
 
 **드러난 경계 — "문서를 써도 증거가 낡지 않는다"는 `docs/` 안에서만 참이다**
 
@@ -586,22 +601,29 @@ timeout 7200초). `ga_gate.py --merge-into`가 **같은 후보 SHA + 같은 mani
 | F-06 | mermaid 경유 `uuid@9.0.1` moderate(`<11.1.1`, `buf` 인자 경로) | 잔여 위험 | 감사 임계값 `high` 라 **차단되지 않는다** — 상류가 uuid를 올려야 함(attempt-002 신규) |
 | ~~F-07~~ | `clean-machine-runtime` 이 `git archive HEAD` 로 **커밋된 HEAD** 를 검증한다(그 시점 2877 파일, `git.dirty: true`). 후보가 미커밋이면 **초록이 후보가 아닌 다른 코드를 가리킨다** — **attempt-009 에서 닫혔다**(후보 커밋 후 재실행, 3001 파일) | 검증 범위(sequencing) | 코드 결함 아님 — 후보 커밋 뒤 새 HEAD 에서 재실행하면 정확해진다. 그 전까지 이 PASS 를 후보 근거로 인용 금지(attempt-003 신규) |
 
-## 5. 판정 카드 (attempt-012 기준)
+## 5. 판정 카드 (attempt-013 기준)
 
-- code candidate full SHA: **`1207118d45cdb643b3a3e7bdd5743a5fb7b6ab7d`**(attempt-012 — `5a717c4a` 후보 → `54e4169a` F-12 → `7347c5ee` attempt-009 기록 → `5ccb938e` README 지문 제거 → `552d59be`·`024b0661` attempt-010 기록 → `5521ac5f` 지문 스코프 계약 → `d72b1711` F-15 수정 → `1207118d` F-16·F-17 수정). `git.dirty: true` 의 원인은 ` M vault_data` 한 줄(F-13)이며 **코드·산출물은 clean** 이다. 보조 식별자 **코드 지문 `7ecb4fc25f8b85af77f550f2d5482016f428ac0ddbc04ab7a8ce73b071d7ae0a`**(`docs/`·`.omo/` 제외, attempt-012)
+- code candidate full SHA: **`0593dd27dbea4a7bc4796ad9807d14b9f3a62165`**(attempt-013 — `5a717c4a` 후보 → `54e4169a` F-12 → `7347c5ee` attempt-009 기록 → `5ccb938e` README 지문 제거 → `552d59be`·`024b0661` attempt-010 기록 → `5521ac5f` 지문 스코프 계약 → `d72b1711` F-15 수정 → `1207118d` F-16·F-17 수정 → `0a86b79e` 게이트 환경 고정 → `d7a2714d` 성능 검사 분리 → `292eecfc` 인벤토리 계약 → `0593dd27` bandit 선언). `git.dirty: true` 의 원인은 ` M vault_data` 한 줄(F-13)이며 **코드·산출물은 clean** 이다. 보조 식별자 코드 지문 **`2c5a15c88570c8e1f56172c6967592860863c140aa6e971890bf4f1ae1567a6f`**(`docs/`·`.omo/` 제외, **attempt-013 — 이 카드가 값의 유일한 선언 자리다**)
   - **SHA 는 커밋마다 움직이지만 지문이 같으면 같은 코드다** — 증거는 지문으로 읽는다. 지문 제외는 `docs/`·`.omo/` **접두사뿐**이라 `README.md`·`tests/**` 는 지문 안이다(attempt-009 의 `dd34a76b…` 는 기록 커밋이 이 둘을 고쳐서 이동했다 — F-14/D-51)
 - evidence bundle 위치 / manifest SHA256: **attempt-002 는 번들을 만들지 않았다** — 근거는 `attempt-002/gate-report.json` + `reproduction.md`·`decision.md`·`manual-qa.md`·`logs/**`. attempt-001 번들(`attempt-001/bundle/`, `manifest.sha256` sidecar)은 **`evidence_kind: reference`, verify verdict `REFERENCE_ONLY`(exit 3). 승인 artifact가 아니다**로 유지
-- required gate inventory / PASS / FAIL / NOT_RUN: **20 / 20 / 0 / 0**(attempt-012, **커밋된 후보 `1207118d`** 에서 되돌리기 없이 단일 지문 `7ecb4fc2…` · 실행 후 지문 재확인 · 코드를 측정 전에 커밋해 HEAD 의존 재실행 불필요 / attempt-011 은 20 / 20 / 0 / 0(`e428aacc…`, 6200 passed) / attempt-010 은 20 / 20 / 0 / 0(`d4a42ab8…`, HEAD 의존 2개는 별도 보고서 2/2) / attempt-009 는 20 / 20 / 0 / 0 이었으나 그 뒤 지문이 이동했다 / attempt-001 은 20 / 14 / 1 / 4 — 과거 기록 보존)
-- backend·frontend·실행 보안·설치/복구·실 provider·8h 결과: backend **6215 passed / 6 skipped / 수집 6221**(attempt-012 — 신규 회귀 8건이 정확히 반영됐고, skip 은 13 → 6 으로 줄었다: `test_unsloth_script_api_drift.py::TestAgainstInstalled` 7건이 이번엔 스킵되지 않고 **통과**했다. 같은 lock 3종 sha256 인데 결과가 달라 **원인 미특정** — R-6 으로 등록. attempt-011 은 6200 / 13) · frontend **849 passed(81 files)**(F-14 — 종전 기록의 `846/80` 은 F-12 이전 값이었다) · dev 도구 체인 감사 **전체 트리 0건**(attempt-007, F-09 폐쇄) · 실행 보안 PASS · 설치/복구 `clean-machine-runtime` **PASS + 후보를 검증(3001 파일, `ref: HEAD`) · clean HEAD 재실행 PASS(39.2s)** · 컨테이너 `docker-build` **PASS(233.7s)** · 실 provider **미확보** · 8h soak **미실행** · 측정 도구 `stryker:quick` **exit 0 · All files 91.92%(quick 범위 2 파일, attempt-008)**
+- required gate inventory / PASS / FAIL / NOT_RUN: **21 / 21 / 0 / 0**(attempt-013 — **`python-benchmark` 신규**. 커밋된 후보 `0593dd27` 에서 되돌리기 없이 단일 지문 `2c5a15c8…` · 실행 후 지문 재확인 · 코드를 측정 전에 커밋해 HEAD 의존 재실행 불필요. **인벤토리 증가는 검사 제외가 아니라 wall-clock 검사를 전용 게이트로 옮긴 결과다** — 기능 게이트에서 성능 검사 16건이 제외되고, 그 16건이 조용한 프로세스에서 required 로 돈다 / attempt-012 는 20 / 20 / 0 / 0(`7ecb4fc2…`, 6215 passed) / attempt-011 은 20 / 20 / 0 / 0(`e428aacc…`, 6200 passed) / attempt-010 은 20 / 20 / 0 / 0(`d4a42ab8…`, HEAD 의존 2개는 별도 보고서 2/2) / attempt-009 는 20 / 20 / 0 / 0 이었으나 그 뒤 지문이 이동했다 / attempt-001 은 20 / 14 / 1 / 4 — 과거 기록 보존)
+- backend·frontend·실행 보안·설치/복구·실 provider·8h 결과: backend **6174 passed / 40 skipped / 16 deselected**(attempt-013 — 성능 16건은 전용 게이트로 분리했고, 게이트 환경이 lock 에 고정돼 skip 수가 먼저 다르다. 헤더가 `.cache/uv/builds-v0/.tmp*/bin/python` + pytest 9.1.1) + **python-benchmark 16 passed**(16.9s) · attempt-012 는 **6215 / 6 / 수집 6221**(당시 skip 감소는 R-6 이었고, attempt-013 이 그 원인을 **게이트 도구가 lock 이 아니라 호출 셀에서 왔다**로 특정했다 — F-18) · attempt-011 은 6200 / 13 · frontend **849 passed(81 files)**(F-14 — 종전 기록의 `846/80` 은 F-12 이전 값이었다) · dev 도구 체인 감사 **전체 트리 0건**(attempt-007, F-09 폐쇄) · 실행 보안 PASS · 설치/복구 `clean-machine-runtime` **PASS + 후보를 검증(3001 파일, `ref: HEAD`) · clean HEAD 재실행 PASS(39.2s)** · 컨테이너 `docker-build` **PASS(233.7s)** · 실 provider **미확보** · 8h soak **미실행** · 측정 도구 `stryker:quick` **exit 0 · All files 91.92%(quick 범위 2 파일, attempt-008)**
 - 후보 트리 안정성(attempt-003 실측): **20-gate 전체 실행 후 코드 지문 불변** + `dashboard-build` 재빌드 **바이트 단위 동일** → 이 후보에서 검증은 트리를 바꾸지 않는다
 - 지원 scope / 실제 외부 승인: 미확정 / 없음
 - 독립 리뷰 보고서와 대상 SHA: **미생성 / 미정**
 - 후보 트리 안정성(attempt-005 실측): suite 전후 + **20-gate 전체 실행 전후**에 코드 지문 `1981bfb5…` 가 **동일** — 이 후보에서 검증은 트리를 바꾸지 않는다(되돌리기 0회)
 - 후보 트리 안정성(attempt-012 실측): 커밋된 후보 `1207118d` 에서 20-gate 실행 **후** 코드 지문 `7ecb4fc2…` 가 보고서 값과 **동일**(UNCHANGED) · 실행 후 트리는 ` M vault_data` 한 줄 · `data/` 드리프트 0 — 되돌리기 0회
-- 최종 판정: **NO-GO** (기술 gate 는 초록, 승인·커밋 위생이 차단)
+- 후보 트리 안정성(attempt-013 실측): 커밋된 후보 `0593dd27` 에서 **21-gate 실행 후** 코드 지문 `2c5a15c8…` 가 보고서 값과 **동일**(UNCHANGED — `logs/fingerprint-invariance.txt`) · `data/` 드리프트 0 · `dashboard_dist` 드리프트 0 — 되돌리기 0회
+- 최종 판정: **NO-GO** (기술 gate 는 초록, 승인·커밋 위생이 차단). **단 "기술 결함 0건"의 의미를 정확히 읽을 것** — attempt-001~012 의 초록은 ambient 도구로 측정됐고, attempt-013 부터가 lock 을 검증한다. 제품 결함은 여전히 0건이고, 이번에 닫힌 3건은 검증 장치의 결함이다.
 - 출시 책임자 / 판정 날짜: 미배정 / 2026-09-13
 
-## 6. 재개 순서 (권장, attempt-012 갱신)
+## 6. 재개 순서 (권장, attempt-013 갱신)
+
+0-e. ~~**게이트가 lock 을 검증하는가**~~ — **attempt-013 에서 완료했다**(F-18·F-19·F-21). 게이트에 필요한 extra 를 명시하고(`python` 5종 `--extra dev --extra rag` · `security-bandit` `--extra dev`), 선언되지 않은 도구(`bandit`)를 dev extra 에 넣어 lock 에 포함시켰으며, wall-clock 검사를 전용 required 게이트로 옮겼다. 결과: 인벤토리 **21**, `uv.lock` `cd6b8281a7ef…`.
+   ⚠️ **게이트를 손대면 계약이 먼저 깨진다** — `tests/test_cr14_gate_env_pinning.py`(도구 출처) · `test_cr14_gate_load_isolation.py`(성능 검사 위치) · `test_cr14_login_state_isolation.py`(보안 상태 격리) · `TestCandidateGateInventory`(필수 목록).
+   ⚠️ **`uv run --isolated --frozen <tool>` 만 써 놓고 extra 를 빠뜨리지 말 것** — uv 는 호출 셀의 PATH 로 떨어진다.
+
+0-f. **남은 감사(기술, 선택)** — R-8: pinned 환경의 skipped 40 과 ambient 의 6/13 은 **다른 자의 눈금**이다. 어느 테스트가 왜 조건부로 수집/스킵되는지 목록화하고, 그중 제품 능력을 실제로 재는 것이 있는지 확인한다(예: `mlx`/`transformers`/`finetune` 의존 테스트가 조용히 사라진다면 커버리지 감소다). attempt-013 은 이 감사를 **하지 않았다**.
 
 0. ~~**CR-01~CR-14 커밋 → clean full SHA 고정 → 그 SHA 에서 20-gate 재실행**~~ — **attempt-009·010 에서 완료했다.**
    SHA `54e4169a`(attempt-009) → **clean HEAD `5ccb938e`**(attempt-010) · 커밋된 후보에서 20/20 PASS ·
