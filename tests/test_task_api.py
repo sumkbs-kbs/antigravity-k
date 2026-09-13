@@ -17,6 +17,8 @@ class FakeTaskRuntime:
         self.submit_calls: list[dict[str, object]] = []
         self.event_calls: list[tuple[str, int, int]] = []
         self.event_sequences: list[int] = [7]
+        # F-35: 취소의 결과는 bool 이 아니라 **이유**다 — 이 시험대는 그 사실을 흔들어 확인한다.
+        self.cancel_verdict_result: str = "cancelled"
 
     def submit_task(self, **kwargs: object) -> str:
         self.submit_calls.append(kwargs)
@@ -76,9 +78,14 @@ class FakeTaskRuntime:
             return None
         return "source result" if task_id == "task-123" else None
 
-    def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool:
+    def cancel_verdict(self, task_id: str, owner_subject: str | None = None) -> str:
         _ = task_id
-        return owner_subject != "foreign"
+        if owner_subject == "foreign":
+            return "not_active"
+        return self.cancel_verdict_result
+
+    def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool:
+        return self.cancel_verdict(task_id, owner_subject=owner_subject) == "cancelled"
 
     def resume_task(self, task_id: str, owner_subject: str | None = None) -> bool:
         _ = task_id
@@ -277,6 +284,35 @@ def test_task_status_rejects_foreign_authenticated_subject(client: TestClient, r
     response = client.get("/api/tasks/task-123/status", headers={"X-Test-Subject": "foreign"})
 
     assert response.status_code == 404
+
+
+def test_cancel_of_task_owned_by_another_live_process_is_a_conflict(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
+    """F-35: 살아 있는 다른 프로세스의 실행은 404(활성 아님)가 아니라 **409** 다.
+
+    예전에는 이 자리가 조용했다 — 소유 여부를 보지 않고 `cancelled` 로 적었기 때문이다.
+    """
+    runtime.cancel_verdict_result = "owned_elsewhere"
+    response = client.post("/api/tasks/task-123/cancel")
+
+    assert response.status_code == 409
+    assert "another live process" in str(response.json()["detail"]).lower()
+
+
+def test_cancel_of_inactive_task_is_not_found(client: TestClient, runtime: FakeTaskRuntime) -> None:
+    runtime.cancel_verdict_result = "not_active"
+
+    assert client.post("/api/tasks/task-123/cancel").status_code == 404
+
+
+def test_cancel_of_owned_task_reports_cancelled(client: TestClient, runtime: FakeTaskRuntime) -> None:
+    runtime.cancel_verdict_result = "cancelled"
+    response = client.post("/api/tasks/task-123/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
 
 
 @pytest.mark.parametrize(

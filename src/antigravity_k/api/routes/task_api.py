@@ -185,7 +185,20 @@ def get_task_output(task_id: str, request: Request) -> TaskOutputResponse:
 
 @router.post("/api/tasks/{task_id}/cancel", response_model=TaskActionResponse)
 def cancel_background_task(task_id: str, request: Request) -> TaskActionResponse:
-    if not _runtime().cancel_task(task_id, owner_subject=_auth_subject(request)):
+    """태스크 취소 — 거부는 **이유별로 다른 응답**이다(F-35).
+
+    "활성 아님"(404)과 "다른 살아 있는 프로세스가 실행 중"(409)은 다른 사건이다. 예전에는 둘 다
+    404 였고, 그보다 나쁜 경우도 있었다: 소유 여부를 보지 않고 `cancelled` 로 적어 **이력이
+    거짓이 됐다**(그 행은 끝났다고 말하는데 실행은 계속된다). 이제 소유 규칙(`can_cancel`)이
+    그 거부를 만들고, 여기서는 그 사실을 응답으로 **이름 붙인다**.
+    """
+    verdict = _runtime().cancel_verdict(task_id, owner_subject=_auth_subject(request))
+    if verdict == "owned_elsewhere":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Another live process owns this task's execution — cancel it there",
+        )
+    if verdict != "cancelled":
         raise HTTPException(status_code=404, detail="Task is not active")
     return TaskActionResponse(status="cancelled", task_id=task_id)
 

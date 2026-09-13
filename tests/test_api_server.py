@@ -565,27 +565,41 @@ def test_task_cancel_api_cancels_background_task(client: TestClient, monkeypatch
     from antigravity_k.api.routes import task_api
 
     runtime = cast(_RuntimeDouble, MagicMock())
-    setattr(runtime.cancel_task, "return_value", True)
+    setattr(runtime.cancel_verdict, "return_value", "cancelled")
     monkeypatch.setattr(task_api, "get_agent_runtime", lambda: runtime)
 
     response = client.post("/api/tasks/task_123/cancel")
 
     assert response.status_code == 200
     assert _response_json(response) == {"status": "cancelled", "task_id": "task_123"}
-    runtime.cancel_task.assert_called_once_with("task_123", owner_subject="loopback")
+    runtime.cancel_verdict.assert_called_once_with("task_123", owner_subject="loopback")
 
 
 def test_task_cancel_api_rejects_unknown_or_terminal_task(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     from antigravity_k.api.routes import task_api
 
     runtime = cast(_RuntimeDouble, MagicMock())
-    setattr(runtime.cancel_task, "return_value", False)
+    setattr(runtime.cancel_verdict, "return_value", "not_active")
     monkeypatch.setattr(task_api, "get_agent_runtime", lambda: runtime)
 
     response = client.post("/api/tasks/task_missing/cancel")
 
     assert response.status_code == 404
     assert _response_json(response)["detail"] == "Task is not active"
+
+
+def test_task_cancel_api_reports_owned_elsewhere_as_conflict(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """F-35: 살아 있는 다른 프로세스의 실행은 404 가 아니라 **409** 다 — 조용한 실패가 아니다."""
+    from antigravity_k.api.routes import task_api
+
+    runtime = cast(_RuntimeDouble, MagicMock())
+    setattr(runtime.cancel_verdict, "return_value", "owned_elsewhere")
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: runtime)
+
+    response = client.post("/api/tasks/task_123/cancel")
+
+    assert response.status_code == 409
+    assert "another live process" in str(_response_json(response)["detail"]).lower()
 
 
 def test_task_steering_api_records_accepted_queued_replay(client: TestClient, monkeypatch: pytest.MonkeyPatch):

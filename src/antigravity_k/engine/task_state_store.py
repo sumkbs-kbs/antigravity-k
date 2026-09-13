@@ -7,7 +7,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast, final
+from typing import Final, cast, final
 
 from antigravity_k.engine.task_events import (
     ExecutionEventRecord,
@@ -25,11 +25,12 @@ from antigravity_k.engine.task_execution_context import (
 from antigravity_k.engine.task_execution_context import (
     current_task_execution_context as current_task_execution_context,
 )
-from antigravity_k.engine.task_process_ownership import can_prepare_resume, owner_pid_for_status
+from antigravity_k.engine.task_process_ownership import can_cancel, can_prepare_resume, owner_pid_for_status
 from antigravity_k.engine.task_state_types import (
     ALLOWED_TASK_TRANSITIONS,
     TASK_STATUSES,
     TERMINAL_TASK_STATUSES,
+    CancellationVerdict,
     CheckpointRecord,
     InvalidTaskStatusError,
     InvalidTaskTransitionError,
@@ -38,6 +39,11 @@ from antigravity_k.engine.task_state_types import (
     TaskTransitionConflictError,
     is_terminal_task_status,
 )
+
+# 사용자(또는 다른 프로세스)가 취소를 요청해 끝난 태스크의 오류 문구. 이전 문구("… or it was lost in
+# memory")는 **살아 있는 소유자를 가리키지 않는다**는 것을 말하지 못했고, F-35 의 거짓 이력은 바로
+# 그 자리에서 생겼다 — 문구가 "무슨 일이 일어났는가"를 말하도록 바꾼다.
+_CANCELLED_BY_REQUEST_MESSAGE: Final[str] = "Task was cancelled by an explicit cancel request."
 
 
 def _fetchone(cursor: sqlite3.Cursor) -> sqlite3.Row | None:
@@ -392,6 +398,61 @@ class TaskStateStore:
                 + ((owner_subject,) if owner_subject is not None else ()),
             )
         return cursor.rowcount == 1
+
+    def cancel_if_permitted(
+        self,
+        task_id: str,
+        owner_subject: str | None = None,
+    ) -> CancellationVerdict:
+        """**소유 규칙을 지키며** 취소한다 — 다른 살아 있는 프로세스의 실행은 건드리지 않는다.
+
+        F-35: 이 메서드가 없던 동안 `cancel` 은 메모리에 태스크가 없으면 DB 의
+        `status ∈ {pending, running}` 만 보고 `cancelled` 로 적었다. 그 결과 **다른 프로세스가
+        실제로 실행 중인** 태스크의 이력이 "취소됨"이 되는데 실행은 계속됐다(취소 신호는 프로세스
+        안의 event 라 닿지 않는다). `resume` 이 이미 갖고 있던 소유 규칙을 취소에도 **같은 함수로**
+        적용하고, 거부를 `owned_elsewhere` 로 **이름 붙여** 돌려준다(조용한 404 가 아니다).
+
+        `prepare_resume` 과 같은 형태의 CAS 다: 읽은 `status`·`owner_pid`·`version` 을 조건에
+        넣으므로 그 사이 소유자가 상태를 바꿨다면 0행이 되어 실패한다(last-write-wins 가 아니다).
+        """
+        with self._connection() as connection:
+            _ = connection.execute("BEGIN IMMEDIATE")
+            query = "SELECT status, owner_pid, version FROM task_history WHERE task_id = ?"
+            parameters: tuple[object, ...] = (task_id,)
+            if owner_subject is not None:
+                query += " AND owner_subject = ?"
+                parameters += (owner_subject,)
+            row = _fetchone(connection.execute(query, parameters))
+            if not row:
+                return "not_active"
+            owner_pid_value = _row_value(row, "owner_pid")
+            owner_pid = None if owner_pid_value is None else int(cast(int, owner_pid_value))
+            raw_status = str(_row_value(row, "status"))
+            current_version = int(cast(int, _row_value(row, "version") or 0))
+            if raw_status not in {"pending", "running", "paused"}:
+                return "not_active"
+            if not can_cancel(raw_status, owner_pid):
+                return "owned_elsewhere"
+
+            cursor = connection.execute(
+                "UPDATE task_history SET status = ?, error = ?, completed_at = ?, updated_at = ?, "
+                + "owner_pid = NULL, version = ? "
+                + "WHERE task_id = ? AND status = ? AND owner_pid IS ? AND version = ?"
+                + (" AND owner_subject = ?" if owner_subject is not None else ""),
+                (
+                    "cancelled",
+                    _CANCELLED_BY_REQUEST_MESSAGE,
+                    datetime.now(UTC).isoformat(),
+                    datetime.now(UTC).isoformat(),
+                    current_version + 1,
+                    task_id,
+                    raw_status,
+                    owner_pid,
+                    current_version,
+                )
+                + ((owner_subject,) if owner_subject is not None else ()),
+            )
+        return "cancelled" if cursor.rowcount == 1 else "not_active"
 
     def list_tasks(self, limit: int, owner_subject: str | None = None) -> list[TaskRecord]:
         with self._connection() as connection:

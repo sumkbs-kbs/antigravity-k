@@ -43,6 +43,7 @@ from antigravity_k.engine.task_state_store import (
     TaskStateStore,
 )
 from antigravity_k.engine.task_state_types import (
+    CancellationVerdict,
     InvalidTaskStatusError,
     InvalidTaskTransitionError,
     TaskStatusName,
@@ -410,48 +411,44 @@ class BackgroundTaskRunner:
         return any(marker in prompt_lower for marker in _DIRECT_RESPONSE_MARKERS)
 
     def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool:
-        """현재 실행 중인 태스크에 중단 시그널을 보냅니다."""
+        """현재 실행 중인 태스크에 중단 시그널을 보냅니다.
+
+        bool 로 좁힌 형태다 — 거부 사유가 필요한 호출자(API)는 `cancel_verdict` 를 쓴다.
+        """
+        return self.cancel_verdict(task_id, owner_subject=owner_subject) == "cancelled"
+
+    def cancel_verdict(
+        self,
+        task_id: str,
+        owner_subject: str | None = None,
+    ) -> CancellationVerdict:
+        """취소의 **상세 결과** — 왜 거부됐는지까지 구분한다(F-35).
+
+        `cancel_task` 는 이 함수를 bool 로 좁힌 것이고(기존 호출자 보존), API 는 거부 사유를
+        구분해야 한다: "활성 아님"(404)과 "다른 살아 있는 프로세스가 실행 중"(409)은 다른 사건이다.
+        """
         with self._lock:
             task = self._tasks.get(task_id)
             if task is not None and owner_subject is not None and task.owner_subject != owner_subject:
                 task = None
-
-        if not task:
-            # Check DB
-            status_info = self.get_status(task_id, owner_subject=owner_subject)
-            if status_info and status_info["status"] in [
-                TaskStatus.PENDING,
-                TaskStatus.RUNNING,
-            ]:
-                updated = self._update_db_status(
-                    task_id,
-                    TaskStatus.CANCELLED,
-                    error="Task was cancelled before it started executing or it was lost in memory.",
-                )
+            if task is not None:
+                if task.status in [TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.CANCELLED]:
+                    return "not_active"
+                # 이 프로세스가 소유한 태스크다 — event 로 직접 멈춘다(기존 경로 그대로).
+                logger.info("Sending cancel signal to task %s", task_id)
+                task.cancel_event.set()
+                task.status = TaskStatus.CANCELLED
+                task.error = "Task was manually cancelled by the user."
+                task.updated_at = datetime.now(UTC).isoformat()
+                updated = self._update_db_status(task_id, TaskStatus.CANCELLED, error=task.error)
+                if not updated:
+                    record = self.state_store.get_task(task_id)
+                    if record is not None:
+                        task.status = parse_task_status(record["status"])
+                        task.error = record["error"]
                 _ = task_process_supervisor.cancel_task(task_id)
-                return updated
-            return False
-
-        if task.status in [TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.CANCELLED]:
-            return False
-
-        logger.info("Sending cancel signal to task %s", task_id)
-        task.cancel_event.set()
-        task.status = TaskStatus.CANCELLED
-        task.error = "Task was manually cancelled by the user."
-        task.updated_at = datetime.now(UTC).isoformat()
-        updated = self._update_db_status(
-            task_id,
-            TaskStatus.CANCELLED,
-            error=task.error,
-        )
-        if not updated:
-            record = self.state_store.get_task(task_id)
-            if record is not None:
-                task.status = parse_task_status(record["status"])
-                task.error = record["error"]
-        _ = task_process_supervisor.cancel_task(task_id)
-        return updated
+                return "cancelled" if updated else "not_active"
+        return self.state_store.cancel_if_permitted(task_id, owner_subject=owner_subject)
 
     def steer_task(self, task_id: str, instruction: str, owner_subject: str | None = None) -> TaskSteeringResult | None:
         with self._lock:

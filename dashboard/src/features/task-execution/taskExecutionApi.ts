@@ -1,4 +1,4 @@
-import ky from 'ky';
+import ky, { HTTPError } from 'ky';
 
 import { createAccessPinHeaders } from '../../utils/accessPinCredential';
 import {
@@ -109,13 +109,34 @@ export async function forkTask(taskId: TaskId): Promise<TaskId> {
   return TaskForkResponseSchema.parse(raw).task_id;
 }
 
+/**
+ * 거부된 취소/재개의 **이유**는 서버가 안다 — 화면이 "HTTP 409" 를 말하면 안 된다.
+ *
+ * F-35: 서버는 이제 소유자 없는 태스크와 **다른 살아 있는 프로세스가 실행 중인** 태스크를
+ * 다른 응답으로 구분한다(404 대 409). 그 구분이 화면까지 오지 않으면 사용자는 "실패했다"만
+ * 보고 무엇을 해야 하는지 모른다 — 그래서 서버의 `detail` 을 오류 메시지로 올린다.
+ */
+async function describeActionFailure(caught: unknown): Promise<unknown> {
+  if (!(caught instanceof HTTPError)) return caught;
+  const body = (await caught.response.json().catch(() => null)) as { detail?: unknown } | null;
+  const detail = typeof body?.detail === 'string' ? body.detail.trim() : '';
+  if (!detail) return caught;
+  const error = new Error(detail);
+  error.name = caught.name;
+  return error;
+}
+
 async function performTaskAction(taskId: TaskId, action: 'cancel' | 'resume'): Promise<void> {
-  const raw: unknown = await ky.post(`/api/tasks/${encodeURIComponent(taskId)}/${action}`, {
-    headers: accessHeaders(),
-    retry: 0,
-    timeout: 10_000,
-  }).json();
-  TaskActionResponseSchema.parse(raw);
+  try {
+    const raw: unknown = await ky.post(`/api/tasks/${encodeURIComponent(taskId)}/${action}`, {
+      headers: accessHeaders(),
+      retry: 0,
+      timeout: 10_000,
+    }).json();
+    TaskActionResponseSchema.parse(raw);
+  } catch (caught: unknown) {
+    throw await describeActionFailure(caught);
+  }
 }
 
 export async function cancelTask(taskId: TaskId): Promise<void> {

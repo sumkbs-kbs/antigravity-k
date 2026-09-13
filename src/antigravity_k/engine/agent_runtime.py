@@ -17,6 +17,7 @@ from antigravity_k.engine.direct_task_execution import (
 from antigravity_k.engine.goal_runner import GoalReport, GoalRunner
 from antigravity_k.engine.persistent_agency import Objective, ProjectedContext
 from antigravity_k.engine.task_events import ExecutionEventRecord
+from antigravity_k.engine.task_state_types import CancellationVerdict
 from antigravity_k.engine.task_steering import TaskSteeringResult
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,8 @@ class TaskRunnerPort(Protocol):
     ) -> bool: ...
 
     def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool: ...
+
+    def cancel_verdict(self, task_id: str, owner_subject: str | None = None) -> CancellationVerdict: ...
 
     def steer_task(
         self,
@@ -328,6 +331,14 @@ class AgentRuntime:
         cancelled = self.task_runner.cancel_task(task_id, owner_subject=owner_subject)
         self._record_agency_task_event(task_id, "cancelled" if cancelled else "cancel_failed")
         return cancelled
+
+    def cancel_verdict(self, task_id: str, owner_subject: str | None = None) -> CancellationVerdict:
+        """취소의 상세 결과 — "활성 아님"과 "다른 살아 있는 프로세스가 실행 중"을 구분한다(F-35)."""
+        if self.task_runner is None:
+            raise RuntimeError("task runner is required for background task cancellation")
+        verdict = self.task_runner.cancel_verdict(task_id, owner_subject=owner_subject)
+        self._record_agency_task_event(task_id, "cancelled" if verdict == "cancelled" else "cancel_failed")
+        return verdict
 
     def steer_task(
         self,

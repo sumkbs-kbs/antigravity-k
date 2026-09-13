@@ -7,6 +7,11 @@ TaskStatusName = Literal["pending", "running", "resuming", "done", "failed", "pa
 TASK_STATUSES: Final[frozenset[str]] = frozenset(
     {"pending", "running", "resuming", "done", "failed", "paused", "cancelled"},
 )
+# 취소의 결과 — `cancel` 이 **왜** 거부됐는지까지 구분한다. F-35: 살아 있는 다른 프로세스의 실행을
+# `cancelled` 로 적으면 이력이 거짓이 된다(그 행은 끝났다고 말하고 실행은 계속된다). 그래서
+# "소유자가 살아 있다"는 거부는 "활성 아님"과 **다른 결과**이고, API 도 다르게 낸다(409 대 404).
+CancellationVerdict = Literal["cancelled", "not_active", "owned_elsewhere"]
+
 TERMINAL_TASK_STATUSES: Final[frozenset[str]] = frozenset({"done", "failed", "cancelled"})
 ALLOWED_TASK_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
     "pending": frozenset({"running", "cancelled"}),
