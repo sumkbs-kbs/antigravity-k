@@ -227,15 +227,13 @@ class TestHashOnlyLoopbackIsProtected:
     def test_login_with_stored_pin_succeeds(self, hash_only_server: TestClient) -> None:
         """저장 hash의 PIN으로 로그인하면 토큰 발급 — 보호 상태에서 정상 경로.
 
-        test_auth.py의 rate-limit 테스트가 slowapi 카운터를 소진할 수 있으므로
-        (공유 limiter, testclient 동일 IP), 429면 카운터 리셋 후 1회 재시도한다.
+        CR-14 F-20 이전에는 ``test_auth.py``의 실패 7회가 프로세스 전역 slowapi 카운터와
+        credential gate lockout 을 켜 두어 이 테스트가 429/403으로 깨질 수 있었고,
+        그 자리에서 "429면 카운터 리셋 후 재시도"로 우회했다. 우회를 제거했다 — 격리는
+        ``conftest.py::_reset_login_security_state`` 가 소유하고, 이 테스트는 그 계약이
+        실제로 지켜지는지를 재는 자리다(우회가 없으면 순서 누수를 그대로 맞는다).
         """
         resp = hash_only_server.post("/api/auth/login", json={"pin": "stored-pin-1234"})
-        if resp.status_code == 429:
-            from antigravity_k.api.auth_routes import _limiter
-
-            _limiter.reset()
-            resp = hash_only_server.post("/api/auth/login", json={"pin": "stored-pin-1234"})
         assert resp.status_code == 200
         token = cast(dict[str, Any], resp.json())["access_token"]
         ok = hash_only_server.get(

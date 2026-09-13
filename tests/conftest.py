@@ -28,6 +28,42 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _reset_login_security_state() -> Iterator[None]:
+    """테스트 경계마다 **프로세스 전역 로그인 보안 상태 2종**을 비운다 (CR-14 F-20).
+
+    로그인 경로에는 두 개의 전역 상태 기계가 있고, 둘 다 키가 "호출자 IP" — TestClient 는
+    **항상 같은 주소**라 한 pytest 프로세스 안의 앞선 테스트가 뒤 테스트의 결과를 바꾼다:
+
+      1. ``auth_routes._limiter`` (slowapi ``5/minute``) → 초과 시 **429**.
+      2. ``credential_gate`` 실패 burst/sustained 임계 → **lockout 403**.
+
+    실측(같은 코드·같은 명령, **순서만 다름**, deps=dev+rag):
+
+        pytest tests/test_sec03_ws_origin_ticket.py::TestWsGateIntegration   -> 7 passed
+        pytest <로그인 5회 태우는 파일> tests/...::TestWsGateIntegration      -> 5 failed (429)
+        pytest tests/test_auth.py tests/test_auth_policy_truth_table.py      -> 1 failed (403)
+
+    세 번째가 두 번째 기계의 증거다: ``test_auth.py::test_login_rate_limited`` 는 실패 7회를
+    만들고, 그 실패가 credential gate 의 lockout 을 켜면 뒤 파일의 정상 로그인이 403이 된다.
+    흥미로운 점은 **두 기계가 서로를 가려 왔다는 것**이다 — 레이트리밋 카운터가 먼저 차서
+    429로 끝나면 실패가 7회까지 쌓이지 않아 lockout 이 켜지지 않는다. 즉 지금까지의 초록은
+    "버그가 없어서"가 아니라 "한 누수가 다른 누수를 가려서"였다.
+
+    기존 대응은 개별 테스트 안의 우회였다(``test_auth_policy_truth_table.py`` 의
+    "429면 카운터 리셋 후 1회 재시도" — 그런데 실제로 도착한 것은 429가 아니라 403이라
+    그 우회로는 막지 못한다). 격리는 하네스의 책임이므로 여기서 루트로 처리하고,
+    제품의 제한 자체는 그대로다 — ``test_auth.py::test_login_rate_limited`` 는 한 테스트
+    안에서 7회를 시도하므로 이 fixture 의 영향을 받지 않는다.
+    """
+    from antigravity_k.api.auth_routes import _limiter
+    from antigravity_k.security.credential_gate import reset_credential_gate
+
+    _limiter.reset()
+    reset_credential_gate()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_bound_execution_context() -> Iterator[None]:
     """테스트 경계마다 ARC-01 바인딩된 실행 컨텍스트를 해제한다.
 
