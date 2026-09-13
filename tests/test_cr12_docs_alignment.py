@@ -309,8 +309,13 @@ def test_readme_separates_rp_history_from_current_cr_state() -> None:
     assert re.search(r"RP-0?1|RP-12", readme), "과거 RP 이력이 README에서 사라졌다"
     assert re.search(r"CR-0?1\s*~\s*CR-1?\d", readme), "현재 CR 범위가 README에 없다"
     assert re.search(r"REVIEW", readme), "현재 CR 상태(REVIEW)를 밝히지 않는다"
-    assert re.search(r"미커밋|uncommitted", readme), "코드가 미커밋임을 밝히지 않는다"
+    # CR-14 attempt-009 에서 후보를 커밋했다(`54e4169a`). 그 전까지 이 자리는 "미커밋"을 요구했다.
+    # **커밋은 승인이 아니므로** 의도는 그대로다 — 이제는 **후보 full/숫자 SHA 를 명시**하고
+    # **승인 없음**을 함께 밝혀야 하며, "커밋됨"이 풀린 것으로 읽히지 않아야 한다.
+    assert re.search(r"\b[0-9a-f]{7,40}\b", readme), "커밋된 후보 리비전(SHA)을 README 에 밝히지 않는다"
+    assert re.search(r"커밋", readme), "후보가 커밋된 상태인지 밝히지 않는다"
     assert re.search(r"승인 없음|no GA approval", readme), "GA 승인 없음을 밝히지 않는다"
+    assert re.search(r"미배정|unassigned", readme), "독립 검토자·출시 책임자 미배정을 밝히지 않는다"
     # 과거 GA-100 진행률(33/33)이 승인으로 읽히지 않게 이력임을 밝힌다.
     ga100_rows = [line for line in readme.splitlines() if "GA-100" in line and "33/33" in line]
     assert ga100_rows, "GA-100 완료율 행이 사라졌다"

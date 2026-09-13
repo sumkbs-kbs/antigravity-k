@@ -1,9 +1,10 @@
 # CR-14 최종 후보 판정서 — NO-GO
 
-- 판정일: 2026-09-12 (attempt-001) · **attempt-002 갱신: 2026-09-12** · **attempt-003 갱신: 2026-09-12** · **attempt-004 갱신: 2026-09-12** · **attempt-005 갱신: 2026-09-13** · **attempt-006 갱신: 2026-09-13** · **attempt-007 갱신: 2026-09-13** · **attempt-008 갱신: 2026-09-13(최신)**
+- 판정일: 2026-09-12 (attempt-001) · **attempt-002 갱신: 2026-09-12** · **attempt-003 갱신: 2026-09-12** · **attempt-004 갱신: 2026-09-12** · **attempt-005 갱신: 2026-09-13** · **attempt-006 갱신: 2026-09-13** · **attempt-007 갱신: 2026-09-13** · **attempt-008 갱신: 2026-09-13** · **attempt-009 갱신: 2026-09-13(최신)**
 - 후보: 커밋 `08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f` + 미커밋 patch(CR-01~CR-14)
-- 코드 지문(gate 실행 시점, `docs/`·`.omo/` 제외): attempt-001 `11979d6c…` → attempt-002 `ebbbd7f06fab3fb2d10008336ef96ba0d7949ee72007774c6372fc07f1bba0b5`(2544 files) → attempt-003 `eb10aed606ba7e84ecce03a50a19153b92105cacd196b5a167b5e38770f1f448`(2545 files) → attempt-004 `eca54773d5504e40a724a0c86ab9d1724be310986ef3e326f8f4904f52d98dd8`(2546 files) → attempt-005 `1981bfb5143d3f9eac947826bf6ee53655c47194f5be9c4a5bf755ba982a1844` → attempt-006 `3a9a7d66909e2fafaf31b4c429d2338f262d50b0d0d8ef3b5f00b5be0ca41e2d` → attempt-007 `c36327effafcc6dbe4a80970682f5e82eccd98f81951b000c758e888e7b0130a` → **attempt-008 `6641446ef41e0562118dd0741637f57eae6412f18fdf18813ea87f777d0b0076`**
-- 증거: `.omo/evidence/commercial-reliability/CR-14/attempt-001/`, `attempt-002/`, `attempt-003/`, `attempt-004/`, `attempt-005/`, `attempt-006/`, `attempt-007/`, **`attempt-008/`(최신)**
+- 코드 지문(gate 실행 시점, `docs/`·`.omo/` 제외): attempt-001 `11979d6c…` → attempt-002 `ebbbd7f06fab3fb2d10008336ef96ba0d7949ee72007774c6372fc07f1bba0b5`(2544 files) → attempt-003 `eb10aed606ba7e84ecce03a50a19153b92105cacd196b5a167b5e38770f1f448`(2545 files) → attempt-004 `eca54773d5504e40a724a0c86ab9d1724be310986ef3e326f8f4904f52d98dd8`(2546 files) → attempt-005 `1981bfb5143d3f9eac947826bf6ee53655c47194f5be9c4a5bf755ba982a1844` → attempt-006 `3a9a7d66909e2fafaf31b4c429d2338f262d50b0d0d8ef3b5f00b5be0ca41e2d` → attempt-007 `c36327effafcc6dbe4a80970682f5e82eccd98f81951b000c758e888e7b0130a` → attempt-008 `6641446ef41e0562118dd0741637f57eae6412f18fdf18813ea87f777d0b0076` → **attempt-009 `dd34a76bf076ebc09be8c575ad733c52a0a647faa4d5d9758f3b01cf6f667f37`**
+- **코드 후보 full SHA: `54e4169a947d4ba0cbe3fabf92b0c8590b8ccef6`**(attempt-009 — 커밋 `5a717c4a` + F-12 수정 `54e4169a`). `git.dirty: true` 의 원인은 ` M vault_data`(별도 저장소의 런타임 이벤트 로그) **한 줄뿐**이다 — F-13.
+- 증거: `.omo/evidence/commercial-reliability/CR-14/attempt-001/`, `attempt-002/`, `attempt-003/`, `attempt-004/`, `attempt-005/`, `attempt-006/`, `attempt-007/`, `attempt-008/`, **`attempt-009/`(최신)**
 - **판정: NO-GO. GA 승인 없음. CR-14는 DONE이 아니다.**
 - 출시 책임자 / 독립 검토자: **미배정 / 미배정**
 
@@ -12,7 +13,44 @@
 
 ---
 
-## attempt-008 갱신 (2026-09-13, 최신) — F-10·F-11: **측정 도구**를 살리고 그 도구가 검증하던 경로를 끝까지 확인
+## attempt-009 갱신 (2026-09-13, 최신) — 후보 커밋 + F-12·F-07 폐쇄: **기술 축을 모두 닫았다**
+
+**판정은 NO-GO 로 유지한다.** 달라진 것은 **커밋된 후보에서 20/20 을 완주**했고 **`clean-machine-runtime` 이 후보를 검증**했다는 점이다. 이제 남은 차단 사유는 **사람의 영역**(외부 승인·독립 검토·장기 검증)뿐이다.
+
+**커밋 — 그리고 훅이 막은 것이 옳았다**
+
+- 사용자 결정에 따라 **단일 커밋**으로 고정했다: `5a717c4a`(CR-01~CR-14 후보 268 파일) + `54e4169a`(F-12 수정 27 파일). `.omo/evidence/**` 는 `.gitignore`(.omo/)의 Phase 0 규칙대로 커밋하지 않았다(D-47).
+- 첫 시도가 중단됐다 — `trailing-whitespace` 가 **생성 번들 11개를 다시 썼고** `check-added-large-files`(maxkb=1024)가 모나코·TS 워커(MB 단위)를 거부했다. 훅이 생성물을 소스처럼 다루면 커밋된 바이트와 `pnpm run build` 결과가 갈라진다.
+- **`--no-verify` 로 우회하지 않고** 생성 경로를 훅 대상에서 제외했다(D-46). 훅이 고친 번들 11개는 **빌드 산출물로 되돌려** 커밋했다.
+
+**F-12 — "빌드는 멱등"은 고정 HEAD 에서만 참이었다**
+
+- 커밋 직후 `dashboard-build` 가 **자산 22개를 교체**하고 `index.html` 을 고쳐 지문이 이동했다(`07118329…` → `a4be7868…`). 같은 HEAD 에서 두 번째 빌드는 **no-op** 이었다.
+- 원인: `dashboard/buildStamp.ts` 가 `AGK_BUILD_ID` 기본값으로 `git rev-parse --short HEAD` 를 쓴다. 번들에 커밋 SHA 를 박으면 **커밋된 번들은 자기 커밋의 SHA 를 담을 수 없다**(치킨-에그). `dashboard-build` 가 required gate 인 한 **커밋된 후보에서 단일 지문 20/20 을 완주할 수 없었고**, C14-01/C14-02 가 구조적으로 미충족이었다.
+- attempt-003 의 F-01 서술("빌드는 바이트 단위로 멱등")을 **조건부로 정정**한다 — 그 실측 시점에는 HEAD 가 바뀌지 않아 참이었다.
+- 수정: 해석 순서를 `AGK_BUILD_ID`(릴리스 주입) → **커밋된 핀 `dashboard/build-provenance.json`** → `git short SHA` → null 로 바꾸고, 번들을 핀 값(`5a717c4a`)으로 재생성했다. **핀 ≠ HEAD 는 정상이다** — 핀은 '번들을 만든 소스 리비전'을 기록하며, 그 커밋이 번들을 담고 있는 커밋과 같을 수 없다(그것이 이 결함의 내용이다). **핀을 맞추려고 amend 하지 말 것** — 같은 루프로 돌아간다.
+- **부수 개선**: `.git` 이 없는 Docker 빌드도 핀을 읽어 출하 컨테이너가 **커밋된 번들과 같은 바이트**를 서빙한다(그전에는 buildId 가 UNKNOWN). 다만 이 효과는 이번에 컨테이너 안에서 두 번 빌드해 비교한 것이 아니라 해석 순서에서 따라오는 결론이다(R-5).
+
+**F-07 폐쇄 — 게이트가 후보를 검증했다**
+
+- `clean-machine-runtime` 은 `git archive HEAD` 를 쓴다. 커밋 전 초록은 후보가 아닌 낡은 HEAD(2877 파일)를 검증했다.
+- 후보 커밋 `54e4169a` 에서 전 게이트를 재실행해 `ref: HEAD` 로 **후보 전체(3001 파일)** 를 아카이브·검증했다 → **이 초록은 후보의 근거다**.
+- 순서 규율은 남는다: **릴리스는 태그 SHA 에서 이 gate 를 마지막으로 다시 실행해야 한다**(이후 커밋·rebase 가 있으면 초록이 다시 낡는다 — R-3).
+
+**검증**
+
+- **required gate 20개가 커밋된 후보에서 되돌리기 0회로 단일 지문 `dd34a76b…` 에서 20/20 PASS**(python-tests 6189 passed / 13 skipped · docker 227.3s · clean-machine 42.5s · dashboard-build 24.0s · api-e2e 18.4s)이고 **실행 후 지문이 불변**임을 재측정했다.
+- 증인 `cr14_f12_build_drift_witness.py` exit 0 — A) 핀 유효·해석 순서, B) 출하 번들이 핀 값을 보유, C) 재빌드 digest 불변(수정 전에는 22개 교체).
+- 회귀 9건(`tests/test_cr14_bundle_provenance.py` 6 · `dashboard/src/utils/buildStamp.provenance.test.ts` 3). 핀 값을 `deadbeef` 로 바꾸면 pytest 2건 실패(이빨 확인).
+- `data/` 드리프트 0. release 문서 해시 불변(의존성 변경 없음).
+
+**F-13(신규, advisory)** — `git status` 의 유일한 줄은 ` M vault_data` 이고 그 안은 ` M hooks/events.jsonl`(+3537줄 훅 이벤트)이다. gitlink SHA 는 불변(`464708c…`)이라 커밋에는 영향이 없지만 `ga_gate.py` 의 `dirty = bool(git status --porcelain)` 때문에 보고서에 `git.dirty: true` 가 남아 **'clean 후보' 판정을 흐린다**. 선택지(untrack / vault 안에서 로그 ignore / dirty 판정 정교화)를 D-50 에 남겼다.
+
+**이 attempt 가 닫지 못한 것** — C14-01 은 **부분 충족**이다('worktree 완전 clean' 을 기준으로 삼을지는 출시 책임자 결정 — R-1). 핀 == 실제 소스 리비전은 자동 검증되지 않는다(R-2). C14-03/04/05 와 C14-08 은 여전히 미실행이며, 이제 남은 차단 사유는 **전부 사람의 영역**이다.
+
+---
+
+## attempt-008 갱신 (2026-09-13) — F-10·F-11: **측정 도구**를 살리고 그 도구가 검증하던 경로를 끝까지 확인
 
 **판정은 NO-GO 로 유지한다.** 이번 attempt 는 **F-10 과 F-11 을 닫고 F-09 의 `qs` 편차를 실행 검증**했으며,
 그 과정에서 **지문이 이동**했다(`c36327ef…` → **`6641446ef41e0562…`**). attempt-007 의 20-gate 증거는
@@ -474,14 +512,14 @@ timeout 7200초). `ga_gate.py --merge-into`가 **같은 후보 SHA + 같은 mani
 | ~~F-04~~ | `mermaid@10.6.1` high 취약점 — **CLOSED(attempt-002)** | P1 | 해소: `10.9.8` 승격 + 승격이 드러낸 라벨 주입 비컨까지 폐쇄 |
 | ~~F-05~~ | `docker-build`가 콜드 `tsc -b` heap OOM으로 실패(attempt-002 신규 발견) — **CLOSED(attempt-002)** | **P1급** | 해소: dashboard-builder 한정 `NODE_OPTIONS=--max-old-space-size=4096`, PASS 246.8s |
 | F-06 | mermaid 경유 `uuid@9.0.1` moderate(`<11.1.1`, `buf` 인자 경로) | 잔여 위험 | 감사 임계값 `high` 라 **차단되지 않는다** — 상류가 uuid를 올려야 함(attempt-002 신규) |
-| F-07 | `clean-machine-runtime` 이 `git archive HEAD` 로 **커밋된 HEAD** 를 검증한다(2877 파일, `git.dirty: true`). 후보가 미커밋이면 **초록이 후보가 아닌 다른 코드를 가리킨다** | 검증 범위(sequencing) | 코드 결함 아님 — 후보 커밋 뒤 새 HEAD 에서 재실행하면 정확해진다. 그 전까지 이 PASS 를 후보 근거로 인용 금지(attempt-003 신규) |
+| ~~F-07~~ | `clean-machine-runtime` 이 `git archive HEAD` 로 **커밋된 HEAD** 를 검증한다(그 시점 2877 파일, `git.dirty: true`). 후보가 미커밋이면 **초록이 후보가 아닌 다른 코드를 가리킨다** — **attempt-009 에서 닫혔다**(후보 커밋 후 재실행, 3001 파일) | 검증 범위(sequencing) | 코드 결함 아님 — 후보 커밋 뒤 새 HEAD 에서 재실행하면 정확해진다. 그 전까지 이 PASS 를 후보 근거로 인용 금지(attempt-003 신규) |
 
 ## 5. 판정 카드 (attempt-002 기준)
 
-- code candidate full SHA: **없음**(미커밋 patch 상태). 보조 식별자 **코드 지문 `eb10aed606ba7e84ecce03a50a19153b92105cacd196b5a167b5e38770f1f448`**(2545 files, `docs/`·`.omo/` 제외)
+- code candidate full SHA: **`54e4169a947d4ba0cbe3fabf92b0c8590b8ccef6`**(attempt-009 — 커밋 `5a717c4a` + F-12 수정 `54e4169a`. 그 전까지 이 행은 "없음"이었다.). `git.dirty: true` 의 원인은 ` M vault_data` 한 줄(F-13)이며 **코드·산출물은 clean** 이다. 보조 식별자 **코드 지문 `dd34a76bf076ebc09be8c575ad733c52a0a647faa4d5d9758f3b01cf6f667f37`**(`docs/`·`.omo/` 제외, attempt-009)
 - evidence bundle 위치 / manifest SHA256: **attempt-002 는 번들을 만들지 않았다** — 근거는 `attempt-002/gate-report.json` + `reproduction.md`·`decision.md`·`manual-qa.md`·`logs/**`. attempt-001 번들(`attempt-001/bundle/`, `manifest.sha256` sidecar)은 **`evidence_kind: reference`, verify verdict `REFERENCE_ONLY`(exit 3). 승인 artifact가 아니다**로 유지
-- required gate inventory / PASS / FAIL / NOT_RUN: **20 / 20 / 0 / 0**(attempt-008, **되돌리기 없이** 단일 지문 · 실행 후 지문 재확인 / attempt-001 은 20 / 14 / 1 / 4 — 과거 기록 보존)
-- backend·frontend·실행 보안·설치/복구·실 provider·8h 결과: backend **6183 passed / 13 skipped**(attempt-008 — skip 13건 중 7건은 unsloth/trl 환경 오버레이 부재이며 uv.lock 에 0건, D-32) · frontend **846 passed(80 files)** · dev 도구 체인 감사 **전체 트리 0건**(attempt-007, F-09 폐쇄) · 실행 보안 PASS · 설치/복구 `clean-machine-runtime` **PASS(단 F-07 — HEAD 검증)** · 컨테이너 `docker-build` **PASS(46.0s, 레이어 캐시)** · 실 provider **미확보** · 8h soak **미실행** · 측정 도구 `stryker:quick` **exit 0 · All files 91.92%(quick 범위 2 파일, attempt-008)**
+- required gate inventory / PASS / FAIL / NOT_RUN: **20 / 20 / 0 / 0**(attempt-009, **커밋된 후보**에서 되돌리기 없이 단일 지문 · 실행 후 지문 재확인 / attempt-001 은 20 / 14 / 1 / 4 — 과거 기록 보존)
+- backend·frontend·실행 보안·설치/복구·실 provider·8h 결과: backend **6189 passed / 13 skipped**(attempt-009 — skip 13건 중 7건은 unsloth/trl 환경 오버레이 부재이며 uv.lock 에 0건, D-32) · frontend **846 passed(80 files)** · dev 도구 체인 감사 **전체 트리 0건**(attempt-007, F-09 폐쇄) · 실행 보안 PASS · 설치/복구 `clean-machine-runtime` **PASS(단 F-07 — HEAD 검증)** · 컨테이너 `docker-build` **PASS(227.3s)** · `clean-machine-runtime` **PASS + 후보를 검증(F-07 폐쇄, 3001 파일)** · 실 provider **미확보** · 8h soak **미실행** · 측정 도구 `stryker:quick` **exit 0 · All files 91.92%(quick 범위 2 파일, attempt-008)**
 - 후보 트리 안정성(attempt-003 실측): **20-gate 전체 실행 후 코드 지문 불변** + `dashboard-build` 재빌드 **바이트 단위 동일** → 이 후보에서 검증은 트리를 바꾸지 않는다
 - 지원 scope / 실제 외부 승인: 미확정 / 없음
 - 독립 리뷰 보고서와 대상 SHA: **미생성 / 미정**
@@ -489,11 +527,13 @@ timeout 7200초). `ga_gate.py --merge-into`가 **같은 후보 SHA + 같은 mani
 - 최종 판정: **NO-GO** (기술 gate 는 초록, 승인·커밋 위생이 차단)
 - 출시 책임자 / 판정 날짜: 미배정 / 2026-09-13
 
-## 6. 재개 순서 (권장, attempt-008 갱신)
+## 6. 재개 순서 (권장, attempt-009 갱신)
 
-0. **CR-01~CR-14 커밋**(갱신된 `THIRD_PARTY_NOTICES.txt`·`dashboard.cdx.json`·
-   `dashboard/pnpm-lock.yaml`·`dashboard/package-lock.json`·`src/antigravity_k/dashboard_dist/` 포함)
-   **→ clean full SHA 고정 → 그 SHA 에서 20-gate 재실행.**
+0. ~~**CR-01~CR-14 커밋 → clean full SHA 고정 → 그 SHA 에서 20-gate 재실행**~~ — **attempt-009 에서 완료했다.**
+   SHA `54e4169a` · 커밋된 후보에서 20/20 PASS · `clean-machine-runtime` 이 후보를 검증(F-07 폐쇄).
+   ※ 단 **`git.dirty: true` 는 ` M vault_data` 한 줄 때문**이다(F-13) — "미커밋 코드가 있다"로 읽지 말 것.
+   ※ 릴리스 직전 **태그 SHA 에서 `clean-machine-runtime` 을 마지막으로 다시 돌려라**(R-3).
+
    ※ **두 lock 을 한쪽만 커밋하면** 설치 코드와 고지 코드가 갈라진다(F-03/F-06 이 같은 병이었다).
    특히 **`clean-machine-runtime`** — 그 gate 는 `git archive HEAD` 를 쓰므로 커밋 전 실행은 후보
    검증이 아니다(**F-07**). **release 문서를 커밋에 빠뜨리면 출하물의 고지가 다시 낡은 상태로 나간다**(F-03).
@@ -541,7 +581,9 @@ F-10(도구 미동작)·F-11a(선언 범위 미커버리지)와 F-09 의 `qs` �
 | ID | 내용 | 성질 | 상태 |
 |---|---|---|---|
 | ~~F-01~~ | `dashboard_dist` 가 추적 중인 빌드 산출물 | 릴리스 공학 → 정책 | **내려감(§0-B)** — 빌드는 멱등(실측). 남은 것은 post-GA 추적 정책 선택 |
-| F-07 | `clean-machine-runtime` 이 후보가 아니라 HEAD 를 검증 | 검증 범위 | **OPEN** — 커밋 뒤 새 HEAD 에서 재실행 필요 |
+| ~~F-07~~ | `clean-machine-runtime` 이 후보가 아니라 HEAD 를 검증 | 검증 범위 | **CLOSED (attempt-009)** — 후보 커밋 `54e4169a` 에서 재실행해 `ref: HEAD` 로 **후보 전체(3001 파일, 이전 2877 = 낡은 HEAD)** 를 아카이브·검증했다. **순서 규율은 남는다**: 태그 SHA 에서 마지막으로 다시 돌려야 한다(R-3) |
+| ~~F-12~~ | **빌드 provenance 치킨-에그** — `buildStamp.ts` 가 `AGK_BUILD_ID` 기본값으로 `git short SHA` 를 써서 **커밋된 번들은 자기 커밋의 SHA 를 담을 수 없고**, 커밋 직후 `dashboard-build` 가 자산 22개를 교체해 커밋된 후보에서 단일 지문 20/20 을 완주할 수 없었다 | 릴리스 공학(구조) | **CLOSED (attempt-009)** — 해석 순서 `env → 커밋된 핀 → git → null` + 번들 재생성. **핀 ≠ HEAD 는 정상**(핀=번들을 만든 소스 리비전). F-01 의 "빌드 멱등"을 조건부로 정정 |
+| F-13 | 중첩 저장소 `vault_data` 의 런타임 이벤트 로그가 계속 자라 부모 `git status` 가 **영구히 dirty** 다(gitlink SHA 자체는 불변) | repo 위생(advisory) | **OPEN** — 커밋에는 영향 없고 required gate 도 아니지만 `git.dirty: true` 가 보고서에 남아 'clean 후보' 판정을 흐린다. 선택지: untrack / vault 안에서 로그 ignore / dirty 판정 정교화(신호 약화라 비선호) — D-50 |
 | ~~F-03~~ | release 문서 파이썬 라이선스 판독이 고지문/SBOM 으로 갈라짐(+마커 환경 의존) | 계약(REL-01) | **CLOSED (attempt-005)** — 판독 체인 통일, 회귀 17건. 고지문 미상 41 → 2건 |
 | ~~F-06~~ | mermaid 경유 `uuid@9.0.1` moderate — 실측상 원인은 **의존 하한**(두 lock 모두 9.x)이었고 취약 서명(`buf`)에는 도달하지 않았다 | 잔여 위험 → 하한 | **CLOSED (attempt-006)** — 상류 선언 범위 안의 override `11.1.1` + 두 lock 동기화 + 출하 번들 재빌드 + 증인 C 축 + 회귀 8건. prod 취약 0건 |
 | ~~F-10~~ | **mutation testing 도구가 동작하지 않았다** — `pnpm run stryker:quick` 이 `Cannot find TestRunner plugin "vitest"` 로 exit 1. 실측상 러너 미설치가 아니라 **탐색 경로** 문제(pnpm 격리 레이아웃에서 자동 탐색이 core 의 설치 디렉터리만 본다) | 도구 체인(게이트 아님) | **CLOSED (attempt-008)** — `stryker.config.mjs` 의 `plugins` 명시 선언 한 줄. dry-run 843 테스트 · quick exit 0. 미검증으로 남았던 **F-09 의 `qs` 편차 검증 창을 열었다** |

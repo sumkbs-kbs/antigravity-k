@@ -4,7 +4,9 @@
 
 ## 결론
 
-> **최신 판정(2026-09-13): GA 출시 판정 NO-GO — 단 attempt-008에서 required gate 20/20 PASS(되돌리기 없이).** 블로커는 **사람의 승인·커밋 위생**만 남았다 — attempt-003 추가 실측으로 **F-01(빌드 비결정성 의심)은 기각**됐고(`dashboard-build` 는 바이트 단위 멱등), 대신 **F-07(`clean-machine-runtime` 이 후보가 아니라 커밋된 HEAD 를 검증한다)** 이 등록됐다. attempt-005는 **F-03**(release 파이썬 라이선스가 고지문↔SBOM 으로 갈라지고 미해결 집합이 선언되지 않음)을, attempt-006은 **F-06**(mermaid 경유 `uuid` 하한 — 게이트 임계값 미만이라 초록과 공존했다)을, attempt-007은 **F-09**(dev 도구 체인 취약 — 게이트가 `--prod` 라 미차단)를 닫아 게이트 범위와 dev 감사 모두 0건이 됐다. **attempt-008은 F-10(stryker 변이 도구가 pnpm 레이아웃에서 죽는다)과 F-11(그 도구가 선언한 2개 파일 중 1개만 측정했다)을 닫고, 같은 수정이 열어 준 소비자 경로로 F-09 의 `qs` override 를 처음으로 실행 검증**했다(`6.15.1` 에서 실제 크래시 → `6.16.0` 정상). 남은 기술 축은 **F-07 하나**다: "감사 통과"와 "위험 0"은 다르고, "도구 초록"과 "범위 전체 측정"도 다르다. 아래 문단은 그 이전(2026-08-17 기준) 결론이다. 최신 근거는 [2026-09-12 CR-14 attempt-003 절](#2026-09-12-cr-14-attempt-003--f-02-폐쇄-검증-실행이-저장소-추적-파일을-다시-쓰지-않는다-판정-no-go-유지)과 [CR14_FINAL_CANDIDATE_VERDICT.md](./ga/CR14_FINAL_CANDIDATE_VERDICT.md)을 보라.
+> **최신 판정(2026-09-13): GA 출시 판정 NO-GO — 단 attempt-009에서 후보를 커밋해 required gate 20/20 을 **커밋된 후보**(`54e4169a`)에서 되돌리기 없이 완주했고, `clean-machine-runtime` 이 처음으로 후보를 검증했다(F-07 폐쇄).** **기술 축은 모두 닫혔다.** 남은 것은 사람의 영역이다 — EX-01~06(외부 승인), C14-08(독립 검토·출시 책임자), C14-03/04/05. 참고: attempt-008의 20/20은 그 시점 실측으로 보존한다.
+>
+> **이전 판정 기록(attempt-008)**: GA 출시 판정 NO-GO — required gate 20/20 PASS(되돌리기 없이). 블로커는 **사람의 승인·커밋 위생**만 남았다 — attempt-003 추가 실측으로 **F-01(빌드 비결정성 의심)은 기각**됐고(`dashboard-build` 는 바이트 단위 멱등), 대신 **F-07(`clean-machine-runtime` 이 후보가 아니라 커밋된 HEAD 를 검증한다)** 이 등록됐다. attempt-005는 **F-03**(release 파이썬 라이선스가 고지문↔SBOM 으로 갈라지고 미해결 집합이 선언되지 않음)을, attempt-006은 **F-06**(mermaid 경유 `uuid` 하한 — 게이트 임계값 미만이라 초록과 공존했다)을, attempt-007은 **F-09**(dev 도구 체인 취약 — 게이트가 `--prod` 라 미차단)를 닫아 게이트 범위와 dev 감사 모두 0건이 됐다. **attempt-008은 F-10(stryker 변이 도구가 pnpm 레이아웃에서 죽는다)과 F-11(그 도구가 선언한 2개 파일 중 1개만 측정했다)을 닫고, 같은 수정이 열어 준 소비자 경로로 F-09 의 `qs` override 를 처음으로 실행 검증**했다(`6.15.1` 에서 실제 크래시 → `6.16.0` 정상). 남은 기술 축은 **F-07 하나**다: "감사 통과"와 "위험 0"은 다르고, "도구 초록"과 "범위 전체 측정"도 다르다. 아래 문단은 그 이전(2026-08-17 기준) 결론이다. 최신 근거는 [2026-09-12 CR-14 attempt-003 절](#2026-09-12-cr-14-attempt-003--f-02-폐쇄-검증-실행이-저장소-추적-파일을-다시-쓰지-않는다-판정-no-go-유지)과 [CR14_FINAL_CANDIDATE_VERDICT.md](./ga/CR14_FINAL_CANDIDATE_VERDICT.md)을 보라.
 
 현재 Ssak-Ai는 **로컬 중심 에이전트 기능 검증/베타 준비 단계**다. qwen3.6 local-first, tool permission, CoV, QualityGate 수정 재생성, RAG provenance, durable task state, web result quality contract, chat/task/slash/CLI/MAX/multiplexer의 AgentRuntime 연결, memory compliance contract는 실제 코드와 테스트로 확인됐다. 최신 simple 2-case × 2 repeats와 frontier 5-case × 2 repeats 모두 `excellent` 안정성을 확인했고 전체 basedpyright hard gate도 `0 errors`로 통과했지만, live 검색 recall/근거 정확도와 운영 rehearsal이 남아 있어 첨부 요구사항의 “상용서비스 수준” 최종 조건은 아직 충족되지 않았다.
 
@@ -122,9 +124,25 @@
 
 ---
 
+## 2026-09-13 CR-14 attempt-009 — **후보 커밋 + F-12·F-07 폐쇄**: 기술 축을 모두 닫았다 (판정 NO-GO 유지)
+
+> **이 절이 최신 실측이다.** 달라진 것은 **커밋된 후보에서 20/20 을 완주**했고 **clean-machine 이 후보를 검증**했다는 점이다. 이제 남은 차단 사유는 사람의 영역(승인·검토·장기 검증)뿐이다.
+
+후보: **clean full SHA `54e4169a947d4ba0cbe3fabf92b0c8590b8ccef6`**(커밋 `5a717c4a` + F-12 수정 `54e4169a`), 코드 지문 **`dd34a76bf076ebc09be8c575ad733c52a0a647faa4d5d9758f3b01cf6f667f37`**.
+
+- **커밋이 막혔는데 그것이 옳았다** — pre-commit 의 `trailing-whitespace` 가 **생성 번들 11개를 다시 썼고** `check-added-large-files`(maxkb=1024)가 워커(MB 단위)를 거부해 중단됐다. 훅이 생성물을 소스처럼 다루면 커밋된 바이트와 `pnpm run build` 결과가 갈라진다(F-01/F-12 의 멱등성 파괴). `--no-verify` 가 아니라 **생성 경로를 훅 대상에서 제외**하고 다시 커밋했다.
+- **F-12 — "빌드는 멱등"은 고정 HEAD 에서만 참이었다** — 커밋 직후 `dashboard-build` 가 자산 **22개를 교체**하고 지문을 옮겼다(같은 HEAD 에서 두 번째 빌드는 no-op). 원인은 `buildStamp.ts` 가 `AGK_BUILD_ID` 기본값으로 `git short SHA` 를 쓴 것 — **커밋된 번들은 자기 커밋의 SHA 를 담을 수 없다**(치킨-에그). `dashboard-build` 가 required gate 인 한 **커밋된 후보에서 단일 지문 20/20 이 불가능**했다. 수정: **커밋된 핀**(`dashboard/build-provenance.json`)을 해석 순서에 넣고(`env → 핀 → git → null`) 번들을 핀 값으로 재생성.
+- **F-07 폐쇄** — `clean-machine-runtime` 이 `ref: HEAD` 로 **후보 전체(3001 파일, 직전 2877 = 낡은 HEAD)** 를 아카이브해 exit 0. 이제 이 초록은 후보의 근거다. **순서 규율은 남는다**: 릴리스는 태그 SHA 에서 이 gate 를 마지막으로 다시 돌려야 한다.
+- **증거** — 증인 `cr14_f12_build_drift_witness.py` exit 0(핀 유효·번들이 핀 보유·재빌드 digest 불변), 회귀 **9건**(핀 값을 바꾸면 pytest 2건 실패 — 이빨), 전체 suite **6189 passed / 13 skipped**(452.1s, `data/` 드리프트 0), **required gate 20개가 커밋된 후보에서 되돌리기 0회로 단일 지문에서 20/20 PASS**(docker 227.3s · clean-machine 42.5s · dashboard-build 24.0s · api-e2e 18.4s)이고 **실행 후 지문 불변**.
+- **F-13(신규, advisory)** — `git status` 의 유일한 줄은 ` M vault_data` 이고 그 안은 훅 런타임 이벤트 로그(+3537줄)다. gitlink SHA 는 불변이라 커밋에는 영향이 없지만 보고서에 `git.dirty: true` 가 남아 **'clean 후보' 판정을 흐린다**(선택지 3개를 D-50 에 기록).
+- **남은 blocker** — 필수 외부 승인·조건(EX-01~06) · 독립 검토·출시 책임자 미배정(C14-08) · C14-03(재시작·이력 복구 포함 전 구간) · C14-04(EX-03) · C14-05(EX-01/EX-05) · **C14-01 의 'worktree 완전 clean' 기준 결정**(F-13). **기술 결함은 0건**이다.
+- **다음 한 단계** — C14-03 → C14-04/05(외부 승인 필요) → C14-08 배정 + EX-01~06 발송 → CR-14 attempt-010(릴리스 번들 `evidence_kind: release` + GO/NO-GO 재판정).
+
+---
+
 ## 2026-09-13 CR-14 attempt-008 — **F-10·F-11 폐쇄 + F-09 의 `qs` 편차 실행 검증** (판정 NO-GO 유지)
 
-> **이 절이 최신 실측이다.** 판정은 attempt-001~007과 같이 **NO-GO** 다. 달라진 것은 **측정 도구가 살아나고 그 도구가 검증하던 유일한 소비자 경로까지 끝까지 확인**했다는 점이다(남은 기술 축: **F-07 하나**).
+> 판정은 attempt-001~007과 같이 **NO-GO** 다. 달라진 것은 **측정 도구가 살아나고 그 도구가 검증하던 유일한 소비자 경로까지 끝까지 확인**했다는 점이다(남은 기술 축: **F-07 하나**).
 
 후보: 기준 `08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f` + 미커밋 patch, 코드 지문 **`6641446ef41e0562118dd0741637f57eae6412f18fdf18813ea87f777d0b0076`**(attempt-007 의 `c36327ef…` 에서 이동).
 
