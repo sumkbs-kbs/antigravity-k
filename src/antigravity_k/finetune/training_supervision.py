@@ -207,6 +207,16 @@ def supervise_command(
 
     with state.lock:
         fired = state.fired_reason
+    if fired is None and cancel_event is not None and cancel_event.is_set() and exit_code != 0:
+        # TRN-02/F-15 — 사유를 **관측이 아니라 사실**로 결정한다.
+        #
+        # `task_process_supervisor.cancel_task` 는 event 를 set 하는 것과 **동시에**
+        # terminate 한다. 그래서 프로세스가 watchdog 의 다음 폴링(최대 0.2초)보다 빨리
+        # 죽으면 watchdog 은 `fired_reason` 을 세우지 못하고 루프를 빠져나간다 — 그러면
+        # 취소로 죽었는데도(exit_code != 0) 사유가 `completed` 로 남고, 취소 핸들러가
+        # 기록한 `cancelled` 를 잡 스레드가 덮어써 "취소했다"는 사실이 사라진다.
+        # 정상 종료는 exit_code == 0 이므로 이 보정은 정상 완료를 취소로 바꾸지 않는다.
+        fired = "cancelled"
     reason: TerminationReason = "completed" if fired is None else fired
     return SupervisionOutcome(
         reason=reason,

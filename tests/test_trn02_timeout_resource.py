@@ -127,6 +127,55 @@ class TestSuperviseCommand:
         assert proc.poll() is not None
 
 
+class TestCancelClassificationIsNotRaceDependent:
+    """F-15 — 취소가 **watchdog 의 관측**에 의존하면 안 된다.
+
+    `task_process_supervisor.cancel_task`/API cancel 은 event set 과 **동시에** 그룹을
+    종료한다. watchdog 은 0.2초 폴링이라, 프로세스가 먼저 죽으면 `fired_reason` 이 비어
+    있고 사유가 `completed` 로 남는다(exit_code 는 -15). 여기서는 폴링 간격을 늘려
+    **경주를 확정으로** 만들어 고정한다.
+    """
+
+    def test_cancel_wins_even_before_watchdog_polls(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from antigravity_k.finetune import training_supervision as ts
+
+        monkeypatch.setattr(ts, "WATCHDOG_POLL_SEC", 3.0)
+        cancel_event = threading.Event()
+        captured: list[subprocess.Popen[str]] = []
+        results: list[Any] = []
+
+        def _run() -> None:
+            results.append(supervise_command(_hang_argv(), cancel_event=cancel_event, on_proc_start=captured.append))
+
+        worker = threading.Thread(target=_run, name="f15-supervise")
+        worker.start()
+        deadline = time.monotonic() + 10
+        while not captured and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert captured, "감독 대상 프로세스가 시작되지 않았다"
+        # API cancel 핸들러와 같은 두 동작(순서까지 같게)
+        cancel_event.set()
+        terminate_process_group(captured[0], grace_sec=0.5)
+        worker.join(timeout=20)
+
+        assert results, "supervise_command 가 결과를 내지 않았다"
+        outcome = results[0]
+        assert outcome.return_code != 0, "취소된 프로세스인데 정상 종료 코드다"
+        assert outcome.reason == "cancelled", (
+            f"취소로 죽었는데 사유가 {outcome.reason!r} 다 — 관측(watchdog)이 아니라 사실로 분류해야 한다"
+        )
+        assert outcome.success is False
+
+    def test_cancel_event_after_normal_exit_keeps_completed(self) -> None:
+        cancel_event = threading.Event()
+        outcome = supervise_command([sys.executable, "-c", "print('done')"], cancel_event=cancel_event)
+        cancel_event.set()  # 이미 끝난 뒤의 취소 — 정상 완료를 취소로 바꾸면 안 된다
+
+        assert outcome.return_code == 0
+        assert outcome.reason == "completed"
+        assert outcome.success is True
+
+
 class TestRunTrainingSupervision:
     def test_timeout_sec_applies_to_real_process(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("antigravity_k.engine.lora_pipeline.mlx_lm_available", lambda: True)
@@ -254,6 +303,16 @@ class TestTrainingJobsApi:
             assert view["status"] == "failed"
             assert view["termination"] == "cancelled"
             assert "cancelled" in view["error"]
+            # F-15 — **정착한** 상태를 본다. 위 두 단언은 cancel 핸들러가 쓴 값을 읽는 것이고,
+            # 잡 스레드가 `run_result.termination` 으로 덮어쓰면 취소가 사라진다(그때는
+            # `termination='completed'`, `exit_code=-15`). 그 창을 기다리지 않고 통과시키면
+            # 이 테스트는 결함을 못 잡는다 — 실제로 attempt-011 의 전체 suite 에서 이 창이 걸렸다.
+            settled = _settled_view(client, job_id)
+            assert settled["status"] == "failed"
+            assert settled["termination"] == "cancelled", (
+                "취소가 잡 스레드의 쓰기로 덮였다 — 사용자는 취소했는데 완료로 기록된다(F-15)"
+            )
+            assert "cancelled" in settled["error"]
 
     def test_duplicate_cancel_is_idempotent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from antigravity_k.api.server import app
@@ -328,6 +387,25 @@ class TestTrainingJobsApi:
             assert seen["timeout_sec"] == 90
             assert seen["no_output_timeout_sec"] == 30
             assert seen["cancel_event"] is not None
+
+
+def _settled_view(client: TestClient, job_id: str, *, timeout: float = 15.0) -> dict[str, Any]:
+    """잡 뷰가 **더 이상 변하지 않을 때까지** 기다렸다가 마지막 값을 돌려준다.
+
+    잡 뷰는 cancel 핸들러와 잡 스레드가 함께 쓴다 — 한 번 읽고 단언하면 어느 쪽 쓰기를
+    보았는지에 따라 결과가 달라진다(F-15 가 그 창에 걸렸다). 두 번 연속 같은 값을 보면
+    정착한 것으로 본다.
+    """
+    previous: dict[str, Any] | None = None
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        current = client.get(f"/api/training-jobs/{job_id}").json()
+        if previous is not None and current == previous and current["status"] != "running":
+            return current
+        previous = current
+        time.sleep(0.1)
+    assert previous is not None, "잡 뷰를 한 번도 읽지 못했다"
+    return previous
 
 
 def _app() -> Any:
