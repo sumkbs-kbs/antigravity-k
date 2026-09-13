@@ -61,6 +61,10 @@ _DEFAULT_CARD = Path("docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md")
 _DEFAULT_EVIDENCE_ROOT = Path(".omo/evidence/commercial-reliability/CR-14")
 _DEFAULT_MANIFEST = Path("scripts/commercial_ga_gates.json")
 _GATE_SCRIPT = Path(__file__).resolve().parent / "ga_gate.py"
+# 보고서 발견 규칙 — **여기가 유일한 자리**다. 파이프라인(.github/workflows/ga-close.yml)이
+# 넘기는 시도 이름도 이 글로브에 맞아야 한다(계약 `tests/test_cr14_close_pipeline_contract.py`
+# 가 그 정합을 소유자의 상수에서 직접 읽어 확인한다).
+REPORT_GLOB = "attempt-*/gate-report.json"
 
 # 판정 카드는 값의 **유일한** 선언 자리다(C14-F15-2). 각 패턴이 정확히 하나씩만 맞아야 한다.
 _CANDIDATE_RE = re.compile(r"code candidate full SHA: \*\*`([0-9a-f]{40})`\*\*")
@@ -184,7 +188,7 @@ def close_violations(
 
     # (2) 선언된 지문을 측정한 보고서가 있는가 — R-9 의 핵심.
     reports: list[tuple[Path, dict[str, Any]]] = []
-    for path in sorted(evidence_root.glob("attempt-*/gate-report.json")):
+    for path in sorted(evidence_root.glob(REPORT_GLOB)):
         payload = _read_json(path)
         if payload is None:
             problems.append(f"{path.parent.name}: 보고서를 읽을 수 없다(손상되었거나 JSON 이 아니다)")

@@ -1,0 +1,116 @@
+# GA Close — 마감 절차를 **기계**가 돌린다 (CR-14 R-11)
+# ====================================================
+# 왜 필요한가
+# ===========
+# attempt-016~018 이 만든 마감 검사(`scripts/verify_attempt_close.py`)와 마감 절차
+# (`scripts/run_attempt_close.py`)는 **사람이 시작해야** 작동했다 — 그것이 한계 R-11 이었다.
+# 계약은 **돌았을 때만** 문다. "아무도 돌리지 않았다"는 어떤 계약도 잡지 못한다.
+#
+# 이 워크플로가 그 마지막 단계를 사람의 기억에서 떼어낸다:
+#   1. `release.yml` 이 이 워크플로를 **publish 의 선행 조건**으로 부른다 —
+#      기계가 재측정하지 않은 주장은 PyPI 로 나가지 못한다(publish job 의 `needs`).
+#   2. 매주 월요일 03:00 UTC 에 **스스로** 돈다(사람이 아무것도 하지 않아도 돈다).
+#
+# 무엇을 돌리는가
+# ===============
+# 게이트의 개수도 이름도 이 파일에 적지 않는다 — 목록은 `scripts/commercial_ga_gates.json`
+# 이 소유하고, 순서와 배치도 절차 스크립트가 소유한다. 여기서는 **스크립트 하나**를 부른다.
+# (같은 규칙을 두 곳이 들고 있으면 갈라진다 — F-18 · F-24 · F-27 이 전부 그 병이었다.)
+#
+# `--stage all` = fast(18) → tests(python-tests) → heavy(docker-build · clean-machine-runtime)
+#   → close(보고서 편입 + 마감 검사). 게이트가 하나라도 실패하거나 마감 검사가 FAIL 이면
+#   이 job 이 실패한다 — 그 실패가 곧 "이 초록은 재현되지 않는다"는 판정이다.
+#
+# 이 저장소 밖(포크/CI)에서 처음 도는 경우 읽을 것
+# ==============================================
+#   - `fetch-depth: 0` 이 필요하다: 지문은 **git 객체**에서 계산되고(`tree_fingerprint_of_commit`),
+#     후보 커밋과 HEAD 사이의 코드 스코프 변경도 git 이력으로 판정한다(얕은 클론이면 후보가 없다).
+#   - 후보 커밋의 SHA·지문·게이트 수치는 판정 카드(`docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md`)가
+#     선언한다. 카드가 선언한 지문과 **이 실행이 측정한 지문**이 다르면 마감 검사가 FAIL 한다 —
+#     즉 **버전을 올리는 커밋(코드 스코프)을 만들면 태그 전에 다시 선언해야 한다**.
+#   - 이 job 은 매주/릴리스 때만 돈다. 푸시마다 도는 값싼 감시는 계약
+#     `tests/test_cr14_fence_movement_detection.py`(후보..HEAD 코드 변경 0건)가 맡는다.
+#
+# exit code: 절차가 0 이 아니면 이 job 이 실패한다(0 = 게이트 전부 PASS + 마감 검사 PASS).
+
+name: "GA Close"
+
+on:
+  workflow_call:
+    # release.yml 이 publish 의 선행 조건으로 부른다.
+  workflow_dispatch:
+    # 수동 실행: 초록을 재현한다고 주장하기 전에 기계에 물어본다.
+  schedule:
+    - cron: "0 3 * * 1" # 월요일 03:00 UTC — weekly-drift(04:00) 앞
+
+concurrency:
+  group: ga-close-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHON_VERSION: "3.12"
+  # 증거 디렉터리 이름. 마감 검사는 `attempt-*/gate-report.json` 을 훑으므로 이 이름이
+  # 그 글롭에 맞아야 한다(`attempt-ci` → `attempt-*`). 사람의 attempt-NNN 과 구분된다.
+  GA_CLOSE_ATTEMPT: "attempt-ci"
+
+jobs:
+  ga-close:
+    name: "GA close (gates → report → close check)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout (full history — 후보 커밋이 있어야 지문을 계산한다)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # 절차는 `uv run --no-sync python scripts/ga_gate.py` 로 게이트를 부른다 — 게이트 실행자가
+      # 기대하는 환경(잠금파일 frozen · dev+rag)을 **먼저** 맞춰야 한다.
+      - name: Sync locked environment (non-editable, dev + rag)
+        run: uv sync --locked --no-editable --extra dev --extra rag
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+          run_install: false
+
+      - name: Set up Node.js 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13
+          cache: "pnpm"
+          cache-dependency-path: dashboard/pnpm-lock.yaml
+
+      - name: Install dashboard dependencies (frozen)
+        run: pnpm --dir dashboard install --frozen-lockfile
+
+      # 마지막 required 게이트(a11y e2e)가 chromium 을 쓴다 — 브라우저 설치는 게이트가 아니라
+      # 러너 준비의 일이므로 여기서 끝낸다(ci.yml 의 e2e job 과 같은 방식).
+      - name: Install Playwright Chromium (a11y 게이트가 쓴다)
+        run: pnpm --dir dashboard exec playwright install --with-deps chromium
+
+      - name: Run the close procedure (gates → report → close check)
+        run: uv run --no-sync python scripts/run_attempt_close.py --attempt "$GA_CLOSE_ATTEMPT" --stage all
+
+      # 기계가 만든 보고서를 남긴다 — 실패했을 때도 남겨야 "어느 게이트가 왜" 를 읽을 수 있다.
+      - name: Upload the machine-produced gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ga-close-report
+          path: .artifacts/commercial-ga-ci-close.json
+          if-no-files-found: warn
+          retention-days: 30

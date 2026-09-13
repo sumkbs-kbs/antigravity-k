@@ -144,6 +144,18 @@ jobs:
             dist/release-supply-chain.json
           retention-days: 30
 
+  # CR-14 R-11: 릴리스는 **기계가 재측정한 주장**만 출하한다.
+  # 이 job 은 `.github/workflows/ga-close.yml` 을 그대로 부른다 — 게이트 목록도 순서도
+  # 이 파일에 적지 않는다(복제하면 갈라진다: F-18/F-24/F-27). 마감 절차가 실패하면
+  # publish-pypi · github-release 가 시작되지 않는다(`needs`).
+  # 주의: 버전을 올리는 커밋은 코드 스코프를 움직이므로, 태그 **전에** 그 커밋을 후보로
+  # 다시 선언해야 한다 — 그렇지 않으면 여기서 "선언된 지문 != 측정된 지문" 으로 멈춘다.
+  ga-close:
+    name: "GA close (machine re-measurement)"
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' && inputs.dry_run != 'true'
+    uses: ./.github/workflows/ga-close.yml
+
   dry-run-report:
     name: "Dry-run report (publish disabled)"
     runs-on: ubuntu-latest
@@ -164,7 +176,7 @@ jobs:
   publish-pypi:
     name: "Publish to PyPI"
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, ga-close]
     timeout-minutes: 10
     # Skip publishing on manual dry-run or on non-tag pushes.
     # publish는 태그 push에서만 열린다. 수동 dispatch는 기본이 dry-run이라
@@ -192,7 +204,7 @@ jobs:
   github-release:
     name: "Create GitHub Release"
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, ga-close]
     timeout-minutes: 5
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' && inputs.dry_run != 'true'
     permissions:
