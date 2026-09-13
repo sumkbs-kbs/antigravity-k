@@ -434,8 +434,10 @@ class TaskStateStore:
             if not can_cancel(raw_status, owner_pid):
                 return "owned_elsewhere"
 
+            # B608: 문자열 결합은 **고정 조각**뿐이고(아래 `AND owner_subject = ?`), 값은 전부
+            # 바인딩 파라미터다. `prepare_resume` 이 같은 형태에 같은 표기를 쓰는 것과 맞춘다.
             cursor = connection.execute(
-                "UPDATE task_history SET status = ?, error = ?, completed_at = ?, updated_at = ?, "
+                "UPDATE task_history SET status = ?, error = ?, completed_at = ?, updated_at = ?, "  # nosec B608
                 + "owner_pid = NULL, version = ? "
                 + "WHERE task_id = ? AND status = ? AND owner_pid IS ? AND version = ?"
                 + (" AND owner_subject = ?" if owner_subject is not None else ""),
