@@ -396,24 +396,77 @@ def _refresh_sidecar(bundle: Path) -> None:
 # --------------------------------------------------------- C14-01c inventory
 
 
+# CR-14 필수 gate 인벤토리 — **의도적으로** 여기에 pinned 한다.
+#
+# 왜 개수가 아니라 목록인가: 이 계약의 목적은 "검사가 조용히 사라지는 경로를 막는 것"이다.
+# 숫자만 고정하면 하나를 빼고 하나를 넣어도 통과한다.
+#
+# 왜 20 → 21 인가 (CR-14 F-21, attempt-013): `python-tests` 가 wall-clock 임계값까지 재고 있었다.
+# 고립 실행에서는 2209ms 인 테스트가 6200여 개를 도는 프로세스 안에서는 6084ms 로 임계값(6000ms)을
+# 넘겼다 — 머신 부하가 required 게이트를 깨는 구조였다. 검사를 **빼는 대신 옮겼다**: 기능 게이트는
+# `-m "not benchmark"`, 전용 `python-benchmark` 게이트가 `-m benchmark` 로 조용한 프로세스에서 돈다.
+# 그래서 개수가 늘었고, 이 목록을 함께 고치는 것이 이번 변경의 기록이다.
+_EXPECTED_REQUIRED_GATES = (
+    # python_backend (6)
+    "python-ruff",
+    "python-format",
+    "python-mypy",
+    "python-basedpyright",
+    "python-tests",
+    "python-benchmark",
+    # dashboard (5)
+    "dashboard-install",
+    "dashboard-lint",
+    "dashboard-typecheck",
+    "dashboard-test",
+    "dashboard-build",
+    # package / container (2)
+    "package-build",
+    "docker-build",
+    # supply chain (3)
+    "sbom-generate",
+    "dependency-audit-python",
+    "dependency-audit-dashboard",
+    # security (1)
+    "security-bandit",
+    # runtime / release (4)
+    "master-e2e",
+    "api-e2e",
+    "accessibility-e2e",
+    "clean-machine-runtime",
+)
+
+
 class TestCandidateGateInventory:
-    def test_repository_gate_manifest_has_twenty_required_gates(self) -> None:
+    def test_repository_gate_manifest_required_gates_are_the_pinned_inventory(self) -> None:
+        """현재 manifest 의 필수 gate 집합이 pinned 목록과 같다.
+
+        F-21 로 21개가 됐다. 앞으로 늘거나 줄면 이 목록을 함께 고쳐야 한다 — 즉 변경이
+        **의도된 편집**으로만 가능하고, 우연히 사라지는 경로는 없다.
+        """
         manifest = json.loads(_GATE_MANIFEST.read_text(encoding="utf-8"))
-        required = [gate["id"] for gate in manifest["gates"] if gate["required"]]
+        required = sorted(gate["id"] for gate in manifest["gates"] if gate["required"])
 
-        assert len(required) == 20, required
+        assert required == sorted(_EXPECTED_REQUIRED_GATES), required
 
-    def test_cr14_recorded_inventory_matches_the_gate_manifest(self) -> None:
-        """기록된 인벤토리가 manifest에서 검사를 빼서 줄어드는 경로를 막는다."""
+    def test_cr14_recorded_inventory_is_never_removed_from_the_gate_manifest(self) -> None:
+        """기록된 인벤토리(attempt-001)의 gate 가 manifest 에서 사라지거나 강등되지 않는다.
+
+        기록 이후의 **추가**는 허용한다(위 pinned 목록이 그 자리를 지킨다) — 금지하는 것은
+        기록에 있던 검사를 빼는 일이다. attempt-001 의 기록은 역사이므로 고치지 않는다.
+        """
         if not _CR14_INVENTORY.is_file():
             pytest.skip("CR-14 gate inventory not generated in this checkout")
 
         manifest = json.loads(_GATE_MANIFEST.read_text(encoding="utf-8"))
         inventory = json.loads(_CR14_INVENTORY.read_text(encoding="utf-8"))
 
-        assert sorted(gate["id"] for gate in inventory) == sorted(gate["id"] for gate in manifest["gates"])
         assert all(gate["required"] for gate in inventory), "a required gate was demoted in the record"
-        assert len(inventory) == 20, len(inventory)
+
+        required = {gate["id"] for gate in manifest["gates"] if gate["required"]}
+        recorded = {gate["id"] for gate in inventory}
+        removed = sorted(recorded - required)
+        assert not removed, f"기록에 있던 필수 gate 가 manifest 에서 사라졌다(또는 강등됐다): {removed}"
 
     def test_cr14_bundle_never_claims_an_approval_it_did_not_earn(self, bundle_tool: ModuleType) -> None:
         """증거 번들이 있으면 그 종류를 실제로 확인한다 — 부분 실행을 승인으로 올리지 않는다."""
