@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 개선 실행 체크리스트
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-039 MEASURING** — 후보 `bbb308f8`/`0b1a156f…` · required **23** · GA 승인 없음 · NO-GO)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-039 REVIEW** — EXTERNAL_HUB CLOSED · 후보 `bbb308f8`/`0b1a156f…` · **23/23** · leftover 0 · GA 승인 없음 · NO-GO)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 plan: docs/16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md
@@ -11,7 +11,8 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 [개발 계획](16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [검토 기준](qa/2026-09-11-commercial-review/BASELINE.md)
 
-**현재: CR-14 attempt-039 **MEASURING** — F-47 `f47-capture-real-local-models` CLOSED(hermetic) · leftover **0건** · 코드 후보 **커밋** `bbb308f8172c802419cb49a69970c1691d3c80ad` (지문 `0b1a156f…`) · required gate **23** · 판정 **NO-GO** · **GA 승인 없음** · owner=마뱀 · EX-01 주장 금지 · D-71/push 금지.**
+**현재: CR-14 attempt-039 **REVIEW** — F-47 `f47-capture-real-local-models` CLOSED · leftover **0건** · 코드 후보 **커밋** `bbb308f8172c802419cb49a69970c1691d3c80ad` (지문 `0b1a156f…`) · required **23/23 PASS** · 판정 **NO-GO** · **GA 승인 없음** · owner=마뱀 · EX-01 주장 금지.**
+최근 갱신: 2026-09-14 (**CR-14 attempt-039 REVIEW** — EXTERNAL_HUB hermetic 폐쇄. 후보 `bbb308f8` · 지문 `0b1a156f…` · **23/23** · leftover 0 · ambient hub-seed 2 passed · NO-GO.)
 최근 갱신: 2026-09-14 (**CR-14 attempt-039 DECLARED** — 후보 `bbb308f8` · 지문 `0b1a156f…` · 측정 전 §5 선언. AGK_SEED_LOCAL_HUB · HUB_SPEC_FILES.)
 최근 갱신: 2026-09-14 (**CR-14 attempt-038 REVIEW** — compact leftover 폐쇄. 후보 `4c3f8364` · 지문 `9362bdfc…` · **23/23** · ambient owns compact · leftover EXTERNAL_HUB 1건 · NO-GO.)
 최근 갱신: 2026-09-14 (**CR-14 attempt-038 DECLARED** — 후보 `4c3f8364` · 지문 `9362bdfc…` · 측정 전 §5 선언. compact leftover 시드 정합 코드 커밋됨. owner=마뱀.)

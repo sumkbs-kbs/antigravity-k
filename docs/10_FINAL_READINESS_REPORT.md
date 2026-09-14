@@ -1,5 +1,6 @@
 # 10 Final Readiness Report
 
+> CR-14 attempt-039 REVIEW: EXTERNAL_HUB leftover 폐쇄 · 후보 `bbb308f8` · 지문 `0b1a156f…` · **23/23** · leftover 0 · **NO-GO**.
 > CR-14 attempt-039 DECLARED: EXTERNAL_HUB leftover hermetic 폐쇄 시도 · 후보 `bbb308f8` · 지문 `0b1a156f…` · leftover 0 목표 · **NO-GO**(측정 전).
 > CR-14 attempt-038 REVIEW: compact leftover 폐쇄 · 후보 `4c3f8364` · 23/23 · leftover EXTERNAL_HUB 1건 · **NO-GO**.
 > **CR-14 attempt-037 (2026-09-14)**: F-47 git-status file-activity leftover CLOSED · leftover 2 · 후보 `0cdcd60c`/`341d4f6c…` · 23/23 PASS · **NO-GO** (사람·조직 축).

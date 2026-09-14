@@ -1,6 +1,11 @@
 # 08 Changelog
 
 
+## 2026-09-14 — CR-14 attempt-039 (REVIEW / NO-GO)
+
+- F-47 leftover `f47-capture-real-local-models` 폐쇄: AGK_SEED_LOCAL_HUB hermetic · HUB_SPEC_FILES · leftover 0.
+- 후보 `bbb308f8` · 지문 `0b1a156f…` · required 23/23 · 판정 NO-GO · EX-01 주장 금지.
+
 ## 2026-09-14 — CR-14 attempt-039 (선언)
 
 - F-47 leftover `f47-capture-real-local-models`(EXTERNAL_HUB) 폐쇄 선언: `AGK_SEED_LOCAL_HUB` hermetic · ambient `HUB_SPEC_FILES` · leftover 1→0.
