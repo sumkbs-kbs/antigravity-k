@@ -42,6 +42,50 @@
   - **수정(D-58)**: 분류를 **관측이 아니라 사실**로 바꿨다 — `fired is None` + `cancel_event.is_set()` + `exit_code != 0` 이면 `cancelled`. 정상 완료는 exit 0 이므로 오분류되지 않고, 그 방향은 회귀가 고정한다. 기존 API 검사는 **정착한 뷰**를 단언하도록 강화했다(D-59) — 단, 그것은 **확률적 그물**이고 결정적 보증은 모듈 수준 회귀가 한다(숨기지 않고 R-1 에 적었다).
   - **효과**: **required gate 20/20 을 동결된 clean HEAD `d72b1711` 에서 되돌리기 0회로 단일 지문 `e428aacc…` 에서 완주**(python-tests **6200 passed / 13 skipped** · docker 233.3s · clean-machine 41.3s `ref: HEAD` · dashboard-build 드리프트 0 · `data/` 드리프트 0) · 증인 exit 1 → 0 · 수정을 끄면 결정적 회귀 1건 실패(이빨). 코드를 **측정 전에 커밋**했으므로 **HEAD 의존 gate 재실행이 필요 없었다**(attempt-010 은 이 순서를 어겨 재실행이 필요했다 — D-52 의 실증).
   - **한계**: API 수준 취소 검사는 여전히 경주 의존(R-1) · 계약은 문서의 모든 수치를 검사하지 않는다(R-2) · F-15 수정은 **증상**을 닫았고 `job.view` 무잠금 쓰기 구조는 남았다(R-4).
+- **CR-14 attempt-033 — 화면이 보내는 경로는 서버가 서는 경로여야 한다(F-43 폐쇄, 제품 런타임 2줄) + 런타임 상태는 코드 스코프 밖에 있다(F-44 폐쇄, 측정 중 발견, 제품 0줄)**
+  - **닫은 것 ① — F-43(제품 런타임 결함)**: attempt-032 가 남긴 다음 걸음("ambient 백엔드 슬라이스에
+    소유자")을 재려고 **서버를 띄우는 증인**을 세우는 첫 걸음에서, 클라이언트가 실제로 보내는 경로를
+    서버에 대 보니 **두 요청이 존재하지 않는 경로**로 가고 있었다 — `apiRequest` 가 **래퍼 안에서**
+    '/v1' 을 붙이는데 `askAgent`·`fetchWsTicket` 이 **이미 namespace 를 가진 경로**를 넘겨 실효 경로가
+    `/v1/api/agent/ask`·`/v1/auth/ws-ticket` 이 됐고, 서버 라우트 표(235 패밀리·58 namespace)에는
+    그 namespace 가 없다(정본 `POST /api/auth/ws-ticket` 은 **200 + ticket**, 실효 경로는 **405**).
+    **PIN 이 설정된 배포에서는 이벤트 스트림이 4401 로 거절되고 3초마다 재시도**한다 — ticket 없는 WS 는
+    `open_loopback` 만 통과하므로 로컬 dev 익명 모드가 실패를 가렸다.
+  - **왜 아무도 못 봤나(F-43 의 핵심)**: 접두사가 호출부의 **리터럴에 없어서** `grep -r '/v1/auth'` 가
+    0건이고 소스 리터럴만 모으는 대조도 그 자리를 건너뛴다(증인 A 축이 그 눈먼 자리를 재현한다) ·
+    `fetchWsTicket` 이 405 를 `catch { return null }` 로 삼킨다 · **URL 을 보는 테스트가 하나도 없었다**
+    (`useEventWebSocket.test.tsx` 는 `fetchWsTicket` 자체를 mock 한다). 문서 둘도 달랐다(`docs/13` 은
+    `/v1/auth/ws-ticket`, `wsTicket.ts` docstring 은 `/api/auth/ws-ticket`).
+  - **고침(F-43)**: 전체 경로를 그대로 받는 `apiRequestPath` — **제품 런타임 2줄**(`loginWithAccessPin` 이
+    이미 따르던 규약). 소유자 둘: pytest 계약 `tests/test_cr14_client_path_contract.py` **6건**(래퍼를
+    해석한 실효 경로의 namespace 도달성 · **"리터럴 전용 검사로는 그 자리가 보이지 않는다"는 사실 자체**
+    고정) + vitest `dashboard/src/utils/wsTicket.test.ts` **5건**(정확한 URL pin). 증인 exit 1 → exit 0
+    (고침 전 값은 pristine 사본 트리에서 — 작업 트리를 되돌리지 않았다).
+  - **닫은 것 ② — F-44(측정 중 발견 · 측정 인프라)**: 두 번째 후보 `ec76c7ce` 의 측정이 **배치를 전부
+    초록으로 완주하고도** 마감 직전에 멈췄다 — 작업 트리에만 있는 `src/data/projects.json` 하나가 코드
+    지문을 흔들었다(`e116d58d…` ≠ `f8cab12b…`). 원인은 제품의 **상대경로 상태 기본값**(`project_registry.py`:
+    `Path("data/projects.json")` 이 cwd 로 풀린다 — cwd `src/` 프로세스가 저장소 안에 상태를 만든다)과
+    게이트 지문이 **무시되지 않은 미추적 파일도 스코프로 읽는** 것의 만남. 루트의 같은 파일은 이미
+    무시돼 있었다 — 빠진 것은 `src/` cwd 루트뿐.
+  - **고침(F-44)**: 그 루트의 무시 규칙 두 줄 + 계약 `tests/test_cr14_runtime_state_scope_contract.py`
+    **5건**(기본 경로를 **제품 소스에서** 읽기 · 이유 있는 cwd 루트별 무시 · **게이트의 함수로** 스코프
+    측정 · 이빨 — 임시 저장소에서 규칙을 떼면 같은 파일이 다시 스코프에 들어온다). **제품 런타임 0줄** —
+    상대경로 설계의 근본 고침(기본값을 설정에 묶기)은 제품 동작을 바꾸므로 **별도 attempt**(D-71).
+  - **세 번 선언(정직 기록)**: `b11ff74f`(첫 fast 배치가 `dashboard-build` 의 `tree_moved` — 번들 59경로 —
+    로 멈춤 → 번들을 후보 안에서 재빌드해 `ec76c7ce`) → 그 측정이 F-44 로 마감 직전에 중단(무시 규칙 +
+    계약으로 닫아 `c66706ee`) → 재측정. 재선언의 근거는 D-52 의 순서(선언 → 측정)이지 실패를 덮는 것이
+    아니다. 낡은 보고서는 러너의 안내대로 삭제하고 새로 시작했다(조용한 재시작이 아니다).
+  - **검증**: required gate **22/22 / 0 failed / 0 not_run**(커밋된 후보 `c66706ee` · 되돌리기 0회 · 단일
+    지문 `1873d2c7…` · `tree_moved` 0건 · 드리프트 0 · **게이트 목록 불변 22**) — fast **19/19** → tests
+    **1/1** → heavy **2/2**(docker-build 224.1s · clean-machine 42.8s). **python-tests 6376 passed /
+    13 skipped**(+11 = F-43 계약 6 + F-44 계약 5, **스킵 13 → 13**) · **dashboard-test 876 passed(86
+    files)**(+5 = `wsTicket.test.ts`) · api-e2e 9 · accessibility 35 · witnesses 29(44.1s) · benchmark 16 ·
+    **마감 검사 PASS** — 네 값(보고서·HEAD·후보·작업 트리)이 같은 지문이다. **22게이트가 서버를 띄우는
+    동안 런타임 상태는 한 번도 스코프에 들어오지 않았다**(F-44 고침이 일한다는 증거).
+  - **주의**: **제품 런타임 2줄**(F-43 — 이벤트 스트림 복구)이 바뀐 attempt 다. 판정은 **NO-GO 유지**
+    (남은 차단 사유는 사람·조직 축). ambient 백엔드 슬라이스는 **여전히 게이트 밖**이다 — 이 attempt 는
+    그 자리를 재려다 결함을 먼저 만났다(경계 문서 §2-8).
+
 - **CR-14 attempt-032 — 브라우저 증인에게 게이트 소유자를 줬다(F-42 폐쇄 — required 21 → 22, 제품 런타임 코드 0줄)**
   - **닫은 것**: **F-42** — attempt-030(경계 문서 §2-6)·attempt-031(§2-7)이 **자기 한계로** 같은 문장을
     남겼다: *"실 브라우저 증인은 수동이고 required 게이트 중 어느 것도 이들을 돌리지 않는다."
