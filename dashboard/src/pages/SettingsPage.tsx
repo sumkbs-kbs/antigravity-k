@@ -14,6 +14,7 @@ import McpOAuthPanel from '../components/shared/McpOAuthPanel';
 import ModelOperationsPanel from '../components/shared/ModelOperationsPanel';
 import SessionDisclosurePanel from '../components/shared/SessionDisclosurePanel';
 import {
+  changeAccessPin,
   deleteSettingsKeys,
   fetchLogLevels,
   fetchSettings,
@@ -169,6 +170,11 @@ const SettingsPage: React.FC = () => {
     dispatch,
   ] = useReducer(settingsFormReducer, initialSettingsForm);
   const [statusMsg, setStatusMsg] = useState('');
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinStatusMsg, setPinStatusMsg] = useState('');
+  const [pinBusy, setPinBusy] = useState(false);
   /** 진행 중 저장 요청 표시(연속 클릭 방지) — 렌더 전에 동기적으로 막는다. */
   const savingRef = useRef(false);
   /** 서버가 실제로 강제하는 비용 한도 — 화면은 읽기 전용 맥락으로만 보여준다. */
@@ -319,6 +325,42 @@ const SettingsPage: React.FC = () => {
     }
   };
 
+  const handleChangePin = useCallback(async () => {
+    setPinStatusMsg('');
+    const current = currentPin.trim();
+    const next = newPin.trim();
+    const confirmed = confirmPin.trim();
+    if (!current || !next || !confirmed) {
+      setPinStatusMsg('⚠️ 현재 PIN과 새 PIN을 모두 입력하세요.');
+      return;
+    }
+    if (next.length < 4 || next.length > 128) {
+      setPinStatusMsg('⚠️ 새 PIN은 4–128자여야 합니다.');
+      return;
+    }
+    if (next !== confirmed) {
+      setPinStatusMsg('⚠️ 새 PIN과 확인 값이 일치하지 않습니다.');
+      return;
+    }
+    if (pinBusy) return;
+    setPinBusy(true);
+    try {
+      const result = await changeAccessPin(current, next);
+      setPinStatusMsg(`✅ ${result.detail || 'PIN이 변경되었습니다.'}`);
+      setCurrentPin('');
+      setNewPin('');
+      setConfirmPin('');
+    } catch (error) {
+      if (isAuthRequiredError(error)) {
+        setPinStatusMsg('🔒 PIN 인증이 필요합니다. 잠금을 해제한 뒤 다시 시도하세요.');
+      } else {
+        setPinStatusMsg(`⚠️ PIN 변경 실패: ${errorMessage(error)}`);
+      }
+    } finally {
+      setPinBusy(false);
+    }
+  }, [confirmPin, currentPin, newPin, pinBusy]);
+
   // 서버의 진실을 확인하기 전 단계 — 폼을 렌더하지 않으므로 저장할 수 없다(C06-01).
   if (phase === 'loading') {
     return (
@@ -349,6 +391,7 @@ const SettingsPage: React.FC = () => {
       </div>
     );
   }
+
 
   return (
     <div className="settings-page" style={{ maxWidth: 860, margin: '0 auto' }}>
@@ -507,6 +550,75 @@ const SettingsPage: React.FC = () => {
                 <div className="settings-row-hint">이 브라우저에 저장되는 표시 선호 — 서버 한도는 위 값을 따른다</div>
               </div>
                   <input type="number" data-testid="settings-hourly-limit" aria-label="시간당 액션 한도" className="text-input settings-row-input-narrow" value={hourlyLimit} onChange={e => dispatch({ type: 'setHourlyLimit', value: e.target.value })} />
+            </div>
+          </div>
+        </GlassPanel>
+
+        {/* Access PIN change */}
+        <GlassPanel title={<><span className="section-index">PIN</span> 액세스 PIN 변경</>} variant="section" className="settings-section">
+          <p className="settings-desc">
+            로그인 후 액세스 PIN을 변경합니다. 새 PIN은 4자 이상이어야 합니다.
+            (서버 최초 부트스트랩용 plaintext는 non-loopback에서 8자 규칙이 유지됩니다.)
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 420 }}>
+            <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+              <label className="settings-field-label" htmlFor="settings-current-pin">현재 PIN</label>
+              <input
+                id="settings-current-pin"
+                data-testid="settings-current-pin"
+                type="password"
+                autoComplete="current-password"
+                className="text-input"
+                value={currentPin}
+                onChange={e => setCurrentPin(e.target.value)}
+                aria-label="현재 PIN"
+              />
+            </div>
+            <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+              <label className="settings-field-label" htmlFor="settings-new-pin">새 PIN</label>
+              <input
+                id="settings-new-pin"
+                data-testid="settings-new-pin"
+                type="password"
+                autoComplete="new-password"
+                className="text-input"
+                value={newPin}
+                onChange={e => setNewPin(e.target.value)}
+                aria-label="새 PIN"
+              />
+            </div>
+            <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+              <label className="settings-field-label" htmlFor="settings-confirm-pin">새 PIN 확인</label>
+              <input
+                id="settings-confirm-pin"
+                data-testid="settings-confirm-pin"
+                type="password"
+                autoComplete="new-password"
+                className="text-input"
+                value={confirmPin}
+                onChange={e => setConfirmPin(e.target.value)}
+                aria-label="새 PIN 확인"
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-primary"
+                data-testid="settings-change-pin"
+                disabled={pinBusy}
+                onClick={() => { void handleChangePin(); }}
+              >
+                {pinBusy ? '변경 중…' : 'PIN 변경'}
+              </button>
+              {pinStatusMsg && (
+                <div
+                  role={pinStatusMsg.startsWith('✅') ? 'status' : 'alert'}
+                  data-testid="settings-pin-status"
+                  style={{ fontSize: 12, flex: 1 }}
+                >
+                  {pinStatusMsg}
+                </div>
+              )}
             </div>
           </div>
         </GlassPanel>

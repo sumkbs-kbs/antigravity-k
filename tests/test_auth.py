@@ -325,3 +325,77 @@ def test_verify_endpoint(auth_client: TestClient):
     resp = auth_client.post("/api/auth/verify", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["valid"] is True
+
+
+# ---------------------------------------------------------------------------
+# Change-PIN endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_change_pin_success(auth_client: TestClient):
+    """Authenticated change-pin must update the hash and accept the new PIN."""
+    import antigravity_k.api.auth_routes as auth_routes_mod
+    from antigravity_k.config import config
+    from antigravity_k.security.auth_audit import get_auth_audit_events, reset_auth_audit
+
+    _ = auth_client
+    original_pin = "test-pin-1234"
+    temp_pin = "0000"
+    # Issue token directly to avoid shared /login rate-limit budget.
+    token = auth_routes_mod.get_token_service().issue_token(subject="change-pin-test")
+    reset_auth_audit()
+
+    resp = auth_client.post(
+        "/api/auth/change-pin",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_pin": original_pin, "new_pin": temp_pin},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True
+
+    assert stat.S_IMODE(Path(config.security.pin_hash_file).stat().st_mode) == 0o600
+    stored = cast(str, auth_routes_mod.get_current_pin_hash())
+    assert verify_pin(temp_pin, stored) is True
+    assert verify_pin(original_pin, stored) is False
+
+    events = get_auth_audit_events()
+    assert any(e.get("event") == "pin_change_success" for e in events)
+    for event in events:
+        detail = str(event.get("detail", "")).lower()
+        assert temp_pin not in detail
+        assert original_pin not in detail
+        assert "pin=" not in detail
+
+    # Restore original PIN for sibling tests sharing the module-scoped client.
+    restore = auth_client.post(
+        "/api/auth/change-pin",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_pin": temp_pin, "new_pin": original_pin},
+    )
+    assert restore.status_code == 200, restore.text
+    assert verify_pin(original_pin, cast(str, auth_routes_mod.get_current_pin_hash()))
+
+
+def test_change_pin_wrong_current(auth_client: TestClient):
+    """Wrong current_pin must return 401 and leave the stored hash unchanged."""
+    import antigravity_k.api.auth_routes as auth_routes_mod
+
+    original_hash = auth_routes_mod.get_current_pin_hash()
+    token = auth_routes_mod.get_token_service().issue_token(subject="change-pin-wrong")
+    resp = auth_client.post(
+        "/api/auth/change-pin",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_pin": "definitely-wrong", "new_pin": "9999"},
+    )
+    assert resp.status_code == 401
+    assert auth_routes_mod.get_current_pin_hash() == original_hash
+    assert verify_pin("test-pin-1234", cast(str, original_hash)) is True
+
+
+def test_change_pin_unauthenticated(auth_client: TestClient):
+    """Missing bearer must be rejected (middleware 401)."""
+    resp = auth_client.post(
+        "/api/auth/change-pin",
+        json={"current_pin": "test-pin-1234", "new_pin": "0000"},
+    )
+    assert resp.status_code == 401

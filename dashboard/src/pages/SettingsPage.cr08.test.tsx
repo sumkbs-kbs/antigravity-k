@@ -15,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchSettings: vi.fn(),
   saveSettings: vi.fn(),
   deleteSettingsKeys: vi.fn(),
+  changeAccessPin: vi.fn(),
   fetchLogLevels: vi.fn(),
   setLogLevel: vi.fn(),
   setAllLogLevels: vi.fn(),
@@ -53,7 +54,8 @@ beforeEach(() => {
   apiMocks.fetchSettings.mockResolvedValue({ model: { name: 'model-a', provider: 'openrouter' } });
   apiMocks.fetchLogLevels.mockResolvedValue({ ok: true, loggers: [], debug_mode: false, count: 0 });
   apiMocks.saveSettings.mockResolvedValue({ ok: true, updated: 0, message: 'saved' });
-  apiMocks.deleteSettingsKeys.mockResolvedValue({ ok: true, deleted: 0 });
+  apiMocks.changeAccessPin.mockResolvedValue({ ok: true, detail: 'PIN updated.' });
+    apiMocks.deleteSettingsKeys.mockResolvedValue({ ok: true, deleted: 0 });
 });
 
 afterEach(() => {

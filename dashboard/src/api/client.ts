@@ -696,6 +696,30 @@ export async function deleteSettingsKeys(keys: string[]): Promise<SettingsDelete
   return SettingsDeleteResponseSchema.parse(raw);
 }
 
+/**
+ * Authenticated PIN change (Settings). Uses the stored bearer via requestJson headers.
+ * Never persists PIN values to browser storage.
+ */
+export async function changeAccessPin(currentPin: string, newPin: string): Promise<{ ok: boolean; detail: string }> {
+  const raw = await requestJson('/api/auth/change-pin', '/api/auth/change-pin', {
+    method: 'POST',
+    body: JSON.stringify({ current_pin: currentPin, new_pin: newPin }),
+  });
+  if (
+    typeof raw !== 'object'
+    || raw === null
+    || !('ok' in raw)
+    || typeof (raw as { ok: unknown }).ok !== 'boolean'
+  ) {
+    throw new Error('Unexpected change-pin response.');
+  }
+  const detail =
+    'detail' in raw && typeof (raw as { detail: unknown }).detail === 'string'
+      ? (raw as { detail: string }).detail
+      : 'PIN updated.';
+  return { ok: (raw as { ok: boolean }).ok, detail };
+}
+
 
 /* ─── CTX-01 conversation revision protocol ───────────────── */
 

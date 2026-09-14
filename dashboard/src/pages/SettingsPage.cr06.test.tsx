@@ -19,6 +19,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchSettings: vi.fn(),
   saveSettings: vi.fn(),
   deleteSettingsKeys: vi.fn(),
+  changeAccessPin: vi.fn(),
   fetchLogLevels: vi.fn(),
   setLogLevel: vi.fn(),
   setAllLogLevels: vi.fn(),
@@ -58,6 +59,7 @@ describe('SettingsPage · CR-06', () => {
     localStorage.clear();
     apiMocks.fetchLogLevels.mockResolvedValue({ ok: true, loggers: [], debug_mode: false, count: 0 });
     apiMocks.saveSettings.mockResolvedValue({ ok: true, updated: 1, message: 'saved' });
+    apiMocks.changeAccessPin.mockResolvedValue({ ok: true, detail: 'PIN updated.' });
     apiMocks.deleteSettingsKeys.mockResolvedValue({ ok: true, deleted: 0 });
     apiMocks.isAuthRequiredError.mockReturnValue(false);
   });

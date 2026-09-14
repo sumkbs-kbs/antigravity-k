@@ -8,13 +8,24 @@ plaintext.
 Routes
 ------
 - ``POST /api/auth/login``  — exchange a PIN for a signed bearer token.
+- ``POST /api/auth/change-pin`` — authenticated PIN change (``current_pin`` + ``new_pin``).
 - ``POST /api/auth/verify`` — confirm a token is still valid.
 - ``POST /api/auth/logout`` — informational; stateless tokens are client-revoked.
+
+PIN length notes
+----------------
+- Non-loopback / production *bootstrap* of an initial plaintext PIN still requires
+  at least 8 characters (see ``startup_security._MIN_PIN_LENGTH``).
+- The authenticated change-pin endpoint accepts ``new_pin`` lengths of 4–128 so
+  short local PINs (e.g. ``0000``) can be set after login.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, ParamSpec, Protocol, TypeVar
@@ -140,6 +151,42 @@ def get_current_pin_hash() -> str | None:
     return _pin_hash
 
 
+def set_current_pin_hash(new_hash: str) -> None:
+    """Update the in-memory PIN hash used by login verification.
+
+    Callers that persist a new hash must also write ``pin_hash_file``; this
+    setter only refreshes process memory so subsequent logins use the new hash
+    without requiring a restart.
+    """
+    global _pin_hash
+    _pin_hash = new_hash
+
+
+def _persist_pin_hash_atomic(new_hash: str) -> Path:
+    """Write ``new_hash`` to ``pin_hash_file`` atomically with mode 0600."""
+    hash_path = Path(config.security.pin_hash_file)
+    hash_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(
+        prefix=".auth_hash.",
+        suffix=".tmp",
+        dir=str(hash_path.parent),
+    )
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            _ = handle.write(new_hash)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, hash_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temp_path)
+        raise
+    with contextlib.suppress(OSError):
+        os.chmod(hash_path, 0o600)
+    return hash_path
+
+
 # ---------------------------------------------------------------------------
 # Request/response models
 # ---------------------------------------------------------------------------
@@ -164,6 +211,30 @@ class VerifyResponse(BaseModel):
 
     valid: bool
     subject: str | None = None
+
+
+class ChangePinRequest(BaseModel):
+    """Authenticated PIN change request.
+
+    ``new_pin`` allows 4–128 characters. Non-loopback bootstrap of an *initial*
+    plaintext PIN still requires ≥8 characters (``startup_security``); this
+    endpoint is intentionally more permissive for post-login changes.
+    """
+
+    current_pin: str = Field(..., min_length=1, max_length=128, description="Current access PIN.")
+    new_pin: str = Field(
+        ...,
+        min_length=4,
+        max_length=128,
+        description="New access PIN (4–128 chars; bootstrap of initial plaintext still requires ≥8 off-loopback).",
+    )
+
+
+class ChangePinResponse(BaseModel):
+    """Successful PIN change response."""
+
+    ok: bool = True
+    detail: str = "PIN updated."
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +304,67 @@ def login(request: Request, body: LoginRequest) -> TokenResponse:
     record_auth_metric("success")
     token = get_token_service().issue_token(subject="user")
     return TokenResponse(access_token=token, expires_in=get_token_service().ttl_seconds)
+
+
+@router.post("/change-pin", response_model=ChangePinResponse)
+@_rate_limit("5/minute")
+def change_pin(request: Request, body: ChangePinRequest) -> ChangePinResponse:
+    """Change the access PIN (requires a valid bearer token).
+
+    Verifies ``current_pin`` against the stored hash, then re-hashes ``new_pin``
+    and persists it atomically (0600). Updates in-memory ``_pin_hash`` so login
+    uses the new value immediately.
+
+    Length policy: ``new_pin`` may be 4–128 characters. Non-loopback / production
+    bootstrap of an *initial* plaintext PIN still requires ≥8 characters
+    (``startup_security._MIN_PIN_LENGTH``); this authenticated change path is
+    intentionally more permissive for local short PINs.
+
+    Audit events never include PIN plaintext.
+    """
+    from antigravity_k.security.auth_audit import record_auth_event
+
+    remote = request.client.host if request.client else "unknown"
+    subject = getattr(request.state, "auth_subject", None)
+    if not isinstance(subject, str) or not subject:
+        # Middleware should already reject unauthenticated callers; fail closed.
+        record_auth_event("pin_change_failed", remote, "unauthenticated")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+        )
+
+    stored = get_current_pin_hash()
+    if stored is None:
+        record_auth_event("pin_change_failed", remote, "auth not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is not configured on this server.",
+        )
+
+    if not verify_pin(body.current_pin, stored):
+        logger.info("Failed PIN change attempt from %s", remote)
+        record_auth_event("pin_change_failed", remote, "wrong current pin")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid current PIN.",
+        )
+
+    new_hash = hash_pin(body.new_pin)
+    try:
+        _ = _persist_pin_hash_atomic(new_hash)
+    except OSError as exc:
+        logger.warning("Could not persist new PIN hash: %s", exc)
+        record_auth_event("pin_change_failed", remote, "persist failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not persist new PIN.",
+        ) from exc
+
+    set_current_pin_hash(new_hash)
+    record_auth_event("pin_change_success", remote, "pin updated")
+    logger.info("Access PIN changed by subject=%s from %s", subject, remote)
+    return ChangePinResponse()
 
 
 @router.post("/token", response_model=TokenResponse)

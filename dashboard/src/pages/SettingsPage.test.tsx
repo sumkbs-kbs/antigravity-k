@@ -5,6 +5,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchSettings: vi.fn(),
   saveSettings: vi.fn(),
   deleteSettingsKeys: vi.fn(),
+  changeAccessPin: vi.fn(),
   fetchLogLevels: vi.fn(),
   setLogLevel: vi.fn(),
   setAllLogLevels: vi.fn(),
@@ -49,6 +50,7 @@ describe('SettingsPage', () => {
     apiMocks.fetchLogLevels.mockResolvedValue({ ok: true, loggers: [], debug_mode: false, count: 0 });
     apiMocks.saveSettings.mockResolvedValue({ ok: true, updated: 1, message: 'saved' });
     apiMocks.deleteSettingsKeys.mockResolvedValue({ ok: true, deleted: 1 });
+    apiMocks.changeAccessPin.mockResolvedValue({ ok: true, detail: 'PIN updated.' });
   });
 
   afterEach(() => {
@@ -190,4 +192,28 @@ describe('SettingsPage', () => {
     expect(screen.getByDisplayValue('model-a')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('legacy-model')).not.toBeInTheDocument();
   });
+  it('changes the access PIN via the settings form', async () => {
+    await renderLoadedPage();
+
+    fireEvent.change(screen.getByTestId('settings-current-pin'), { target: { value: '0000' } });
+    fireEvent.change(screen.getByTestId('settings-new-pin'), { target: { value: '1234' } });
+    fireEvent.change(screen.getByTestId('settings-confirm-pin'), { target: { value: '1234' } });
+    fireEvent.click(screen.getByTestId('settings-change-pin'));
+
+    await waitFor(() => expect(apiMocks.changeAccessPin).toHaveBeenCalledWith('0000', '1234'));
+    await waitFor(() => expect(screen.getByTestId('settings-pin-status')).toHaveTextContent(/PIN updated/));
+  });
+
+  it('rejects mismatched new PIN confirmation without calling the API', async () => {
+    await renderLoadedPage();
+
+    fireEvent.change(screen.getByTestId('settings-current-pin'), { target: { value: '0000' } });
+    fireEvent.change(screen.getByTestId('settings-new-pin'), { target: { value: '1234' } });
+    fireEvent.change(screen.getByTestId('settings-confirm-pin'), { target: { value: '9999' } });
+    fireEvent.click(screen.getByTestId('settings-change-pin'));
+
+    await waitFor(() => expect(screen.getByTestId('settings-pin-status')).toHaveTextContent(/일치하지 않습니다/));
+    expect(apiMocks.changeAccessPin).not.toHaveBeenCalled();
+  });
+
 });
