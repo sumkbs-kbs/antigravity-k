@@ -243,14 +243,39 @@ echo "▶ 애플리케이션 코어 리소스 번들링 중..."
 APP_BUNDLE_APP="$RESOURCES_DIR/app"
 mkdir -p "$APP_BUNDLE_APP"
 
-# 소스코드 및 필수 설정 복사
+# Phase 1 (desktop shell plan): fail-closed dashboard_dist — never ship without SPA.
+DASHBOARD_DIST_SRC="$ROOT_DIR/src/antigravity_k/dashboard_dist"
+if [[ ! -f "$DASHBOARD_DIST_SRC/index.html" ]]; then
+    echo "▶ dashboard_dist 없음 — production 빌드 시도 (pnpm --dir dashboard build)..."
+    if command -v pnpm >/dev/null 2>&1; then
+        pnpm --dir "$ROOT_DIR/dashboard" build
+    else
+        echo "ERROR: pnpm 없음. dashboard_dist/index.html 을 먼저 빌드하세요." >&2
+        exit 1
+    fi
+fi
+if [[ ! -f "$DASHBOARD_DIST_SRC/index.html" ]]; then
+    echo "ERROR: src/antigravity_k/dashboard_dist/index.html 이 없습니다. 번들을 중단합니다." >&2
+    exit 1
+fi
+
+# 소스코드 및 필수 설정 복사 (.env 등 비밀은 루트에서 복사하지 않음)
 cp -R "$ROOT_DIR/src" "$APP_BUNDLE_APP/"
 cp "$ROOT_DIR/pyproject.toml" "$APP_BUNDLE_APP/"
 cp "$ROOT_DIR/config.yaml" "$APP_BUNDLE_APP/"
 [[ -f "$ROOT_DIR/README.md" ]] && cp "$ROOT_DIR/README.md" "$APP_BUNDLE_APP/"
 [[ -f "$ROOT_DIR/LICENSE" ]] && cp "$ROOT_DIR/LICENSE" "$APP_BUNDLE_APP/"
-cp -R "$ROOT_DIR/src/antigravity_k/dashboard_dist" "$APP_BUNDLE_APP/src/antigravity_k/" 2>/dev/null || true
+# dist는 src 복사에 포함되나, 명시적으로 한 번 더 동기화(누락 방지)
+rm -rf "$APP_BUNDLE_APP/src/antigravity_k/dashboard_dist"
+cp -R "$DASHBOARD_DIST_SRC" "$APP_BUNDLE_APP/src/antigravity_k/dashboard_dist"
 [[ -f "$ROOT_DIR/uv.lock" ]] && cp "$ROOT_DIR/uv.lock" "$APP_BUNDLE_APP/"
+
+# 비밀 파일이 번들에 섞이면 즉시 실패
+if find "$APP_BUNDLE_APP" \( -name '.env' -o -name '.env.*' -o -name 'auth_hash' \) -type f 2>/dev/null | grep -q .; then
+    echo "ERROR: 번들에 비밀 후보 파일(.env/auth_hash)이 포함되었습니다. 중단합니다." >&2
+    find "$APP_BUNDLE_APP" \( -name '.env' -o -name '.env.*' -o -name 'auth_hash' \) -type f 2>/dev/null >&2 || true
+    exit 1
+fi
 
 # 필수 의존성 패키지 번들링 (uv.lock 기반 정확한 버전으로 독립 런타임 구성)
 echo "▶ 필수 런타임 패키지 번들링 중 (site-packages)..."

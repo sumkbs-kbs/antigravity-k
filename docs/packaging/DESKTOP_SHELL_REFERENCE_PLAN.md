@@ -3,7 +3,7 @@ title: Ssak-Ai 데스크톱 셸·배포 클로저 반영 계획서 (DSH Desktop 
 tags: [packaging, desktop, handoff, dsh-desktop, checklist]
 date: 2026-09-15
 owner: 강병석
-status: DRAFT-READY-FOR-HANDOFF
+status: IN_PROGRESS
 reference_repo: https://github.com/anywhere-labs/dsh-desktop
 ssak_branch_context: codex/m1-task-events
 cr14_frozen_candidate: b6003205365606407cadfd6cbb1c813110beef0f
@@ -19,6 +19,16 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 - **하는 일:** Ssak-Ai를 “개발자 `uv`/`vite` 없이도 더블클릭으로 쓰는 데스크톱 제품”에 가깝게 만든다.
 - **하지 않는 일:** DeepSeek Harness / Cordis / DSH 플러그인 스택을 Ssak 엔진에 이식하지 않는다. 에이전트 코어·CR-14 기술 게이트는 Ssak 소유로 유지한다.
 - **성공 정의:** 아래 Phase 체크리스트가 순서대로 DONE이고, 각 Phase의 **완료 증거**가 문서/스크립트/실측으로 남아 후속 에이전트가 이어서 검증할 수 있다.
+
+### 0.0 진행 기록 의무 (사용자 지시 2026-09-15)
+
+**매 진행 단계마다** 다음을 갱신하지 않으면 작업을 끝낸 것으로 보지 않는다.
+
+1. 본 문서 §9 Decision Log / §10 Phase 상태표 / §12 변경 이력
+2. `docs/packaging/notes/phaseN_*.md` (또는 동등 증거 메모)
+3. 가능하면 **docs 커밋**으로 git history에 남겨 다음 에이전트가 `git log`만으로 상태를 복원
+
+체크리스트 `[x]`와 상태표가 **단일 진실 소스**다. 채팅만으로 상태를 남기지 말 것.
 
 ### 0.1 필수 제약 (위반 시 작업 중단)
 
@@ -109,19 +119,19 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 **목적:** 후속 에이전트가 같은 전제로 일하게 한다.
 
 **작업**
-- [ ] 옵션 A/B/C 중 셸 기술 확정 → §9에 기록
-- [ ] 현재 `make dmg` / `scripts/build_mac_dmg.sh` 동작 실측 (성공/실패, 산출물 경로, Python 의존)
-- [ ] 프로덕션 경로에서 Vite 없이 `dashboard_dist`만으로 UI가 뜨는지 확인 (`agk serve`가 dist를 서빙하는지)
-- [ ] 포트 기본값 정리 초안: 개발(5173+8000) vs 제품(단일 포트) 표
-- [ ] 이 계획서 `status`를 `IN_PROGRESS`로 갱신
+- [x] 옵션 A/B/C 중 셸 기술 확정 → §9에 기록 (**D-01 = A**, interim D-01-interim)
+- [x] 현재 `make dmg` / `scripts/build_mac_dmg.sh` 동작 실측 (성공/실패, 산출물 경로, Python 의존) — **DMG 산출물 없음·스크립트 분석 완료** (전체 `make dmg` 빌드는 Phase 1)
+- [x] 프로덕션 경로에서 Vite 없이 `dashboard_dist`만으로 UI가 뜨는지 확인 (`agk serve`가 dist를 서빙하는지) — **`:8000/` HTML 200 + StaticFiles mount 확인**
+- [x] 포트 기본값 정리 초안: 개발(5173+8000) vs 제품(단일 포트) 표 — `notes/phase0_baseline.md`
+- [x] 이 계획서 `status`를 `IN_PROGRESS`로 갱신
 
 **완료 증거**
-- [ ] Decision Log 항목 D-01 (기술 선택)
-- [ ] 베이스라인 메모: `.omo/evidence/desktop-shell/.../phase0_baseline.md` 또는 `docs/packaging/notes/phase0_baseline.md`
-- [ ] `dashboard_dist` 존재·빌드 명령 (`dashboard` 쪽 build) 기록
+- [x] Decision Log 항목 D-01 (기술 선택)
+- [x] 베이스라인 메모: `docs/packaging/notes/phase0_baseline.md` (+ `.omo/evidence/desktop-shell/2026-09-15/` 사본)
+- [x] `dashboard_dist` 존재·빌드 명령 (`pnpm --dir dashboard build`) 기록
 
 **통과 기준**
-- 기술 선택과 “제품은 Vite를 요구하지 않음”이 문서에 명시됨.
+- [x] 기술 선택과 “제품은 Vite를 요구하지 않음”이 문서에 명시됨.
 
 ---
 
@@ -141,11 +151,11 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 5. **빌드 파이프라인:** `make dmg`가 dist 빌드 → 번들 → DMG → sha256까지 **한 명령**으로 재현
 
 **체크리스트**
-- [ ] `dashboard` production build가 CI/로컬 한 명령으로 `src/antigravity_k/dashboard_dist` 갱신
-- [ ] 런처가 **Vite/5173을 호출하지 않음** (grep/테스트로 고정)
+- [x] `dashboard` production build가 CI/로컬 한 명령으로 `src/antigravity_k/dashboard_dist` 갱신 — 명령: `pnpm --dir dashboard build` / Makefile `dashboard-build-provenance` (Phase0 확인). DMG 스크립트가 없을 때 자동 호출
+- [~] 런처가 **Vite/5173을 호출하지 않음** — `build_mac_dmg.sh` 런처는 포트 8000/`agk serve` 경로(기존). 자동 회귀 테스트는 미착수
 - [ ] 번들에 포함 목록 문서화: 바이너리, site-packages 또는 venv, `dashboard_dist`, 아이콘, Info.plist
 - [ ] 읽기 전용 볼륨/Applications에서 기동 스모크
-- [ ] `scripts/build_mac_dmg.sh`에 “클로저 검증” 단계 추가 (필수 파일 누락 시 fail)
+- [x] `scripts/build_mac_dmg.sh`에 “클로저 검증” 단계 추가 (필수 파일 누락 시 fail) + `.env`/`auth_hash` 혼입 거부
 - [ ] (선택) `make dmg-smoke`: 마운트 → 실행 → `/api/auth/status` 또는 헬스 → 종료
 - [ ] Windows: 동등 클로저 설계 초안만 Phase 1 말에 작성 (구현은 Phase 3)
 
@@ -372,8 +382,9 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | ID | 날짜 | 결정 | 결정자 | 메모 |
 |---|---|---|---|---|
 | D-00 | 2026-09-15 | DSH는 **배포·셸 UX 참고**만. Harness 이식 안 함 | 강병석 / 마뱀 초안 | 공개 docs 기반 검토 |
-| D-01 | TBD | 셸 기술 A/B/C | TBD | Phase 0에서 필수 |
-| D-02 | TBD | Python 클로저 방식 1a/1b | TBD | Phase 1 |
+| D-01 | 2026-09-15 | 셸 기술 **A (Electron + Python 클로저)** 채택 (목표 UX: 트레이/업데이트/Win+Mac) | 강병석 지시 순차진행 · 마뱀 기록 | Phase 0 |
+| D-01-interim | 2026-09-15 | Phase 1은 기존 `build_mac_dmg.sh` 클로저 강화부터 (Electron 스캐폴드에 블로킹되지 않음) | 마뱀 | Phase 1 진입 규칙 |
+| D-02 | 2026-09-15 (잠정) | Python 클로저 **1a 우선** (site-packages/근접 인터프리터; 스크립트에 부분 구현됨). 1b는 1a 실패 시에만 | 마뱀 | Phase 1에서 검증 |
 | D-03 | TBD | 업데이트 서버 위치 (GitHub Releases vs 자체) | TBD | Phase 5 |
 
 ---
@@ -382,8 +393,8 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 
 | Phase | 이름 | 상태 | 담당 | 증거 경로 |
 |---|---|---|---|---|
-| 0 | 범위·결정·베이스라인 | NOT_STARTED | | |
-| 1 | 배포 클로저 | NOT_STARTED | | |
+| 0 | 범위·결정·베이스라인 | **DONE** | 마뱀 | `docs/packaging/notes/phase0_baseline.md` |
+| 1 | 배포 클로저 | **IN_PROGRESS** (다음) | | |
 | 2 | 셸 UX | NOT_STARTED | | |
 | 3 | Windows 패리티 | NOT_STARTED | | |
 | 4 | 복구·진단 | NOT_STARTED | | |
@@ -411,3 +422,5 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 날짜 | 작성 | 내용 |
 |---|---|---|
 | 2026-09-15 | 마뱀 (핸드오프 초안) | DSH 공개 검토 기반 반영 계획서·체크리스트 최초 작성 |
+| 2026-09-15 | 마뱀 | 커밋 `1314d016`로 계획서 착수. 사용자 지시: **진행 결과는 반드시 문서에 남겨 다음 에이전트가 이어갈 것**. Phase 0 DONE — 베이스라인·D-01/D-01-interim/D-02 기록. Phase 1 다음. |
+| 2026-09-15 | 마뱀 | Phase 0 증거 `notes/phase0_baseline.md` 기록. Phase 1 시작: `build_mac_dmg.sh` fail-closed dist + 비밀 파일 거부. 진행 로그 `notes/phase1_progress.md`. 전체 `make dmg` 실측은 다음 스텝. |
