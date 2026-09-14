@@ -444,7 +444,7 @@ NO_PIN 누락 · 공유 `vault_data/hooks` 침묵 · hermetic Origin 이 `ws_ori
 - `capture-real-local-models` (실 unsloth/모델 허브) → `f47-capture-real-local-models`
 - invert 대상(git status 파일활동 · compact large stream · axe/viewport flake) — ambient 부재가 아님
   → `f47-invert-*` 등록부 항목
-- C33-6 PIN-mode ticket 스트림 witness(선택 · 다음 최저가 후보)
+- ~~C33-6 PIN-mode ticket 스트림 witness~~ (**attempt-040 CLOSED** — `cr14-pin-ws-ticket.spec.ts`)
 - D-71 상대경로 상태 기본값 마이그레이션(명시적 비범위)
 
 인벤토리는 **22 → 23**. `23/23` 은 "게이트에 넣은 것을 다 돌렸다"이지 "모든 브라우저 경로가
@@ -494,7 +494,7 @@ invert 를 유일한 소유자로 두지 않는다.
 닫힌 id 를 등록부에서 침묵 삭제하면 목록 정체성 계약이 실패한다(이빨) — `closed_this_attempt` 기록이 필요하다.
 
 ### 이 절이 재지 않는 것
-- C33-6 PIN-mode ticket witness(선택 · 다음 최저가)
+- ~~C33-6 PIN-mode ticket witness~~ (**attempt-040 CLOSED**)
 - D-71 상대경로 마이그레이션(명시적 비범위)
 - EX-01…06 · C14-08 사람·조직 축(판정 NO-GO)
 

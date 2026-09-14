@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 상세 개선 개발 계획서
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-040 DECLARED** — C33-6 · 후보 `b6003205` · 지문 `02349a8d…` · **23** · NO-GO · 측정 전)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-040 REVIEW** — C33-6 CLOSED · 후보 `b6003205` · 지문 `02349a8d…` · **23/23** · NO-GO)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 source_review: docs/qa/2026-09-11-commercial-review/BASELINE.md

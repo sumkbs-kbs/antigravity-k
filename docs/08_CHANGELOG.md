@@ -1,6 +1,11 @@
 # 08 Changelog
 
 
+## 2026-09-14 — CR-14 attempt-040 (REVIEW / NO-GO)
+
+- C33-6 CLOSED: `cr14-pin-ws-ticket.spec.ts` · PIN hermetic · `/api/auth/ws-ticket` → `?ticket=` · 4401 fail-first · witnesses 게이트 소유.
+- 후보 `b6003205` · 지문 `02349a8d…` · required 23/23 · 판정 NO-GO.
+
 ## 2026-09-14 — CR-14 attempt-040 (선언)
 
 - C33-6 PIN-mode ticket 브라우저 증인 선언: `cr14-pin-ws-ticket.spec.ts` · hermetic `startAuthServer` · `/api/auth/ws-ticket` → `?ticket=` · 4401 fail-first.
