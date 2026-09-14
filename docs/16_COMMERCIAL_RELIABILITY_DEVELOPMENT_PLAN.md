@@ -134,7 +134,7 @@ Ssak-Ai의 로컬/자체 호스팅 **단일 운영자** 제품 범위에서 사�
 - **주의(CR-14 · F-04)**: 라벨 주입 차단은 `mermaidRuntime`의 **두 지점**(정의 중화 + 출력 구조 정화)에 의존한다. 한쪽만 남기면 비컨이 되살아나고(출력 정화만으로는 요청이 이미 나간다), `dashboard/e2e/tests/cr09-offline-assets.spec.ts`의 `C09-03`(주입 노드 0 · **외부 요청 0**) 단언이 그 상시 감시자다. 이 단언을 약화시키는 변경은 F-04를 되돌리는 것이다.
 - **주의(CR-14, 결정 D-02)**: release 문서의 파이썬 라이선스는 `importlib.metadata`로 **실행 환경**에서 읽힌다. 같은 후보·같은 lock으로도 환경에 따라 값이 달라지므로, 저장소 사본은 release workflow와 같은 명령(`uv run --isolated --frozen python -m antigravity_k.engine.release_sbom generate --project-root . --release-root src/antigravity_k/release`)으로만 만들어야 한다.
 - 다음 작업: CR-01~14 **커밋**(갱신된 `THIRD_PARTY_NOTICES.txt`·`dashboard.cdx.json`·`dashboard_dist` 포함)·clean full SHA 확정 → **그 SHA에서 20-gate 재실행**(특히 `clean-machine-runtime` — F-07) → **F-06(uuid moderate)** → 독립 검토·출시 책임자 배정 → CR-14 attempt-006(C14-03/04/05 채우기). F-02(벤치마크 DB 격리)·F-03(release 라이선스 판독)·F-04(mermaid)·F-05(docker OOM)·F-08(사용량 DB 격리)는 닫혔고 F-01 은 재실측으로 GA blocker 에서 내려갔다(빌드 멱등 — §0-B). 20-gate가 **되돌리기 없이** 단일 지문 `1981bfb5…` 에서 전부 PASS한 상태이므로 **다음 변경은 반드시 그 지문에서 다시 검증**해야 한다(§CR-14 8).
-- 공통 blocker: CR-01~14 전부 **독립 검토 미배정**이다. 각 attempt의 `review.md` 패킷과 `repro/` 도구가 준비되어 있고, 검토자는 같은 코드 상태를 지문/SHA로 고정한 뒤 재현·반증한다. 검토 전까지는 REVIEW 상태를 DONE으로 올리지 않는다.
+- 공통 blocker: CR-01~14 전부 **독립 검토 미배정**이다. 각 attempt의 `review.md` 패킷과 `repro/` 도구가 준비되어 있고, 검토자는 같은 코드 상태를 지문/SHA로 고정한 뒤 재현·반증한다. 검토 전까지는 REVIEW 상태를 DONE으로 올리지 않는다. **이름(2026-09-14)**: 독립 검토자·출시 책임자는 **강병석**으로 채워졌다. 검토 보고서가 나오기 전에는 REVIEW를 DONE으로 올리지 않는다.
 - **CR-14 착수 전 필수 확인(CR-13 인계)은 이행됐다**: 실 릴리스 번들의 `required_gates`를 채우는 경로가 이번에 **닫혔고**, CR-14 평가 번들은 20-gate를 다 돌리지 못해 `reference`로 선언됐다(verify exit 3). 즉 “승인 artifact”는 아직 존재하지 않는다.
 
 ### 기존 문서와의 관계
@@ -182,7 +182,7 @@ Ssak-Ai의 로컬/자체 호스팅 **단일 운영자** 제품 범위에서 사�
 
 병렬 허용 예: 데이터(CR-01→02), sandbox(CR-03→04), 설정(CR-05→06), UI shell(CR-07), 문서 준비(CR-12). 현재 lane 상태(2026-09-12): 데이터·sandbox·설정 lane은 CR-06까지 REVIEW로 진행되었고, 자산 lane(CR-09)과 운영 지표 lane(CR-10)도 REVIEW로 마감했다. CR-10은 `App.tsx`·`styles/index.css`·`clientSchema.ts`·`AgentPage.tsx`·`system_api.py`를 직렬로 수정했다(CR-05·CR-06·CR-07·CR-08·CR-09와 같은 파일). 미착수 lane은 CR-11/CR-13이고, CR-11은 이제 CR-09 위에서 시작할 수 있다. CR-05와 CR-10이 `system_api.py`를 동시에 수정하지 않는다(CR-10이 이미 마감). CR-07/09가 App/main을 수정할 경우 하나의 소유자 아래 직렬 통합한다. `sandbox.py` 수정은 CR-03 소유자만 하고 CR-04가 필요 변경을 요청한다. 잠금 유틸 공용화를 CR-01/02에서 도입한다면 동일 소유자가 담당한다.
 
-승인자 역할: 조정자(통합·범위), 구현자(수정·증거), 독립 검토자(다른 실행 맥락에서 재현·검토), 출시 책임자(지원 범위·GO). 에이전트 독립 검토는 외부 법무/제품 책임자의 실제 승인을 대체하지 않는다.
+승인자 역할: 조정자(통합·범위), 구현자(수정·증거), 독립 검토자(다른 실행 맥락에서 재현·검토), 출시 책임자(지원 범위·GO). 에이전트 독립 검토는 외부 법무/제품 책임자의 실제 승인을 대체하지 않는다. **현재 배정(2026-09-14)**: 네 역할과 EX-01~06 전부 **강병석**(본인 겸직). 배정은 승인을 대체하지 않으며 제3자 독립성은 미충족이다.
 
 ## 4. 상세 작업 카드
 

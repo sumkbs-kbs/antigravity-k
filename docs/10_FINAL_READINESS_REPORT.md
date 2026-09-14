@@ -1,5 +1,7 @@
 # 10 Final Readiness Report
 
+> CR-14 **담당 배정(2026-09-14)**: 출시 책임자·독립 검토자·EX-01~06 전부 **강병석**. 배정 ≠ GO. 제3자 독립성 미충족. 후보 `b6003205` · 지문 불변 · **NO-GO**.
+
 > CR-14 attempt-040 REVIEW: C33-6 CLOSED · 후보 `b6003205` · 지문 `02349a8d…` · **23/23** · leftover 0 · **NO-GO**.
 
 > CR-14 attempt-040 DECLARED: C33-6 PIN ticket 브라우저 증인 · 후보 `b6003205` · 지문 `02349a8d…` · required **23** · **NO-GO**(측정 전).

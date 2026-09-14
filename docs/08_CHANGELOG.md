@@ -1,6 +1,12 @@
 # 08 Changelog
 
 
+## 2026-09-14 — C14-08/EX 담당 배정 (기록 / NO-GO)
+
+- 출시 책임자·독립 code/security/QA 검토자·EX-01~06 담당을 **강병석**으로 채움(사용자 지시).
+- 배정 ≠ 검토 완료 ≠ GO. 제3자 독립성 미충족(본인 겸직). 후보 `b6003205` · 지문 `02349a8d…` 불변.
+- README 는 지문 안이라 `미배정` 표기를 이 커밋에서 고치지 않음(F-22). 실제 배정 소유자는 판정서 §5.
+
 ## 2026-09-14 — CR-14 attempt-040 (REVIEW / NO-GO)
 
 - C33-6 CLOSED: `cr14-pin-ws-ticket.spec.ts` · PIN hermetic · `/api/auth/ws-ticket` → `?ticket=` · 4401 fail-first · witnesses 게이트 소유.
