@@ -38,6 +38,8 @@ app.add_typer(memory_app, name="memory", help="Manage project memory")
 app.add_typer(task_app, name="task", help="Manage durable agent tasks")
 error_app = typer.Typer(help="Inspect runtime error journal and AI agent fix prompts")
 app.add_typer(error_app, name="error", help="Inspect runtime errors for agentic AI")
+diagnostics_app = typer.Typer(help="Export safe support diagnostics (allowlist ZIP)")
+app.add_typer(diagnostics_app, name="diagnostics", help="Export safe support diagnostics")
 console = Console()
 
 
@@ -1899,6 +1901,32 @@ def prompt_error(
         raise typer.Exit(code=1)
 
     print(err.ai_fix_prompt)
+
+
+# ─── Diagnostics Commands (Phase 4) ─────────────────────────────────────────
+
+
+@diagnostics_app.command("export")
+def diagnostics_export(
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="ZIP path (default: ~/Library/Logs/Ssak-Ai/diagnostics-YYYYMMDD-HHMMSS.zip on macOS).",
+        ),
+    ] = None,
+) -> None:
+    """Export an allowlist diagnostics ZIP (no secrets / .env values / vault_data)."""
+    from antigravity_k.engine.diagnostics_export import export_diagnostics_zip
+
+    try:
+        zip_path = export_diagnostics_zip(output)
+    except (OSError, ValueError) as err:
+        console.print(f"[red]Diagnostics export failed: {err}[/red]")
+        raise typer.Exit(code=1) from err
+
+    console.print(f"[green]Diagnostics ZIP written:[/green] {zip_path}")
 
 
 if __name__ == "__main__":
