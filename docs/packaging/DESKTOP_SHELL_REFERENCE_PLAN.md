@@ -57,7 +57,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 |---|---|
 | 런타임 | Python FastAPI (`agk serve`) + React dashboard (`dashboard/`, 빌드 산출 `src/antigravity_k/dashboard_dist`) |
 | 로컬 개발 | 자주 `8000` 백엔드 + `5173` Vite. Vite/`VITE_BACKEND_URL` 오설정으로 설정 저장 실패 재현됨 |
-| macOS 패키징 | `make dmg` → `scripts/build_mac_dmg.sh` → `docs/packaging/MACOS_DMG_GUIDE.md`. **호스트 Python 3.12+ 필요.** 현재 워크트리에 `dist/*.dmg` 없을 수 있음 |
+| macOS 패키징 | `make dmg` → `scripts/build_mac_dmg.sh` → `MACOS_DMG_GUIDE.md`. 기본=**호스트 Python 3.12+**; 옵트인 `SSAK_BUNDLE_PYTHON=1`로 동봉. DMG+`dmg-smoke` PASS (로컬 dist) |
 | Windows 설치기 | 제품급 NSIS/portable **미비** (검증 스크립트에 Windows 경로 언급 수준) |
 | 트레이/단일 인스턴스/자동 업데이트 | **미비 또는 약함** |
 | CR-14 | NO-GO. EX-05 soak IN_PROGRESS. 본 계획과 **판정 축 분리** |
@@ -161,16 +161,18 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 **체크리스트**
 - [x] `dashboard` production build가 CI/로컬 한 명령으로 `src/antigravity_k/dashboard_dist` 갱신 — 명령: `pnpm --dir dashboard build` / Makefile `dashboard-build-provenance` (Phase0 확인). DMG 스크립트가 없을 때 자동 호출
 - [~] 런처가 **Vite/5173을 호출하지 않음** — `build_mac_dmg.sh` 런처는 포트 8000/`agk serve` 경로(기존). 자동 회귀 테스트는 미착수
-- [~] 번들에 포함 목록: site-packages(uv target)~79M + `dashboard_dist` + src(비밀 exclude) + 아이콘/Info.plist — 가이드 상세 문장은 후속
-- [ ] 읽기 전용 볼륨/Applications에서 기동 스모크 (DMG 마운트 무결성만 PASS, 앱 기동 스모크 미실시)
+- [x] 번들 포함 목록 문서화 — `MACOS_DMG_GUIDE.md` §5 (site-packages~79M + dashboard_dist + src + 옵션 Resources/python)
+- [~] 읽기 전용 볼륨/Applications 기동 — DMG 마운트 무결성 PASS + `dmg-smoke` PASS(:18080). Applications 드래그 실기 스모크는 잔여
 - [x] `scripts/build_mac_dmg.sh`에 “클로저 검증” 단계 추가 (필수 파일 누락 시 fail) + `.env`/`auth_hash` 혼입 거부
-- [ ] `make dmg-smoke`: 마운트 → 실행 → `/api/auth/status` 또는 헬스 → 종료 (다음)
-- [ ] Windows: 동등 클로저 설계 초안만 Phase 1 말에 작성 (구현은 Phase 3)
+- [x] `make dmg-smoke`: Host on :18080 → auth/spa 200 → 종료 (PASS; soak/:8000 미사용)
+- [x] Windows: 동등 클로저 설계 stub — `docs/packaging/notes/windows_closure_stub.md` (구현은 Phase 3)
+- [x] Python 1a incremental: 런처가 `Resources/python` 우선; `SSAK_BUNDLE_PYTHON=1` 옵트인 동봉 (기본 OFF, ~55M 유지)
+- [~] 클린 Mac(호스트 Python 없음) — **PARTIAL** until `SSAK_BUNDLE_PYTHON=1` rebuild+smoke verified
 
 **완료 증거**
-- [ ] `dist/Ssak-Ai-<ver>.dmg` + `.sha256`
-- [ ] smoke 로그 (비밀 없음)
-- [ ] `docs/packaging/MACOS_DMG_GUIDE.md`를 “Python 사전 설치 필요” → 실제 요구사항에 맞게 수정
+- [x] `dist/Ssak-Ai-0.1.0.dmg` + `.sha256` — sha256 `262b54244a60419567f3dd14e8be4d28a8409c0649bcfbd263ebff36cbd1c362` (로컬 gitignored; `phase1_progress.md`에 기록)
+- [x] smoke: `make dmg-smoke` PASS (auth=200 spa=200; 로그는 로컬 `/tmp/ssak-dmg-logs/`, 비밀 없음)
+- [x] `MACOS_DMG_GUIDE.md`: 기본=호스트 Python 3.12+ 필요 / 옵트인 동봉(`SSAK_BUNDLE_PYTHON=1`) 명시 + 클로저 인벤토리
 
 **통과 기준**
 - 클린 macOS 사용자 시뮬레이션(또는 문서화된 최소 의존)에서 DMG 설치 후 대시보드 도달.
@@ -400,7 +402,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | D-00 | 2026-09-15 | DSH는 **배포·셸 UX 참고**만. Harness 이식 안 함 | 강병석 / 마뱀 초안 | 공개 docs 기반 검토 |
 | D-01 | 2026-09-15 | 셸 기술 **A (Electron + Python 클로저)** 채택 (목표 UX: 트레이/업데이트/Win+Mac) | 강병석 지시 순차진행 · 마뱀 기록 | Phase 0 |
 | D-01-interim | 2026-09-15 | Phase 1은 기존 `build_mac_dmg.sh` 클로저 강화부터 (Electron 스캐폴드에 블로킹되지 않음) | 마뱀 | Phase 1 진입 규칙 |
-| D-02 | 2026-09-15 (잠정) | Python 클로저 **1a 우선** (site-packages/근접 인터프리터; 스크립트에 부분 구현됨). 1b는 1a 실패 시에만 | 마뱀 | Phase 1에서 검증 |
+| D-02 | 2026-09-15 | Python 클로저 **1a 채택** (site-packages + 런처가 `Resources/python` 우선; 없으면 호스트 탐색 fail-closed). `SSAK_BUNDLE_PYTHON=1` 옵트인 동봉(기본 OFF, DMG~55M 유지). **1b(PyInstaller 등)는 1a 실패·용량 불가피 시에만** | 강병석 지시 잔여 클로저 · 마뱀 구현 | Phase 1 residual |
 | D-03 | TBD | 업데이트 서버 위치 (GitHub Releases vs 자체) | TBD | Phase 5 |
 | D-04 | 2026-09-15 | 제품 목적 = **개인 사용 + 모바일 Host 연동**. UI 정본은 Host. Electron은 얇은 셸만 | 강병석 | `notes/mobile_host_premise.md` |
 | D-05 | 2026-09-15 | 기본 bind `127.0.0.1`; 모바일은 **명시적** LAN/Tailscale bind + 비-loopback 시 PIN/토큰 필수 | 강병석 | Phase 6 강화 |
@@ -412,7 +414,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | Phase | 이름 | 상태 | 담당 | 증거 경로 |
 |---|---|---|---|---|
 | 0 | 범위·결정·베이스라인 | **DONE** | 마뱀 | `docs/packaging/notes/phase0_baseline.md` |
-| 1 | 배포 클로저 | **IN_PROGRESS** (거의 완료) | 마뱀 | DMG+`dmg-smoke` PASS · host Python 동봉 강화는 잔여 |
+| 1 | 배포 클로저 | **DONE-with-caveat** (IN_PROGRESS 잔여=클린 Mac FULL은 `SSAK_BUNDLE_PYTHON` 스모크 후) | 마뱀 | `phase1_progress.md` · `MACOS_DMG_GUIDE.md` §5 · `windows_closure_stub.md` |
 | 2 | 셸 UX | NOT_STARTED | | |
 | 3 | Windows 패리티 | NOT_STARTED | | |
 | 4 | 복구·진단 | NOT_STARTED | | |
@@ -445,3 +447,4 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | 사용자 목적 확정 반영(D-04/D-05): 개인사용+모바일 Host. DMG가 `src/.env` 복사로 실패 → rsync exclude로 수정 후 `make dmg` 재시도. |
 | 2026-09-15 | 마뱀 | `make dmg` PASS → `dist/Ssak-Ai-0.1.0.dmg` (55M) sha256 `262b54244a…`; 번들 비밀 0건. Phase1 잔여=기동 스모크·Python 동봉 강화·Phase6 모바일 bind. |
 | 2026-09-15 | 마뱀 | `dmg-smoke` PASS(:18080). Phase6: `/api/network/access-info` + Settings 모바일 안내(기본 OFF). 실기기 폰 스모크·무재시작 rebind는 잔여. |
+| 2026-09-15 | 마뱀 | Phase1 residual: D-02=1a 확정; 런처 bundled-python 우선; `SSAK_BUNDLE_PYTHON` 옵트인; 가이드 클로저 인벤토리; Windows stub. 클린 Mac FULL은 동봉 빌드 스모크 후. |

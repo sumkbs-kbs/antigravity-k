@@ -178,7 +178,11 @@ check_py() {
 }
 
 PY_BIN=""
+# Prefer in-bundle interpreter (Resources/python) when present (1a incremental).
+# Fallback: host search. Fail-closed with alert if none found.
 CANDIDATES=(
+    "$APP_BUNDLE_ROOT/../python/bin/python3"
+    "$APP_BUNDLE_ROOT/../python/bin/python"
     "$APP_BUNDLE_ROOT/../../../../.venv/bin/python"
     "$USER_DATA_DIR/venv/bin/python"
     "$(command -v uv >/dev/null 2>&1 && uv python find 2>/dev/null || true)"
@@ -205,7 +209,7 @@ for c in "${CANDIDATES[@]}"; do
 done
 
 if [[ -z "$PY_BIN" ]]; then
-    osascript -e 'display alert "Ssak-Ai 실행 실패" message "Python 3.12 이상의 런타임을 찾을 수 없습니다.\n터미널에서 uv 또는 Python 3.12+를 설치해주세요." as critical' 2>/dev/null || true
+    osascript -e 'display alert "Ssak-Ai 실행 실패" message "Python 3.12 이상의 런타임을 찾을 수 없습니다.\n\n• 기본 DMG: 호스트에 Python 3.12+ (또는 uv) 설치 필요\n• 동봉 빌드(SSAK_BUNDLE_PYTHON=1): Resources/python 이 있어야 함\n\n터미널에서 uv 또는 Python 3.12+를 설치하거나, 동봉 빌드 DMG를 사용하세요." as critical' 2>/dev/null || true
     exit 1
 fi
 
@@ -289,6 +293,72 @@ if command -v uv >/dev/null 2>&1; then
     uv pip install --target "$APP_BUNDLE_APP/site-packages" -r "$TEMP_REQS" >/dev/null 2>&1
     rm -f "$TEMP_REQS"
     echo "  ✓ site-packages 번들링 완료 ($(du -sh "$APP_BUNDLE_APP/site-packages" | cut -f1))"
+fi
+
+# Optional 1a: embed a standalone CPython under Resources/python (default OFF).
+# Keeps normal `make dmg` ~55M; opt-in adds ~50–60M+ interpreter (document size before forcing).
+if [[ "${SSAK_BUNDLE_PYTHON:-0}" == "1" ]]; then
+    echo "▶ SSAK_BUNDLE_PYTHON=1 — 동봉 CPython 복사 중 (Resources/python)..."
+    BUNDLE_PY_DEST="$RESOURCES_DIR/python"
+    rm -rf "$BUNDLE_PY_DEST"
+    mkdir -p "$BUNDLE_PY_DEST"
+    PY_SRC=""
+    if command -v uv >/dev/null 2>&1; then
+        # Prefer a managed 3.12 standalone tree (not a venv symlink into miniforge).
+        for ver in 3.12 3.13; do
+            cand="$(uv python find "$ver" 2>/dev/null || true)"
+            if [[ -z "$cand" || ! -x "$cand" ]]; then
+                continue
+            fi
+            # Resolve to realpath; require a uv-managed prefix (has lib/ + bin/).
+            real="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$cand" 2>/dev/null || true)"
+            [[ -z "$real" ]] && real="$cand"
+            prefix="$(cd "$(dirname "$real")/.." && pwd)"
+            if [[ -d "$prefix/lib" && -d "$prefix/bin" ]]; then
+                # Prefer uv share trees over conda/homebrew when possible.
+                if [[ "$prefix" == *"/uv/python/"* ]] || [[ "$prefix" == *"cpython-"* ]]; then
+                    PY_SRC="$prefix"
+                    break
+                fi
+                # Keep as fallback if nothing better found yet
+                [[ -z "$PY_SRC" ]] && PY_SRC="$prefix"
+            fi
+        done
+    fi
+    if [[ -z "$PY_SRC" ]]; then
+        echo "ERROR: SSAK_BUNDLE_PYTHON=1 이지만 복사할 standalone CPython을 찾지 못했습니다." >&2
+        echo "  힌트: uv python install 3.12 후 재시도" >&2
+        exit 1
+    fi
+    echo "  → 소스: $PY_SRC"
+    rsync -a --delete \
+        --exclude '__pycache__/' \
+        --exclude '*.pyc' \
+        --exclude 'share/man/' \
+        --exclude 'share/doc/' \
+        "$PY_SRC/" "$BUNDLE_PY_DEST/"
+    # Ensure python3 exists
+    if [[ ! -x "$BUNDLE_PY_DEST/bin/python3" ]]; then
+        if [[ -x "$BUNDLE_PY_DEST/bin/python3.12" ]]; then
+            ln -sf python3.12 "$BUNDLE_PY_DEST/bin/python3"
+        elif [[ -x "$BUNDLE_PY_DEST/bin/python3.13" ]]; then
+            ln -sf python3.13 "$BUNDLE_PY_DEST/bin/python3"
+        elif [[ -x "$BUNDLE_PY_DEST/bin/python" ]]; then
+            ln -sf python "$BUNDLE_PY_DEST/bin/python3"
+        else
+            echo "ERROR: Resources/python/bin 에 python3 실행 파일이 없습니다." >&2
+            exit 1
+        fi
+    fi
+    # Sanity: must be >= 3.12
+    BPY_VER="$("$BUNDLE_PY_DEST/bin/python3" -c 'import sys; print(sys.version_info[0]*100+sys.version_info[1])' 2>/dev/null || echo 0)"
+    if [[ "$BPY_VER" -lt 312 ]]; then
+        echo "ERROR: 동봉 Python 버전이 3.12 미만입니다 ($BPY_VER)." >&2
+        exit 1
+    fi
+    echo "  ✓ 동봉 Python 완료 ($(du -sh "$BUNDLE_PY_DEST" | cut -f1)) — DMG 용량이 기본(~55M)보다 커집니다"
+else
+    echo "  · SSAK_BUNDLE_PYTHON unset/0 — 호스트 Python 탐색 유지 (기본 DMG ~55M)"
 fi
 
 # 불필요한 캐시 파일 정리 및 권한 부여
