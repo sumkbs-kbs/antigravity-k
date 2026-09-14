@@ -1,5 +1,15 @@
 # 08 Changelog
 
+## 2026-09-15 — EX-01~06 실행 (진행 / NO-GO 유지)
+
+- 대장: [CR14_EX_EXECUTION_LEDGER.md](./ga/CR14_EX_EXECUTION_LEDGER.md) · EX-02: [CR14_EX02_APPROVAL_RECORD.md](./ga/CR14_EX02_APPROVAL_RECORD.md)
+- EX-01: Ollama VAL-01 12/12 PASS · OpenRouter HTTP 401 (cloud BLOCKED)
+- EX-03: 이전 shipped artifact NOT_AVAILABLE
+- EX-04: macOS arm64 seatbelt · pytest 46 passed (행렬 미승격)
+- EX-05: 8h soak IN_PROGRESS (pid 29961)
+- EX-06: 범위 축소 없음 DONE
+- 후보 `b6003205` 불변 · GA 승인·CR-14 DONE 아님
+
 
 ## 2026-09-14 — C14-08 출시 책임자 근거 있는 NO-GO
 

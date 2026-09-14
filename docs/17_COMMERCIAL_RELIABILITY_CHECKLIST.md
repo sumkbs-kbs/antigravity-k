@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 개선 실행 체크리스트
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-040 REVIEW** — C33-6 · 후보 `b6003205`/`02349a8d…` · **23/23** · C14-08 **근거 있는 NO-GO 기록**(강병석, 겸직) · GA 승인 없음 · NO-GO)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-040 REVIEW** — 후보 `b6003205` · **23/23** · EX 실행 중(01 로컬PASS/cloud401 · 03 N/A · 04 macOS DONE · 05 soak · 02 PARTIAL · 06 DONE) · C14-08 NO-GO · GA 승인 없음)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 plan: docs/16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md
@@ -11,7 +11,7 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 [개발 계획](16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [검토 기준](qa/2026-09-11-commercial-review/BASELINE.md)
 
-**현재: CR-14 attempt-040 **REVIEW** — C33-6 CLOSED · 코드 후보 **커밋** `b6003205365606407cadfd6cbb1c813110beef0f` (지문 `02349a8d…`) · required **23/23 PASS** · 출시 책임자 **강병석** 근거 있는 **NO-GO** 기록([C14-08 판정서](ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md)) · **GA 승인 없음** · 독립성 겸직 미충족 · EX-01~06 미실행 · owner=마뱀 · D-71/APPROVE 손대지 않음.**
+**현재: CR-14 attempt-040 **REVIEW** — 후보 `b6003205`/`02349a8d…` · **23/23** · EX 실행(2026-09-15): 01 로컬 PASS·OpenRouter 401 · 03 NOT_AVAILABLE · 04 macOS seatbelt 46passed · 05 soak IN_PROGRESS · 02 PARTIAL · 06 DONE · C14-08 NO-GO · **GA 승인 없음**.**REVIEW** — C33-6 CLOSED · 코드 후보 **커밋** `b6003205365606407cadfd6cbb1c813110beef0f` (지문 `02349a8d…`) · required **23/23 PASS** · 출시 책임자 **강병석** 근거 있는 **NO-GO** 기록([C14-08 판정서](ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md)) · **GA 승인 없음** · 독립성 겸직 미충족 · EX-01~06 미실행 · owner=마뱀 · D-71/APPROVE 손대지 않음.**
 최근 갱신: 2026-09-14 (**C14-08 출시 책임자 NO-GO 기록** — [판정서](ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md). 후보·지문 불변. DONE/GO 아님.)
 최근 갱신: 2026-09-14 (**C14-08/EX 담당 배정** — 전부 **강병석**. 배정 ≠ 검토 완료 ≠ GO. 제3자 독립성 미충족. 후보·지문 불변.)
 최근 갱신: 2026-09-14 (**CR-14 attempt-039 REVIEW** — EXTERNAL_HUB hermetic 폐쇄. 후보 `bbb308f8` · 지문 `0b1a156f…` · **23/23** · leftover 0 · ambient hub-seed 2 passed · NO-GO.)
@@ -387,8 +387,8 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 - [x] **C14-02** 모든 required gate **커밋된 후보**에서 PASS — **21개 실행 / 21개 PASS, 실패 0 · 미실행 0**. 단일 코드 지문 `7f19c3a7…` (**attempt-019** — 커밋된 후보 `43cde98e` · 되돌리기 0회 · 실행 후 지문 재측정 **불변** · python-tests **6249 passed**(증가분은 이번 신규 계약 22건 등) / 40 skipped / 16 deselected · docker-build 231.66s · clean-machine 42.10s(`ref: HEAD`, 3010 파일) · 드리프트 0 · **마감 검사 PASS(exit 0)** — 편입 전에는 같은 검사가 FAIL exit 1. 이 attempt 는 **게이트를 사람이 돌리지 않는다**: `.github/workflows/ga-close.yml` 이 같은 절차를 부르고 매주 스스로 돌며, `release.yml` 의 publish job 들이 그것을 `needs` 로 갖는다(R-11 폐쇄). 중간에 **F-28**(계약이 의도가 아니라 표기를 요구 — `"needs: build"` 문자열 결합)을 만나 함께 닫았다) → 이전 값: 단일 코드 지문 `1b84209e…` (attempt-016, 되돌리기 0회 · 실행 후 지문 재측정 **불변** · SHA `0c33aa2e` · python-tests **6207** passed — 증가분 15건은 F-24 마감 검사 계약이고, **마감 검사 자체가 PASS(exit 0)** 로 이 초록의 출처를 확인했다 / 40 skipped / 16 deselected + python-benchmark 16 passed — 증가분 12건은 F-23 울타리 탐지기 계약이다. 이 attempt 는 **선언(§5 카드)을 측정 전에 커밋**했다 — `python-tests` 가 이 계약을 실행하므로 그 순서가 필요하고, 그래서 보고서의 `git.sha`(`13ff9140`)와 후보(`b5729b61`)는 **같은 코드 트리**다. attempt-014 는 단일 코드 지문 `b6494f40…` · SHA `3fb3fcb9` · python-tests **6179** passed) 이었다. 값의 전체 자리는 판정서 §5 카드가 소유한다. attempt-013 은 단일 지문 `2c5a15c8…` · SHA `0593dd27` · python-tests 6174 passed 였으나 **그 기록 커밋이 README 를 고쳐 지문을 옮겼다** — 이 카드의 현재 지문과 이어지지 않는다(F-22). **단 이 초록이 이전 초록보다 강한 주장인 이유를 함께 읽을 것** — attempt-012 까지의 20/20 은 ambient 도구로 측정됐다(F-18). attempt-011 은 20/20(`e428aacc…`, 6200 passed), attempt-010 은 20/20(`d4a42ab8…`, SHA `5ccb938e`). 이전에는 이 항목이 **구조적으로 미충족**이었다(F-12: 빌드가 커밋 SHA 를 임베드해 커밋 직후 `dashboard-build` 가 트리를 흔들었다). attempt-009 의 20/20(`dd34a76b…`)은 그 시점 실측으로 보존한다 — 기록 커밋이 지문을 옮겼기 때문에 이어붙이지 않았다
 - [~] **C14-06 (attempt-017~019 갱신)** — 이 시기의 닫힌 결함은 **검증 장치 축**이다: **F-25**(마감을 명령 하나로 — `scripts/run_attempt_close.py`) · **F-26**(그 절차를 직접 돌려 찾았다: 프로세스가 앞 배치를 잃고 조용히 보고서를 덮어썼다) · **F-27**(이어받기 **판단**이 게이트 **규칙**의 부분 복제였다 → 규칙을 한 곳에 모으고 **묻기만** 하며 거부는 조용하지 않다) · **F-28**(계약이 **의도**가 아니라 **표기**를 요구했다 — `test_rel01_clean_build_sbom.py` 의 `"needs: build"` 문자열 결합이 선행 조건 하나에 깨졌다). attempt-019 는 그것과 함께 **R-11 을 닫았다**: 마감을 기계가 돌린다(파이프라인이 절차를 부르고 · 매주 스스로 돌고 · 릴리스가 그것에 막힌다). **제품 런타임 변경은 attempt-012 이후 0건**이다.
 - [~] **C14-03** 같은 bundle 실제 UI+API+도구+restart — master-e2e 6/6 · api-e2e · accessibility-e2e 35 · CR-09 실브라우저 4/4까지 확인. 프로세스 재시작·이력 복구를 포함한 **단일 bundle 전 구간 시나리오는 미실행**
-- [ ] **C14-04** 이전/업그레이드/복구 실측 및 제한 — NOT_RUN (실제 이전 artifact 없음, EX-03)
-- [ ] **C14-05** 28,800초·실 provider 조건 충족 — NOT_RUN (EX-01/EX-05)
+- [ ] **C14-04** 이전/업그레이드/복구 실측 및 제한 — NOT_RUN · EX-03 **NOT_AVAILABLE**(이전 shipped artifact 없음, 2026-09-15)
+- [ ] **C14-05** 28,800초·실 provider 조건 충족 — EX-05 **IN_PROGRESS**(soak) · EX-01 로컬 PASS·cloud 401 — 아직 미충족
 - [~] **C14-06** 미확정 실패 경로 조사/신규 blocker 0 — attempt-002에서 F-04(P1)·F-05 폐쇄 + F-06 신규 등록, attempt-003에서 **F-02 폐쇄** + **F-01 성질 정정(빌드 멱등 실측 → GA blocker 에서 내림)** + **F-07 신규 등록**(`clean-machine-runtime` 이 후보가 아니라 HEAD 를 검증), attempt-004에서 **F-08 폐쇄**(사용량 추적 기본 경로 — F-02 와 같은 구조의 두 번째 경로), attempt-005에서 **F-03 폐쇄**(release 파이썬 라이선스 판독 통일 + 고지문↔SBOM 일치 + 미해결 집합 고정), attempt-006에서 **F-06 폐쇄**(uuid 하한 override + 출하 번들 재빌드 + 회귀 8건) + **F-09 신규 등록**(dev 도구 체인 high — 게이트 `--prod` 범위 밖), attempt-007에서 **F-09 폐쇄**(js-yaml·qs override + 출하 경계 계약 + 회귀 7건) + **F-10 신규 등록**(stryker 도구 미동작 — 기존 결함, 게이트 아님), attempt-008에서 **F-10 폐쇄**(러너 명시 선언 + 회귀 7건) + **F-09 의 `qs` 편차 실검증**(소비자 경로에서 취약 버전 크래시 재현 → 패치 버전 정상) + **F-11 신규 등록/폐쇄**(도구가 선언한 범위를 덮지 않았다 — `--mutate` 반복은 마지막 값만 적용), attempt-009에서 **후보 커밋 + F-12 신규 등록/폐쇄**(빌드 provenance 치킨-에그 — 커밋 직후 `dashboard-build` 가 자산 22개 교체) + **F-07 폐쇄**(커밋된 SHA 에서 clean-machine 이 후보를 검증). **기술 축은 모두 닫혔고** 남은 차단 사유는 사람의 영역이다(EX-01~06 · C14-08 · C14-03/04/05). attempt-010에서 **지문 경계 실측**(문서 커밋이 지문을 옮겼다 — 안전한 것은 `docs/` 뿐이다) + **동결 트리에서 20/20 재검증** + **F-14 신규/폐쇄**(attempt-009 기록의 frontend 수치가 같은 attempt 의 보고서와 달랐다: `846/80` → **`849/81`**), attempt-011에서 **F-15 폐쇄**(취소가 `completed` 로 분류되던 감독 분류 — required gate 의 일회성 실패를 flake 로 넘기지 않고 증인으로 재현해 고쳤다) + **지문 경계 규율을 계약으로**, attempt-012에서 **F-16 폐쇄**(종결 기록에 소유자가 없어 나중 쓰기가 취소를 덮었다 — attempt-011 R-4 의 승격) + **F-17 폐쇄**(취소가 이벤트 루프를 1010.7ms 세웠다 → 6.8ms), attempt-013에서 **F-18~F-21 신규/폐쇄** — 그중 **3건(F-18·F-19·F-21)은 제품이 아니라 검증 장치의 결함**이다: 게이트 도구가 lock 이 아니라 호출 셸에서 왔고(같은 lock 으로 두 번 돌린 실행이 다른 인터프리터·다른 pytest·다른 skip 집합을 냈다 — attempt-012 가 원인 미특정으로 남긴 R-6), lock 이 정의하는 환경에서는 chromadb 부재로 스위트가 실패했으며, wall-clock 임계값이 required 게이트 안에서 머신 부하로 깨졌다. 네 번째(F-20)는 로그인 보안 상태가 프로세스 전역이라 순서가 결과를 바꾼 테스트 격리 결함이고, **두 누수가 서로를 가려 왔기 때문에** 지금까지 초록이었다. **"신규 blocker 0"은 아니다** — 정직하게 부분 충족으로 둔다. 이번 시도에서 새로 생긴 잔여 위험은 R-8(다른 extra 의 조건부 수집 미감사) · R-10(계약이 `uv run` 을 중첩 실행) · R-11(성능 임계값은 여전히 wall-clock) 이다
 - [ ] **C14-07** 지원·외부 승인·주장 근거 완료 — BLOCKED_EXTERNAL 유지(CR-12)
 - [~] **C14-08** 독립 code/security/QA 검토 및 출시 책임자 GO 또는 근거 있는 NO-GO 기록 — **출시 책임자 근거 있는 NO-GO 기록 완료**([docs/ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md](ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md), 강병석, 후보 `b6003205`). 제3자 독립 검토는 **겸직으로 미충족**(잔여). GO·CR-14 DONE 아님.
@@ -606,17 +606,18 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 | ID | 조건 | 현재 | 책임 역할 | 재개에 필요한 근거 | 영향 |
 |---|---|---|---|---|---|
-| EX-01 | 마케팅 대상 cloud provider 실제 호출 자격증명·예산 | 미확인, 과거 BLOCKED_EXTERNAL | 제품/운영 책임자 — **강병석** | 비밀값 없이 provider·예산·사용 승인 범위 기록 | CR-14 실제 provider gate |
-| EX-02 | 모델/라이선스/개인정보 및 지원 약속 승인 | 미확인, 과거 pending | 지정 법무/개인정보/제품 책임자 — **강병석** | reviewer·날짜·범위·후보/산출물 근거를 가진 실제 승인 | GA GO |
-| EX-03 | 실제 이전 출시 artifact | 미확인, 과거 증거 한계 | 릴리스 책임자 — **강병석** | 해시와 버전이 확인된 원본 artifact | 실제 upgrade/rollback 검증 |
-| EX-04 | 지원할 각 OS sandbox 실측 환경 | 미확인 | 보안/운영 책임자 — **강병석** | OS/arch/backend·정상 및 차단 실행 원문 | 지원표 승격 |
-| EX-05 | 같은 후보 8시간 soak 실행 자원 | 담당 배정됨(자원 미확보) | 조정자/운영 책임자 — **강병석** | 격리 실행 환경·측정 전 임계값·일정 | CR-14 장기 검증 |
-| EX-06 | 최초 GA 범위 축소 필요 여부 | 변경 요청 없음 | 제품 책임자 — **강병석** | 명시적 scope decision·ADR·gate 변경 근거 | local-only 등 범위 조정 시에만 |
+| EX-01 | 마케팅 대상 cloud provider 실제 호출 자격증명·예산 | **로컬 PASS** · cloud **BLOCKED**(OpenRouter 401) · 추가 프로브 중 | 제품/운영 책임자 — **강병석** | 비밀값 없이 provider·예산·사용 승인 범위 기록 | CR-14 실제 provider gate |
+| EX-02 | 모델/라이선스/개인정보 및 지원 약속 승인 | **PARTIAL** — [EX02 기록](ga/CR14_EX02_APPROVAL_RECORD.md) | 지정 법무/개인정보/제품 책임자 — **강병석** | reviewer·날짜·범위·후보/산출물 근거를 가진 실제 승인 | GA GO |
+| EX-03 | 실제 이전 출시 artifact | **NOT_AVAILABLE** (태그 0 · 이전 shipped 없음) | 릴리스 책임자 — **강병석** | 해시와 버전이 확인된 원본 artifact | 실제 upgrade/rollback 검증 |
+| EX-04 | 지원할 각 OS sandbox 실측 환경 | **DONE(이 macOS arm64 seatbelt)** · 타 OS 미실측 · 행렬 미승격 | 보안/운영 책임자 — **강병석** | OS/arch/backend·정상 및 차단 실행 원문 | 지원표 승격 |
+| EX-05 | 같은 후보 8시간 soak 실행 자원 | **IN_PROGRESS**(pid 29961, 28800s, 임계값 고정됨) | 조정자/운영 책임자 — **강병석** | 격리 실행 환경·측정 전 임계값·일정 | CR-14 장기 검증 |
+| EX-06 | 최초 GA 범위 축소 필요 여부 | **DONE** — 축소 없음 | 제품 책임자 — **강병석** | 명시적 scope decision·ADR·gate 변경 근거 | local-only 등 범위 조정 시에만 |
 
 ## 결정·변경 대장
 
 | 날짜 | 작업/결정 ID | 이전 계약 → 새 계약 | 이유/사용자 또는 책임자 근거 | 영향 파일/시험/후보 SHA | 작성자 |
 |---|---|---|---|---|---|
+| 2026-09-15 | EX-RUN-001 | EX 미실행 → 실행 대장·실측 시작 | Ollama 12/12 · OR 401 · EX-03 N/A · EX-04 46passed · soak 29961 · EX-02 PARTIAL · EX-06 no-shrink | docs/ga/CR14_EX_EXECUTION_LEDGER.md · EX02 · .omo/.../ex-2026-09-15/ | 마뱀 |
 | 2026-09-14 | C14-08-NOGO | C14-08 출시 책임자 기록 없음 → **근거 있는 NO-GO** 문서화 | 강병석(출시 책임자·겸직 검토). EX·C14-03/04/05/07·독립성으로 NO-GO. 후보 `b6003205` 불변 | docs/ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md | 마뱀 |
 | 2026-09-14 | ASSIGN-C14-08 | 출시 책임자·독립 검토자·EX-01~06 **미배정** → **강병석**(본인 겸직) | 사용자 지시: 사람 축 이름을 전부 강병석으로 채움. 배정 ≠ GO. 제3자 독립성 미충족. 후보 SHA/지문 불변 | docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md · 본 체크리스트 EX 표 · C14-08 | 마뱀 |
 | 2026-09-11 | PLAN-INITIAL | 신규 CR-00~14 계획 | 상용 완성도 검토 후 상세 개선 계획 요청 | 기준 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f; 구현 미실행 | 문서 작성자 |
