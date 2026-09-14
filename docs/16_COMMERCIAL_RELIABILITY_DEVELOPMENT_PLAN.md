@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 상세 개선 개발 계획서
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-034 IN_PROGRESS** — ambient backend gate · owner=`마뱀` · 후보 `b1f3af5a` · required 23 측정 전 · NO-GO)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-034 REVIEW** — F-45·F-46 CLOSED · 후보 `b1f3af5a` · required 23/23 · NO-GO)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 source_review: docs/qa/2026-09-11-commercial-review/BASELINE.md
@@ -10,7 +10,11 @@ tags: [development-plan, reliability, security, migration, agent-handoff]
 
 # 상용 신뢰성 상세 개선 개발 계획서
 
-> **최신 (2026-09-14, attempt-034 IN_PROGRESS) — ambient 백엔드 스펙에 required-gate 소유자(F-45 · F-46).**
+> **최신 (2026-09-14, attempt-034 REVIEW) — F-45 · F-46 CLOSED: ambient 백엔드 스펙에 required-gate 소유자.** 후보 `b1f3af5a7f9dda413bd4d8ff82ba5ca5b3d6ba2a` · 지문 `e4d15526…` · required **23/23** · ambient 11 · python-tests 6383/13 · `tree_moved` 0 · 마감 PASS · 판정 NO-GO. 다음 최저가: F-47 슬라이스 소유 설계 또는 C33-6 · D-71 하지 말 것 · 사람 축(EX/C14-08).
+>
+> **직전 (2026-09-14, attempt-034 시작 시점 IN_PROGRESS 기록은 위 REVIEW 로 대체)**
+>
+> **직전 (2026-09-14, attempt-033) — ambient 백엔드 스펙에 required-gate 소유자(F-45 · F-46).**
 > owner=`마뱀` · worktree=이 체크아웃 · 코드 후보 `b1f3af5a7f9dda413bd4d8ff82ba5ca5b3d6ba2a` · 지문 `e4d15526…` · required **22→23**
 > (`dashboard-e2e-ambient`). **측정 전 선언**(D-52). 판정 NO-GO 유지. D-71 하지 않음.
 >

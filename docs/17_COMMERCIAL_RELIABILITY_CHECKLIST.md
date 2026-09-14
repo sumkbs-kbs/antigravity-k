@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 개선 실행 체크리스트
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-034 IN_PROGRESS** — ambient backend gate owner · owner=`마뱀` · worktree=이 체크아웃 · 후보 선언 `b1f3af5a`/`e4d15526…` · required **23** 측정 전 · NO-GO 유지)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-034 REVIEW** — F-45·F-46 CLOSED · 후보 `b1f3af5a`/`e4d15526…` · required **23/23** · NO-GO · GA 승인 없음)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 plan: docs/16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md
@@ -11,7 +11,9 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 [개발 계획](16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [검토 기준](qa/2026-09-11-commercial-review/BASELINE.md)
 
-**현재: CR-14 attempt-034 **IN_PROGRESS** — ambient 백엔드 게이트 소유자(F-45·F-46) · owner=`마뱀` · worktree=`/Users/mr.k/program/coding/ssak_comp/Ssak-Ai` · branch=`codex/m1-task-events` · 코드 후보 **커밋** 동결 `b1f3af5a7f9dda413bd4d8ff82ba5ca5b3d6ba2a` (지문 `e4d15526…`, 선언 커밋 `c9b855f2`는 docs 전용) · required **23**(+`dashboard-e2e-ambient`) **측정 중** · 판정 **NO-GO** · **GA 승인 없음** · 커밋은 승인이 아니다 · CR-00 DONE / CR-01~CR-13 REVIEW / DONE 1 of 15.** 직전 attempt-033 동결 후보 `c66706ee`(지문 `1873d2c7…`) required 22/22 PASS.
+**현재: CR-14 attempt-034 **REVIEW** — F-45·F-46 CLOSED(ambient 게이트 소유자) · 코드 후보 **커밋** 동결 `b1f3af5a7f9dda413bd4d8ff82ba5ca5b3d6ba2a` (지문 `e4d15526…`) · required gate **23/23 PASS** · 판정 **NO-GO** · **GA 승인 없음** · 커밋은 승인이 아니다 · owner=`마뱀` · CR-00 DONE / CR-01~CR-13 REVIEW / DONE 1 of 15.**
+
+최근 갱신: 2026-09-14 (**CR-14 attempt-034 REVIEW** — F-45·F-46 폐쇄. 후보 `b1f3af5a` · 지문 `e4d15526…` · **23/23** · ambient 11 passed · python-tests 6383/13 · 마감 PASS · 판정 NO-GO 유지.)
 
 최근 갱신: 2026-09-14 (**CR-14 attempt-034 IN_PROGRESS** — ambient 백엔드가 필요한 Playwright 스펙에 required-gate 소유자를 준다. F-45 hermetic/훅/CORS · F-46 `dashboard-e2e-ambient` · inventory 22→23. 후보 `b1f3af5a` 선언 후 게이트 측정 중. owner=마뱀.)
 

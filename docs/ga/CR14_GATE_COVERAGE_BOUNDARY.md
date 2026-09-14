@@ -1,6 +1,6 @@
 # 게이트 커버리지 경계 — required gate 22개가 **재지 않는** 것
 
-최종 갱신: 2026-09-14 (CR-14 attempt-032 — **F-42 폐쇄**(§2-8): §2-6·§2-7 이 자기 한계로 적어 둔 문장(*"실 브라우저 증인은 수동이고 required 게이트 중 어느 것도 이들을 돌리지 않는다 — 게이트 소유를 먼저 정해야 한다"*)을 **측정으로 바꾸니 그 문장은 셋만의 것이 아니었다**: `dashboard/e2e/tests/cr*.spec.ts` **9파일 29건**이 어떤 required 게이트에도 소유자가 없었고(커버리지 **0/9**), 그런데 그 패밀리는 **ambient 백엔드 없이** 돈다(**29 passed / 43.5s**) — 게이트로 세울 수 있었는데 세우지 않았다. 새 required 게이트 `dashboard-e2e-witnesses` 가 **이름 규칙**(`e2e/tests/cr\d+-`)으로 그 패밀리를 돌아 인벤토리가 **21 → 22** 가 됐다(그래서 이 문서의 제목·§5 의 `21/21` 도 `22/22` 로 바뀌었다). 그 게이트가 **삼키지 않는** 슬라이스(ambient 백엔드가 필요한 스펙)는 §2-8 이 계속 소유한다. 이전 갱신: 2026-09-13 (CR-14 attempt-026 — **F-34 폐쇄**(§2-2): 게이트 러너가 게이트 **직전·직후**의 경로별 내용 지도를 비교해, **자기가 재는 코드를 바꾼 게이트**를 `tree_moved` 로 적고 실행을 exit 1 로 끝낸다(required 여부 무관). 그전에는 보고서가 지문 **하나**로 "21개 초록이 이 코드 상태의 것"이라 주장했는데, 지문은 게이트 **앞에서** 한 번 재고 끝났다 — 추적 번들 45개를 다시 쓰는 `dashboard-build` 가 exit 0 으로 지나갔다. 앞선 attempt-024 는 **R-16 폐쇄**: 등록부의 소유 단위를 게이트 하나에서 **required 21개 전수**로 넓혔고, 그 과정에서 두 자리의 조용한 스킵을 찾아 닫았다 — `api-e2e`(`-q` 단독 익명) · `dashboard-test`(vitest 기본 리포터 건수만) 은 스킵을 **테스트 단위로 귀속**시키지 못했고, `clean-machine-runtime` 은 `--skip-*` 채널이 아무 자리에도 적혀 있지 않았다)
+최종 갱신: 2026-09-14 (CR-14 attempt-034 — **F-45 · F-46 폐쇄**(§2-9): ambient 백엔드 스펙에 required-gate 소유자 `dashboard-e2e-ambient`(인벤토리 **22 → 23**). F-45=hermetic NO_PIN·훅 vault·CORS Origin. F-47=의도적 밖(disclosure/:5173·실 모델 허브·invert flake). 이전: attempt-032 — **F-42 폐쇄**(§2-8): §2-6·§2-7 이 자기 한계로 적어 둔 문장(*"실 브라우저 증인은 수동이고 required 게이트 중 어느 것도 이들을 돌리지 않는다 — 게이트 소유를 먼저 정해야 한다"*)을 **측정으로 바꾸니 그 문장은 셋만의 것이 아니었다**: `dashboard/e2e/tests/cr*.spec.ts` **9파일 29건**이 어떤 required 게이트에도 소유자가 없었고(커버리지 **0/9**), 그런데 그 패밀리는 **ambient 백엔드 없이** 돈다(**29 passed / 43.5s**) — 게이트로 세울 수 있었는데 세우지 않았다. 새 required 게이트 `dashboard-e2e-witnesses` 가 **이름 규칙**(`e2e/tests/cr\d+-`)으로 그 패밀리를 돌아 인벤토리가 **21 → 22** 가 됐다(그래서 이 문서의 제목·§5 의 `21/21` 도 `22/22` 로 바뀌었다). 그 게이트가 **삼키지 않는** 슬라이스(ambient 백엔드가 필요한 스펙)는 §2-8 이 계속 소유한다. 이전 갱신: 2026-09-13 (CR-14 attempt-026 — **F-34 폐쇄**(§2-2): 게이트 러너가 게이트 **직전·직후**의 경로별 내용 지도를 비교해, **자기가 재는 코드를 바꾼 게이트**를 `tree_moved` 로 적고 실행을 exit 1 로 끝낸다(required 여부 무관). 그전에는 보고서가 지문 **하나**로 "21개 초록이 이 코드 상태의 것"이라 주장했는데, 지문은 게이트 **앞에서** 한 번 재고 끝났다 — 추적 번들 45개를 다시 쓰는 `dashboard-build` 가 exit 0 으로 지나갔다. 앞선 attempt-024 는 **R-16 폐쇄**: 등록부의 소유 단위를 게이트 하나에서 **required 21개 전수**로 넓혔고, 그 과정에서 두 자리의 조용한 스킵을 찾아 닫았다 — `api-e2e`(`-q` 단독 익명) · `dashboard-test`(vitest 기본 리포터 건수만) 은 스킵을 **테스트 단위로 귀속**시키지 못했고, `clean-machine-runtime` 은 `--skip-*` 채널이 아무 자리에도 적혀 있지 않았다)
 
 판정서의 `required gate 22/22 PASS` 는 **강한 문장이지만 만능 문장이 아니다.** 이 문서는 그
 문장이 **어디까지 참인지**를 적는다. 목적은 하나다: 초록을 "모든 것이 검증됐다"로 읽는 착각을
@@ -413,8 +413,7 @@ attempt-021 의 감사가 4건을 등록했고, **attempt-023 시점에 그 목�
 
 ### 이 절이 재지 않는 것
 
-- **ambient 백엔드가 필요한 슬라이스는 그대로 게이트 밖**이다 — `task-execution` ·
-  `ws-contract-e2e` · `file-explorer` · `capture-*`. 실측: ambient 백엔드 없이 full suite 를 돌리면
+- ~~**ambient 백엔드가 필요한 슬라이스는 그대로 게이트 밖**~~ — **attempt-034 §2-9 에서 닫힘** (`dashboard-e2e-ambient`). 아래는 그 시점의 기록이다. 실측(당시): ambient 백엔드 없이 full suite 를 돌리면
   **12건 실패**한다. 그 자리를 게이트로 만들려면 게이트에 **서버를 세우는 단계**가 필요하고
   (CI 의 full-suite job 이 하는 일이다), 그 계약은 아직 없다. 계약은 이 게이트가 그 스펙들을
   **삼키지 않는지**를 재고, 증인은 그들이 **어느 required 게이트에도 없다**는 사실을 **소리 내어 센다**.
@@ -422,6 +421,34 @@ attempt-021 의 감사가 4건을 등록했고, **attempt-023 시점에 그 목�
   (attempt-030/031 은 도구 타임아웃으로 두 번 끊겼다).
 - **증인이 옳은 질문을 하는지**는 이 게이트의 소관이 아니다 — 게이트는 "그 증인이 통과한다"까지를
   잰다(계약은 **커버리지**만 소유한다).
+
+
+## 2-9. ambient 백엔드 슬라이스에 required-gate 소유자를 줬다 (attempt-034 · F-45 · F-46 폐쇄)
+
+attempt-032 §2-8 이 한계로 남긴 *"ambient 백엔드가 필요한 슬라이스는 그대로 게이트 밖"* 을
+**측정으로 바꿨다**. 그 과정에서 제품 결함 F-45 가 먼저 나왔다(D-66): hermetic `startNoAuthServer` 의
+NO_PIN 누락 · 공유 `vault_data/hooks` 침묵 · hermetic Origin 이 `ws_origin` allowlist 밖 →
+`/v1/ws/events` `frames=0`.
+
+### 이 게이트가 덮는 것
+- required `dashboard-e2e-ambient` — 스크립트가 **서버를 직접 띄운다**(격리 `AGK_PATH_*` ·
+  `AGK_HOOK_VAULT_DIR` · `AGK_CORS_ORIGINS` · NO_PIN · 그룹 종료 · `/health` 폴링)
+- 소유 스펙: `task-execution` · `ws-contract-e2e` · `file-explorer` · `capture-desktop-layout` ·
+  `capture-model-selection` (+ `--grep-invert` 로 제품/환경 flake 제외)
+- 실측: **11 passed / 24.6s** · `--skip-server` → **exit 1**(이빨)
+- 계약 `tests/test_cr14_ambient_backend_gate_contract.py` · `dashboard-e2e-witnesses` 는 ambient 를
+  **삼키지 않는다**(그 이빨 유지)
+
+### 이 게이트가 아직 덮지 않는 것 (F-47)
+- `capture-disclosure-*` (:5173 Vite 하드코드)
+- `capture-real-local-models` (실 unsloth/모델 허브)
+- invert 대상(git status 파일활동 · compact large stream · axe/viewport flake) — ambient 부재가 아님
+- C33-6 PIN-mode ticket 스트림 witness(선택 · 다음 최저가 후보)
+- D-71 상대경로 상태 기본값 마이그레이션(명시적 비범위)
+
+인벤토리는 **22 → 23**. `23/23` 은 "게이트에 넣은 것을 다 돌렸다"이지 "모든 브라우저 경로가
+검증됐다"가 아니다(§2-9 의 F-47 이 그 경계를 소유한다).
+
 
 ## 5. 이 문서를 어떻게 쓰는가
 

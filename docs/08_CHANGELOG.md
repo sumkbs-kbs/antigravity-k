@@ -42,6 +42,14 @@
   - **수정(D-58)**: 분류를 **관측이 아니라 사실**로 바꿨다 — `fired is None` + `cancel_event.is_set()` + `exit_code != 0` 이면 `cancelled`. 정상 완료는 exit 0 이므로 오분류되지 않고, 그 방향은 회귀가 고정한다. 기존 API 검사는 **정착한 뷰**를 단언하도록 강화했다(D-59) — 단, 그것은 **확률적 그물**이고 결정적 보증은 모듈 수준 회귀가 한다(숨기지 않고 R-1 에 적었다).
   - **효과**: **required gate 20/20 을 동결된 clean HEAD `d72b1711` 에서 되돌리기 0회로 단일 지문 `e428aacc…` 에서 완주**(python-tests **6200 passed / 13 skipped** · docker 233.3s · clean-machine 41.3s `ref: HEAD` · dashboard-build 드리프트 0 · `data/` 드리프트 0) · 증인 exit 1 → 0 · 수정을 끄면 결정적 회귀 1건 실패(이빨). 코드를 **측정 전에 커밋**했으므로 **HEAD 의존 gate 재실행이 필요 없었다**(attempt-010 은 이 순서를 어겨 재실행이 필요했다 — D-52 의 실증).
   - **한계**: API 수준 취소 검사는 여전히 경주 의존(R-1) · 계약은 문서의 모든 수치를 검사하지 않는다(R-2) · F-15 수정은 **증상**을 닫았고 `job.view` 무잠금 쓰기 구조는 남았다(R-4).
+### CR-14 attempt-034 — ambient 백엔드 스펙에 required-gate 소유자 (F-45 · F-46)
+- 코드 후보 `b1f3af5a7f9dda413bd4d8ff82ba5ca5b3d6ba2a` · 지문 `e4d15526…` · required **22 → 23** (`dashboard-e2e-ambient`)
+- F-45: hermetic NO_PIN · `AGK_HOOK_VAULT_DIR` · Origin allowlist(`AGK_CORS_ORIGINS`)
+- F-46: 게이트가 서버를 기동·격리·그룹 종료 · `--skip-server` 이빨 · 계약 7건
+- F-47: disclosure/:5173 · 실 모델 허브 · invert flake 는 의도적 밖
+- 측정: **23/23 PASS** · python-tests **6383/13** · ambient **11 passed** · `tree_moved` 0 · 마감 PASS
+- 판정 **NO-GO** 유지(EX/C14-08 미해결) · 푸시 없음
+
 - **CR-14 attempt-033 — 화면이 보내는 경로는 서버가 서는 경로여야 한다(F-43 폐쇄, 제품 런타임 2줄) + 런타임 상태는 코드 스코프 밖에 있다(F-44 폐쇄, 측정 중 발견, 제품 0줄)**
   - **닫은 것 ① — F-43(제품 런타임 결함)**: attempt-032 가 남긴 다음 걸음("ambient 백엔드 슬라이스에
     소유자")을 재려고 **서버를 띄우는 증인**을 세우는 첫 걸음에서, 클라이언트가 실제로 보내는 경로를
