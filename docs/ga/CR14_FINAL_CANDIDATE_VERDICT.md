@@ -140,7 +140,9 @@ F-40 은 **측정 도구**가 크래시를 표현할 수 없었다: 하네스가
   - **지문 불변**: 실행 뒤 `gate-report.json` 의 `git.tree_fingerprint` ·
     `tree_fingerprint_of_commit(HEAD)` · `tree_fingerprint_of_commit(e02447fb)` · `worktree_fingerprint(.)`
     **넷이 모두 같은 값**이고(`attempt-030/logs/fingerprint-invariance.txt`), 후보..HEAD 코드 스코프
-    변경은 **0줄**(선언 커밋이 `docs/` 전용)이다. `tree_moved` 게이트 0건 — 이 attempt 는 대시보드
+    변경은 **0줄**(선언 커밋이 `docs/` 전용)이다. **기록 커밋 `bbff65f7`**(`docs/` 전용 6파일) **뒤에**
+    다시 재도 넷이 같은 값이고 후보..HEAD 변경이 전부 `docs/**` 이며 `--stage close` 재실행도
+    PASS 다(`attempt-030/logs/record-commit.txt`). `tree_moved` 게이트 0건 — 이 attempt 는 대시보드
     소스와 추적 번들을 **후보 안에서** 함께 움직였고, `dashboard-build` 가 그 번들을 다시 쓰지 않았다.
   - **실행 중 중단 1건을 숨기지 않고 적는다**: `--stage tests`(약 10분)는 이 도구의 호출 타임아웃보다
     길어 **두 번** 부모 셸과 함께 끊겼다(결과 줄이 없는 로그만 남았다). 세 번째 실행을 **분리**해서
