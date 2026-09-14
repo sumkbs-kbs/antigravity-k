@@ -11,6 +11,7 @@
  * - Quit (tray / app) stops owned child only (SIGTERM → SIGKILL). Hide-on-close does not.
  * - Never kills unrelated PIDs / soak 29961·29969 / val02_staging.
  * - Tray “진단 내보내기…” → child_process `uv run agk diagnostics export` (same CLI).
+ * - Host-fail → Phase 4 recovery dialog (logs / export / retry / browser / quit).
  */
 
 const fs = require('fs');
@@ -45,6 +46,12 @@ let hostStatusTimer = null;
 let hostStopInProgress = false;
 /** True while tray diagnostics export child is running. */
 let diagnosticsExportInFlight = false;
+/** Recent owned-Host stderr (for EADDRINUSE / recovery hints). */
+let hostRecentStderr = '';
+/** Last ensureHost failure context for recovery copy. */
+let lastEnsureMeta = { reason: '', spawnLabel: '', error: '' };
+/** Guard overlapping recovery dialogs. */
+let recoveryDialogOpen = false;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -350,7 +357,9 @@ function attachHostChildLogging(child) {
   }
   if (child.stderr) {
     child.stderr.on('data', (buf) => {
-      const line = String(buf).trim();
+      const raw = String(buf);
+      hostRecentStderr = (hostRecentStderr + raw).slice(-4000);
+      const line = raw.trim();
       if (line) console.error(prefix, line.slice(0, 400));
     });
   }
@@ -369,19 +378,25 @@ function attachHostChildLogging(child) {
 }
 
 /**
- * @returns {Promise<'ready' | 'timeout' | 'spawn-failed'>}
+ * @returns {Promise<'ready' | 'timeout' | 'spawn-failed' | 'unreachable'>}
  */
 async function ensureHost() {
   hostReady = await lifecycle.hostProbe(HOST_URL);
   if (hostReady) {
     ownedHost = false;
     hostStarting = false;
+    lastEnsureMeta = { reason: '', spawnLabel: '', error: '' };
     console.log(`[ssak-desktop] Host already reachable at ${HOST_URL}; not spawning`);
     return 'ready';
   }
 
   if (!SPAWN_HOST) {
-    return 'timeout'; // unreachable + spawn disabled → caller shows warning dialog
+    lastEnsureMeta = {
+      reason: 'unreachable',
+      spawnLabel: '',
+      error: 'SSAK_SPAWN_HOST=0 (spawn disabled)',
+    };
+    return 'unreachable';
   }
 
   let spec;
@@ -389,6 +404,7 @@ async function ensureHost() {
     const bind = lifecycle.parseHostBind(HOST_URL);
     hostStarting = true;
     ownedHost = true;
+    hostRecentStderr = '';
     refreshTrayMenu();
 
     const spawned = lifecycle.spawnOwnedHost({
@@ -411,18 +427,24 @@ async function ensureHost() {
       ownedHost = false;
       hostChild = null;
       hostStarting = false;
+      lastEnsureMeta = {
+        reason: 'spawn-failed',
+        spawnLabel: spec.label,
+        error: 'Spawned pid collides with forbidden soak pid',
+      };
       return 'spawn-failed';
     }
   } catch (err) {
     hostStarting = false;
     ownedHost = false;
     hostChild = null;
+    const errMsg = err && err.message ? err.message : String(err);
     console.error('[ssak-desktop] Host spawn failed:', err);
-    dialog.showErrorBox(
-      'Ssak-Ai Host spawn failed',
-      `Could not start Host for ${HOST_URL}.\n\n${err && err.message ? err.message : err}\n\n` +
-        'Set SSAK_SPAWN_HOST=0 to disable spawn and start Host yourself, or install uv/agk.',
-    );
+    lastEnsureMeta = {
+      reason: 'spawn-failed',
+      spawnLabel: '',
+      error: errMsg,
+    };
     return 'spawn-failed';
   }
 
@@ -435,50 +457,150 @@ async function ensureHost() {
   refreshTrayMenu();
 
   if (!ok) {
-    dialog.showErrorBox(
-      'Ssak-Ai Host not ready',
-      `Host did not become reachable at ${HOST_URL} within ~${Math.round(HOST_START_TIMEOUT_MS / 1000)}s.\n\n` +
-        `Spawn command:\n  ${spec.label}\n\n` +
-        'Check logs (tray → Open logs folder) or start Host manually.\n' +
-        'Quit will still stop the owned child if it is alive.',
-    );
+    lastEnsureMeta = {
+      reason: 'timeout',
+      spawnLabel: spec.label,
+      error: `Host did not become reachable within ~${Math.round(HOST_START_TIMEOUT_MS / 1000)}s`,
+    };
     return 'timeout';
   }
 
+  lastEnsureMeta = { reason: '', spawnLabel: '', error: '' };
   return 'ready';
 }
 
-function showUnreachableDialog() {
-  const detail =
-    `Host does not appear to be reachable at ${HOST_URL}.\n\n` +
-    'Spawn is disabled (SSAK_SPAWN_HOST=0).\n' +
-    'Start Host first, e.g.:\n' +
-    '  uv run agk serve --host 127.0.0.1 --port 8000\n' +
-    '  or: make serve / existing launcher\n\n' +
-    'To allow the shell to spawn Host when unreachable, unset SSAK_SPAWN_HOST or set it to 1.\n\n' +
-    'Then re-open from the tray, or Quit and relaunch the shell.';
-  const choice = dialog.showMessageBoxSync({
-    type: 'warning',
-    title: 'Ssak-Ai Host not ready',
-    message: 'Host loopback URL unreachable',
-    detail,
-    buttons: ['Continue anyway', 'Quit'],
-    defaultId: 0,
-    cancelId: 1,
+/**
+ * Stop owned child (if any) then re-run ensureHost when spawn is allowed;
+ * otherwise soft-probe the existing SSAK_HOST_URL only.
+ * @returns {Promise<'ready' | 'timeout' | 'spawn-failed' | 'unreachable'>}
+ */
+async function retryHostStart() {
+  if (SPAWN_HOST) {
+    if (ownedHost && lifecycle.isChildAlive(hostChild)) {
+      console.log('[ssak-desktop] recovery Retry: stopping owned Host before re-spawn');
+      await lifecycle.stopOwnedHost(hostChild, {
+        graceMs: lifecycle.DEFAULT_STOP_GRACE_MS,
+        log: (msg) => console.error(`[ssak-desktop] ${msg}`),
+      });
+    }
+    hostChild = null;
+    ownedHost = false;
+    hostStarting = false;
+    hostReady = false;
+    hostRecentStderr = '';
+    refreshTrayMenu();
+    return ensureHost();
+  }
+
+  hostStarting = false;
+  hostReady = await lifecycle.hostProbe(HOST_URL);
+  refreshTrayMenu();
+  if (hostReady) {
+    lastEnsureMeta = { reason: '', spawnLabel: '', error: '' };
+    return 'ready';
+  }
+  lastEnsureMeta = {
+    reason: 'unreachable',
+    spawnLabel: '',
+    error: 'SSAK_SPAWN_HOST=0 — re-probed existing URL; still unreachable',
+  };
+  return 'unreachable';
+}
+
+/**
+ * Phase 4 recovery UI — Electron dialog (no remote HTML).
+ * Buttons: Open logs / Export diagnostics / Retry / Open in browser / Quit.
+ * @param {{ reason: string }} opts
+ * @returns {Promise<'retry' | 'open-browser' | 'quit'>}
+ */
+async function showHostRecoveryDialog(opts) {
+  const reason = opts.reason || lastEnsureMeta.reason || 'timeout';
+  const portConflict = await lifecycle.suspectPortConflict(HOST_URL, {
+    stderrHint: hostRecentStderr,
+    errorHint: lastEnsureMeta.error || '',
   });
-  return choice === 1;
+
+  let headline = 'Host did not become ready';
+  if (reason === 'spawn-failed') headline = 'Host spawn failed';
+  if (reason === 'unreachable') headline = 'Host loopback URL unreachable';
+
+  const detailParts = [
+    `URL: ${HOST_URL}`,
+    lastEnsureMeta.error ? `Detail: ${lastEnsureMeta.error}` : null,
+    lastEnsureMeta.spawnLabel ? `Spawn command:\n  ${lastEnsureMeta.spawnLabel}` : null,
+    !SPAWN_HOST
+      ? 'Spawn is disabled (SSAK_SPAWN_HOST=0). Retry only re-probes the URL — start Host yourself or set SSAK_SPAWN_HOST=1.'
+      : 'Retry will stop any owned Host child and re-run spawn/probe.',
+    portConflict
+      ? 'Port conflict suspected: another process may already be using this port. Stop the other listener, change SSAK_HOST_URL / --port, then Retry. Check logs for EADDRINUSE / “address already in use” (Phase 4/6).'
+      : null,
+    'Open logs folder → ~/Library/Logs/Ssak-Ai (or ~/.antigravity-k/logs).',
+    'Export diagnostics uses the same allowlist ZIP path as the tray item.',
+  ].filter(Boolean);
+
+  const detail = detailParts.join('\n\n');
+
+  if (recoveryDialogOpen) {
+    console.warn('[ssak-desktop] recovery dialog already open; skipping');
+    return 'quit';
+  }
+  recoveryDialogOpen = true;
+  try {
+    for (;;) {
+      if (quitting) return 'quit';
+      const choice = dialog.showMessageBoxSync({
+        type: 'warning',
+        title: 'Ssak-Ai Host recovery',
+        message: headline,
+        detail,
+        buttons: [
+          'Open logs folder',
+          'Export diagnostics',
+          'Retry start',
+          'Open in browser',
+          'Quit',
+        ],
+        defaultId: 2,
+        cancelId: 4,
+        noLink: true,
+      });
+
+      if (choice === 0) {
+        openLogsFolder();
+        continue;
+      }
+      if (choice === 1) {
+        await exportDiagnosticsFromTray();
+        continue;
+      }
+      if (choice === 2) return 'retry';
+      if (choice === 3) {
+        shell.openExternal(HOST_URL).catch(() => {});
+        return 'open-browser';
+      }
+      return 'quit';
+    }
+  } finally {
+    recoveryDialogOpen = false;
+  }
 }
 
 async function bootstrap() {
-  const result = await ensureHost();
+  let result = await ensureHost();
 
-  if (result !== 'ready' && !SPAWN_HOST) {
-    // unreachable + spawn disabled → keep prior warning dialog behavior
-    if (showUnreachableDialog()) {
+  while (result !== 'ready') {
+    const action = await showHostRecoveryDialog({ reason: result });
+    if (action === 'quit') {
       quitting = true;
       app.quit();
       return;
     }
+    if (action === 'open-browser') {
+      // Proceed to tray + window (loadURL may still fail; user can Retry from a later fail path via relaunch).
+      break;
+    }
+    // retry
+    result = await retryHostStart();
   }
 
   if (!tray) createTray();

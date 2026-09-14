@@ -13,6 +13,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { spawn, execFileSync } = require('child_process');
+const net = require('net');
 const { URL } = require('url');
 
 /** Soak / CR-14 val02_staging — never signal these PIDs. */
@@ -165,6 +166,80 @@ function hostProbe(url, timeoutMs = 2000) {
       done(false);
     }
   });
+}
+
+/**
+ * Soft TCP connect — true if something accepts on hostname:port.
+ * @param {string} hostname
+ * @param {number} port
+ * @param {number} [timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+function tcpPortOpen(hostname, port, timeoutMs = 400) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    try {
+      const sock = net.connect({ host: hostname, port }, () => {
+        sock.destroy();
+        done(true);
+      });
+      sock.on('error', () => done(false));
+      sock.setTimeout(timeoutMs, () => {
+        sock.destroy();
+        done(false);
+      });
+    } catch {
+      done(false);
+    }
+  });
+}
+
+/**
+ * True when bind attempt hits EADDRINUSE (port owned by someone).
+ * @param {string} hostname
+ * @param {number} port
+ * @returns {Promise<boolean>}
+ */
+function bindWouldConflict(hostname, port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', (err) => {
+      resolve(Boolean(err && err.code === 'EADDRINUSE'));
+    });
+    server.once('listening', () => {
+      server.close(() => resolve(false));
+    });
+    try {
+      server.listen(port, hostname);
+    } catch (err) {
+      resolve(Boolean(err && err.code === 'EADDRINUSE'));
+    }
+  });
+}
+
+/**
+ * Heuristic for Phase 4 recovery copy (plan Phase 4/6): Host HTTP probe failed
+ * but the port looks occupied (TCP accept or EADDRINUSE on bind), or stderr hints
+ * at address-already-in-use.
+ *
+ * @param {string} urlStr
+ * @param {{ stderrHint?: string, errorHint?: string }} [opts]
+ * @returns {Promise<boolean>}
+ */
+async function suspectPortConflict(urlStr, opts = {}) {
+  const hint = `${opts.stderrHint || ''}\n${opts.errorHint || ''}`;
+  if (/EADDRINUSE|address already in use|port.*(?:in use|already)/i.test(hint)) {
+    return true;
+  }
+  const { hostname, port } = parseHostBind(urlStr);
+  if (await hostProbe(urlStr, 800)) return false;
+  if (await tcpPortOpen(hostname, port)) return true;
+  return bindWouldConflict(hostname, port);
 }
 
 /**
@@ -533,6 +608,8 @@ module.exports = {
   parseDiagnosticsZipPath,
   runDiagnosticsExport,
   hostProbe,
+  tcpPortOpen,
+  suspectPortConflict,
   waitForHostReady,
   isChildAlive,
   spawnOwnedHost,

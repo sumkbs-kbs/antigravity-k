@@ -22,7 +22,7 @@ See plan: `docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md` (Phase 2) and progres
    - Prefer: `uv run agk serve --host <host> --port <port>` from **repo root**
    - Else: `.venv/bin/agk serve …` or `.venv/bin/python -m antigravity_k.cli serve …` (same family as `scripts/build_mac_dmg.sh` launcher)
    - Tray shows **Host starting…** until probe succeeds or timeout (~45s), then an error dialog if still down.
-4. If unreachable **and** `SSAK_SPAWN_HOST=0` → warning dialog (Continue / Quit), same as the earlier scaffold.
+4. If Host fails to become ready (spawn timeout / probe fail / spawn error / spawn-off unreachable) → **Phase 4 recovery dialog**: Open logs folder / Export diagnostics / Retry start / Open in browser / Quit (port-conflict hint when suspected). Manual trigger: `SSAK_HOST_URL=http://127.0.0.1:18081 SSAK_SPAWN_HOST=0 pnpm --dir desktop start`.
 
 **Quit vs hide**
 

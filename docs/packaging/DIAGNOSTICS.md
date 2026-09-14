@@ -64,7 +64,33 @@ Node smoke (no Electron UI):
 node -e "require('./desktop/hostLifecycle').runDiagnosticsExport({repoRoot:process.cwd(),outputPath:require('os').homedir()+'/Library/Logs/Ssak-Ai/diagnostics-node-smoke.zip'}).then(r=>console.log(r))"
 ```
 
+## Startup recovery window (Host-fail)
+
+When the desktop shell cannot get Host ready (spawn timeout, probe fail, spawn error, or `SSAK_SPAWN_HOST=0` + unreachable URL), it shows an Electron **recovery dialog** (not a one-shot alert):
+
+| Button | Action |
+|---|---|
+| **Open logs folder** | Same as tray → `~/Library/Logs/Ssak-Ai` (or `~/.antigravity-k/logs`) |
+| **Export diagnostics** | Same path as tray **진단 내보내기…** (`runDiagnosticsExport` / `agk diagnostics export`) |
+| **Retry start** | If spawn allowed: stop owned child (if any) → re-spawn/probe. If `SSAK_SPAWN_HOST=0`: re-probe existing `SSAK_HOST_URL` only |
+| **Open in browser** | `shell.openExternal(SSAK_HOST_URL)` then continue to tray/window |
+| **Quit** | Quit the shell (owned Host stopped on quit as usual) |
+
+If a **port conflict** is suspected (TCP accept while HTTP probe fails, bind `EADDRINUSE`, or stderr/error mentions address-already-in-use), the dialog detail includes a short Phase 4/6 hint: stop the other listener or change `SSAK_HOST_URL` / `--port`, then Retry.
+
+### Manual trigger (dev)
+
+```bash
+# Bad port + never spawn → recovery dialog on launch
+SSAK_HOST_URL=http://127.0.0.1:18081 SSAK_SPAWN_HOST=0 pnpm --dir desktop start
+
+# Or let spawn try a dead/busy port (timeout → recovery)
+SSAK_HOST_URL=http://127.0.0.1:18081 pnpm --dir desktop start
+```
+
+Do not point at soak / production `:8000` while validating recovery.
+
 ## Deferred (still Phase 4)
 
-- Startup recovery window (open logs / port conflict / export / retry) — **next**
-- Settings-page button (tray item is enough for this slice)
+- Settings-page diagnostics button (tray + recovery dialog are enough for this slice)
+- Optional `desktop/recovery.html` BrowserWindow (dialog path landed first; keep thin)
