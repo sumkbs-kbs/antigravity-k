@@ -1,5 +1,6 @@
 # 10 Final Readiness Report
 
+> CR-14 attempt-038 REVIEW: compact leftover 폐쇄 · 후보 `4c3f8364` · 23/23 · leftover EXTERNAL_HUB 1건 · **NO-GO**.
 > **CR-14 attempt-037 (2026-09-14)**: F-47 git-status file-activity leftover CLOSED · leftover 2 · 후보 `0cdcd60c`/`341d4f6c…` · 23/23 PASS · **NO-GO** (사람·조직 축).
 
 > **CR-14 attempt-036 REVIEW (2026-09-14)**: 후보 `44d46c2e` / 지문 `38c36a65…` / required **23/23 PASS** · close PASS. F-47 `f47-invert-execution-trace-axe` CLOSED · leftover **3건**. **NO-GO**.

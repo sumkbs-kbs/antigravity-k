@@ -1,6 +1,11 @@
 # 08 Changelog
 
 
+## 2026-09-14 — CR-14 attempt-038
+
+- F-47 leftover `f47-invert-compact-large-stream` 폐쇄: e2e TaskEventSchema 시드 정합 · GREP_INVERT 비움 · leftover 2→1(EXTERNAL_HUB만).
+- 후보 `4c3f8364` · 지문 `9362bdfc…` · required 23/23 · ATTEMPT_CLOSE PASS · 판정 NO-GO.
+
 ## 2026-09-14 — CR-14 attempt-037 (REVIEW / NO-GO)
 
 - F-47 leftover `f47-invert-git-status-file-activity` 폐쇄: 환경 레일 **코드** 탭 git 파일 상태 + clean empty-state
