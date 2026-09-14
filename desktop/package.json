@@ -7,7 +7,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "postinstall": "electron --version || true"
+    "postinstall": "electron --version || true",
+    "test:update-channels": "node test_updateChannels.js"
   },
   "devDependencies": {
     "electron": "^37.2.0"

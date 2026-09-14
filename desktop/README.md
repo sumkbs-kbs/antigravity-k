@@ -2,7 +2,7 @@
 
 Thin **Electron** wrapper around the Ssak-Ai **Host** SPA on loopback.
 
-- **Does:** single-instance lock, `BrowserWindow` → Host URL, tray Open/Settings/logs/**진단 내보내기…**/Quit, Host ready / starting… / unreachable status, hide-on-close, **owned-child Host spawn/stop**, diagnostics export via same `agk diagnostics export` CLI.
+- **Does:** single-instance lock, `BrowserWindow` → Host URL, tray Open/Settings/logs/**진단 내보내기…**/**업데이트 확인…**/Quit, Host ready / starting… / unreachable status, hide-on-close, **owned-child Host spawn/stop**, diagnostics export via same `agk diagnostics export` CLI, Phase 5 update soft-check (`SSAK_UPDATE_FEED`).
 - **Does not:** transplant DSH/Cordis, expose Electron APIs to the page, or kill Host processes it did not spawn.
 
 See plan: `docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md` (Phase 2) and progress: `docs/packaging/notes/phase2_progress.md`.

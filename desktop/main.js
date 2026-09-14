@@ -12,6 +12,7 @@
  * - Never kills unrelated PIDs / soak 29961·29969 / val02_staging.
  * - Tray “진단 내보내기…” → child_process `uv run agk diagnostics export` (same CLI).
  * - Host-fail → Phase 4 recovery dialog (logs / export / retry / browser / quit).
+ * - Tray “업데이트 확인…” → soft check (SSAK_UPDATE_FEED); never auto-install.
  */
 
 const fs = require('fs');
@@ -19,6 +20,7 @@ const path = require('path');
 const { app, BrowserWindow, Tray, Menu, nativeImage, dialog, shell } = require('electron');
 
 const lifecycle = require('./hostLifecycle');
+const updateChannels = require('./updateChannels');
 
 const HOST_URL = lifecycle.resolveHostUrl();
 const SPAWN_HOST = lifecycle.spawnHostEnabled();
@@ -46,6 +48,8 @@ let hostStatusTimer = null;
 let hostStopInProgress = false;
 /** True while tray diagnostics export child is running. */
 let diagnosticsExportInFlight = false;
+/** True while tray update soft-check is running. */
+let updateCheckInFlight = false;
 /** Recent owned-Host stderr (for EADDRINUSE / recovery hints). */
 let hostRecentStderr = '';
 /** Last ensureHost failure context for recovery copy. */
@@ -135,6 +139,15 @@ function buildTrayMenu() {
       click: () => {
         exportDiagnosticsFromTray().catch((err) => {
           console.error('[ssak-desktop] diagnostics export failed:', err);
+        });
+      },
+    },
+    {
+      label: '업데이트 확인…',
+      enabled: !updateCheckInFlight,
+      click: () => {
+        checkForUpdatesFromTray().catch((err) => {
+          console.error('[ssak-desktop] update check failed:', err);
         });
       },
     },
@@ -264,10 +277,84 @@ function diagnosticsDefaultZipPath() {
 }
 
 /**
+ * Tray “업데이트 확인…” — Phase 5 soft check only.
+ * Unset SSAK_UPDATE_FEED → “업데이트 서버 미구성” (not a crash).
+ * Never auto-downloads or installs.
+ */
+async function checkForUpdatesFromTray() {
+  if (updateCheckInFlight) {
+    dialog.showMessageBox({
+      type: 'info',
+      title: '업데이트 확인',
+      message: '업데이트 확인이 이미 진행 중입니다.',
+      buttons: ['OK'],
+    });
+    return;
+  }
+
+  updateCheckInFlight = true;
+  refreshTrayMenu();
+
+  try {
+    const pkgVersion =
+      (typeof app.getVersion === 'function' && app.getVersion()) ||
+      require('./package.json').version ||
+      '0.0.0';
+    const result = await updateChannels.softCheckForUpdates({
+      channel: 'stable',
+      currentVersion: pkgVersion,
+    });
+
+    if (result.status === 'unconfigured') {
+      dialog.showMessageBox({
+        type: 'info',
+        title: '업데이트 확인',
+        message: '업데이트 서버 미구성',
+        detail:
+          `환경 변수 ${updateChannels.UPDATE_FEED_ENV}가 비어 있습니다.\n` +
+          '개인용 GitHub Releases stub 피드를 설정하기 전까지는 확인만 가능합니다.\n' +
+          '자동 설치는 기본 비활성입니다. 자세한 내용: docs/packaging/UPDATE_CHANNELS.md',
+        buttons: ['OK'],
+      });
+      return;
+    }
+
+    const type =
+      result.status === 'error' ? 'warning' : result.status === 'ok' ? 'info' : 'info';
+    const detailParts = [
+      result.channel ? `Channel: ${result.channel}` : null,
+      result.feed && result.feed.version ? `Feed version: ${result.feed.version}` : null,
+      result.code ? `Code: ${result.code}` : null,
+      'Auto-install: off (this soft check never downloads).',
+    ].filter(Boolean);
+    dialog.showMessageBox({
+      type,
+      title: '업데이트 확인',
+      message: result.userMessage || 'Update check finished',
+      detail: detailParts.join('\n'),
+      buttons: ['OK'],
+    });
+  } catch (err) {
+    console.error('[ssak-desktop] checkForUpdatesFromTray:', err);
+    dialog.showMessageBox({
+      type: 'warning',
+      title: '업데이트 확인',
+      message: '업데이트 확인 중 오류가 발생했습니다',
+      detail: err && err.message ? err.message : String(err),
+      buttons: ['OK'],
+    });
+  } finally {
+    updateCheckInFlight = false;
+    refreshTrayMenu();
+  }
+}
+
+/**
  * Tray “진단 내보내기…” — same path as `agk diagnostics export` via child_process
  * (uv run agk … / venv fallbacks). Does not block the UI event loop.
  */
 async function exportDiagnosticsFromTray() {
+
   if (diagnosticsExportInFlight) {
     dialog.showMessageBox({
       type: 'info',
