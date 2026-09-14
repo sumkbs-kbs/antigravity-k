@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 개선 실행 체크리스트
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-035 REVIEW** — F-47 일부 CLOSED · 후보 `ae283604`/`ac0757cc…` · required **23/23** · NO-GO · GA 승인 없음)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-037 IN_PROGRESS** — 선언 후보 `0cdcd60c`/`341d4f6c…` · leftover 2 · NO-GO)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 plan: docs/16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md
@@ -11,7 +11,9 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 [개발 계획](16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [검토 기준](qa/2026-09-11-commercial-review/BASELINE.md)
 
-**현재: CR-14 attempt-036 **REVIEW** — F-47 `f47-invert-execution-trace-axe` CLOSED · leftover **3건** · 코드 후보 **커밋** `44d46c2eec5920b5b9b1e8d3da1975a5c0bcb57a` (지문 `38c36a65…`) · required gate **23/23 PASS** · 판정 **NO-GO** · **GA 승인 없음** · 커밋은 승인이 아니다 · owner=`마뱀` · CR-00 DONE / CR-01~CR-13 REVIEW / DONE 1 of 15.**
+**현재: CR-14 attempt-037 **IN_PROGRESS**(선언 후 측정) — F-47 `f47-invert-git-status-file-activity` 코드 커밋 · leftover **2건** · 코드 후보 **커밋** `0cdcd60cc086e4ad73ef3d111a3f8f1b7af3c6b7` (지문 `341d4f6c…`) · owner=`마뱀` · 판정 **NO-GO** · **GA 승인 없음** · CR-00 DONE / CR-01~CR-13 REVIEW / DONE 1 of 15.**
+최근 갱신: 2026-09-14 (**CR-14 attempt-037 IN_PROGRESS** — 환경 레일 git-status 파일 활동 leftover. 원인 후보: 코드 탭 전용 + clean 트리 empty-state 미렌더. owner=마뱀. D-71/EXTERNAL_HUB 금지.)
+
 
 최근 갱신: 2026-09-14 (**CR-14 attempt-034 REVIEW** — F-45·F-46 폐쇄. 후보 `b1f3af5a` · 지문 `e4d15526…` · **23/23** · ambient 11 passed · python-tests 6383/13 · 마감 PASS · 판정 NO-GO 유지.)
 
