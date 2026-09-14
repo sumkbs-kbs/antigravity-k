@@ -1,6 +1,11 @@
 # 08 Changelog
 
 
+## 2026-09-14 — C14-08 출시 책임자 근거 있는 NO-GO
+
+- [CR14_C14_08_RELEASE_OWNER_VERDICT.md](./ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md): 강병석 서명 · 후보 `b6003205` · 지문 불변.
+- 이유: EX-01~05 · C14-03/04/05/07 · 제3자 독립성. GA 승인·CR-14 DONE 아님.
+
 ## 2026-09-14 — C14-08/EX 담당 배정 (기록 / NO-GO)
 
 - 출시 책임자·독립 code/security/QA 검토자·EX-01~06 담당을 **강병석**으로 채움(사용자 지시).
