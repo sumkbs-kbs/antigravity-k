@@ -5,7 +5,7 @@
 
 - F-47: `capture-disclosure-*` Vite :5173 하네스 결함을 hermetic `/settings` + `AGK_SEED_LEVEL` 시드 서버로 닫아 `dashboard-e2e-ambient` 가 소유.
 - leftover 4건(`f47-capture-real-local-models` · `f47-invert-*`)을 `scripts/cr14_f47_leftover_register.json` 목록 정체성으로 센다.
-- 후보 `ae283604` · 지문 `ac0757cc…` · required 23 inventory 선언(측정 전). 판정 NO-GO.
+- 후보 `ae283604` · 지문 `ac0757cc…` · required **23/23 PASS** · python-tests 6391 passed / 13 skipped · 판정 NO-GO.
 기준일: 2026-09-14
 
 ## 2026-09-12
