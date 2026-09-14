@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 상세 개선 개발 계획서
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-038 DECLARED** — 후보 `4c3f8364` · 측정 전 · NO-GO)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-038 DECLARED** — 후보 `4c3f8364` · GA 승인 없음 · NO-GO)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 source_review: docs/qa/2026-09-11-commercial-review/BASELINE.md
@@ -10,7 +10,7 @@ tags: [development-plan, reliability, security, migration, agent-handoff]
 
 # 상용 신뢰성 상세 개선 개발 계획서
 
-> **최신 (2026-09-14, attempt-038 DECLARED) — F-47 `f47-invert-compact-large-stream` 코드 후보 `4c3f8364` / `9362bdfc…` · leftover 2→1 목표 · 측정 전 §5 · NO-GO.**
+> **최신 (2026-09-14, attempt-038 DECLARED) — F-47 `f47-invert-compact-large-stream` CLOSED · 코드 후보 **커밋** `4c3f8364` / `9362bdfc…` · leftover 1건 · GA 승인 없음 · 측정 재개 · NO-GO.**
 > owner=`마뱀` · ambient owns file-activity (코드 탭 + empty-state). 남은 leftover: EXTERNAL_HUB · compact-large-stream.
 > owner=`마뱀` · 후보 `ae28360448f442e1194e1e93fcabf9e51bc8aada` · 지문 `ac0757cc…` · required **23/23 PASS**.
 > 닫힘: capture-disclosure-* (:5173→/settings + AGK_SEED_LEVEL). 센 leftover: f47-capture-real-local-models · f47-invert-*. 판정 NO-GO.
