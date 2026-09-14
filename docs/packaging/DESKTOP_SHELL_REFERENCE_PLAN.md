@@ -190,15 +190,16 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 **참고 DSH:** single-instance lock, tray after web ready, close window hides, Quit exits Host.
 
 **체크리스트**
-- [ ] 단일 인스턴스: 두 번째 실행 시 기존 창 focus / URL open
-- [ ] 트레이 아이콘: 열기 / 설정(또는 대시보드) / 로그 폴더 / 종료
-- [ ] 창 닫기 = hide (프로세스·`agk` 유지)
-- [ ] Quit = Host graceful shutdown + 자식 프로세스 회수
-- [ ] 기동 실패 시: 브라우저만 열고 끝나는 대신 **에러 UI/알림** (복구 창은 Phase 4와 연결)
+- [~] 단일 인스턴스: 두 번째 실행 시 기존 창 focus / URL open — **scaffold working** (`desktop/main.js`)
+- [~] 트레이 아이콘: 열기 / 종료 **working**; 설정·로그 폴더는 잔여
+- [~] 창 닫기 = hide (프로세스 유지) — **working stub**; Host는 이 턴에 spawn/stop 안 함(이미 떠 있다고 가정)
+- [ ] Quit = Host graceful shutdown + 자식 프로세스 회수 — **stub**: Quit은 셸만 종료 (C-03 soak/:8000 보호)
+- [~] 기동 실패 시: Host probe 실패 시 dialog — **partial**; 복구 창은 Phase 4
 - [ ] 서버 ready 전에 트레이 “시작 중…” 상태
-- [ ] macOS Dock 아이콘 정책 문서화 (hide 시 동작)
+- [~] macOS Dock 아이콘 정책 — README에 초안; 정식 문서화 잔여
 
 **완료 증거**
+- [x] 스캐폴드 + 진행 메모: `desktop/` · `docs/packaging/notes/phase2_progress.md`
 - [ ] 수동 QA 체크리스트 결과표 (`phase2_shell_qa.md`)
 - [ ] (가능하면) 자동 테스트 또는 smoke 스크립트
 
@@ -345,7 +346,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | Dashboard 빌드 | `dashboard/package.json`, `dashboard/vite.config.ts`, `src/antigravity_k/dashboard_dist/` |
 | 서버 정적 서빙 | `src/antigravity_k/api/` (SPA mount), `agk serve` |
 | 설정/시크릿 | `src/antigravity_k/api/routes/system_api.py` (`/api/settings/env`), `dashboard/src/pages/SettingsPage.tsx` |
-| 새 셸 프로젝트 | `desktop/` 또는 `apps/ssak-desktop/` (신규, Decision 후) |
+| 새 셸 프로젝트 | **`desktop/`** (D-06; Electron thin shell) |
 | 진단 | `src/antigravity_k/cli/` 또는 `scripts/export_diagnostics.py` |
 | 증거 | `.omo/evidence/desktop-shell/` |
 | 본 계획 | `docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md` |
@@ -406,6 +407,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | D-03 | TBD | 업데이트 서버 위치 (GitHub Releases vs 자체) | TBD | Phase 5 |
 | D-04 | 2026-09-15 | 제품 목적 = **개인 사용 + 모바일 Host 연동**. UI 정본은 Host. Electron은 얇은 셸만 | 강병석 | `notes/mobile_host_premise.md` |
 | D-05 | 2026-09-15 | 기본 bind `127.0.0.1`; 모바일은 **명시적** LAN/Tailscale bind + 비-loopback 시 PIN/토큰 필수 | 강병석 | Phase 6 강화 |
+| D-06 | 2026-09-15 | 셸 패키지 경로 **`desktop/`** (비어 있음 확인 후 채택). Host spawn/stop은 Phase 2 후속; 스캐폴드는 Host 기동 가정 | 마뱀 | Phase 2 scaffold |
 
 ---
 
@@ -415,7 +417,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 |---|---|---|---|---|
 | 0 | 범위·결정·베이스라인 | **DONE** | 마뱀 | `docs/packaging/notes/phase0_baseline.md` |
 | 1 | 배포 클로저 | **DONE-with-caveat** (IN_PROGRESS 잔여=클린 Mac FULL은 `SSAK_BUNDLE_PYTHON` 스모크 후) | 마뱀 | `phase1_progress.md` · `MACOS_DMG_GUIDE.md` §5 · `windows_closure_stub.md` |
-| 2 | 셸 UX | NOT_STARTED | | |
+| 2 | 셸 UX | **IN_PROGRESS** | 마뱀 | `desktop/` · `notes/phase2_progress.md` |
 | 3 | Windows 패리티 | NOT_STARTED | | |
 | 4 | 복구·진단 | NOT_STARTED | | |
 | 5 | 업데이트 채널 | NOT_STARTED | | |
@@ -448,3 +450,4 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | `make dmg` PASS → `dist/Ssak-Ai-0.1.0.dmg` (55M) sha256 `262b54244a…`; 번들 비밀 0건. Phase1 잔여=기동 스모크·Python 동봉 강화·Phase6 모바일 bind. |
 | 2026-09-15 | 마뱀 | `dmg-smoke` PASS(:18080). Phase6: `/api/network/access-info` + Settings 모바일 안내(기본 OFF). 실기기 폰 스모크·무재시작 rebind는 잔여. |
 | 2026-09-15 | 마뱀 | Phase1 residual: D-02=1a 확정; 런처 bundled-python 우선; `SSAK_BUNDLE_PYTHON` 옵트인; 가이드 클로저 인벤토리; Windows stub. 클린 Mac FULL은 동봉 빌드 스모크 후. |
+| 2026-09-15 | 마뱀 | Phase 2 착수(D-06=`desktop/`): Electron thin shell 스캐폴드 — single-instance·tray Open/Quit·hide-on-close·Host URL load. Host spawn/stop 미구현(기동 가정; soak/:8000 미간섭). `notes/phase2_progress.md`. CR-14 GO 주장 없음. |
