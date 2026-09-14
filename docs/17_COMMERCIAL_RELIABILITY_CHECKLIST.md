@@ -11,7 +11,7 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 [개발 계획](16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [검토 기준](qa/2026-09-11-commercial-review/BASELINE.md)
 
-**현재: CR-14 attempt-034 **REVIEW** — F-45·F-46 CLOSED(ambient 게이트 소유자) · 코드 후보 **커밋** 동결 `b1f3af5a7f9dda413bd4d8ff82ba5ca5b3d6ba2a` (지문 `e4d15526…`) · required gate **23/23 PASS** · 판정 **NO-GO** · **GA 승인 없음** · 커밋은 승인이 아니다 · owner=`마뱀` · CR-00 DONE / CR-01~CR-13 REVIEW / DONE 1 of 15.**
+**현재: CR-14 attempt-035 **IN_PROGRESS**(선언 완료·측정 전) — F-47 일부: disclosure hermetic 소유 · leftover 4건 계수 · 코드 후보 **커밋** `ae28360448f442e1194e1e93fcabf9e51bc8aada` (지문 `ac0757cc…`) · required **23** inventory 선언 · 판정 **NO-GO** · **GA 승인 없음** · owner=`마뱀` · CR-00 DONE / CR-01~CR-13 REVIEW / DONE 1 of 15.**
 
 최근 갱신: 2026-09-14 (**CR-14 attempt-034 REVIEW** — F-45·F-46 폐쇄. 후보 `b1f3af5a` · 지문 `e4d15526…` · **23/23** · ambient 11 passed · python-tests 6383/13 · 마감 PASS · 판정 NO-GO 유지.)
 

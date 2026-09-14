@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 상세 개선 개발 계획서
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-034 REVIEW** — F-45·F-46 CLOSED · 후보 `b1f3af5a` · required 23/23 · NO-GO)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-035 IN_PROGRESS** — 선언 `ae283604`/`ac0757cc…` · F-47 일부 · required 23 · NO-GO)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 source_review: docs/qa/2026-09-11-commercial-review/BASELINE.md
@@ -10,7 +10,11 @@ tags: [development-plan, reliability, security, migration, agent-handoff]
 
 # 상용 신뢰성 상세 개선 개발 계획서
 
-> **최신 (2026-09-14, attempt-034 REVIEW) — F-45 · F-46 CLOSED: ambient 백엔드 스펙에 required-gate 소유자.** 후보 `b1f3af5a7f9dda413bd4d8ff82ba5ca5b3d6ba2a` · 지문 `e4d15526…` · required **23/23** · ambient 11 · python-tests 6383/13 · `tree_moved` 0 · 마감 PASS · 판정 NO-GO. 다음 최저가: F-47 슬라이스 소유 설계 또는 C33-6 · D-71 하지 말 것 · 사람 축(EX/C14-08).
+> **최신 (2026-09-14, attempt-035 선언·측정 전) — F-47: disclosure hermetic 소유 + leftover 4건 목록 정체성.**
+> owner=`마뱀` · 후보 `ae28360448f442e1194e1e93fcabf9e51bc8aada` · 지문 `ac0757cc…` · required **23** inventory 선언(23/0/0/23).
+> 닫힘: capture-disclosure-* (:5173→/settings + AGK_SEED_LEVEL). 센 leftover: f47-capture-real-local-models · f47-invert-*. 판정 NO-GO.
+>
+> **직전 (2026-09-14, attempt-034 REVIEW) — F-45 · F-46 CLOSED: ambient 백엔드 스펙에 required-gate 소유자.** 후보 `b1f3af5a7f9dda413bd4d8ff82ba5ca5b3d6ba2a` · 지문 `e4d15526…` · required **23/23** · ambient 11 · python-tests 6383/13 · `tree_moved` 0 · 마감 PASS · 판정 NO-GO. 다음 최저가: F-47 슬라이스 소유 설계 또는 C33-6 · D-71 하지 말 것 · 사람 축(EX/C14-08).
 >
 > **직전 (2026-09-14, attempt-034 시작 시점 IN_PROGRESS 기록은 위 REVIEW 로 대체)**
 >
