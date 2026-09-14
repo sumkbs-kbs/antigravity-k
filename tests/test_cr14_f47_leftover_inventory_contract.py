@@ -57,6 +57,10 @@ def _disclosure_specs_from_script() -> list[str]:
 
 def _grep_invert_from_script() -> str:
     text = _script_text()
+    # attempt-038: PRODUCT_FLAKE 0 이면 ruff 가 GREP_INVERT: str = "" 로 접는다.
+    empty = re.search(r'GREP_INVERT:\s*str\s*=\s*""', text)
+    if empty:
+        return ""
     match = re.search(r"GREP_INVERT:\s*str\s*=\s*\((.*?)\)", text, re.S)
     assert match, "GREP_INVERT 를 스크립트에서 찾지 못했다"
     raw = match.group(1)
