@@ -163,6 +163,16 @@ for (const viewport of [
     await prompt.focus();
     await expect(prompt).toBeFocused();
 
+    // Monaco native-edit-context 가 빈 aria-label 로 잠깐 뜨므로, 라벨이 채워진 뒤 axe 를 돌린다
+    // (DiffViewer 가 제품에서 채움 — 여기서는 그 계약이 준비됐는지만 기다린다).
+    await page.waitForFunction(() => {
+      const boxes = Array.from(
+        document.querySelectorAll<HTMLElement>('.task-execution-shell [role="textbox"]'),
+      );
+      if (boxes.length === 0) return false;
+      return boxes.every((el) => (el.getAttribute('aria-label') ?? '').trim().length > 0);
+    }, undefined, { timeout: 15_000 });
+
     const accessibility = await new AxeBuilder({ page }).include('.task-execution-shell').analyze();
     expect(accessibility.violations).toEqual([]);
 

@@ -8626,14 +8626,18 @@ html, body {
 }
 
 .approval-queue-actions .is-primary {
+  /* CR-14 F-47 / attempt-036: themeStore 가 --accent-hover 를 #917de8 로 덮어쓰면
+     #fff 대비 3.33 < 4.5. 승인 CTA 는 액센트 면은 유지하고 글자만 어두운 면(#080908)으로
+     AA(≥4.5) 를 맞춘다 — 테마 재설계 금지 · 이 컨트롤만. */
   border-color: var(--accent-hover);
   background: var(--accent-hover);
-  color: #fff;
+  color: #080908;
 }
 
 .approval-queue-actions .is-primary:hover:not(:disabled) {
   border-color: #5b4bc4;
   background: #5b4bc4;
+  color: #fff; /* #080908 on #5b4bc4 는 3.09 — hover 는 흰 글자 AA 6.46 */
 }
 
 .approval-queue-empty,

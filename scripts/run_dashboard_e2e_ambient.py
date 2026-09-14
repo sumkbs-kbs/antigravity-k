@@ -50,9 +50,8 @@ DISCLOSURE_SPEC_FILES: tuple[tuple[str, str], ...] = (
 # 서버를 세워도 실패하는 **제품/환경** 테스트 제목 — ambient 부재가 아니다(F-47 leftover).
 # 이 목록은 ``tests/test_cr14_f47_leftover_inventory_contract.py`` 가 센다(침묵 금지).
 GREP_INVERT: str = (
-    "should show file activity from git status"
-    "|compacts a large event stream behind a snapshot boundary"
-    "|renders the execution trace at"  # axe color-contrast on .is-primary (F-47)
+    "should show file activity from git status|compacts a large event stream behind a snapshot boundary"
+    # attempt-036: "renders the execution trace at" closed — .is-primary AA
 )
 
 

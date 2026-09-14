@@ -1,12 +1,14 @@
 """CR-14 F-47 leftover inventory — 소유되지 않은 ambient 슬라이스를 **센다**.
 
-attempt-035 측정
+attempt-036 측정
 ================
 - ``capture-disclosure-*`` 의 :5173 하드코드는 **값싼 하네스 결함**이었다.
   hermetic baseURL + ``AGK_SEED_LEVEL`` 로 초록 → ambient 게이트가 소유(폐쇄).
 - ``capture-real-local-models`` 는 실 unsloth 허브 상태(EXTERNAL_HUB).
-- GREP_INVERT 3종은 서버를 세워도 실패(PRODUCT_FLAKE) — invert 를 유일한
+- GREP_INVERT 2종은 서버를 세워도 실패(PRODUCT_FLAKE) — invert 를 유일한
   소유자로 두지 않기 위해 등록부 목록 정체성으로 센다.
+- ``renders the execution trace at`` axe color-contrast 는 attempt-036 에서
+  ``.is-primary`` AA 고침으로 닫혀 ambient 가 소유한다.
 
 이 계약이 막는 침묵
 ==================
@@ -35,7 +37,6 @@ EXPECTED_OPEN_IDS: tuple[str, ...] = (
     "f47-capture-real-local-models",
     "f47-invert-git-status-file-activity",
     "f47-invert-compact-large-stream",
-    "f47-invert-execution-trace-axe",
 )
 
 
@@ -148,4 +149,5 @@ def test_teeth_dropping_an_open_id_fails_list_identity() -> None:
 def test_closed_disclosure_is_recorded() -> None:
     closed = cast(list[dict[str, Any]], _register()["closed_this_attempt"])
     assert any(c.get("id") == "capture-disclosure-hermetic" for c in closed)
+    assert any(c.get("id") == "f47-invert-execution-trace-axe" for c in closed)
     assert any("dashboard-e2e-ambient" in str(c.get("now_owned_by", "")) for c in closed)
