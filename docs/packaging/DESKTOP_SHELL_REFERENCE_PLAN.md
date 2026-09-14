@@ -244,6 +244,8 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 **통과 기준**
 - 내보내기 ZIP에 비밀 스캐너(기존 `secret_scanner` 활용 가능) 0건.
 
+**완료 상태:** **DONE-with-caveat** — recovery = dialog (not custom window); Settings export button deferred; signing N/A. Evidence: `notes/phase4_progress.md`.
+
 ---
 
 ### Phase 5 — 업데이트 채널 (stable/beta)
@@ -253,12 +255,12 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 **참고 DSH:** `X-DSH-Desktop-Channel`, 백그라운드 체크 무음 실패, 수동 Check for Updates, 확인 후 다운로드, 교차 채널 금지.
 
 **체크리스트**
-- [ ] 채널 모델 문서: `stable` / `beta` (Git 브랜치 ≠ 채널)
-- [ ] 버전 체크 API 계약(자체 또는 GitHub Releases): 요청 채널·현재 버전, 응답 채널 echo
-- [ ] 클라이언트: 백그라운드 체크(실패 무음) + 트레이 수동 체크(결과 표시)
-- [ ] 자동 설치 금지(기본): 사용자 확인 → 저장 위치 → 다운로드 → mac DMG open / Win installer
+- [x] 채널 모델 문서: `stable` / `beta` (Git 브랜치 ≠ 채널) — **DONE** (`docs/packaging/UPDATE_CHANNELS.md`)
+- [x] 버전 체크 API 계약(자체 또는 GitHub Releases): 요청 채널·현재 버전, 응답 채널 echo — **DONE** (sketch + fixture; D-03=GitHub Releases stub)
+- [~] 클라이언트: 백그라운드 체크(실패 무음) + 트레이 수동 체크(결과 표시) — tray **업데이트 확인…** soft check **DONE**; background silent check deferred
+- [x] 자동 설치 금지(기본): 이 슬라이스는 soft check only (다운로드/설치 UX는 후속); 기본 자동 설치 없음
 - [ ] Beta→Stable 병치 설치는 **명시 메뉴**로만 (원치 않으면 스코프아웃 기록)
-- [ ] 실패 시 현재 설치 유지
+- [x] 실패 시 현재 설치 유지 — soft check never mutates install
 
 **통과 기준**
 - 가짜 업데이트 서버 또는 fixture로 채널 혼선이 거부됨을 테스트.
@@ -404,7 +406,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | D-01 | 2026-09-15 | 셸 기술 **A (Electron + Python 클로저)** 채택 (목표 UX: 트레이/업데이트/Win+Mac) | 강병석 지시 순차진행 · 마뱀 기록 | Phase 0 |
 | D-01-interim | 2026-09-15 | Phase 1은 기존 `build_mac_dmg.sh` 클로저 강화부터 (Electron 스캐폴드에 블로킹되지 않음) | 마뱀 | Phase 1 진입 규칙 |
 | D-02 | 2026-09-15 | Python 클로저 **1a 채택** (site-packages + 런처가 `Resources/python` 우선; 없으면 호스트 탐색 fail-closed). `SSAK_BUNDLE_PYTHON=1` 옵트인 동봉(기본 OFF, DMG~55M 유지). **1b(PyInstaller 등)는 1a 실패·용량 불가피 시에만** | 강병석 지시 잔여 클로저 · 마뱀 구현 | Phase 1 residual |
-| D-03 | TBD | 업데이트 서버 위치 (GitHub Releases vs 자체) | TBD | Phase 5 |
+| D-03 | 2026-09-15 | 업데이트 체크 소스 = **GitHub Releases stub** (개인용; 자체 호스팅 placeholder 아님). 라이브 서명/CDN은 BLOCKED_EXTERNAL. 피드 URL=`SSAK_UPDATE_FEED` (미설정 시 「업데이트 서버 미구성」) | 강병석 지시 Phase5 · 마뱀 기록 | Phase 5; `UPDATE_CHANNELS.md` |
 | D-04 | 2026-09-15 | 제품 목적 = **개인 사용 + 모바일 Host 연동**. UI 정본은 Host. Electron은 얇은 셸만 | 강병석 | `notes/mobile_host_premise.md` |
 | D-05 | 2026-09-15 | 기본 bind `127.0.0.1`; 모바일은 **명시적** LAN/Tailscale bind + 비-loopback 시 PIN/토큰 필수 | 강병석 | Phase 6 강화 |
 | D-06 | 2026-09-15 | 셸 패키지 경로 **`desktop/`** (비어 있음 확인 후 채택). Host spawn/stop은 Phase 2 후속; 스캐폴드는 Host 기동 가정 | 마뱀 | Phase 2 scaffold |
@@ -419,8 +421,8 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 1 | 배포 클로저 | **DONE-with-caveat** (IN_PROGRESS 잔여=클린 Mac FULL은 `SSAK_BUNDLE_PYTHON` 스모크 후) | 마뱀 | `phase1_progress.md` · `MACOS_DMG_GUIDE.md` §5 · `windows_closure_stub.md` |
 | 2 | 셸 UX | **DONE-with-caveat** (manual QA Pass/Fail 미기입; shell DMG/Builder 미완; Host spawn은 dev에서 `uv`/venv PATH 필요) | 마뱀 | `desktop/` · `notes/phase2_progress.md` · `notes/phase2_shell_qa.md` |
 | 3 | Windows 패리티 | NOT_STARTED | | |
-| 4 | 복구·진단 | **IN_PROGRESS** (CLI + tray export + Host-fail recovery dialog; Settings button / HTML window deferred) | 마뱀 | `agk diagnostics export` · tray 진단 내보내기 · recovery dialog · `DIAGNOSTICS.md` · `notes/phase4_progress.md` · `tests/test_diagnostics_export.py` · `desktop/hostLifecycle.js` · `desktop/main.js` |
-| 5 | 업데이트 채널 | NOT_STARTED | | |
+| 4 | 복구·진단 | **DONE-with-caveat** (recovery=dialog not custom window; Settings export deferred; signing N/A) | 마뱀 | `agk diagnostics export` · tray 진단 내보내기 · recovery dialog · `DIAGNOSTICS.md` · `notes/phase4_progress.md` · `tests/test_diagnostics_export.py` · `desktop/hostLifecycle.js` · `desktop/main.js` |
+| 5 | 업데이트 채널 | **IN_PROGRESS** (UPDATE_CHANNELS + D-03 GitHub Releases stub + tray soft check; no auto-install; signing/CDN BLOCKED_EXTERNAL) | 마뱀 | `UPDATE_CHANNELS.md` · `notes/phase5_progress.md` · `desktop/updateChannels.js` · tray 업데이트 확인… · `desktop/test_updateChannels.js` |
 | 6 | 포트·오리진·모바일 bind | **IN_PROGRESS** | 마뱀 | `notes/phase6_progress.md` · access-info+Settings 안내 |
 | 7 | generation 수명 | NOT_STARTED / OPTIONAL | | |
 | 8 | 문서·게이트 마감 | NOT_STARTED | | |
@@ -432,6 +434,8 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 ## 11. 관련 문서
 
 - `docs/packaging/MACOS_DMG_GUIDE.md`
+- `docs/packaging/DIAGNOSTICS.md`
+- `docs/packaging/UPDATE_CHANNELS.md`
 - `scripts/build_mac_dmg.sh`
 - `docs/ga/GA_SUPPORT_MATRIX.md` (지원 주장 과장 금지)
 - `docs/ga/CR14_EX_EXECUTION_LEDGER.md` (본 레인과 분리)
@@ -456,3 +460,5 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | Phase 2 **DONE-with-caveat**: Dock 정책 문서화(hide-on-close→프로세스/Dock 유지, Quit까지); 체크리스트 코드 항목 [x]; caveats=수동 QA Pass/Fail 미기입·shell DMG/Builder 미완·spawn은 uv/venv PATH. Phase 4 **IN_PROGRESS**: `agk diagnostics export` allowlist ZIP + `DIAGNOSTICS.md` + `phase4_progress` + 테스트. CR-14 GO 없음. |
 | 2026-09-15 | 마뱀 | Phase 4 tray slice: **진단 내보내기…** → `child_process` `uv run agk diagnostics export --output` (동일 CLI); success dialog + `shell.showItemInFolder`; `runDiagnosticsExport` in `hostLifecycle.js`. Recovery window still open (next). Soak 29961/29969 미접촉. CR-14 GO 없음. |
 | 2026-09-15 | 마뱀 | Phase 4 recovery: Host-fail → Electron recovery **dialog** (Open logs / Export diagnostics / Retry start / Open in browser / Quit); `suspectPortConflict` 힌트; spawn off는 re-probe only. `DIAGNOSTICS.md`·`phase4_progress`·§10 갱신. Soak 29961/29969 미접촉. CR-14 GO 없음. |
+| 2026-09-15 | 마뱀 | Phase 4 **DONE-with-caveat**: recovery=dialog(not custom window); Settings export deferred; signing N/A. Checklist/§10/phase4_progress 마감. CR-14 GO 없음. Soak 29961/29969 미접촉. |
+| 2026-09-15 | 마뱀 | Phase 5 **IN_PROGRESS**: D-03=GitHub Releases stub; `UPDATE_CHANNELS.md`; tray **업데이트 확인…** soft check (`SSAK_UPDATE_FEED` unset→「업데이트 서버 미구성」); `updateChannels.js`+fixture test; no auto-install. Signing/CDN BLOCKED_EXTERNAL. CR-14 GO 없음. |

@@ -2,8 +2,14 @@
 
 **Date:** 2026-09-15 (Asia/Seoul)  
 **Branch:** `codex/m1-task-events`  
-**Status:** **IN_PROGRESS** (CLI export + tray export + **Host-fail recovery dialog**; Settings button / optional HTML window deferred)  
+**Status:** **DONE-with-caveat**  
 **Plan:** `docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md` § Phase 4 / §10 / §12
+
+## Caveats (closure)
+
+1. **Recovery UX** = Electron **`dialog`** button sheet (not a full custom `BrowserWindow` / `recovery.html`).
+2. **Settings-page export button** = optional — **deferred** (tray + recovery dialog cover the path).
+3. **Signing / notarization** = **N/A** for this Phase (no signed diagnostics artifact pipeline; secrets still scrubbed in ZIP).
 
 ## What landed
 
@@ -16,7 +22,7 @@
 | `docs/packaging/DIAGNOSTICS.md` | User/support doc (CLI + tray + recovery) |
 | `tests/test_diagnostics_export.py` | Forbidden-path + CLI dry-run (no secret-looking members) |
 
-## Host-fail recovery (this slice)
+## Host-fail recovery
 
 Replaces one-shot `showErrorBox` / spawn-off Continue-Quit-only path when Host does not become ready:
 
@@ -45,12 +51,13 @@ SSAK_HOST_URL=http://127.0.0.1:18081 SSAK_SPAWN_HOST=0 pnpm --dir desktop start
 | `node --check desktop/main.js` / `hostLifecycle.js` | **ok** |
 | Soak `29961`/`29969` | **Alive** (untouched) |
 
-## Still open
+## Checklist (closed)
 
 - [x] Tray “진단 내보내기…”
 - [x] Startup recovery dialog (logs / port hint / export / retry / browser / quit)
-- [ ] Settings-page export button (optional / deferred)
-- [ ] Optional `desktop/recovery.html` BrowserWindow (dialog preferred for thinness)
+- [x] Settings-page export button — **deferred** (caveat)
+- [x] Optional `desktop/recovery.html` — **deferred**; dialog preferred (caveat)
+- [x] `DIAGNOSTICS.md` + this progress note
 
 ## Constraints
 
