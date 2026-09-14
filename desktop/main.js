@@ -1,22 +1,30 @@
 'use strict';
 
 /**
- * Ssak-Ai thin desktop shell (Phase 2 scaffold).
+ * Ssak-Ai thin desktop shell (Phase 2).
  * Loads the Host SPA over loopback. Does not expose Electron APIs to the page.
- * Host spawn/stop is NOT wired this turn — assume Host already running.
+ *
+ * Host lifecycle (owned child only):
+ * - Soft-probe SSAK_HOST_URL; if up → use it, do not spawn (ownedHost=false).
+ * - If down and SSAK_SPAWN_HOST≠0 (default spawn) → spawn Host as child;
+ *   tray shows “Host starting…” until ready or timeout.
+ * - Quit (tray / app) stops owned child only (SIGTERM → SIGKILL). Hide-on-close does not.
+ * - Never kills unrelated PIDs / soak 29961·29969 / val02_staging.
  */
 
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
 const { app, BrowserWindow, Tray, Menu, nativeImage, dialog, shell } = require('electron');
 
-const DEFAULT_HOST_URL = 'http://127.0.0.1:8000';
-const HOST_URL = (process.env.SSAK_HOST_URL || DEFAULT_HOST_URL).replace(/\/$/, '');
+const lifecycle = require('./hostLifecycle');
+
+const HOST_URL = lifecycle.resolveHostUrl();
+const SPAWN_HOST = lifecycle.spawnHostEnabled();
 /** SPA settings route (dashboard/src/App.tsx Route path="/settings"). */
 const SETTINGS_PATH = '/settings';
 /** Quiet Host status refresh — avoid probe spam. */
 const HOST_STATUS_INTERVAL_MS = 120_000;
+const HOST_START_TIMEOUT_MS = lifecycle.DEFAULT_START_TIMEOUT_MS;
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
@@ -25,8 +33,15 @@ let tray = null;
 let quitting = false;
 /** Last soft-probe result for tray status label. */
 let hostReady = false;
+/** True while owned spawn is in flight (tray “starting…”). */
+let hostStarting = false;
+/** True only when this process spawned the Host child. */
+let ownedHost = false;
+/** @type {import('child_process').ChildProcess | null} */
+let hostChild = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let hostStatusTimer = null;
+let hostStopInProgress = false;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -34,30 +49,6 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => {
     showMainWindow();
-  });
-}
-
-function hostProbe(url, timeoutMs = 2000) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (ok) => {
-      if (settled) return;
-      settled = true;
-      resolve(ok);
-    };
-    try {
-      const req = http.get(url, { timeout: timeoutMs }, (res) => {
-        res.resume();
-        done((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 500);
-      });
-      req.on('error', () => done(false));
-      req.on('timeout', () => {
-        req.destroy();
-        done(false);
-      });
-    } catch {
-      done(false);
-    }
   });
 }
 
@@ -77,6 +68,12 @@ function ensureLogsDir() {
   const dir = logsDir();
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+function trayStatusLabel() {
+  if (hostStarting) return 'Host starting…';
+  if (hostReady) return 'Host ready';
+  return 'Host unreachable';
 }
 
 function trayIcon() {
@@ -100,7 +97,7 @@ function trayIcon() {
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
     {
-      label: hostReady ? 'Host ready' : 'Host unreachable',
+      label: trayStatusLabel(),
       enabled: false,
     },
     { type: 'separator' },
@@ -143,7 +140,11 @@ function refreshTrayMenu() {
 }
 
 async function refreshHostStatus() {
-  hostReady = await hostProbe(HOST_URL);
+  if (hostStarting) {
+    refreshTrayMenu();
+    return;
+  }
+  hostReady = await lifecycle.hostProbe(HOST_URL);
   refreshTrayMenu();
 }
 
@@ -178,7 +179,7 @@ function createMainWindow() {
     }
   });
 
-  // Hide-on-close stub: window close keeps process + tray alive (Host untouched)
+  // Hide-on-close: window close keeps process + tray alive (owned Host stays up)
   mainWindow.on('close', (event) => {
     if (!quitting) {
       event.preventDefault();
@@ -244,34 +245,149 @@ function startHostStatusPolling() {
   }
 }
 
-async function bootstrap() {
-  // Soft probe — do not start Host (Phase 2; soak/:8000 safety)
-  hostReady = await hostProbe(HOST_URL);
-  if (!hostReady) {
-    const detail =
-      `Host does not appear to be reachable at ${HOST_URL}.\n\n` +
-      'This shell does not spawn Host yet (Phase 2 scaffold).\n' +
-      'Start Host first, e.g.:\n' +
-      '  uv run agk serve --host 127.0.0.1 --port 8000\n' +
-      '  or: make serve / existing launcher\n\n' +
-      'Then re-open from the tray, or Quit and relaunch the shell.';
-    const choice = dialog.showMessageBoxSync({
-      type: 'warning',
-      title: 'Ssak-Ai Host not ready',
-      message: 'Host loopback URL unreachable',
-      detail,
-      buttons: ['Continue anyway', 'Quit'],
-      defaultId: 0,
-      cancelId: 1,
+function attachHostChildLogging(child) {
+  const prefix = '[ssak-desktop:host]';
+  if (child.stdout) {
+    child.stdout.on('data', (buf) => {
+      const line = String(buf).trim();
+      if (line) console.log(prefix, line.slice(0, 400));
     });
-    if (choice === 1) {
+  }
+  if (child.stderr) {
+    child.stderr.on('data', (buf) => {
+      const line = String(buf).trim();
+      if (line) console.error(prefix, line.slice(0, 400));
+    });
+  }
+  child.on('exit', (code, signal) => {
+    console.error(`[ssak-desktop] owned Host exited code=${code} signal=${signal}`);
+    if (hostChild === child) {
+      hostChild = null;
+      if (!quitting) {
+        ownedHost = false;
+        hostStarting = false;
+        hostReady = false;
+        refreshTrayMenu();
+      }
+    }
+  });
+}
+
+/**
+ * @returns {Promise<'ready' | 'timeout' | 'spawn-failed'>}
+ */
+async function ensureHost() {
+  hostReady = await lifecycle.hostProbe(HOST_URL);
+  if (hostReady) {
+    ownedHost = false;
+    hostStarting = false;
+    console.log(`[ssak-desktop] Host already reachable at ${HOST_URL}; not spawning`);
+    return 'ready';
+  }
+
+  if (!SPAWN_HOST) {
+    return 'timeout'; // unreachable + spawn disabled → caller shows warning dialog
+  }
+
+  let spec;
+  try {
+    const bind = lifecycle.parseHostBind(HOST_URL);
+    hostStarting = true;
+    ownedHost = true;
+    refreshTrayMenu();
+
+    const spawned = lifecycle.spawnOwnedHost({
+      hostname: bind.hostname,
+      port: bind.port,
+      repoRoot: lifecycle.resolveRepoRoot(__dirname),
+    });
+    hostChild = spawned.child;
+    spec = spawned.spec;
+    console.log(`[ssak-desktop] spawning owned Host: ${spec.label} (pid pending)`);
+    attachHostChildLogging(hostChild);
+
+    if (!hostChild.pid) {
+      await lifecycle.sleep(50);
+    }
+    console.log(`[ssak-desktop] owned Host pid=${hostChild.pid} via ${spec.label}`);
+
+    if (lifecycle.FORBIDDEN_PIDS.has(hostChild.pid)) {
+      console.error('[ssak-desktop] spawned pid collides with forbidden soak pid — aborting ownership');
+      ownedHost = false;
+      hostChild = null;
+      hostStarting = false;
+      return 'spawn-failed';
+    }
+  } catch (err) {
+    hostStarting = false;
+    ownedHost = false;
+    hostChild = null;
+    console.error('[ssak-desktop] Host spawn failed:', err);
+    dialog.showErrorBox(
+      'Ssak-Ai Host spawn failed',
+      `Could not start Host for ${HOST_URL}.\n\n${err && err.message ? err.message : err}\n\n` +
+        'Set SSAK_SPAWN_HOST=0 to disable spawn and start Host yourself, or install uv/agk.',
+    );
+    return 'spawn-failed';
+  }
+
+  const ok = await lifecycle.waitForHostReady(HOST_URL, HOST_START_TIMEOUT_MS, {
+    shouldAbort: () => quitting || !lifecycle.isChildAlive(hostChild),
+  });
+
+  hostStarting = false;
+  hostReady = ok;
+  refreshTrayMenu();
+
+  if (!ok) {
+    dialog.showErrorBox(
+      'Ssak-Ai Host not ready',
+      `Host did not become reachable at ${HOST_URL} within ~${Math.round(HOST_START_TIMEOUT_MS / 1000)}s.\n\n` +
+        `Spawn command:\n  ${spec.label}\n\n` +
+        'Check logs (tray → Open logs folder) or start Host manually.\n' +
+        'Quit will still stop the owned child if it is alive.',
+    );
+    return 'timeout';
+  }
+
+  return 'ready';
+}
+
+function showUnreachableDialog() {
+  const detail =
+    `Host does not appear to be reachable at ${HOST_URL}.\n\n` +
+    'Spawn is disabled (SSAK_SPAWN_HOST=0).\n' +
+    'Start Host first, e.g.:\n' +
+    '  uv run agk serve --host 127.0.0.1 --port 8000\n' +
+    '  or: make serve / existing launcher\n\n' +
+    'To allow the shell to spawn Host when unreachable, unset SSAK_SPAWN_HOST or set it to 1.\n\n' +
+    'Then re-open from the tray, or Quit and relaunch the shell.';
+  const choice = dialog.showMessageBoxSync({
+    type: 'warning',
+    title: 'Ssak-Ai Host not ready',
+    message: 'Host loopback URL unreachable',
+    detail,
+    buttons: ['Continue anyway', 'Quit'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  return choice === 1;
+}
+
+async function bootstrap() {
+  const result = await ensureHost();
+
+  if (result !== 'ready' && !SPAWN_HOST) {
+    // unreachable + spawn disabled → keep prior warning dialog behavior
+    if (showUnreachableDialog()) {
       quitting = true;
       app.quit();
       return;
     }
   }
 
-  createTray();
+  if (!tray) createTray();
+  else refreshTrayMenu();
   createMainWindow();
   startHostStatusPolling();
 }
@@ -280,6 +396,8 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin') {
     app.dock?.show();
   }
+  // Tray early so “starting…” is visible during owned spawn wait
+  createTray();
   return bootstrap();
 });
 
@@ -287,13 +405,27 @@ app.on('activate', () => {
   showMainWindow();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   quitting = true;
   if (hostStatusTimer) {
     clearInterval(hostStatusTimer);
     hostStatusTimer = null;
   }
-  // Host stop intentionally NOT implemented this turn (C-03: do not disturb :8000 soak)
+
+  if (ownedHost && lifecycle.isChildAlive(hostChild) && !hostStopInProgress) {
+    event.preventDefault();
+    hostStopInProgress = true;
+    lifecycle
+      .stopOwnedHost(hostChild, {
+        graceMs: lifecycle.DEFAULT_STOP_GRACE_MS,
+        log: (msg) => console.error(`[ssak-desktop] ${msg}`),
+      })
+      .finally(() => {
+        ownedHost = false;
+        hostChild = null;
+        app.exit(0);
+      });
+  }
 });
 
 app.on('window-all-closed', () => {
