@@ -16,6 +16,9 @@
 
 ## attempt-039 요약 (2026-09-14)
 
+- **재측정**: CR-12 `**현재**` 문구 정합(docs `af15580d`) 뒤 보고서 이어받기 거부 → 같은 지문으로 전 배치 재측정.
+
+
 - **닫힘**: F-47 leftover `f47-capture-real-local-models`(EXTERNAL_HUB) — `AGK_SEED_LOCAL_HUB` hermetic 픽스처.
 - **fail-first**: hermetic ambient 에서 hub 카드는 보이나 `실행 중` 배지 부재(orpheus status=`cached`) · chat selector 는 통과.
 - **고침**: `LocalModelDiscovery.apply_hermetic_local_hub_seed` — 플래그 ON 일 때만 orpheus… 를 `running` 으로 올리거나 픽스처 삽입. ambient `HUB_SPEC_FILES` 소유. 생산 경로 불변.
