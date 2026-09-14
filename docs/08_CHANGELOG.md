@@ -1,6 +1,12 @@
 # 08 Changelog
 
 
+## 2026-09-14 — CR-14 attempt-036 (선언)
+
+- F-47 leftover `f47-invert-execution-trace-axe` 폐쇄 선언: `.is-primary` WCAG AA(`#080908` on theme `--accent-hover` `#917de8`) · Monaco textbox aria-label · GREP_INVERT 제거 · leftover **3건**.
+- 후보 `44d46c2e` · 지문 `38c36a65…` · required **23** · 판정 **NO-GO**(측정 전 선언).
+기준일: 2026-09-14
+
 ## 2026-09-14 — CR-14 attempt-035 (선언)
 
 - F-47: `capture-disclosure-*` Vite :5173 하네스 결함을 hermetic `/settings` + `AGK_SEED_LEVEL` 시드 서버로 닫아 `dashboard-e2e-ambient` 가 소유.
