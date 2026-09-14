@@ -49,10 +49,7 @@ DISCLOSURE_SPEC_FILES: tuple[tuple[str, str], ...] = (
 
 # 서버를 세워도 실패하는 **제품/환경** 테스트 제목 — ambient 부재가 아니다(F-47 leftover).
 # 이 목록은 ``tests/test_cr14_f47_leftover_inventory_contract.py`` 가 센다(침묵 금지).
-GREP_INVERT: str = (
-    # attempt-036/037/038: PRODUCT_FLAKE invert 전부 폐쇄 — leftover register closed_this_attempt 참고.
-    # (주석에 따옴표 넣지 말 것: _grep_invert_from_script 가 괄호 안 문자열을 모두 모은다.)
-)
+GREP_INVERT: str = ""  # PRODUCT_FLAKE invert 없음(attempt-038). 주석에 따옴표 금지 — 계약이 괄호 안 문자열을 모은다.
 
 
 def _free_port() -> int:
