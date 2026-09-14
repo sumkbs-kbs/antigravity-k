@@ -9,7 +9,7 @@
  * open_loopback 서버에서처럼 credential 없이 연결을 시도한다.
  */
 
-import { apiRequest } from '../api/client';
+import { apiRequestPath } from '../api/client';
 import { readStoredAccessToken } from './accessPinCredential';
 
 interface WsTicketResponse {
@@ -22,7 +22,12 @@ export async function fetchWsTicket(): Promise<string | null> {
   if (token === null) return null;
 
   try {
-    const response = (await apiRequest('/auth/ws-ticket', {
+    // F-43: `apiRequest`는 '/v1'을 **앞에 붙인다**(`requestJson(`${API_BASE}${endpoint}`)`).
+    // 이 endpoint는 이미 자기 namespace('/api/auth')를 갖고 있으므로 `apiRequest`로 보내면
+    // 실효 경로가 '/v1/auth/ws-ticket'이 되어 서버(=`/api/auth/ws-ticket`)에 **없는 경로**가 된다.
+    // 실효 경로는 SPA fallback에 걸려 405로 끝나고, 이 함수는 그것을 catch로 삼켜 ticket 없이
+    // 연결한다 — 그 결과 PIN이 설정된(protected) 배포에서는 WS가 4401로 거절된다.
+    const response = (await apiRequestPath('/api/auth/ws-ticket', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     })) as Partial<WsTicketResponse>;

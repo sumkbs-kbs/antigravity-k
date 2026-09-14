@@ -433,7 +433,10 @@ export async function streamChatCompletion(
  * Unified Agent ask endpoint (Adaptive Stability & Ssak-Search Grounding).
  */
 export async function askAgent(payload: AgentAskRequest): Promise<AgentAskResponse> {
-  const raw = await apiRequest('/api/agent/ask', {
+  // F-43: `apiRequest`는 '/v1'을 앞에 붙인다 — 이 경로는 이미 '/api' namespace를 갖고 있으므로
+  // `apiRequest`로 보내면 '/v1/api/agent/ask'(서버에 없음)가 된다. 전체 경로를 그대로 쓰는
+  // `apiRequestPath`가 맞는 자리다.
+  const raw = await apiRequestPath('/api/agent/ask', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
