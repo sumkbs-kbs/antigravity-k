@@ -73,7 +73,49 @@
     "--extra",
     "rag",
     "pytest","tests/test_e2e_smoke.py","-q","-rs","--tb=short"],"cwd":".","timeout_seconds":1800,"required":true,"finding_ids":["CTX-01","WS-01"],"task_ids":["CTX-01","WS-01"]},
-    {"id":"accessibility-e2e","category":"accessibility","command":["pnpm","exec","playwright","test","e2e/tests/accessibility.spec.ts"],"cwd":"dashboard","timeout_seconds":2400,"required":true,"finding_ids":["UI-01","UI-02"],"task_ids":["UI-01","UI-02"]},
+    {      "id": "accessibility-e2e",
+      "category": "accessibility",
+      "command": [
+        "pnpm",
+        "exec",
+        "playwright",
+        "test",
+        "e2e/tests/accessibility.spec.ts"
+      ],
+      "cwd": "dashboard",
+      "timeout_seconds": 2400,
+      "required": true,
+      "finding_ids": [
+        "UI-01",
+        "UI-02"
+      ],
+      "task_ids": [
+        "UI-01",
+        "UI-02"
+      ]
+    },
+    {
+      "id": "dashboard-e2e-witnesses",
+      "category": "runtime",
+      "command": [
+        "pnpm",
+        "exec",
+        "playwright",
+        "test",
+        "e2e/tests/cr\\d+-",
+        "--project=chromium",
+        "--reporter=list"
+      ],
+      "cwd": "dashboard",
+      "timeout_seconds": 2400,
+      "required": true,
+      "finding_ids": [
+        "CR-14 F-42"
+      ],
+      "task_ids": [
+        "C14-03"
+      ]
+    },
     {"id":"clean-machine-runtime","category":"runtime","command":["bash","scripts/verify_clean_machine.sh"],"cwd":".","timeout_seconds":7200,"required":true,"finding_ids":["OPS-01","OPS-02","OPS-03","OPS-04"],"task_ids":["REL-01","REL-02"]}
   ]
 }

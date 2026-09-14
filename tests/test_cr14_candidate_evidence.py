@@ -406,6 +406,14 @@ def _refresh_sidecar(bundle: Path) -> None:
 # 넘겼다 — 머신 부하가 required 게이트를 깨는 구조였다. 검사를 **빼는 대신 옮겼다**: 기능 게이트는
 # `-m "not benchmark"`, 전용 `python-benchmark` 게이트가 `-m benchmark` 로 조용한 프로세스에서 돈다.
 # 그래서 개수가 늘었고, 이 목록을 함께 고치는 것이 이번 변경의 기록이다.
+#
+# 왜 21 → 22 인가 (CR-14 F-42, attempt-032): 저장소에는 **브라우저 증인**이 있었는데
+# (`dashboard/e2e/tests/cr*.spec.ts` — CR-05/06/07/08/09/10/14 의 제품 경로 증인),
+# required 21개 중 **어느 것도 그것들을 돌리지 않았다**(`accessibility-e2e` 는
+# `accessibility.spec.ts` 한 파일만 실행한다). 그래서 21/21 초록은 브라우저 슬라이스를
+# 한 번도 주장하지 않았고, 그 증인들은 **사람이 기억해서 돌려야만** 돌았다 —
+# attempt-030/031 이 F-39·F-41 을 닫을 때 쓴 자리가 정확히 그 자리다.
+# 검사를 **빼는 대신 게이트를 세웠다**: `dashboard-e2e-witnesses` 가 그 패밀리를 돈다.
 _EXPECTED_REQUIRED_GATES = (
     # python_backend (6)
     "python-ruff",
@@ -429,10 +437,11 @@ _EXPECTED_REQUIRED_GATES = (
     "dependency-audit-dashboard",
     # security (1)
     "security-bandit",
-    # runtime / release (4)
+    # runtime / release (5)
     "master-e2e",
     "api-e2e",
     "accessibility-e2e",
+    "dashboard-e2e-witnesses",
     "clean-machine-runtime",
 )
 
@@ -441,8 +450,8 @@ class TestCandidateGateInventory:
     def test_repository_gate_manifest_required_gates_are_the_pinned_inventory(self) -> None:
         """현재 manifest 의 필수 gate 집합이 pinned 목록과 같다.
 
-        F-21 로 21개가 됐다. 앞으로 늘거나 줄면 이 목록을 함께 고쳐야 한다 — 즉 변경이
-        **의도된 편집**으로만 가능하고, 우연히 사라지는 경로는 없다.
+        F-21 로 21개가 됐고, F-42 로 **22개**가 됐다. 앞으로 늘거나 줄면 이 목록을 함께 고쳐야
+        한다 — 즉 변경이 **의도된 편집**으로만 가능하고, 우연히 사라지는 경로는 없다.
         """
         manifest = json.loads(_GATE_MANIFEST.read_text(encoding="utf-8"))
         required = sorted(gate["id"] for gate in manifest["gates"] if gate["required"])
