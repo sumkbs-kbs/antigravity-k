@@ -15,10 +15,16 @@ attempt-032 는 브라우저 증인(`cr*.spec.ts`)에 `dashboard-e2e-witnesses` 
 - 게이트 스크립트 `scripts/run_dashboard_e2e_ambient.py` 가 서버를 세우고 명명된 스펙을 돈다.
   `--skip-server` 로 같은 스펙을 돌리면 실패해야 한다(서버 단계를 조용히 빼는 경로 차단).
 
+attempt-035
+===========
+- `capture-disclosure-*` 의 :5173 하드코드는 **값싼 하네스 결함**이었다 → hermetic
+  `/settings` + `AGK_SEED_LEVEL` 시드 서버로 이 게이트가 소유한다
+  (`DISCLOSURE_SPEC_FILES`). 남은 F-47 leftover 는
+  `tests/test_cr14_f47_leftover_inventory_contract.py` 가 센다.
+
 재지 않는 것
 ============
-- `capture-disclosure-*` 는 `http://127.0.0.1:5173` 하드코드(Vite) — 백엔드만으로는 초록 불가
-  (F-47 로 등록). 이 게이트가 그들을 삼키면 항상 빨개진다.
+- `capture-real-local-models` · GREP_INVERT 제품 flake(F-47 leftover 등록부).
 - 증인의 **내용이 옳은지**는 이 계약의 소관이 아니다(커버리지·required·서버 단계).
 """
 
@@ -36,11 +42,13 @@ AMBIENT_SCRIPT = REPO_ROOT / "scripts" / "run_dashboard_e2e_ambient.py"
 E2E_TESTS = REPO_ROOT / "dashboard" / "e2e" / "tests"
 
 AMBIENT_GATE_ID = "dashboard-e2e-ambient"
-# Vite-only — 이 게이트가 삼키면 안 된다.
-VITE_ONLY_SPECS = (
+# attempt-035 이전 Vite-only 였던 disclosure — 이제 시드 단계로 소유한다.
+DISCLOSURE_SPECS = (
     "capture-disclosure-healthy.spec.ts",
     "capture-disclosure-exhausted.spec.ts",
 )
+# 여전히 이 게이트가 삼키면 안 되는 외부 허브 스펙(F-47 leftover).
+EXTERNAL_HUB_SPECS = ("capture-real-local-models.spec.ts",)
 
 
 def _manifest() -> dict[str, Any]:
@@ -74,14 +82,39 @@ def test_the_ambient_gate_is_required_and_starts_a_server() -> None:
     assert AMBIENT_SCRIPT.is_file(), "게이트 스크립트 파일이 없다"
 
 
+def _script_disclosure_specs() -> list[str]:
+    text = AMBIENT_SCRIPT.read_text(encoding="utf-8")
+    start = text.find("DISCLOSURE_SPEC_FILES:")
+    assert start >= 0, "DISCLOSURE_SPEC_FILES 를 스크립트에서 찾지 못했다"
+    end = text.find("GREP_INVERT:", start)
+    assert end > start, "DISCLOSURE_SPEC_FILES 블록 경계를 찾지 못했다"
+    found = re.findall(r'"([^"]+\.spec\.ts)"', text[start:end])
+    assert found, "disclosure 스펙이 비어 있다"
+    return found
+
+
 def test_the_script_owns_named_ambient_specs_that_exist() -> None:
-    """스크립트가 소유하는 파일이 실제로 있고, Vite-only 스펙을 삼키지 않는다."""
+    """스크립트가 소유하는 파일이 실제로 있고, 외부 허브 스펙을 삼키지 않는다."""
     owned = _script_owned_specs()
     assert owned, "소유 스펙이 비어 있다"
     for rel in owned:
         name = Path(rel).name
         assert (E2E_TESTS / name).is_file(), f"소유 스펙이 없다: {name}"
-        assert name not in VITE_ONLY_SPECS, f"Vite-only 스펙을 삼켰다: {name}"
+        assert name not in EXTERNAL_HUB_SPECS, f"EXTERNAL_HUB 스펙을 삼켰다: {name}"
+
+
+def test_the_script_owns_disclosure_specs_via_seeded_phase() -> None:
+    """attempt-035 — disclosure 는 DISCLOSURE_SPEC_FILES + seed_level 로 소유한다."""
+    owned = _script_disclosure_specs()
+    names = {Path(rel).name for rel in owned}
+    assert set(DISCLOSURE_SPECS) == names
+    for name in DISCLOSURE_SPECS:
+        assert (E2E_TESTS / name).is_file()
+        body = (E2E_TESTS / name).read_text(encoding="utf-8")
+        assert "127.0.0.1:5173" not in body
+    script = AMBIENT_SCRIPT.read_text(encoding="utf-8")
+    assert "seed_level" in script
+    assert "AGK_SEED_LEVEL" in script or "seed_level" in script
 
 
 def test_skip_register_classifies_the_ambient_gate() -> None:

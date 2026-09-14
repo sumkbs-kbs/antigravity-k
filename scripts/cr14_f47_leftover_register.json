@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "scope": "CR-14 F-47 leftovers after attempt-035 — ambient 게이트가 삼키지 않는 Playwright 슬라이스",
+  "why": "attempt-034 가 의도적으로 밖한 F-47 을 측정했다. disclosure/:5173 은 값싼 하네스 결함이라 닫아 ambient 가 소유한다. 나머지는 소유하면 게이트가 항상 빨개지거나(제품 flake)·실 허브에 의존한다. invert 를 유일한 소유자로 두지 않기 위해 **목록 정체성**으로 센다(침묵 금지 · F-21).",
+  "measured_by": "tests/test_cr14_f47_leftover_inventory_contract.py",
+  "closed_this_attempt": [
+    {
+      "id": "capture-disclosure-hermetic",
+      "was": "capture-disclosure-* Vite :5173 하드코드",
+      "now_owned_by": "dashboard-e2e-ambient (DISCLOSURE_SPEC_FILES + AGK_SEED_LEVEL)",
+      "how": "page.goto('/settings') + 시드별 hermetic 서버(healthy/exhausted). 실측: 시드 API·스펙 각각 exit 0."
+    }
+  ],
+  "entries": [
+    {
+      "id": "f47-capture-real-local-models",
+      "class": "EXTERNAL_HUB",
+      "file": "dashboard/e2e/tests/capture-real-local-models.spec.ts",
+      "titles": [
+        "capture ModelHubPage with real unsloth and local models",
+        "capture ChatPage model selector with real running and unsloth models"
+      ],
+      "capability": "실 unsloth/로컬 모델 허브에 특정 모델(orpheus-3b…)이 **실행 중**으로 보이는지",
+      "why": "hermetic ambient 서버만으로는 재현 불가. 실측(attempt-035): hub 카드는 보이나 '실행 중' 배지 부재로 실패. Chat 선택기는 통과해도 허브 축이 외부 상태.",
+      "owner": "docs/ga/CR14_GATE_COVERAGE_BOUNDARY.md §2-10",
+      "plan": "실 모델 허브 fixture 또는 mock hub 가 생기기 전까지 required 게이트에 넣지 않는다. 허브 mock 이 생기면 ambient 소유로 옮기고 이 항목을 closed 로 옮긴다.",
+      "review_due": "2026-10-14"
+    },
+    {
+      "id": "f47-invert-git-status-file-activity",
+      "class": "PRODUCT_FLAKE",
+      "file": "dashboard/e2e/tests/file-explorer.spec.ts",
+      "grep_invert_substring": "should show file activity from git status",
+      "titles": [
+        "should show file activity from git status"
+      ],
+      "capability": "환경 레일이 git status 파일 활동(또는 빈 상태)을 렌더하는가",
+      "why": "ambient 서버+격리 cwd 실측 실패: `.env-file-row` 와 `.env-sub-empty` 둘 다 비가시. ambient 부재가 아니라 제품/프로젝트 git 표면 flake.",
+      "owner": "docs/ga/CR14_GATE_COVERAGE_BOUNDARY.md §2-10",
+      "plan": "환경 레일 git 빈 상태 선택자·프로젝트 cwd 계약을 고치거나, 고정 fixture 프로젝트로 재측정 후 GREP_INVERT 에서 제거.",
+      "review_due": "2026-10-14"
+    },
+    {
+      "id": "f47-invert-compact-large-stream",
+      "class": "PRODUCT_FLAKE",
+      "file": "dashboard/e2e/tests/task-execution.spec.ts",
+      "grep_invert_substring": "compacts a large event stream behind a snapshot boundary",
+      "titles": [
+        "compacts a large event stream behind a snapshot boundary without losing the latest events"
+      ],
+      "capability": "1002 이벤트 재생 뒤 화면이 compaction 경계(1000 events)와 최신 step 을 보여주는가",
+      "why": "ambient 실측 실패: `getByText(/1,?000 events/)` 비가시. 서버 없는 문제가 아니라 복제 compaction UI 계약 드리프트/flake.",
+      "owner": "docs/ga/CR14_GATE_COVERAGE_BOUNDARY.md §2-10",
+      "plan": "실제 렌더 문구를 관측해 계약을 맞추거나 compaction 버그를 고친 뒤 GREP_INVERT 에서 제거.",
+      "review_due": "2026-10-14"
+    },
+    {
+      "id": "f47-invert-execution-trace-axe",
+      "class": "PRODUCT_FLAKE",
+      "file": "dashboard/e2e/tests/task-execution.spec.ts",
+      "grep_invert_substring": "renders the execution trace at",
+      "titles": [
+        "renders the execution trace at 375px",
+        "renders the execution trace at 768px",
+        "renders the execution trace at 1280px"
+      ],
+      "capability": "실행 추적 셸의 뷰포트별 렌더 + axe 색 대비",
+      "why": "실측: 375px 통과 · 768/1280 실패. axe color-contrast — `.is-primary` 승인 버튼 #fff on --accent-hover(#917de8) 대비 3.33 < 4.5. 제품 a11y 결함이며 invert 로만 가리면 소유자 없음.",
+      "owner": "docs/ga/CR14_GATE_COVERAGE_BOUNDARY.md §2-10",
+      "plan": "`--accent-hover` / `.approval-queue-actions .is-primary` 대비를 WCAG AA 로 고치고 번들 재빌드(D-68) 후 GREP_INVERT 에서 제거.",
+      "review_due": "2026-10-14"
+    }
+  ]
+}

@@ -419,7 +419,7 @@ def _refresh_sidecar(bundle: Path) -> None:
 # (`task-execution`·`ws-contract-e2e`·`file-explorer`·일부 `capture-*`)이 어느 required
 # 게이트에도 없었다. 새 required 게이트 `dashboard-e2e-ambient` 가 서버를 세운 뒤 그
 # 패밀리를 돈다(스크립트 `scripts/run_dashboard_e2e_ambient.py`). Vite-only
-# (`capture-disclosure-*` → :5173 하드코드)는 삼키지 않는다(F-47).
+# (`capture-real-local-models` · GREP_INVERT flake)는 삼키지 않는다(F-47 leftover; disclosure 는 attempt-035 에서 hermetic 소유).
 _EXPECTED_REQUIRED_GATES = (
     # python_backend (6)
     "python-ruff",

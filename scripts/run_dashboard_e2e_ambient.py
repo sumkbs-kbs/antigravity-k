@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""CR-14 F-46 — ambient 백엔드가 필요한 Playwright 스펙을 required 게이트로 돌린다.
+"""CR-14 F-46 / F-47 — ambient 백엔드가 필요한 Playwright 스펙을 required 게이트로 돌린다.
 
 게이트 명령이 **서버를 세운 뒤** 명명된 스펙을 돌리고, 끝나면 프로세스 그룹째 정리한다.
 서버 없이 같은 스펙만 돌리면 실패해야 한다 — 그 이빨은
 ``tests/test_cr14_ambient_backend_gate_contract.py`` 가 소유한다.
+
+attempt-035 (F-47 일부 폐쇄):
+  ``capture-disclosure-*`` 는 Vite :5173 하드코드가 아니라 **시드된 hermetic 서버**
+  (``AGK_SEED_LEVEL=healthy|exhausted``) 로 소유한다. healthy/exhausted 는 시드가
+  프로세스에 고정되므로 **각자 서버를 따로** 띄운다.
 
 격리 (F-44 · F-45):
   AGK_PATH_DATA_DIR / AGK_PATH_LOGS_DIR / AGK_HOOK_VAULT_DIR / AGK_CORS_ORIGINS
@@ -34,18 +39,20 @@ AMBIENT_SPEC_FILES: tuple[str, ...] = (
     "e2e/tests/file-explorer.spec.ts",
     "e2e/tests/capture-desktop-layout.spec.ts",
     "e2e/tests/capture-model-selection.spec.ts",
-    # 아래는 이 게이트가 **삼키지 않는다** (attempt-034 실측 · F-47):
-    # - capture-disclosure-* : Vite :5173 하드코드
-    # - capture-real-local-models : 실 unsloth/로컬 모델 허브 상태 의존
-    # 파일 안 일부 실패 테스트는 GREP_INVERT 로 제외(전체 파일을 버리면 ambient
-    # 로 이미 초록인 형제 테스트까지 게이트 밖으로 나간다).
 )
 
-# 서버를 세워도 실패하는 **제품/환경** 테스트 제목 — ambient 부재가 아니다(F-47).
+# attempt-035: disclosure 는 시드별 서버로 소유한다(목록 원본 = 이 튜플).
+DISCLOSURE_SPEC_FILES: tuple[tuple[str, str], ...] = (
+    ("healthy", "e2e/tests/capture-disclosure-healthy.spec.ts"),
+    ("exhausted", "e2e/tests/capture-disclosure-exhausted.spec.ts"),
+)
+
+# 서버를 세워도 실패하는 **제품/환경** 테스트 제목 — ambient 부재가 아니다(F-47 leftover).
+# 이 목록은 ``tests/test_cr14_f47_leftover_inventory_contract.py`` 가 센다(침묵 금지).
 GREP_INVERT: str = (
     "should show file activity from git status"
     "|compacts a large event stream behind a snapshot boundary"
-    "|renders the execution trace at"  # axe/viewport — 게이트 환경에서 flake (F-47)
+    "|renders the execution trace at"  # axe color-contrast on .is-primary (F-47)
 )
 
 
@@ -55,7 +62,7 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def start_server(port: int, state: Path) -> subprocess.Popen[bytes]:
+def start_server(port: int, state: Path, *, seed_level: str | None = None) -> subprocess.Popen[bytes]:
     (state / "token_secret").write_text("ambient-gate-secret-" + "x" * 16, encoding="utf-8")
     (state / "isolated.env").write_text("# ambient gate isolated env\n", encoding="utf-8")
     hook_vault = state / "vault_data"
@@ -94,7 +101,11 @@ def start_server(port: int, state: Path) -> subprocess.Popen[bytes]:
         "AGK_PATH_DATA_DIR": str(data_dir),
         "AGK_PATH_LOGS_DIR": str(logs_dir),
         "AGK_CORS_ORIGINS": cors,
+        "AGK_DAILY_BUDGET_USD": "50.0",
+        "AGK_HOURLY_ACTION_LIMIT": "100",
     }
+    if seed_level:
+        env["AGK_SEED_LEVEL"] = seed_level
     proc = subprocess.Popen(  # noqa: S603
         [
             sys.executable,
@@ -143,26 +154,55 @@ def _stop(proc: subprocess.Popen[bytes]) -> None:
         pass
 
 
-def run_playwright(base_url: str, *, skip_server: bool) -> int:
+def run_playwright(base_url: str, specs: list[str], *, grep_invert: str | None, label: str) -> int:
     env = {
         **os.environ,
         "AGK_BACKEND_URL": base_url,
-        # Vite 전용 하드코드 스펙은 이 게이트 밖 — PATH 누수 방지용으로만 정리.
     }
     cmd = [
         "pnpm",
         "exec",
         "playwright",
         "test",
-        *AMBIENT_SPEC_FILES,
-        f"--grep-invert={GREP_INVERT}",
+        *specs,
         "--project=chromium",
         "--reporter=list",
     ]
-    print(f"[dashboard-e2e-ambient] skip_server={skip_server} base_url={base_url}", flush=True)
-    print(f"[dashboard-e2e-ambient] specs={len(AMBIENT_SPEC_FILES)}", flush=True)
+    if grep_invert:
+        cmd.insert(-2, f"--grep-invert={grep_invert}")
+    print(f"[dashboard-e2e-ambient] {label} base_url={base_url} specs={len(specs)}", flush=True)
     completed = subprocess.run(cmd, cwd=str(DASHBOARD), env=env, check=False)  # noqa: S603
     return int(completed.returncode)
+
+
+def _run_main_suite(base_url: str) -> int:
+    return run_playwright(
+        base_url,
+        list(AMBIENT_SPEC_FILES),
+        grep_invert=GREP_INVERT,
+        label="main",
+    )
+
+
+def _run_disclosure_seeded() -> int:
+    """healthy / exhausted 는 CostGuard 시드가 프로세스에 고정되므로 서버를 나눈다."""
+    for seed_level, rel in DISCLOSURE_SPEC_FILES:
+        port = _free_port()
+        with tempfile.TemporaryDirectory(prefix=f"agk-ambient-disclosure-{seed_level}-") as tmp:
+            state = Path(tmp)
+            proc = start_server(port, state, seed_level=seed_level)
+            try:
+                rc = run_playwright(
+                    f"http://127.0.0.1:{port}",
+                    [rel],
+                    grep_invert=None,
+                    label=f"disclosure-{seed_level}",
+                )
+            finally:
+                _stop(proc)
+        if rc != 0:
+            return rc
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -175,17 +215,28 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.skip_server:
         # 닫힌 포트 — Chromium 이 UNSAFE 로 거절하는 :1 대신 연결 거부되는 고번호.
-        return run_playwright("http://127.0.0.1:59999", skip_server=True)
+        # disclosure 도 상대경로라 같은 닫힌 포트에서 실패해야 한다(이빨).
+        closed = "http://127.0.0.1:59999"
+        rc_main = _run_main_suite(closed)
+        rc_disc = run_playwright(
+            closed,
+            [rel for _, rel in DISCLOSURE_SPEC_FILES],
+            grep_invert=None,
+            label="disclosure-skip-server",
+        )
+        return 1 if (rc_main == 0 and rc_disc == 0) else (rc_main or rc_disc or 1)
 
     port = _free_port()
     with tempfile.TemporaryDirectory(prefix="agk-ambient-gate-") as tmp:
         state = Path(tmp)
         proc = start_server(port, state)
         try:
-            return run_playwright(f"http://127.0.0.1:{port}", skip_server=False)
+            rc = _run_main_suite(f"http://127.0.0.1:{port}")
         finally:
             _stop(proc)
-    return 1
+    if rc != 0:
+        return rc
+    return _run_disclosure_seeded()
 
 
 if __name__ == "__main__":

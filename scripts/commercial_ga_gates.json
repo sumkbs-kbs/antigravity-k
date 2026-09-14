@@ -529,7 +529,8 @@
       "required": true,
       "finding_ids": [
         "CR-14 F-46",
-        "CR-14 F-45"
+        "CR-14 F-45",
+        "CR-14 F-47"
       ],
       "task_ids": [
         "C14-03"
