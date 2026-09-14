@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 개선 실행 체크리스트
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-038 DECLARED** — F-47 compact leftover 코드 후보 `c3301424`/`35b00666…` · 측정 전 · NO-GO)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-038 DECLARED** — F-47 compact leftover 코드 후보 `4c3f8364`/`9362bdfc…` · 측정 전 · NO-GO)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 plan: docs/16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md
@@ -11,8 +11,8 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 [개발 계획](16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [검토 기준](qa/2026-09-11-commercial-review/BASELINE.md)
 
-**현재: CR-14 attempt-038 **DECLARED**(측정 전) — F-47 `f47-invert-compact-large-stream` 코드 후보 **`c33014247c48b9a2f719e705c0db6ca5faea6003`** · 지문 **`35b00666…`** · leftover 목표 **1건**(EXTERNAL_HUB) · required **23** · owner=마뱀 · D-71/EXTERNAL_HUB/push 금지 · NO-GO.**
-최근 갱신: 2026-09-14 (**CR-14 attempt-038 DECLARED** — 후보 `c3301424` · 지문 `35b00666…` · 측정 전 §5 선언. compact leftover 시드 정합 코드 커밋됨. owner=마뱀.)
+**현재: CR-14 attempt-038 **DECLARED**(측정 전) — F-47 `f47-invert-compact-large-stream` 코드 후보 **`4c3f83647c48b9a2f719e705c0db6ca5faea6003`** · 지문 **`9362bdfc…`** · leftover 목표 **1건**(EXTERNAL_HUB) · required **23** · owner=마뱀 · D-71/EXTERNAL_HUB/push 금지 · NO-GO.**
+최근 갱신: 2026-09-14 (**CR-14 attempt-038 DECLARED** — 후보 `4c3f8364` · 지문 `9362bdfc…` · 측정 전 §5 선언. compact leftover 시드 정합 코드 커밋됨. owner=마뱀.)
 최근 갱신: 2026-09-14 (**CR-14 attempt-038 IN_PROGRESS** — compaction 대용량 스트림 leftover. ambient `getByText(/1,?000 events/)` 비가시 — UI 계약 드리프트/시드 스키마 후보. owner=마뱀. EXTERNAL_HUB/D-71 금지.)
 최근 갱신: 2026-09-14 (**CR-14 attempt-037 REVIEW** — F-47 git-status file-activity leftover 폐쇄. 후보 `0cdcd60c` · 지문 `341d4f6c…` · **23/23** · ambient owns file-activity · leftover 2 · 마감 PASS · 판정 NO-GO 유지.)
 
