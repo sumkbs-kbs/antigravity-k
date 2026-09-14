@@ -33,7 +33,7 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 
 | ID | 목표 | 상태 | 근거 |
 |---|---|---|---|
-| EX-01 | 마케팅 대상 provider 실호출 | **BLOCKED** | 로컬 Ollama VAL-01 12/12 PASS · OpenRouter 실호출 HTTP **401** · `ex-2026-09-15/ex01_summary.md` (비밀 미기록) |
+| EX-01 | 마케팅 대상 provider 실호출 | **PARTIAL** | 로컬 Ollama VAL-01 12/12 PASS · **NVIDIA(NIM) PASS** HTTP 200 · Gemini FAIL(empty/503/404) · ZAI FAIL HTTP 429 · OpenRouter FAIL HTTP 401 · `ex-2026-09-15/ex01_summary.md` (비밀 미기록) |
 | EX-02 | 모델/라이선스/개인정보·지원 승인 | **PARTIAL** | [CR14_EX02_APPROVAL_RECORD.md](./CR14_EX02_APPROVAL_RECORD.md) — PRODUCT_SELF_APPROVAL(범위 문구) 완료; `BLOCKED_EXTERNAL` legal 미해제 · Experimental→Supported 없음 · GA GO 아님 |
 | EX-03 | 이전 출시 artifact | **DONE** | **NOT_AVAILABLE** — 태그 0 · gh release 401 · dist는 현재 후보만 · `ex03_summary.md` |
 | EX-04 | 지원 OS sandbox 실측 | **DONE** | macOS 26.6.2 arm64 · seatbelt/`sandbox-exec` · pytest 46 passed · `ex04_summary.md` (행렬 미승격) |
@@ -65,3 +65,5 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 - EX-04: 이 macOS 호스트 DONE (행렬 미승격)
 - EX-02: PARTIAL · EX-05: IN_PROGRESS · EX-06: DONE
 - CR-14 GO/DONE 아님
+
+- 2026-09-15: EX-01 cloud 추가 프로브(NVIDIA/Gemini/ZAI). NVIDIA PASS · Gemini/ZAI/OpenRouter FAIL → EX-01 **PARTIAL**. 비밀 미기록 · GO 미선언 · 커밋/soak 재시작 없음.

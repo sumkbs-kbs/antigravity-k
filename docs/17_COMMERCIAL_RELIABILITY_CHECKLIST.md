@@ -606,7 +606,7 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 | ID | 조건 | 현재 | 책임 역할 | 재개에 필요한 근거 | 영향 |
 |---|---|---|---|---|---|
-| EX-01 | 마케팅 대상 cloud provider 실제 호출 자격증명·예산 | **로컬 PASS** · cloud **BLOCKED**(OpenRouter 401) · 추가 프로브 중 | 제품/운영 책임자 — **강병석** | 비밀값 없이 provider·예산·사용 승인 범위 기록 | CR-14 실제 provider gate |
+| EX-01 | 마케팅 대상 cloud provider 실제 호출 자격증명·예산 | **PARTIAL** — 로컬 PASS · **NVIDIA PASS** · Gemini/ZAI/OR FAIL | 제품/운영 책임자 — **강병석** | 비밀값 없이 provider·예산·사용 승인 범위 기록 | CR-14 실제 provider gate |
 | EX-02 | 모델/라이선스/개인정보 및 지원 약속 승인 | **PARTIAL** — [EX02 기록](ga/CR14_EX02_APPROVAL_RECORD.md) | 지정 법무/개인정보/제품 책임자 — **강병석** | reviewer·날짜·범위·후보/산출물 근거를 가진 실제 승인 | GA GO |
 | EX-03 | 실제 이전 출시 artifact | **NOT_AVAILABLE** (태그 0 · 이전 shipped 없음) | 릴리스 책임자 — **강병석** | 해시와 버전이 확인된 원본 artifact | 실제 upgrade/rollback 검증 |
 | EX-04 | 지원할 각 OS sandbox 실측 환경 | **DONE(이 macOS arm64 seatbelt)** · 타 OS 미실측 · 행렬 미승격 | 보안/운영 책임자 — **강병석** | OS/arch/backend·정상 및 차단 실행 원문 | 지원표 승격 |
