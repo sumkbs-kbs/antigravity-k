@@ -277,11 +277,11 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 - [ ] 설정 저장(`/api/settings/env`) 스모크: 인증 토큰 있는 상태에서 200
 
 **모바일·개인사용 추가 체크리스트 (D-04/D-05)**
-- [ ] 설정에 “모바일/LAN 접속 허용” (기본 OFF) + 위험 고지
-- [ ] Tailscale/사설 IP 바인드 안내 (불특정 `0.0.0.0` 공개는 비권장·경고)
-- [ ] 비-loopback 요청에 PIN/bearer 강제 (이미 있으면 문서화·스모크)
+- [x] 설정에 “모바일/LAN 접속 안내” (기본 OFF · localStorage) + 위험 고지 — **실제 bind는 재시작 명령**
+- [x] Tailscale/사설 IP 바인드 안내 (`/api/network/access-info` notes)
+- [x] 비-loopback PIN 강제 = 기존 `startup_security`/`AuthPolicy` (문서화). 실기기 스모크는 잔여
 - [ ] 폰 브라우저에서 같은 SPA 로그인·채팅 1회 스모크 (개인 Wi‑Fi 또는 Tailscale)
-- [ ] `notes/mobile_host_premise.md`와 설정 카피 일치
+- [x] `notes/mobile_host_premise.md`와 Settings 카피 정렬
 
 **통과 기준**
 - 제품 경로에서 5173 없이도 설정 저장·로그인 가능.
@@ -412,12 +412,12 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | Phase | 이름 | 상태 | 담당 | 증거 경로 |
 |---|---|---|---|---|
 | 0 | 범위·결정·베이스라인 | **DONE** | 마뱀 | `docs/packaging/notes/phase0_baseline.md` |
-| 1 | 배포 클로저 | **IN_PROGRESS** | 마뱀 | `notes/phase1_progress.md` · DMG PASS · smoke/미동봉 Python 잔여 |
+| 1 | 배포 클로저 | **IN_PROGRESS** (거의 완료) | 마뱀 | DMG+`dmg-smoke` PASS · host Python 동봉 강화는 잔여 |
 | 2 | 셸 UX | NOT_STARTED | | |
 | 3 | Windows 패리티 | NOT_STARTED | | |
 | 4 | 복구·진단 | NOT_STARTED | | |
 | 5 | 업데이트 채널 | NOT_STARTED | | |
-| 6 | 포트·오리진 안정화 | NOT_STARTED | | |
+| 6 | 포트·오리진·모바일 bind | **IN_PROGRESS** | 마뱀 | `notes/phase6_progress.md` · access-info+Settings 안내 |
 | 7 | generation 수명 | NOT_STARTED / OPTIONAL | | |
 | 8 | 문서·게이트 마감 | NOT_STARTED | | |
 
@@ -444,3 +444,4 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | Phase 0 증거 `notes/phase0_baseline.md` 기록. Phase 1 시작: `build_mac_dmg.sh` fail-closed dist + 비밀 파일 거부. 진행 로그 `notes/phase1_progress.md`. 전체 `make dmg` 실측은 다음 스텝. |
 | 2026-09-15 | 마뱀 | 사용자 목적 확정 반영(D-04/D-05): 개인사용+모바일 Host. DMG가 `src/.env` 복사로 실패 → rsync exclude로 수정 후 `make dmg` 재시도. |
 | 2026-09-15 | 마뱀 | `make dmg` PASS → `dist/Ssak-Ai-0.1.0.dmg` (55M) sha256 `262b54244a…`; 번들 비밀 0건. Phase1 잔여=기동 스모크·Python 동봉 강화·Phase6 모바일 bind. |
+| 2026-09-15 | 마뱀 | `dmg-smoke` PASS(:18080). Phase6: `/api/network/access-info` + Settings 모바일 안내(기본 OFF). 실기기 폰 스모크·무재시작 rebind는 잔여. |

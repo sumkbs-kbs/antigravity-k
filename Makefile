@@ -169,6 +169,9 @@ build: ## Build wheel and sdist
 dmg: ## Build macOS .app bundle and distributable .dmg installer
 	@bash scripts/build_mac_dmg.sh
 
+dmg-smoke: ## Smoke Host from built .app on :18080 (does not use :8000)
+	@bash scripts/dmg_smoke.sh
+
 build-provenance: build ## Build Python distributions and verify their provenance manifest
 	@mkdir -p "$(dir $(PYTHON_PROVENANCE))"
 	$(PYTHON) src/antigravity_k/engine/artifact_provenance.py create dist --root . --output "$(PYTHON_PROVENANCE)"

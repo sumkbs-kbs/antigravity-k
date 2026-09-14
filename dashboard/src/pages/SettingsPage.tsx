@@ -17,7 +17,9 @@ import {
   changeAccessPin,
   deleteSettingsKeys,
   fetchLogLevels,
+  fetchNetworkAccessInfo,
   fetchSettings,
+  type NetworkAccessInfo,
   isAuthRequiredError,
   saveSettings,
   setLogLevel,
@@ -175,6 +177,16 @@ const SettingsPage: React.FC = () => {
   const [confirmPin, setConfirmPin] = useState('');
   const [pinStatusMsg, setPinStatusMsg] = useState('');
   const [pinBusy, setPinBusy] = useState(false);
+  const [mobileGuideOpen, setMobileGuideOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem('agk_mobile_lan_guide') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [networkInfo, setNetworkInfo] = useState<NetworkAccessInfo | null>(null);
+  const [networkInfoError, setNetworkInfoError] = useState('');
+  const [networkInfoBusy, setNetworkInfoBusy] = useState(false);
   /** 진행 중 저장 요청 표시(연속 클릭 방지) — 렌더 전에 동기적으로 막는다. */
   const savingRef = useRef(false);
   /** 서버가 실제로 강제하는 비용 한도 — 화면은 읽기 전용 맥락으로만 보여준다. */
@@ -325,7 +337,36 @@ const SettingsPage: React.FC = () => {
     }
   };
 
+  const persistMobileGuide = useCallback((on: boolean) => {
+    setMobileGuideOpen(on);
+    try {
+      window.localStorage.setItem('agk_mobile_lan_guide', on ? '1' : '0');
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, []);
+
+  const loadNetworkAccessInfo = useCallback(async () => {
+    setNetworkInfoBusy(true);
+    setNetworkInfoError('');
+    try {
+      setNetworkInfo(await fetchNetworkAccessInfo());
+    } catch (error) {
+      setNetworkInfo(null);
+      setNetworkInfoError(errorMessage(error));
+    } finally {
+      setNetworkInfoBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mobileGuideOpen) {
+      void loadNetworkAccessInfo();
+    }
+  }, [mobileGuideOpen, loadNetworkAccessInfo]);
+
   const handleChangePin = useCallback(async () => {
+
     setPinStatusMsg('');
     const current = currentPin.trim();
     const next = newPin.trim();
@@ -621,6 +662,69 @@ const SettingsPage: React.FC = () => {
               )}
             </div>
           </div>
+        </GlassPanel>
+
+
+        {/* Mobile / LAN access (personal use) — guide only; bind change needs Host restart */}
+        <GlassPanel title={<><span className="section-index">모바일</span> 모바일·LAN 접속 (개인용)</>} variant="section" className="settings-section">
+          <p className="settings-desc">
+            기본은 이 Mac의 <code>127.0.0.1</code>만 사용합니다. 폰에서 쓰려면 Host를 사설망에
+            열고 PIN으로 로그인하세요. 불특정 인터넷 공개는 권장하지 않습니다.
+          </p>
+          <label className="toggle-switch" style={{ marginBottom: 12 }}>
+            <input
+              type="checkbox"
+              data-testid="settings-mobile-guide-toggle"
+              checked={mobileGuideOpen}
+              onChange={e => persistMobileGuide(e.target.checked)}
+            />
+            <span className="toggle-track" />
+            <span className="toggle-label">모바일 접속 안내 표시 (기본 OFF · 브라우저 기억)</span>
+          </label>
+          {mobileGuideOpen && (
+            <div data-testid="settings-mobile-guide" style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 560 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                1) PIN이 설정돼 있는지 확인 · 2) Host를 재시작할 때 non-loopback으로 bind ·
+                3) 폰 브라우저로 아래 URL 접속 · 4) 가능하면 Tailscale 사용
+              </div>
+              {networkInfoBusy && <div style={{ fontSize: 12 }}>네트워크 정보 불러오는 중…</div>}
+              {networkInfoError && (
+                <div role="alert" style={{ fontSize: 12, color: '#ff6b6b' }}>조회 실패: {networkInfoError}</div>
+              )}
+              {networkInfo && (
+                <>
+                  <div style={{ fontSize: 12 }}>
+                    현재 bind: <code>{networkInfo.bind_host}:{networkInfo.port}</code>
+                    {networkInfo.is_loopback ? ' (loopback · 폰에서 직접 접속 불가)' : ' (non-loopback)'}
+                  </div>
+                  <div style={{ fontSize: 12 }}>
+                    재시작 예시: <code>{networkInfo.restart_command_lan}</code>
+                  </div>
+                  {networkInfo.suggested_mobile_urls.length > 0 ? (
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+                      {networkInfo.suggested_mobile_urls.map(url => (
+                        <li key={url}><code>{url}</code></li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div style={{ fontSize: 12 }}>감지된 LAN IP가 없습니다. Tailscale IP 또는 라우터 할당 주소를 직접 입력하세요.</div>
+                  )}
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {networkInfo.notes.map(note => <li key={note}>{note}</li>)}
+                  </ul>
+                </>
+              )}
+              <button
+                type="button"
+                className="btn-secondary"
+                data-testid="settings-mobile-refresh"
+                disabled={networkInfoBusy}
+                onClick={() => { void loadNetworkAccessInfo(); }}
+              >
+                네트워크 정보 새로고침
+              </button>
+            </div>
+          )}
         </GlassPanel>
 
         {/* 5. Local History Settings */}

@@ -27,6 +27,7 @@ from .job_api import router as job_api_router
 from .kanban_api import router as kanban_api_router
 from .messages_api import router as messages_router
 from .models_api import router as models_router
+from .network_access_api import router as network_access_router
 from .operational_alerts import router as operational_alerts_router
 from .recipes_api import router as recipes_router
 from .remote_pairing_api import router as remote_pairing_router
@@ -78,6 +79,7 @@ api_router.include_router(agent_ask_router, tags=["agent"])
 api_router.include_router(workspace_links_router, tags=["workspaces"])
 api_router.include_router(workspace_services_router, tags=["workspaces"])
 api_router.include_router(remote_pairing_router, tags=["remote"])
+api_router.include_router(network_access_router)
 api_router.include_router(approval_router, tags=["approval"])
 api_router.include_router(git_router, tags=["git"])
 api_router.include_router(code_router, tags=["code"])

@@ -671,6 +671,25 @@ export async function setDebugMode(action: 'enable' | 'disable'): Promise<DebugM
   return DebugModeResponseSchema.parse(raw);
 }
 
+export type NetworkAccessInfo = {
+  bind_host: string;
+  port: number;
+  is_loopback: boolean;
+  lan_ipv4: string[];
+  suggested_mobile_urls: string[];
+  mobile_bind_default: boolean;
+  restart_command_lan: string;
+  notes: string[];
+};
+
+export async function fetchNetworkAccessInfo(): Promise<NetworkAccessInfo> {
+  const raw = await requestJson('/api/network/access-info', '/api/network/access-info');
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Unexpected network access-info response.');
+  }
+  return raw as NetworkAccessInfo;
+}
+
 export async function fetchSettings(): Promise<SettingsData> {
   const raw = await requestJson('/api/settings', '/api/settings');
   return SettingsResponseSchema.parse(raw).settings;

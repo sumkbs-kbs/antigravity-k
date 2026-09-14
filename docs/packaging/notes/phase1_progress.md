@@ -49,3 +49,10 @@ plan: docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md
 - **Log:** `/tmp/ssak-dmg-logs/make-dmg-2026-09-15b.log` (local machine temp; not committed)
 - **Still open:** `dmg-smoke` (launch app → host health); host Python 3.12+ still required by launcher; Electron shell not started; mobile bind UI (Phase 6) not implemented yet
 - **Soak:** left running (not killed)
+
+## 2026-09-15 — dmg-smoke PASS
+
+- Added `scripts/dmg_smoke.sh` + Makefile `dmg-smoke`
+- Runs bundled Host on `127.0.0.1:18080` (does **not** touch :8000 / soak)
+- Result: **PASS** auth=200 spa=200
+- Fresh smoke dir has no PIN → login 503 expected; SPA still served
