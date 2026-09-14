@@ -47,7 +47,13 @@ interface LatencySample {
 }
 
 function hookEventsPath(): string {
-  return path.resolve(process.cwd(), '..', 'vault_data', 'hooks', 'events.jsonl');
+  // 서버가 감시하는 자리와 **같아야** 한다(CR-14 F-45).
+  // `startNoAuthServer` 가 `AGK_HOOK_VAULT_DIR` 을 상태 디렉터리로 잡고 부모 env 에도 심는다.
+  // 기본값(env 없음)은 출하 경로 `<repo>/vault_data/hooks` — `server.py` 기본과 같다.
+  // (잘못 옮긴 `data/vault_data/hooks` 는 서버가 보지 않아 이벤트가 침묵한다.)
+  const vault = process.env.AGK_HOOK_VAULT_DIR
+    ?? path.resolve(process.cwd(), '..', 'vault_data');
+  return path.join(vault, 'hooks', 'events.jsonl');
 }
 
 async function injectHookEvent(

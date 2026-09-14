@@ -26,6 +26,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 
 import childProcess from 'node:child_process';
+import { createServer } from 'node:net';
 
 export const authPin = 'e2e-auth-pin-20260903';
 
@@ -33,6 +34,11 @@ export interface HermeticServer {
   baseUrl: string;
   /** 이 서버가 살아 있는 동안의 상태 디렉터리(토큰 비밀·PIN 해시·격리 env 파일). */
   stateDirectory: string;
+  /**
+   * HookEventBus 가 감시하는 vault 루트(`…/hooks/events.jsonl` 의 부모의 부모).
+   * 스펙이 파일을 주입할 때 **이 값**을 써야 서버와 합의한다(CR-14 F-45).
+   */
+  hookVaultDir: string;
   /** 서버 **프로세스 그룹 리더**의 pid — 크래시 슬라이스가 이 그룹째로 신호를 보낸다. */
   pid: number | undefined;
   /**
@@ -88,6 +94,27 @@ export async function waitForHealth(baseUrl: string): Promise<void> {
   throw new Error(`Backend did not become healthy: ${baseUrl}`);
 }
 
+
+async function allocateLoopbackPort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const probe = createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      if (address === null || typeof address === 'string') {
+        probe.close();
+        reject(new Error('loopback port allocation failed'));
+        return;
+      }
+      const { port } = address;
+      probe.close(error => {
+        if (error) reject(error);
+        else resolve(port);
+      });
+    });
+  });
+}
+
 export async function startBackendServer(
   overrides: Record<string, string>,
   options: HermeticServerOptions = {},
@@ -112,6 +139,32 @@ export async function startBackendServer(
 
   const projectRoot = path.resolve(process.cwd(), '..');
   const workingDirectory = options.workingDirectory ?? projectRoot;
+  // CR-14 F-45: 훅 IPC 를 상태 디렉터리로 격리한다 — 공유 `vault_data/hooks` 는
+  // ambient 서버·다른 테스트와 줄을 섞어 증인이 침묵한다(실측 15MB·13만 줄).
+  const hookVaultDir = path.join(stateDirectory, 'vault_data');
+  const isolatedDataDir = path.join(stateDirectory, 'data');
+  const isolatedLogsDir = path.join(stateDirectory, 'logs');
+  // 부모(스펙) 프로세스도 같은 경로를 보게 — hookEventsPath() 가 env 를 읽는다.
+  const previousHookVault = process.env.AGK_HOOK_VAULT_DIR;
+  process.env.AGK_HOOK_VAULT_DIR = hookVaultDir;
+  // SEC-03 Origin allowlist 는 정확 일치다. hermetic 이 임의 포트(0)로 뜨면
+  // 브라우저 Origin(`http://127.0.0.1:<port>`)이 기본 allowlist 에 없어
+  // `/v1/ws/events` 가 4403 으로 즉시 끊긴다(실측: frames=0 · LINK 는 다른 채널).
+  // 포트를 **미리** 잡고 그 Origin 을 `AGK_CORS_ORIGINS` 에 넣는다.
+  const listenPort = options.port ?? await allocateLoopbackPort();
+  const pageOrigin = `http://127.0.0.1:${listenPort}`;
+  const corsOrigins = [
+    pageOrigin,
+    `http://localhost:${listenPort}`,
+    'http://127.0.0.1:8012',
+    'http://localhost:8012',
+    'http://127.0.0.1:8000',
+    'http://localhost:8000',
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+    'http://127.0.0.1:5174',
+    'http://localhost:5174',
+  ].join(',');
   const listener = childProcess.spawn(
     'uv',
     [
@@ -126,7 +179,7 @@ export async function startBackendServer(
       '--host',
       '127.0.0.1',
       '--port',
-      String(options.port ?? 0),
+      String(listenPort),
     ],
     {
       cwd: workingDirectory,
@@ -139,6 +192,10 @@ export async function startBackendServer(
         AGK_ACCESS_PIN: '',
         AGK_SEC_PIN_HASH_FILE: path.join(stateDirectory, 'pin_hash'),
         AGK_SEC_TOKEN_SECRET_FILE: secretPath,
+        AGK_HOOK_VAULT_DIR: hookVaultDir,
+        AGK_PATH_DATA_DIR: isolatedDataDir,
+        AGK_PATH_LOGS_DIR: isolatedLogsDir,
+        AGK_CORS_ORIGINS: corsOrigins,
         ...options.overrides,
         ...overrides,
       },
@@ -182,9 +239,15 @@ export async function startBackendServer(
   return {
     baseUrl,
     stateDirectory,
+    hookVaultDir,
     pid: listener.pid,
     kill: (signal: NodeJS.Signals = 'SIGKILL') => signalProcessGroup(listener.pid, signal),
     cleanup: async () => {
+      if (previousHookVault === undefined) {
+        delete process.env.AGK_HOOK_VAULT_DIR;
+      } else {
+        process.env.AGK_HOOK_VAULT_DIR = previousHookVault;
+      }
       signalProcessGroup(listener.pid, 'SIGTERM');
       const exited = new Promise(resolve => {
         if (listener.exitCode !== null || listener.signalCode !== null) {
@@ -206,9 +269,17 @@ export async function startBackendServer(
   };
 }
 
-/** Backend with authentication disabled (no PIN, no hash file). */
+/**
+ * Backend with authentication disabled (no PIN, no hash file).
+ *
+ * `AGK_SEC_DEV_NO_PIN_ALLOW=1` 이 없으면 이 서버는 **열려 있지 않다** — 제품의 인증 정책은
+ * fail-closed 다(무자격 + dev 허용 env 없음 → deny: `auth_policy.resolve_auth_decision` 규칙 3).
+ * 이 env 없이는 브라우저가 PIN 잠금 화면을 보고, "no-auth 서버"라는 이 함수의 약속과 실제가
+ * 갈라진다(ws-contract-e2e 가 그 갈라짐을 만났다 — CR-14 F-45). 이 env 는 **loopback + 개발
+ * 환경에서만** 열린다(production 은 정책이 이중으로 거부한다).
+ */
 export function startNoAuthServer(): Promise<HermeticServer> {
-  return startBackendServer({});
+  return startBackendServer({ AGK_SEC_DEV_NO_PIN_ALLOW: '1' });
 }
 
 /** Backend with a configured plaintext PIN (bootstrap-hashed on first boot). */

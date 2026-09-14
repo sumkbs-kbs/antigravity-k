@@ -414,6 +414,12 @@ def _refresh_sidecar(bundle: Path) -> None:
 # 한 번도 주장하지 않았고, 그 증인들은 **사람이 기억해서 돌려야만** 돌았다 —
 # attempt-030/031 이 F-39·F-41 을 닫을 때 쓴 자리가 정확히 그 자리다.
 # 검사를 **빼는 대신 게이트를 세웠다**: `dashboard-e2e-witnesses` 가 그 패밀리를 돈다.
+#
+# 왜 22 → 23 인가 (CR-14 F-46, attempt-034): ambient 백엔드가 필요한 Playwright 스펙
+# (`task-execution`·`ws-contract-e2e`·`file-explorer`·일부 `capture-*`)이 어느 required
+# 게이트에도 없었다. 새 required 게이트 `dashboard-e2e-ambient` 가 서버를 세운 뒤 그
+# 패밀리를 돈다(스크립트 `scripts/run_dashboard_e2e_ambient.py`). Vite-only
+# (`capture-disclosure-*` → :5173 하드코드)는 삼키지 않는다(F-47).
 _EXPECTED_REQUIRED_GATES = (
     # python_backend (6)
     "python-ruff",
@@ -442,6 +448,7 @@ _EXPECTED_REQUIRED_GATES = (
     "api-e2e",
     "accessibility-e2e",
     "dashboard-e2e-witnesses",
+    "dashboard-e2e-ambient",
     "clean-machine-runtime",
 )
 
@@ -450,7 +457,7 @@ class TestCandidateGateInventory:
     def test_repository_gate_manifest_required_gates_are_the_pinned_inventory(self) -> None:
         """현재 manifest 의 필수 gate 집합이 pinned 목록과 같다.
 
-        F-21 로 21개가 됐고, F-42 로 **22개**가 됐다. 앞으로 늘거나 줄면 이 목록을 함께 고쳐야
+        F-21 로 21개가 됐고, F-42 로 22개가 됐고, F-46 로 **23개**가 됐다. 앞으로 늘거나 줄면 이 목록을 함께 고쳐야
         한다 — 즉 변경이 **의도된 편집**으로만 가능하고, 우연히 사라지는 경로는 없다.
         """
         manifest = json.loads(_GATE_MANIFEST.read_text(encoding="utf-8"))
