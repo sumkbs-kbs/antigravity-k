@@ -4,6 +4,8 @@ tags: [packaging, macos, dmg, desktop, app, ssak-ai]
 date: 2026-09-03
 ---
 
+> 관련: 데스크톱 셸·배포 클로저 후속 계획서는 [`DESKTOP_SHELL_REFERENCE_PLAN.md`](./DESKTOP_SHELL_REFERENCE_PLAN.md)를 본다.
+
 # Ssak-Ai (Ssak-Ai) macOS .dmg 설치 및 실행 가이드
 
 Ssak-Ai를 macOS 데스크톱 환경에서 간편하게 설치하고 실행할 수 있는 공식 `.dmg` 디스크 이미지 배포 가이드입니다.

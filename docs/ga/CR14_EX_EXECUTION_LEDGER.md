@@ -67,3 +67,4 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 - CR-14 GO/DONE 아님
 
 - 2026-09-15: EX-01 cloud 추가 프로브(NVIDIA/Gemini/ZAI). NVIDIA PASS · Gemini/ZAI/OpenRouter FAIL → EX-01 **PARTIAL**. 비밀 미기록 · GO 미선언 · 커밋/soak 재시작 없음.
+- 2026-09-15: OpenRouter 재실측 — 키 유효 · gpt-4o-mini 402 credits · **openrouter/free PASS** (stream). EX-01 여전히 PARTIAL(유료 모델/타 provider 잔여). 비밀 미기록 · GO 미선언.
