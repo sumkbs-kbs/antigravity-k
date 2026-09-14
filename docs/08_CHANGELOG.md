@@ -1,6 +1,12 @@
 # 08 Changelog
 
 
+## 2026-09-14 — CR-14 attempt-037 (REVIEW / NO-GO)
+
+- F-47 leftover `f47-invert-git-status-file-activity` 폐쇄: 환경 레일 **코드** 탭 git 파일 상태 + clean empty-state
+- GREP_INVERT 제거 · leftover **3→2** · required **23/23 PASS** · 후보 `0cdcd60c` / 지문 `341d4f6c…`
+- 판정 **NO-GO** 유지 (APPROVE/GO 위조 없음)
+
 ## 2026-09-14 — CR-14 attempt-036 (기록)
 
 - F-47 leftover `f47-invert-execution-trace-axe` CLOSED · leftover **3건** · 후보 `44d46c2e` · 지문 `38c36a65…` · required **23/23 PASS** · close PASS · 판정 **NO-GO**.

@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용 신뢰성 상세 개선 개발 계획서
-status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-037 IN_PROGRESS** — 후보 `0cdcd60c` · leftover 2 · NO-GO)
+status: in-progress (CR-00 DONE, CR-01~CR-13 REVIEW, CR-14 **attempt-037 REVIEW** — F-47 git-status leftover CLOSED · 후보 `0cdcd60c` · required 23/23 · NO-GO)
 date: 2026-09-12
 baseline_sha: 08b8bb2e94f92a1d95d4a38b7d1171a58b9fe04f
 source_review: docs/qa/2026-09-11-commercial-review/BASELINE.md
@@ -10,8 +10,8 @@ tags: [development-plan, reliability, security, migration, agent-handoff]
 
 # 상용 신뢰성 상세 개선 개발 계획서
 
-> **최신 (2026-09-14, attempt-037 IN_PROGRESS 선언) — F-47 git-status leftover 코드 커밋 `0cdcd60c` / `341d4f6c…` · leftover 2 · owner=`마뱀` · NO-GO · 측정 전.**
-> 직전 attempt-036 REVIEW: axe leftover CLOSED · leftover 3건 · 23/23 PASS.
+> **최신 (2026-09-14, attempt-037 REVIEW) — F-47 `f47-invert-git-status-file-activity` CLOSED · leftover 2건 · 후보 `0cdcd60c` / `341d4f6c…` · 23/23 PASS · NO-GO.**
+> owner=`마뱀` · ambient owns file-activity (코드 탭 + empty-state). 남은 leftover: EXTERNAL_HUB · compact-large-stream.
 > owner=`마뱀` · 후보 `ae28360448f442e1194e1e93fcabf9e51bc8aada` · 지문 `ac0757cc…` · required **23/23 PASS**.
 > 닫힘: capture-disclosure-* (:5173→/settings + AGK_SEED_LEVEL). 센 leftover: f47-capture-real-local-models · f47-invert-*. 판정 NO-GO.
 >
