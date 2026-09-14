@@ -23,7 +23,7 @@
  * - **실제 네트워크·프로세스**는 없다(그것은 e2e 증인의 몫이다).
  */
 
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TaskSummarySchema } from './taskExecutionSchema';
@@ -122,4 +122,75 @@ describe('useTaskExecutionEvents — 재연결 뒤 목록', () => {
     // 낡은 목록을 조용히 들고 있지 않다 = 그 사실이 화면의 상태로 드러난다.
     expect(result.current.tasks[0]?.execution_owner).toBe('live');
   });
+});
+
+/**
+ * F-41 계약 — **사용자의 탈출구(`retry`)는 스스로 포기한 화면을 되살린다.**
+ *
+ * 무엇을 재는가
+ * -------------
+ * 자동 재연결이 3회를 다 쓰고 포기하면 화면은 `연결 오류` + '다시 연결'을 내놓는다. 그 버튼이 하는
+ * 일은 `retry()` 이고, 그 안은 `reloadVersion` 을 올리는 **한 줄**이다 — 그러므로 이 경로의 정직함은
+ * `reloadVersion` 이 **목록 이펙트의 의존성이라는 사실**에 얹혀 있다. 그 사실은 지금까지 어떤 계약도
+ * 재지 않았다(실 브라우저 증인 `dashboard/e2e/tests/cr14-retry-escape-hatch.spec.ts` 가 그 경로를
+ * 제품에서 재지만, 게이트는 그 증인을 돌리지 않는다 — 경계 문서 §2-7).
+ *
+ *   ① 탈출구는 목록을 **다시 읽는다** — 크래시 전 스냅샷을 현재라고 말하지 않는다
+ *   ② 탈출구는 스트림도 **다시 시작한다** — 다시 읽은 목록이 곧 낡아질 수 있으므로 한쪽만 되살리면 안 된다
+ *
+ * 라벨(`연결 오류` → `연결됨`)은 여기서 재지 않는다: 즉시 resolve 하는 스텁에서는 커밋 뒤의 `loading`
+ * 타이머가 정착 상태를 덮어쓴다(같은 파일의 F-39 계약이 그 이유를 적는다). 실서버·실브라우저에서
+ * 그 전이를 재는 곳은 `dashboard/e2e/tests/cr14-retry-escape-hatch.spec.ts` 다.
+ *
+ * 무엇을 재지 않는가
+ * ------------------
+ * - **실제 네트워크·프로세스·브라우저**는 없다(그것은 e2e 증인의 몫이다).
+ * - 자동 재연결의 **횟수 정책**(3회)은 위 F-39 계약이 아니라 제품 코드가 소유한다 — 이 파일은
+ *   "포기한 뒤"의 일만 잰다.
+ */
+describe('useTaskExecutionEvents — 탈출구(retry)', () => {
+  it(
+    '포기한 화면의 탈출구가 목록을 다시 읽고 스트림도 되살린다',
+    async () => {
+      // 실물 크래시를 그대로 옮긴다: 서버가 없는 동안 **목록 재조회도 실패**하므로, 화면은 포기할 때
+      // **크래시 전 스냅샷**을 들고 있다(그것이 탈출구가 고쳐야 할 대상이다). 탈출구 뒤의 읽기만 성공한다.
+      api.fetchTaskList
+        .mockResolvedValueOnce([LIVE])
+        .mockRejectedValueOnce(new Error('목록을 다시 읽지 못했다'))
+        .mockRejectedValueOnce(new Error('목록을 다시 읽지 못했다'))
+        .mockResolvedValue([ORPHANED]);
+      // 자동 재연결 3회를 모두 실패시켜 **포기** 상태를 만든다(그 뒤의 호출은 성공한다).
+      api.streamTaskEvents
+        .mockRejectedValueOnce(new Error('서버가 없다'))
+        .mockRejectedValueOnce(new Error('서버가 없다'))
+        .mockRejectedValueOnce(new Error('서버가 없다'))
+        .mockResolvedValue({ lastSequence: 0 });
+
+      const { result } = renderHook(() => useTaskExecutionEvents());
+
+      await waitFor(() => expect(result.current.connectionState).toBe('error'), {
+        timeout: 20_000,
+        interval: 50,
+      });
+      const listReadsWhileBroken = api.fetchTaskList.mock.calls.length;
+      const streamStartsWhileBroken = api.streamTaskEvents.mock.calls.length;
+      // 포기한 시점의 화면은 **크래시 전 스냅샷**이다(그것이 탈출구가 고쳐야 할 대상이다).
+      expect(result.current.tasks[0]?.execution_owner).toBe('live');
+      expect(result.current.tasks[0]?.resumable).toBe(false);
+
+      act(() => result.current.retry());
+
+      await waitFor(() => expect(result.current.tasks[0]?.execution_owner).toBe('dead'), {
+        timeout: 10_000,
+        interval: 50,
+      });
+      expect(result.current.tasks[0]?.resumable).toBe(true);
+      expect(api.fetchTaskList.mock.calls.length).toBeGreaterThan(listReadsWhileBroken);
+      expect(api.streamTaskEvents.mock.calls.length).toBeGreaterThan(streamStartsWhileBroken);
+      // 연결 **라벨**은 여기서 재지 않는다 — 즉시 resolve 하는 스텁에서는 커밋 뒤의 `loading`
+      // 타이머가 정착 상태를 덮어쓴다(위 F-39 계약의 두 번째 테스트가 같은 이유를 적는다).
+      // 라벨이 실제로 되돌아오는지는 실서버·실브라우저 증인이 잰다: 그것이 이 attempt 의 증인이다.
+    },
+    30_000,
+  );
 });
