@@ -2,7 +2,7 @@
 
 Thin **Electron** wrapper around the Ssak-Ai **Host** SPA on loopback.
 
-- **Does:** single-instance lock, `BrowserWindow` → Host URL, tray Open/Quit, hide-on-close.
+- **Does:** single-instance lock, `BrowserWindow` → Host URL, tray Open/Settings/logs/Quit, Host ready status, hide-on-close.
 - **Does not:** transplant DSH/Cordis, expose Electron APIs to the page, or (this turn) spawn/stop Host.
 
 See plan: `docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md` (Phase 2) and progress: `docs/packaging/notes/phase2_progress.md`.
@@ -73,9 +73,10 @@ desktop/
 |---|---|
 | Single-instance lock → focus existing window | **working** |
 | Load Host loopback URL | **working** (probe warns if down) |
-| Tray Open / Quit | **working** (Settings/Logs menus later) |
+| Tray Open / Settings / Open logs folder / Quit | **working** |
+| Tray Host ready / unreachable label | **working** (soft probe + 120s quiet refresh) |
 | Hide-on-close | **working** (stub; Host left running) |
 | Quit stops Host | **stubbed** — Quit exits shell only |
-| Spawn Host on launch | **not this turn** — assume Host running |
-| Ready tray “starting…” | **stubbed** |
-| Manual QA `phase2_shell_qa.md` | **not this turn** |
+| Spawn Host on launch | **deferred** — assume Host running |
+| Ready tray “starting…” | **deferred** until Host spawn |
+| Manual QA `phase2_shell_qa.md` | **checklist present** — fill Pass/Fail manually |

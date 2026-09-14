@@ -191,16 +191,16 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 
 **체크리스트**
 - [~] 단일 인스턴스: 두 번째 실행 시 기존 창 focus / URL open — **scaffold working** (`desktop/main.js`)
-- [~] 트레이 아이콘: 열기 / 종료 **working**; 설정·로그 폴더는 잔여
+- [~] 트레이 아이콘: 열기 / 설정(`/settings`) / 로그 폴더 / 종료 **working**; 상태 라벨 Host ready|unreachable (120s quiet probe)
 - [~] 창 닫기 = hide (프로세스 유지) — **working stub**; Host는 이 턴에 spawn/stop 안 함(이미 떠 있다고 가정)
 - [ ] Quit = Host graceful shutdown + 자식 프로세스 회수 — **stub**: Quit은 셸만 종료 (C-03 soak/:8000 보호)
 - [~] 기동 실패 시: Host probe 실패 시 dialog — **partial**; 복구 창은 Phase 4
-- [ ] 서버 ready 전에 트레이 “시작 중…” 상태
+- [ ] 서버 ready 전에 트레이 “시작 중…” 상태 — **partial**: ready/unreachable만; “시작 중…”은 Host spawn 후
 - [~] macOS Dock 아이콘 정책 — README에 초안; 정식 문서화 잔여
 
 **완료 증거**
 - [x] 스캐폴드 + 진행 메모: `desktop/` · `docs/packaging/notes/phase2_progress.md`
-- [ ] 수동 QA 체크리스트 결과표 (`phase2_shell_qa.md`)
+- [x] 수동 QA 체크리스트 표 작성 (`notes/phase2_shell_qa.md`) — Pass/Fail는 수동 실행 후 기입
 - [ ] (가능하면) 자동 테스트 또는 smoke 스크립트
 
 **통과 기준**
@@ -417,7 +417,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 |---|---|---|---|---|
 | 0 | 범위·결정·베이스라인 | **DONE** | 마뱀 | `docs/packaging/notes/phase0_baseline.md` |
 | 1 | 배포 클로저 | **DONE-with-caveat** (IN_PROGRESS 잔여=클린 Mac FULL은 `SSAK_BUNDLE_PYTHON` 스모크 후) | 마뱀 | `phase1_progress.md` · `MACOS_DMG_GUIDE.md` §5 · `windows_closure_stub.md` |
-| 2 | 셸 UX | **IN_PROGRESS** | 마뱀 | `desktop/` · `notes/phase2_progress.md` |
+| 2 | 셸 UX | **IN_PROGRESS** | 마뱀 | `desktop/` · `notes/phase2_progress.md` · `notes/phase2_shell_qa.md` |
 | 3 | Windows 패리티 | NOT_STARTED | | |
 | 4 | 복구·진단 | NOT_STARTED | | |
 | 5 | 업데이트 채널 | NOT_STARTED | | |
@@ -451,3 +451,4 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | `dmg-smoke` PASS(:18080). Phase6: `/api/network/access-info` + Settings 모바일 안내(기본 OFF). 실기기 폰 스모크·무재시작 rebind는 잔여. |
 | 2026-09-15 | 마뱀 | Phase1 residual: D-02=1a 확정; 런처 bundled-python 우선; `SSAK_BUNDLE_PYTHON` 옵트인; 가이드 클로저 인벤토리; Windows stub. 클린 Mac FULL은 동봉 빌드 스모크 후. |
 | 2026-09-15 | 마뱀 | Phase 2 착수(D-06=`desktop/`): Electron thin shell 스캐폴드 — single-instance·tray Open/Quit·hide-on-close·Host URL load. Host spawn/stop 미구현(기동 가정; soak/:8000 미간섭). `notes/phase2_progress.md`. CR-14 GO 주장 없음. |
+| 2026-09-15 | 마뱀 | Phase 2 다음 슬라이스: tray Settings(`/settings`)·Open logs folder(`~/Library/Logs/Ssak-Ai`)·Host ready/unreachable 상태 라벨(120s soft probe). QA 표 `notes/phase2_shell_qa.md`. Host spawn/Quit→Host 종료는 계속 deferred. CR-14 GO 없음. |
