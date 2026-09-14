@@ -173,3 +173,11 @@ data/dpo_out/
 data/lora_e2e_out/
 data/lora_harvest/
 data/projects.json
+# 런타임 상태 — 프로젝트 레지스트리의 기본 저장 경로는 **상대경로**(`data/projects.json`)라
+# cwd 에 따라 저장소 안 어디에나 생긴다(잠금 파일은 `<저장경로>.lock` — `project_registry.py`).
+# cwd 가 `src/` 인 프로세스(패키지를 소스 트리에서 직접 실행할 때 자연스럽다)가 만드는 사본을
+# **코드 스코프 밖**에 둔다: 들어오면 코드 지문이 움직여 "게이트가 측정한 트리 == 후보 트리"가
+# 조용히 깨지고, 그 사실은 마감 검사에서야 드러난다(CR-14 F-44 · 계약
+# `tests/test_cr14_runtime_state_scope_contract.py`).
+src/data/projects.json
+src/data/projects.json.lock
