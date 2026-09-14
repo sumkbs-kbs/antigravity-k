@@ -478,14 +478,16 @@ const CodeTabWithGit: React.FC<{
           </button>
         </div>
 
-        {/* File activity */}
-        {gitFiles.length > 0 && (
-          <>
-            <div className="env-divider" />
-            <div className="env-section">
-              <div className="env-section-header">
-                <span className="env-section-title">파일 상태</span>
-              </div>
+        {/* File activity — always visible so clean trees still expose empty-state (CR-14 F-47) */}
+        <div className="env-divider" />
+        <div className="env-section" data-testid="env-file-activity">
+          <div className="env-section-header">
+            <span className="env-section-title">파일 상태</span>
+          </div>
+          {gitFiles.length === 0 ? (
+            <div className="env-sub-empty">변경된 파일이 없습니다.</div>
+          ) : (
+            <>
               {gitFiles.slice(0, 8).map((f) => (
                 <button
                   key={`${f.file_path}-${f.x}${f.y}`}
@@ -503,9 +505,9 @@ const CodeTabWithGit: React.FC<{
               <div className="env-file-footer">
                 파일 {gitFiles.length}개
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
 
         {/* MCP Sources */}
         <div className="env-divider" />

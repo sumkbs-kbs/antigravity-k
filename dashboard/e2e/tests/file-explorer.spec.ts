@@ -3,16 +3,20 @@
  * ====================================================
  * The legacy IDE explorer panel was replaced by the right-hand 환경 rail
  * (EnvironmentPanel). File browsing now lives in:
- *   - 환경 tab  → 파일 액티브티 (git status based file list)
- *   - 코드 tab  → the code editor (Editor.tsx, `.ide-editor`)
+ *   - 환경 tab  → agent monitor (status / activity / tokens)
+ *   - 코드 tab  → editor + Git (file activity from git status, or empty-state)
  *   - 변경 tab  → the change review panel (ChangePanel)
  *
  * Scenario:
  *   1. Navigate to chat page
- *   2. Verify the environment rail renders with the file activity list
- *   3. Open the 코드 tab and verify the editor mounts
- *   4. Open the 변경 tab and verify the change panel mounts
- *   5. Toggle the rail closed and re-open
+ *   2. Verify the environment rail renders (환경 tab default)
+ *   3. Open the 코드 tab — git file activity (or empty-state) lives here after redesign
+ *   4. Verify the editor mounts on 코드
+ *   5. Open the 변경 tab and verify the change panel mounts
+ *   6. Toggle the rail closed and re-open
+ *
+ * CR-14 F-47 (attempt-037): file activity is on the 코드 tab (CodeTabWithGit),
+ * not the redesigned 환경 AgentMonitorTab. Clean trees render `.env-sub-empty`.
  */
 
 import { test, expect } from '@playwright/test';
@@ -39,9 +43,15 @@ test.describe('Environment Rail — file browsing', () => {
     const rail = dashboard.page.locator('.agk-env-panel');
     await expect(rail).toBeVisible({ timeout: 5000 });
 
+    // After redesign, git file activity lives on the 코드 tab (not 환경).
+    await rail.locator('.env-tab').filter({ hasText: '코드' }).click();
+
+    const fileActivity = rail.locator('[data-testid="env-file-activity"]');
+    await expect(fileActivity).toBeVisible({ timeout: 8000 });
+
     // Either git files render, or the empty state when the tree is clean
-    const fileRows = rail.locator('.env-file-row');
-    const empty = rail.locator('.env-sub-empty');
+    const fileRows = fileActivity.locator('.env-file-row');
+    const empty = fileActivity.locator('.env-sub-empty');
     await expect(fileRows.or(empty).first()).toBeVisible({ timeout: 8000 });
   });
 

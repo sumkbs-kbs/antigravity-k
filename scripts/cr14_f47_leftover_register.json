@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "scope": "CR-14 F-47 leftovers after attempt-036 — ambient 게이트가 삼키지 않는 Playwright 슬라이스",
+  "scope": "CR-14 F-47 leftovers after attempt-037 — ambient 게이트가 삼키지 않는 Playwright 슬라이스",
   "why": "attempt-034 가 의도적으로 밖한 F-47 을 측정했다. disclosure/:5173 은 값싼 하네스 결함이라 닫아 ambient 가 소유한다. 나머지는 소유하면 게이트가 항상 빨개지거나(제품 flake)·실 허브에 의존한다. invert 를 유일한 소유자로 두지 않기 위해 **목록 정체성**으로 센다(침묵 금지 · F-21).",
   "measured_by": "tests/test_cr14_f47_leftover_inventory_contract.py",
   "closed_this_attempt": [
@@ -15,6 +15,12 @@
       "was": "GREP_INVERT: renders the execution trace at (axe color-contrast .is-primary)",
       "now_owned_by": "dashboard-e2e-ambient (task-execution execution-trace viewports, invert 제거)",
       "how": "`.approval-queue-actions .is-primary` 글자를 #080908 로(액센트 면 유지). themeStore --accent-hover=#917de8 위 #fff 대비 3.33→≥4.5. hover(#5b4bc4)는 #fff 유지. D-68 번들 재빌드."
+    },
+    {
+      "id": "f47-invert-git-status-file-activity",
+      "was": "GREP_INVERT: should show file activity from git status (.env-file-row/.env-sub-empty 비가시)",
+      "now_owned_by": "dashboard-e2e-ambient (file-explorer 코드 tab + env-file-activity empty-state, invert 제거)",
+      "how": "재설계 후 git 파일 활동은 코드 탭(CodeTabWithGit). 환경 탭만 보던 e2e + clean 트리에서 파일 섹션 미렌더가 겹침. 코드 탭 클릭 + gitFiles==0 시 `.env-sub-empty` 항상 노출. D-68 번들 재빌드."
     }
   ],
   "entries": [
@@ -30,20 +36,6 @@
       "why": "hermetic ambient 서버만으로는 재현 불가. 실측(attempt-035): hub 카드는 보이나 '실행 중' 배지 부재로 실패. Chat 선택기는 통과해도 허브 축이 외부 상태.",
       "owner": "docs/ga/CR14_GATE_COVERAGE_BOUNDARY.md §2-10",
       "plan": "실 모델 허브 fixture 또는 mock hub 가 생기기 전까지 required 게이트에 넣지 않는다. 허브 mock 이 생기면 ambient 소유로 옮기고 이 항목을 closed 로 옮긴다.",
-      "review_due": "2026-10-14"
-    },
-    {
-      "id": "f47-invert-git-status-file-activity",
-      "class": "PRODUCT_FLAKE",
-      "file": "dashboard/e2e/tests/file-explorer.spec.ts",
-      "grep_invert_substring": "should show file activity from git status",
-      "titles": [
-        "should show file activity from git status"
-      ],
-      "capability": "환경 레일이 git status 파일 활동(또는 빈 상태)을 렌더하는가",
-      "why": "ambient 서버+격리 cwd 실측 실패: `.env-file-row` 와 `.env-sub-empty` 둘 다 비가시. ambient 부재가 아니라 제품/프로젝트 git 표면 flake.",
-      "owner": "docs/ga/CR14_GATE_COVERAGE_BOUNDARY.md §2-10",
-      "plan": "환경 레일 git 빈 상태 선택자·프로젝트 cwd 계약을 고치거나, 고정 fixture 프로젝트로 재측정 후 GREP_INVERT 에서 제거.",
       "review_due": "2026-10-14"
     },
     {
