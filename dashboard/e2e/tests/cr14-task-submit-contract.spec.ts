@@ -21,20 +21,29 @@
  * **두 기계 상태**로 잰다: 고침 전 **위반 5건**(알고 있는 프로젝트 쪽 3 = F-37 · 처음 설치한
  * 기계 쪽 2 = F-38) / 고침 후 0(두 테스트 각각 `exit 0`).
  *
+ * 다음 질문(이 attempt 가 **재지 않은 것**)
+ * -----------------------------------------
+ * 크래시 뒤 **이미 열려 있는 화면**이 새 사실을 배우는가 — 그 질문의 준비(실 서버 + 실 로그인 +
+ * 실 제출 + **격리된 cwd** + 고정 포트)는 이 파일이 이미 만들어 두었다. 가설은 "목록 조회가
+ * `reloadVersion` 에만 매여 있어 스트림이 다시 붙어도 크래시 전 스냅샷이 남는다"이고, **가설은
+ * 측정이 아니다**. 이 자리에 `test.fixme` 를 두지 않은 이유가 있다: 스킵 마커는
+ * `scripts/gate_skip_register.json` 이 소유하는데, 그 등록부의 채널은 **게이트 스킵**이라
+ * 대시보드 소스의 마커를 소유할 자리가 없다 — 소유자 없는 스킵을 만들지 않기 위해 재지 않은
+ * 질문은 이 주석·증거팩·§6 재개 순서에 적었다(질문 자체를 감추지는 않는다).
+ *
  * 무엇을 재지 않는가
  * ------------------
  * - **모델 실행**은 재지 않는다(실 provider — EX-01). 태스크가 `running` 으로 남는 것이 정상 입력이다.
  * - **서버의 저장 구조**는 재지 않는다(와이어 증인·pytest 계약·대시보드 스키마 계약이 판다).
  */
 
-import { createServer } from 'node:net';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { authPin, startAuthServer, type HermeticServer } from '../helpers/hermeticBackend';
+import { authPin, startAuthServer } from '../helpers/hermeticBackend';
 
 const WITNESS_PROMPT = 'cr14-f37-submit-witness';
 
@@ -94,23 +103,6 @@ async function seedOpenedRegistry(workingDirectory: string): Promise<void> {
     ),
     { encoding: 'utf8' },
   );
-}
-
-/** 고정 포트를 미리 잡아 둔다(재시작이 같은 origin 을 되찾기 위해 — 마지막 테스트가 쓴다). */
-async function reservePort(): Promise<number> {
-  return await new Promise<number>((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      if (address === null || typeof address === 'string') {
-        reject(new Error('포트를 잡지 못했다'));
-        return;
-      }
-      const { port } = address;
-      probe.close(() => resolve(port));
-    });
-  });
 }
 
 async function bearerToken(page: Page): Promise<string> {
@@ -340,92 +332,6 @@ test('처음 설치한 기계에서도 화면이 자기 프로젝트를 얻고 �
   } finally {
     await context.close();
     await server.cleanup();
-    await rm(stateDirectory, { recursive: true, force: true });
-  }
-});
-
-/**
- * F-39 후보 — 크래시 뒤 **이미 열려 있는 화면**이 새 사실을 배우는가.
- *
- * 이 테스트는 이 attempt 에서 **재지 않았다**: 준비(실 서버 + 실 로그인 + 실 제출)만 여기에 두고,
- * 질문과 관측은 다음 attempt 가 자기 로그로 잰다. 그 전까지 이 자리는 "물어보지 않았음"을 숨기지
- * 않기 위해 `fixme` 다 — 통과하는 테스트로 남겨 두면 재지 않은 질문이 재진 것처럼 보인다.
- *
- * (왜 그 질문이 여기 있나: `useTaskExecutionEvents` 의 목록 조회는 `reloadVersion` 에만 매여 있고,
- * 크래시 뒤 스트림이 다시 붙어도 그 값은 변하지 않는다 — 라벨은 "연결됨" 이라 말하는데 목록은
- * 크래시 전 스냅샷이라는 가설. **가설은 측정이 아니다.**)
- */
-test.fixme('(F-39 후보 · 미측정) 크래시 뒤 열려 있는 화면이 서버와 같은 사실을 말한다', async ({ browser }) => {
-  test.setTimeout(180_000);
-  const port = await reservePort();
-  const stateDirectory = await mkdtemp(path.join(tmpdir(), 'agk-f39-'));
-  await seedOpenedRegistry(stateDirectory);
-  const serverOptions = {
-    stateDirectory,
-    workingDirectory: stateDirectory,
-    removeStateOnCleanup: false,
-    port,
-    overrides: agentBaseUrl(stateDirectory),
-  } as const;
-  const baseURL = `http://127.0.0.1:${port}`;
-  let first: HermeticServer | null = null;
-  let second: HermeticServer | null = null;
-  const context = await browser.newContext({ baseURL });
-  const page = await context.newPage();
-  const violations: string[] = [];
-
-  try {
-    first = await startAuthServer(1, serverOptions);
-    const readiness = await loginAndOpenAgent(page, baseURL);
-    if (!readiness.projectKnown) throw new Error('이 슬라이스의 전제(화면이 프로젝트를 안다)가 깨졌다');
-    await submitFromScreen(page, WITNESS_PROMPT);
-
-    await expect
-      .poll(async () => {
-        const rows = await apiTasks(page, baseURL);
-        return rows.some((task) => task.status === 'running' && task.execution_owner === 'live');
-      }, { timeout: 30_000, intervals: [2_000] })
-      .toBe(true);
-    const baseline = await readSurface(page, WITNESS_PROMPT);
-    console.log(`[before crash] surface=${JSON.stringify(baseline)}`);
-
-    // ── 크래시: 정상 종료가 아니라 SIGKILL 이다. ──
-    first.kill('SIGKILL');
-    // ── 같은 상태 디렉터리 + 같은 포트로 재기동: 같은 DB, 같은 토큰 비밀(세션이 살아 있어야 한다). ──
-    second = await startAuthServer(1, serverOptions);
-    await page.waitForTimeout(12_000);
-
-    const surface = await readSurface(page, WITNESS_PROMPT);
-    const truth = (await apiTasks(page, baseURL)).find((task) => task.prompt === WITNESS_PROMPT);
-    if (truth === undefined) throw new Error('재기동한 서버가 그 태스크를 모른다(DB 가 유지되지 않았다)');
-    console.log(`[after crash] truth=${JSON.stringify(truth)} surface=${JSON.stringify(surface)}`);
-
-    if (truth.execution_owner !== 'dead') {
-      violations.push(
-        `V0 재기동한 서버가 주인을 죽었다고 말하지 않는다(${JSON.stringify(truth)}) — 이 슬라이스의 `
-        + '전제(크래시 뒤 죽은 소유자)를 만들지 못했으므로 나머지 판정은 의미가 없다',
-      );
-    }
-    if (truth.resumable === true && !surface.resume) {
-      violations.push(
-        'V1 서버는 그 행을 재개할 수 있다고 말하는데(`resumable=true`) 화면에는 재개 버튼이 없다',
-      );
-    }
-    if (surface.connection === '연결됨' && surface.label === baseline.label) {
-      violations.push(
-        `V2 화면이 "${surface.connection}" 이라 말하면서 크래시 전 스냅샷(${surface.label})을 그대로 `
-        + `보여 준다 — 서버는 ${String(truth.execution_owner)} 라고 말한다: 신선함을 주장하는 라벨 뒤에서 `
-        + '사실이 낡았다',
-      );
-    }
-
-    for (const violation of violations) console.log(`[VIOLATED] ${violation}`);
-    console.log(`[결과] ${violations.length === 0 ? 'OK' : `FAIL — 위반 ${violations.length}건`}`);
-    expect(violations, `F-39 위반 ${violations.length}건`).toEqual([]);
-  } finally {
-    await context.close();
-    if (first !== null) await first.cleanup();
-    if (second !== null) await second.cleanup();
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });
