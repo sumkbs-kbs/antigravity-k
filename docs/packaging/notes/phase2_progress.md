@@ -2,8 +2,14 @@
 
 **Date:** 2026-09-15 (Asia/Seoul)  
 **Branch:** `codex/m1-task-events`  
-**Status:** IN_PROGRESS (Host owned-child lifecycle wired; formal QA Pass/Fail still manual)  
+**Status:** **DONE-with-caveat**  
 **Decision:** D-01 = A (Electron); path = `desktop/` (see plan §5 / D-06)
+
+## Caveats (why not plain DONE)
+
+1. Manual QA Pass/Fail columns in `phase2_shell_qa.md` are **not filled** — checklist ready, not executed on a dedicated GUI smoke.
+2. Packaging into DMG / Electron Builder for the thin shell is **not yet** done (Phase 1 DMG is Host-only; shell remains `pnpm --dir desktop start`).
+3. Host spawn from a **dev tree** needs `uv` and/or `.venv` on PATH (preferred `uv run agk serve`; fallback `.venv/bin/agk` / `python -m antigravity_k.cli`).
 
 ## What landed
 
@@ -15,9 +21,20 @@ Thin Electron package at repo `desktop/`:
 | `desktop/main.js` | Main process: single-instance, window, tray, hide-on-close, Settings/logs, Host lifecycle |
 | `desktop/hostLifecycle.js` | Soft-probe + owned spawn/stop helpers (no Electron; smoke-reusable) |
 | `desktop/assets/tray.png` | Tray icon (from `dashboard/public/icon-180.png`) |
-| `desktop/README.md` | How to run + spawn policy |
+| `desktop/README.md` | How to run + spawn policy + Dock policy |
 | `desktop/.gitignore` | `node_modules/`, build outs |
-| `docs/packaging/notes/phase2_shell_qa.md` | Manual QA checklist |
+| `docs/packaging/notes/phase2_shell_qa.md` | Manual QA checklist (Pass/Fail blank until run) |
+
+## macOS Dock policy (formal)
+
+| Action | Dock | Process / Host |
+|---|---|---|
+| Launch shell | Dock icon **appears** (`app.dock?.show()` on activate/show) | Main + tray running |
+| Close window (red traffic light / Cmd-W) | Dock icon **stays** | Process stays; window **hides**; owned Host **keeps running** |
+| Click Dock icon / tray Open | Dock stays; window shown/focused | Same process |
+| Tray **Quit** / app quit | Dock icon **gone** (process exit) | Quit owns child shutdown: SIGTERM→SIGKILL for **owned** Host only |
+
+**Summary:** hide-on-close keeps the process; the Dock icon remains until Quit. Quit is the only path that stops an owned Host child. Unrelated Host / soak PIDs are never signaled.
 
 ## Host lifecycle (owned child only)
 
@@ -29,7 +46,7 @@ Thin Electron package at repo `desktop/`:
 | Unreachable + `SSAK_SPAWN_HOST=0` | Warning dialog Continue/Quit (no spawn) |
 | Spawn command (preferred) | `uv run agk serve --host <h> --port <p>` from **repo root** |
 | Spawn fallback | `.venv/bin/agk` or `.venv/bin/python -m antigravity_k.cli serve` (DMG launcher family) |
-| Hide-on-close | Window hides; owned Host **keeps running** |
+| Hide-on-close | Window hides; Dock stays; owned Host **keeps running** |
 | Quit | If `ownedHost` and child alive → SIGTERM then SIGKILL after grace |
 | Never | Kill unrelated PIDs; kill `29961`/`29969`; touch `val02_staging.py` soak |
 
@@ -75,16 +92,16 @@ SSAK_HOST_URL=http://127.0.0.1:18081 pnpm --dir desktop start
 
 ## Checklist mapping (plan § Phase 2)
 
-| Plan item | This turn |
+| Plan item | Status |
 |---|---|
-| Single-instance → focus / reopen | **Working** |
-| Tray: Open / Quit / Settings / Open logs folder | **Working** |
-| Close window = hide | **Working** (owned Host stays) |
-| Quit = Host graceful shutdown | **Working** for **owned child only** |
-| Startup failure UI | **Working** — spawn timeout dialog; or Continue/Quit when spawn disabled |
-| Tray “starting…” before ready | **Working** during owned spawn |
-| Dock hide policy doc | **Partial** — noted in README; formal Dock policy later |
-| `phase2_shell_qa.md` manual QA | Checklist updated — Pass/Fail still blank until full manual GUI run |
+| Single-instance → focus / reopen | **DONE** (code) |
+| Tray: Open / Quit / Settings / Open logs folder | **DONE** (code) |
+| Close window = hide (≠ quit) | **DONE** (code); Dock stays until Quit |
+| Quit = Host graceful shutdown | **DONE** for **owned child only** |
+| Startup failure UI | **DONE** (code) — spawn timeout dialog; or Continue/Quit when spawn disabled |
+| Tray “starting…” before ready | **DONE** (code) during owned spawn |
+| Dock hide policy doc | **DONE** — this section + README + plan checklist |
+| `phase2_shell_qa.md` manual QA | Checklist ready, **not executed** (Pass/Fail blank) |
 
 ## Constraints honored
 
@@ -95,8 +112,8 @@ SSAK_HOST_URL=http://127.0.0.1:18081 pnpm --dir desktop start
 - C-07: no push
 - Thin shell: no preload, no Node in page
 
-## Deferred (next turns)
+## Deferred (post Phase 2)
 
 1. Fill Pass/Fail in `phase2_shell_qa.md` on a dedicated smoke Host (full GUI)
-2. Formal Dock hide/show policy doc
+2. Electron Builder / DMG packaging of the thin shell
 3. Optional automated Electron E2E for Quit→owned stop

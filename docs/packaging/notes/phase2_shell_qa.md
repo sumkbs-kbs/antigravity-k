@@ -33,7 +33,7 @@ Fill **Pass / Fail** (and notes) after manual runs. Leave blank until exercised.
 | Tray “starting…” before ready | Spawn path shows starting… until probe OK | | | |
 | Soft-probe reuse | Host already up → no spawn (`ownedHost=false`) | | | |
 | `SSAK_SPAWN_HOST=0` | Never spawns even if unreachable | | | |
-| macOS Dock icon policy | Dock visible on launch (README draft); formal policy later | | | |
+| macOS Dock icon policy | Hide-on-close: process+Dock stay; Quit removes Dock + stops owned Host — see `phase2_progress.md` | | | checklist ready, not executed |
 
 ## Thin-shell security smoke
 

@@ -84,6 +84,18 @@ desktop/
   .gitignore
 ```
 
+
+## macOS Dock policy
+
+| Action | Dock icon | Process / Host |
+|---|---|---|
+| Launch | Shown | Shell + tray running |
+| Close window (hide) | **Stays** | Process stays; owned Host **keeps running** |
+| Dock click / tray Open | Stays | Window shown/focused |
+| Tray **Quit** | Removed (app exit) | Quit stops **owned** Host child only |
+
+**Rule:** hide-on-close keeps the process; the Dock icon remains until Quit. Quit owns child shutdown.
+
 ## Phase 2 checklist
 
 | Item | Status |
@@ -96,4 +108,5 @@ desktop/
 | Soft-probe; reuse existing Host | **working** (`ownedHost=false`) |
 | Spawn Host when unreachable (`SSAK_SPAWN_HOST` default on) | **working** (owned child) |
 | Quit stops owned Host only | **working** (SIGTERM→SIGKILL; soak/unrelated never killed) |
-| Manual QA `phase2_shell_qa.md` | **checklist present** — fill Pass/Fail manually |
+| macOS Dock policy | **documented** — hide keeps process/Dock; Quit clears Dock |
+| Manual QA `phase2_shell_qa.md` | **checklist ready, not executed** |
