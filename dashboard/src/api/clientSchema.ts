@@ -289,9 +289,14 @@ export const ProjectRecordSchema = z.object({
   name: z.string(),
   path: z.string().default(''),
   is_active: z.boolean().default(false),
-  last_accessed_at: z.string().optional(),
+  // F-38: 서버의 `last_accessed_at` 은 `str | None` 이고 **한 번도 열리지 않은 프로젝트**는
+  // `null` 로 직렬화된다(`ProjectRecord.model_dump()` — 기본 프로젝트가 그렇다).
+  // `.optional()` 은 `undefined` 만 허용하므로 그 응답은 **파싱 실패**했고, 화면은 자기 프로젝트를
+  // 얻지 못한 채(=`agk_active_project_id` 없음) 남았다 — 그 상태의 작업 제출은 서버에
+  // `missing_execution_context`(400) 로 거부된다. `.nullish()` 가 서버의 타입을 그대로 표현한다.
+  last_accessed_at: z.string().nullish(),
   tasks: z.array(z.string()).default([]),
-  preview: z.string().optional(),
+  preview: z.string().nullish(),
 }).passthrough();
 
 export const ProjectListResponseSchema = z.object({

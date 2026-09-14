@@ -100,8 +100,13 @@ def submit_background_task(request: TaskSubmitRequest, http_request: Request) ->
         resolve_project_execution_context,
     )
 
+    # F-37: 정체성은 `context` 안에 중첩될 수도 있고 **최상위**에 올 수도 있다 — 대시보드는 최상위
+    # 형태를 보낸다(`withProjectIdentityPayload`). 공유 리졸버는 그 둘을 이미 같은 것으로 읽으므로
+    # (`extract_project_id_from_payload`), 여기서 할 일은 **도착한 자리를 빠뜨리지 않는 것**이다.
+    # 중첩이 있으면 그것이 이긴다(더 구체적인 자리이며 기존 동작이다).
+    project_id = request.context.get("project_id") or request.project_id
     payload: dict[str, object] = {
-        "project_id": request.context.get("project_id"),
+        "project_id": project_id,
         "execution_context": request.context.get("execution_context"),
         "session_id": request.context.get("session_id"),
         "conversation_id": request.context.get("conversation_id"),

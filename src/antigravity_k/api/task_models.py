@@ -21,6 +21,23 @@ class TaskContextTooLargeError(ValueError):
 
 
 class TaskSubmitRequest(BaseModel):
+    """태스크 제출 본문.
+
+    **프로젝트 정체성의 두 자리 (F-37)**
+    ----
+    `project_id` 는 `context` 안에 중첩될 수도 있고 **최상위**에 올 수도 있다. 두 형태 모두 이 모델이
+    명시적으로 선언한다 — 공유 리졸버(`extract_project_id_from_payload`)가 이미 그 둘을 같은 것으로
+    읽도록 되어 있고 대시보드(`withProjectIdentityPayload`)는 **최상위** 형태를 보내기 때문이다.
+
+    최상위 형태를 선언하지 않으면 `extra="forbid"` 가 그 본문을 422 로 막고, 라우트는 `context` 만
+    보므로 정체성이 **어디에도 도착하지 않는다** — 실측: 대시보드의 "작업 제출" 이 어떤 환경에서도
+    202 를 받지 못했다(화면과 서버가 같은 계약을 말하지 않았다).
+
+    `project_revision` 은 같은 정체성 묶음의 일부이며, 라우트가 이 값을 해석에 쓰지는 않는다(세션
+    활성 프로젝트 개정은 서버가 소유한다). 그래도 선언하는 이유는 하나다: 대시보드는 프로젝트를
+    전환한 뒤 이 값을 함께 보내므로, 모델이 모르면 **정체성이 멀쩡한 요청이 422** 가 된다.
+    """
+
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     prompt: str = Field(max_length=32_000)
@@ -28,6 +45,8 @@ class TaskSubmitRequest(BaseModel):
     model: str = Field(default="", max_length=128)
     use_worktree: bool = False
     idempotency_key: str | None = Field(default=None, max_length=256)
+    project_id: str | None = Field(default=None, max_length=128)
+    project_revision: int | None = Field(default=None, ge=0)
 
     @field_validator("prompt")
     @classmethod

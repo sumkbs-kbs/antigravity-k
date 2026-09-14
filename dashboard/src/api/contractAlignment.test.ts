@@ -177,6 +177,68 @@ describe('Frontend-Backend Contract Alignment Tests', () => {
         expect(result.data.projects[0].is_active).toBe(true);
       }
     });
+
+    /**
+     * F-38 — **처음 설치한 기계/워크스페이스의 실제 응답**은 위 픽스처와 다르다.
+     *
+     * 위 테스트의 픽스처는 `last_accessed_at` 을 **아예 빼놓았기** 때문에 결함을 지나갔다: 서버는
+     * `ProjectRecord.model_dump()` 를 그대로 직렬화하므로 그 필드는 **언제나 있고**, 한 번도 열리지
+     * 않은 프로젝트(= 기본 프로젝트)에서는 `null` 이다. `.optional()` 은 `null` 을 거부했고, 그래서
+     * 화면은 `current_project` 를 얻지 못해 — 프로젝트를 **모르는 채로** — 작업 제출을 보냈다
+     * (서버: `missing_execution_context` 400). 아래 두 케이스가 그 응답을 **그대로** 고정한다.
+     */
+    it('parses a project that has never been opened (`last_accessed_at: null`)', () => {
+      const freshInstallPayload = {
+        ok: true,
+        workspace: '/tmp/ssak-fresh',
+        current_project: {
+          id: 'default',
+          name: 'ssak-fresh',
+          path: '/tmp/ssak-fresh',
+          is_active: true,
+          last_accessed_at: null,
+          tasks: [],
+        },
+        projects: [
+          {
+            id: 'default',
+            name: 'ssak-fresh',
+            path: '/tmp/ssak-fresh',
+            is_active: true,
+            last_accessed_at: null,
+            tasks: [],
+          },
+        ],
+      };
+
+      const result = ProjectListResponseSchema.safeParse(freshInstallPayload);
+      expect(result.success, '한 번도 열리지 않은 프로젝트가 목록 파싱을 깨면 화면은 자기 프로젝트를 잃는다').toBe(true);
+      if (result.success) {
+        // 하이드레이션이 성립하는 조건: current_project 가 살아 있어야 스토어가 `activeProjectId` 를 갖는다.
+        expect(result.data.current_project?.id).toBe('default');
+        expect(result.data.current_project?.last_accessed_at).toBeNull();
+      }
+    });
+
+    it('keeps a real timestamp when the project has been opened', () => {
+      const result = ProjectListResponseSchema.safeParse({
+        ok: true,
+        workspace: '/tmp/ssak-fresh',
+        current_project: {
+          id: 'default',
+          name: 'ssak-fresh',
+          path: '/tmp/ssak-fresh',
+          is_active: true,
+          last_accessed_at: '2026-09-14T08:18:21.168450',
+          tasks: [],
+        },
+        projects: [],
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.current_project?.last_accessed_at).toBe('2026-09-14T08:18:21.168450');
+      }
+    });
   });
 
   describe('LocalModelsResponseSchema', () => {
