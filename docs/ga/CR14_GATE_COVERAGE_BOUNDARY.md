@@ -1,6 +1,6 @@
 # 게이트 커버리지 경계 — required gate 22개가 **재지 않는** 것
 
-최종 갱신: 2026-09-14 (CR-14 attempt-038 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-invert-compact-large-stream` — TaskEventSchema 시드 정합 · GREP_INVERT 비움 · leftover **1건**(EXTERNAL_HUB만). 이전 attempt-037 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-invert-git-status-file-activity` — 코드 탭 + empty-state · leftover **2건**. 이전 attempt-036 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-invert-execution-trace-axe` — `.is-primary` AA + Monaco textbox aria-label · GREP_INVERT 제거 · leftover **3건**. 이전 attempt-035: disclosure hermetic 폐쇄 · leftover 4건 계수. 이전 attempt-034 — **F-45 · F-46 폐쇄**(§2-9): ambient 백엔드 스펙에 required-gate 소유자 `dashboard-e2e-ambient`(인벤토리 **22 → 23**). F-45=hermetic NO_PIN·훅 vault·CORS Origin. F-47=의도적 밖(disclosure/:5173·실 모델 허브·invert flake). 이전: attempt-032 — **F-42 폐쇄**(§2-8): §2-6·§2-7 이 자기 한계로 적어 둔 문장(*"실 브라우저 증인은 수동이고 required 게이트 중 어느 것도 이들을 돌리지 않는다 — 게이트 소유를 먼저 정해야 한다"*)을 **측정으로 바꾸니 그 문장은 셋만의 것이 아니었다**: `dashboard/e2e/tests/cr*.spec.ts` **9파일 29건**이 어떤 required 게이트에도 소유자가 없었고(커버리지 **0/9**), 그런데 그 패밀리는 **ambient 백엔드 없이** 돈다(**29 passed / 43.5s**) — 게이트로 세울 수 있었는데 세우지 않았다. 새 required 게이트 `dashboard-e2e-witnesses` 가 **이름 규칙**(`e2e/tests/cr\d+-`)으로 그 패밀리를 돌아 인벤토리가 **21 → 22** 가 됐다(그래서 이 문서의 제목·§5 의 `21/21` 도 `22/22` 로 바뀌었다). 그 게이트가 **삼키지 않는** 슬라이스(ambient 백엔드가 필요한 스펙)는 §2-8 이 계속 소유한다. 이전 갱신: 2026-09-13 (CR-14 attempt-026 — **F-34 폐쇄**(§2-2): 게이트 러너가 게이트 **직전·직후**의 경로별 내용 지도를 비교해, **자기가 재는 코드를 바꾼 게이트**를 `tree_moved` 로 적고 실행을 exit 1 로 끝낸다(required 여부 무관). 그전에는 보고서가 지문 **하나**로 "21개 초록이 이 코드 상태의 것"이라 주장했는데, 지문은 게이트 **앞에서** 한 번 재고 끝났다 — 추적 번들 45개를 다시 쓰는 `dashboard-build` 가 exit 0 으로 지나갔다. 앞선 attempt-024 는 **R-16 폐쇄**: 등록부의 소유 단위를 게이트 하나에서 **required 21개 전수**로 넓혔고, 그 과정에서 두 자리의 조용한 스킵을 찾아 닫았다 — `api-e2e`(`-q` 단독 익명) · `dashboard-test`(vitest 기본 리포터 건수만) 은 스킵을 **테스트 단위로 귀속**시키지 못했고, `clean-machine-runtime` 은 `--skip-*` 채널이 아무 자리에도 적혀 있지 않았다)
+최종 갱신: 2026-09-14 (CR-14 attempt-039 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-capture-real-local-models` — AGK_SEED_LOCAL_HUB hermetic · leftover **0건**. 이전 attempt-038 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-invert-compact-large-stream` — TaskEventSchema 시드 정합 · GREP_INVERT 비움 · leftover **1건**(EXTERNAL_HUB만). 이전 attempt-037 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-invert-git-status-file-activity` — 코드 탭 + empty-state · leftover **2건**. 이전 attempt-036 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-invert-execution-trace-axe` — `.is-primary` AA + Monaco textbox aria-label · GREP_INVERT 제거 · leftover **3건**. 이전 attempt-035: disclosure hermetic 폐쇄 · leftover 4건 계수. 이전 attempt-034 — **F-45 · F-46 폐쇄**(§2-9): ambient 백엔드 스펙에 required-gate 소유자 `dashboard-e2e-ambient`(인벤토리 **22 → 23**). F-45=hermetic NO_PIN·훅 vault·CORS Origin. F-47=의도적 밖(disclosure/:5173·실 모델 허브·invert flake). 이전: attempt-032 — **F-42 폐쇄**(§2-8): §2-6·§2-7 이 자기 한계로 적어 둔 문장(*"실 브라우저 증인은 수동이고 required 게이트 중 어느 것도 이들을 돌리지 않는다 — 게이트 소유를 먼저 정해야 한다"*)을 **측정으로 바꾸니 그 문장은 셋만의 것이 아니었다**: `dashboard/e2e/tests/cr*.spec.ts` **9파일 29건**이 어떤 required 게이트에도 소유자가 없었고(커버리지 **0/9**), 그런데 그 패밀리는 **ambient 백엔드 없이** 돈다(**29 passed / 43.5s**) — 게이트로 세울 수 있었는데 세우지 않았다. 새 required 게이트 `dashboard-e2e-witnesses` 가 **이름 규칙**(`e2e/tests/cr\d+-`)으로 그 패밀리를 돌아 인벤토리가 **21 → 22** 가 됐다(그래서 이 문서의 제목·§5 의 `21/21` 도 `22/22` 로 바뀌었다). 그 게이트가 **삼키지 않는** 슬라이스(ambient 백엔드가 필요한 스펙)는 §2-8 이 계속 소유한다. 이전 갱신: 2026-09-13 (CR-14 attempt-026 — **F-34 폐쇄**(§2-2): 게이트 러너가 게이트 **직전·직후**의 경로별 내용 지도를 비교해, **자기가 재는 코드를 바꾼 게이트**를 `tree_moved` 로 적고 실행을 exit 1 로 끝낸다(required 여부 무관). 그전에는 보고서가 지문 **하나**로 "21개 초록이 이 코드 상태의 것"이라 주장했는데, 지문은 게이트 **앞에서** 한 번 재고 끝났다 — 추적 번들 45개를 다시 쓰는 `dashboard-build` 가 exit 0 으로 지나갔다. 앞선 attempt-024 는 **R-16 폐쇄**: 등록부의 소유 단위를 게이트 하나에서 **required 21개 전수**로 넓혔고, 그 과정에서 두 자리의 조용한 스킵을 찾아 닫았다 — `api-e2e`(`-q` 단독 익명) · `dashboard-test`(vitest 기본 리포터 건수만) 은 스킵을 **테스트 단위로 귀속**시키지 못했고, `clean-machine-runtime` 은 `--skip-*` 채널이 아무 자리에도 적혀 있지 않았다)
 
 판정서의 `required gate 22/22 PASS` 는 **강한 문장이지만 만능 문장이 아니다.** 이 문서는 그
 문장이 **어디까지 참인지**를 적는다. 목적은 하나다: 초록을 "모든 것이 검증됐다"로 읽는 착각을
@@ -452,7 +452,7 @@ NO_PIN 누락 · 공유 `vault_data/hooks` 침묵 · hermetic Origin 이 `ws_ori
 
 
 
-## 2-10. F-47 leftover 에 정직한 소유자/계수 (attempt-035 · attempt-036 · attempt-037 · attempt-038)
+## 2-10. F-47 leftover 에 정직한 소유자/계수 (attempt-035 · … · attempt-039)
 
 attempt-034 가 "의도적 밖"으로 이름만 붙인 F-47 을 **측정으로 갈랐다**.
 
@@ -475,24 +475,28 @@ attempt-034 가 "의도적 밖"으로 이름만 붙인 F-47 을 **측정으로 �
   - 고침: `event()` 헬퍼로 스키마 정합 시드 + 최신 이벤트에 `step_id`/`title: step 1002` · GREP_INVERT 비움 · 제품 UI/번들 불변(D-68 불필요)
   - 소유자: required `dashboard-e2e-ambient` (`task-execution.spec.ts` compaction)
 
-### 열린 leftover — 목록 정체성으로 센다 (침묵 금지 · **1건**)
+### 열린 leftover — 목록 정체성으로 센다 (침묵 금지 · **0건**)
 등록부 `scripts/cr14_f47_leftover_register.json` · 계약
 `tests/test_cr14_f47_leftover_inventory_contract.py`.
 
-| id | class | 왜 소유하면 안 되는가 |
+| id | class | 상태 |
 | --- | --- | --- |
-| `f47-capture-real-local-models` | EXTERNAL_HUB | 실 unsloth 허브·'실행 중' 배지. hermetic 만으로 초록 불가 |
+| _(없음)_ | — | attempt-039 에서 EXTERNAL_HUB 폐쇄 후 열린 leftover 0 |
+
+#### 방금 닫힘 (attempt-039)
+- ~~`f47-capture-real-local-models`~~ — `HUB_SPEC_FILES` + `AGK_SEED_LOCAL_HUB=1`
+  hermetic 픽스처로 ambient 가 ModelHub `.hub-card`(orpheus…) + `실행 중` · Chat 선택기를 소유.
+  생산 경로(플래그 없음)는 불변. **EX-01 실 프로바이더 증명 아님**(게이트 커버리지 leftover 폐쇄).
 
 GREP_INVERT 는 **숨기는 장치**가 아니라 위 PRODUCT_FLAKE 와 **같은 문자열**을 가리켜야 한다
 (계약이 substring 포함을 잰다). PRODUCT_FLAKE 가 0이면 GREP_INVERT 도 비어야 한다(attempt-038).
 invert 를 유일한 소유자로 두지 않는다.
-닫힌 id 를 등록부에서만 지우면 목록 정체성 계약이 실패한다(이빨).
+닫힌 id 를 등록부에서 침묵 삭제하면 목록 정체성 계약이 실패한다(이빨) — `closed_this_attempt` 기록이 필요하다.
 
 ### 이 절이 재지 않는 것
-- C33-6 PIN-mode ticket witness(선택)
+- C33-6 PIN-mode ticket witness(선택 · 다음 최저가)
 - D-71 상대경로 마이그레이션(명시적 비범위)
 - EX-01…06 · C14-08 사람·조직 축(판정 NO-GO)
-- EXTERNAL_HUB(`capture-real-local-models`) — 이 attempt 범위 밖
 
 
 

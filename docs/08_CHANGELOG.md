@@ -1,6 +1,11 @@
 # 08 Changelog
 
 
+## 2026-09-14 — CR-14 attempt-039 (선언)
+
+- F-47 leftover `f47-capture-real-local-models`(EXTERNAL_HUB) 폐쇄 선언: `AGK_SEED_LOCAL_HUB` hermetic · ambient `HUB_SPEC_FILES` · leftover 1→0.
+- 후보 `bbb308f8` · 지문 `0b1a156f…` · required **23** · 판정 **NO-GO**(측정 전 선언 · EX-01 주장 금지).
+
 ## 2026-09-14 — CR-14 attempt-038
 
 - F-47 leftover `f47-invert-compact-large-stream` 폐쇄: e2e TaskEventSchema 시드 정합 · GREP_INVERT 비움 · leftover 2→1(EXTERNAL_HUB만).
