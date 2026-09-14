@@ -1,11 +1,12 @@
 """CR-14 F-47 leftover inventory — 소유되지 않은 ambient 슬라이스를 **센다**.
 
-attempt-037 측정
+attempt-038 측정
 ================
 - ``capture-disclosure-*`` 의 :5173 하드코드는 **값싼 하네스 결함**이었다.
   hermetic baseURL + ``AGK_SEED_LEVEL`` 로 초록 → ambient 게이트가 소유(폐쇄).
-- ``capture-real-local-models`` 는 실 unsloth 허브 상태(EXTERNAL_HUB).
-- GREP_INVERT 남은 1종(compact-large-stream)은 서버를 세워도 실패(PRODUCT_FLAKE).
+- ``capture-real-local-models`` 는 실 unsloth 허브 상태(EXTERNAL_HUB) — **열린 leftover 1건**.
+- GREP_INVERT 는 비움(PRODUCT_FLAKE 0). ``compacts a large event stream…`` 은
+  attempt-038 에서 시드 스키마 정합으로 닫혀 ambient 가 소유한다.
 - ``renders the execution trace at`` 는 attempt-036, ``should show file activity
   from git status`` 는 attempt-037 에서 닫혀 ambient 가 소유한다.
 
@@ -32,10 +33,7 @@ E2E_TESTS = REPO_ROOT / "dashboard" / "e2e" / "tests"
 BOUNDARY = REPO_ROOT / "docs" / "ga" / "CR14_GATE_COVERAGE_BOUNDARY.md"
 
 # 목록 정체성 — 매직 넘버 금지(F-21). 등록부가 원본이다.
-EXPECTED_OPEN_IDS: tuple[str, ...] = (
-    "f47-capture-real-local-models",
-    "f47-invert-compact-large-stream",
-)
+EXPECTED_OPEN_IDS: tuple[str, ...] = ("f47-capture-real-local-models",)
 
 
 def _register() -> dict[str, Any]:
@@ -90,10 +88,15 @@ def test_each_leftover_has_owner_plan_expiry_and_boundary_mention() -> None:
 
 
 def test_grep_invert_covers_exactly_the_product_flake_substrings() -> None:
-    """invert 문자열은 등록된 PRODUCT_FLAKE substring 을 **빠짐없이** 포함해야 한다."""
+    """invert 문자열은 등록된 PRODUCT_FLAKE substring 을 **빠짐없이** 포함해야 한다.
+
+    PRODUCT_FLAKE 가 0이면 GREP_INVERT 도 비어야 한다(attempt-038 — compact 폐쇄).
+    """
     invert = _grep_invert_from_script()
     flakes = [e for e in _register()["entries"] if e["class"] == "PRODUCT_FLAKE"]
-    assert flakes, "PRODUCT_FLAKE leftover 가 없다 — 등록부를 확인하라"
+    if not flakes:
+        assert invert == "", f"PRODUCT_FLAKE 0인데 GREP_INVERT 잔여: {invert!r}"
+        return
     for entry in flakes:
         needle = str(entry["grep_invert_substring"])
         assert needle in invert, f"{entry['id']}: GREP_INVERT 에 '{needle}' 없음 — invert 만으로 숨기면 안 된다"
@@ -149,4 +152,5 @@ def test_closed_disclosure_is_recorded() -> None:
     assert any(c.get("id") == "capture-disclosure-hermetic" for c in closed)
     assert any(c.get("id") == "f47-invert-execution-trace-axe" for c in closed)
     assert any(c.get("id") == "f47-invert-git-status-file-activity" for c in closed)
+    assert any(c.get("id") == "f47-invert-compact-large-stream" for c in closed)
     assert any("dashboard-e2e-ambient" in str(c.get("now_owned_by", "")) for c in closed)

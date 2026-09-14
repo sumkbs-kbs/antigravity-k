@@ -350,13 +350,19 @@ test('repairs a live stream gap with authoritative replay before completing', as
 });
 
 test('compacts a large event stream behind a snapshot boundary without losing the latest events', async ({ page }) => {
-  // Given: a replay of 1,002 events — over the replica compaction limit (1,000).
-  const bigEvents: Array<Record<string, unknown>> = Array.from({ length: 1_002 }, (_, i) => ({
-    sequence: i + 1,
-    type: 'progress',
-    payload: { message: `step ${i + 1}` },
-    timestamp: new Date(Date.UTC(2026, 7, 20, 9, 0, Math.min(i, 59))).toISOString(),
-  }));
+  // Given: a replay of 1,002 schema-valid events — over the replica compaction limit (1,000).
+  // Root cause (attempt-038 fail-first): bare `{type,timestamp,message}` shapes fail TaskEventSchema
+  // parse → 연결 오류 + "0 events". Seed must match `event()` / TaskEventSchema so compaction UI fires.
+  const bigEvents: Array<Record<string, unknown>> = Array.from({ length: 1_002 }, (_, i) => {
+    const sequence = i + 1;
+    const isLatest = sequence === 1_002;
+    return event(sequence, {
+      step_id: isLatest ? 'tail-step' : null,
+      event_type: 'progress',
+      payload: isLatest ? { title: `step ${sequence}`, message: `step ${sequence}` } : {},
+      created_at: new Date(Date.UTC(2026, 7, 20, 9, Math.floor(i / 60) % 24, i % 60)).toISOString(),
+    });
+  });
   await installTaskFixtures(page);
   await page.route(/\/api\/tasks\/task-ui\/events(?:\?.*)?$/, async (route) => {
     const cursor = Number(new URL(route.request().url()).searchParams.get('after_sequence') ?? '0');
