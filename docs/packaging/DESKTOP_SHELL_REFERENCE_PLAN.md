@@ -237,8 +237,8 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 - [x] `agk diagnostics export` 또는 동등 CLI (Host 기동 없이 가능하면 더 좋음) — **DONE** (`agk diagnostics export`; module `diagnostics_export`)
 - [x] ZIP 내용 allowlist: 앱/파이썬 버전, OS, 최근 로그(스크럽), 설정 **키 이름만**, 포트, 최근 에러 코드 — **DONE** (minimal slice)
 - [x] **절대 포함 금지:** `.env` 값, PIN, bearer, `vault_data`, raw crash에 비밀 가능 시 경고 — **DONE** (blocklist + `secret_scanner.redact_full`; test asserts)
-- [ ] UI: 설정 또는 트레이 “진단 내보내기…” — deferred (optional thin API/tray hook)
-- [ ] 기동 실패 복구 창: 로그 열기 / 포트 충돌 안내 / 진단 내보내기 / 재시도 — deferred
+- [x] UI: 트레이 “진단 내보내기…” — **DONE** (`desktop/main.js` → `runDiagnosticsExport` / `uv run agk diagnostics export`); Settings 버튼은 optional deferred
+- [ ] 기동 실패 복구 창: 로그 열기 / 포트 충돌 안내 / 진단 내보내기 / 재시도 — **next** (tray export already reusable)
 - [x] 문서: `docs/packaging/DIAGNOSTICS.md` + `notes/phase4_progress.md`
 
 **통과 기준**
@@ -419,7 +419,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 1 | 배포 클로저 | **DONE-with-caveat** (IN_PROGRESS 잔여=클린 Mac FULL은 `SSAK_BUNDLE_PYTHON` 스모크 후) | 마뱀 | `phase1_progress.md` · `MACOS_DMG_GUIDE.md` §5 · `windows_closure_stub.md` |
 | 2 | 셸 UX | **DONE-with-caveat** (manual QA Pass/Fail 미기입; shell DMG/Builder 미완; Host spawn은 dev에서 `uv`/venv PATH 필요) | 마뱀 | `desktop/` · `notes/phase2_progress.md` · `notes/phase2_shell_qa.md` |
 | 3 | Windows 패리티 | NOT_STARTED | | |
-| 4 | 복구·진단 | **IN_PROGRESS** (CLI export ZIP allowlist slice) | 마뱀 | `agk diagnostics export` · `DIAGNOSTICS.md` · `notes/phase4_progress.md` · `tests/test_diagnostics_export.py` |
+| 4 | 복구·진단 | **IN_PROGRESS** (CLI + tray export; recovery window next) | 마뱀 | `agk diagnostics export` · tray 진단 내보내기 · `DIAGNOSTICS.md` · `notes/phase4_progress.md` · `tests/test_diagnostics_export.py` · `desktop/hostLifecycle.js` |
 | 5 | 업데이트 채널 | NOT_STARTED | | |
 | 6 | 포트·오리진·모바일 bind | **IN_PROGRESS** | 마뱀 | `notes/phase6_progress.md` · access-info+Settings 안내 |
 | 7 | generation 수명 | NOT_STARTED / OPTIONAL | | |
@@ -454,3 +454,4 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | Phase 2 다음 슬라이스: tray Settings(`/settings`)·Open logs folder(`~/Library/Logs/Ssak-Ai`)·Host ready/unreachable 상태 라벨(120s soft probe). QA 표 `notes/phase2_shell_qa.md`. Host spawn/Quit→Host 종료는 계속 deferred. CR-14 GO 없음. |
 | 2026-09-15 | 마뱀 | Phase 2 Host lifecycle: soft-probe `SSAK_HOST_URL`; 기존 Host면 spawn 안 함; `SSAK_SPAWN_HOST` 기본 1(0=미spawn); owned child=`uv run agk serve` (DMG 런처 계열 fallback); tray starting…; Quit만 SIGTERM→SIGKILL(owned). Soak 29961/29969 미접촉. `hostLifecycle.js`·`phase2_progress`. CR-14 GO 없음. |
 | 2026-09-15 | 마뱀 | Phase 2 **DONE-with-caveat**: Dock 정책 문서화(hide-on-close→프로세스/Dock 유지, Quit까지); 체크리스트 코드 항목 [x]; caveats=수동 QA Pass/Fail 미기입·shell DMG/Builder 미완·spawn은 uv/venv PATH. Phase 4 **IN_PROGRESS**: `agk diagnostics export` allowlist ZIP + `DIAGNOSTICS.md` + `phase4_progress` + 테스트. CR-14 GO 없음. |
+| 2026-09-15 | 마뱀 | Phase 4 tray slice: **진단 내보내기…** → `child_process` `uv run agk diagnostics export --output` (동일 CLI); success dialog + `shell.showItemInFolder`; `runDiagnosticsExport` in `hostLifecycle.js`. Recovery window still open (next). Soak 29961/29969 미접촉. CR-14 GO 없음. |

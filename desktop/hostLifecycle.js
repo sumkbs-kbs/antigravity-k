@@ -295,6 +295,229 @@ async function stopOwnedHost(child, opts = {}) {
   };
 }
 
+
+/**
+ * Resolve how to invoke `agk <args…>` — same launcher preference as Host serve
+ * (`uv run agk` → `.venv/bin/agk` → `.venv/bin/python -m antigravity_k.cli` → `agk`).
+ *
+ * @param {string[]} agkArgs arguments after `agk` (e.g. ['diagnostics', 'export'])
+ * @param {{ repoRoot?: string }} [opts]
+ * @returns {{ command: string, args: string[], cwd: string, label: string }}
+ */
+function resolveAgkCliSpec(agkArgs, opts = {}) {
+  const repoRoot = opts.repoRoot || resolveRepoRoot();
+  const argsList = Array.isArray(agkArgs) ? agkArgs : [];
+  const bareLabel = `agk ${argsList.join(' ')}`.trim();
+
+  if (commandExists('uv')) {
+    return {
+      command: 'uv',
+      args: ['run', 'agk', ...argsList],
+      cwd: repoRoot,
+      label: `uv run ${bareLabel}`,
+    };
+  }
+
+  const venvAgk = path.join(repoRoot, '.venv', 'bin', 'agk');
+  if (fs.existsSync(venvAgk)) {
+    return {
+      command: venvAgk,
+      args: argsList,
+      cwd: repoRoot,
+      label: `.venv/bin/${bareLabel}`,
+    };
+  }
+
+  const venvPy = path.join(repoRoot, '.venv', 'bin', 'python');
+  if (fs.existsSync(venvPy)) {
+    return {
+      command: venvPy,
+      args: ['-m', 'antigravity_k.cli', ...argsList],
+      cwd: repoRoot,
+      label: `.venv/bin/python -m antigravity_k.cli ${argsList.join(' ')}`.trim(),
+    };
+  }
+
+  if (commandExists('agk')) {
+    return {
+      command: 'agk',
+      args: argsList,
+      cwd: repoRoot,
+      label: bareLabel,
+    };
+  }
+
+  throw new Error(
+    'No agk launcher found. Install uv (preferred) or ensure .venv/bin/agk ' +
+      '(or python -m antigravity_k.cli) is available — same paths as Host spawn.',
+  );
+}
+
+/**
+ * Parse ZIP path from `agk diagnostics export` stdout (fallback when --output omitted).
+ * @param {string} stdout
+ * @returns {string | null}
+ */
+function parseDiagnosticsZipPath(stdout) {
+  const text = String(stdout || '');
+  const m =
+    text.match(/Diagnostics ZIP written:\s*(.+)/i) ||
+    text.match(/ZIP written:\s*(.+)/i);
+  if (!m) return null;
+  return m[1].trim().replace(/^['"]|['"]$/g, '');
+}
+
+/**
+ * Run the same path as `agk diagnostics export` via child_process (Promise; does not
+ * block the Electron main thread event loop). Prefer `--output` so the caller knows
+ * the ZIP path without parsing.
+ *
+ * @param {{
+ *   repoRoot?: string,
+ *   outputPath?: string,
+ *   timeoutMs?: number,
+ *   env?: NodeJS.ProcessEnv,
+ * }} [opts]
+ * @returns {Promise<{
+ *   ok: boolean,
+ *   zipPath: string | null,
+ *   code: number | null,
+ *   signal: NodeJS.Signals | null,
+ *   stdout: string,
+ *   stderr: string,
+ *   label: string,
+ *   error?: string,
+ * }>}
+ */
+function runDiagnosticsExport(opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const repoRoot = opts.repoRoot || resolveRepoRoot();
+  const agkArgs = ['diagnostics', 'export'];
+  if (opts.outputPath) {
+    agkArgs.push('--output', String(opts.outputPath));
+  }
+
+  let spec;
+  try {
+    spec = resolveAgkCliSpec(agkArgs, { repoRoot });
+  } catch (err) {
+    return Promise.resolve({
+      ok: false,
+      zipPath: null,
+      code: null,
+      signal: null,
+      stdout: '',
+      stderr: '',
+      label: 'agk diagnostics export',
+      error: err && err.message ? err.message : String(err),
+    });
+  }
+
+  return new Promise((resolve) => {
+    /** @type {import('child_process').ChildProcess} */
+    const child = spawn(spec.command, spec.args, {
+      cwd: spec.cwd,
+      env: opts.env || process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+      windowsHide: true,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    let timer = null;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+
+    if (child.stdout) {
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+        if (stdout.length > 200_000) stdout = stdout.slice(-100_000);
+      });
+    }
+    if (child.stderr) {
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+        if (stderr.length > 200_000) stderr = stderr.slice(-100_000);
+      });
+    }
+
+    child.on('error', (err) => {
+      finish({
+        ok: false,
+        zipPath: null,
+        code: null,
+        signal: null,
+        stdout,
+        stderr,
+        label: spec.label,
+        error: err && err.message ? err.message : String(err),
+      });
+    });
+
+    child.on('close', (code, signal) => {
+      const parsed = parseDiagnosticsZipPath(stdout);
+      const zipPath =
+        (opts.outputPath && code === 0 ? String(opts.outputPath) : null) || parsed;
+      const ok = code === 0 && Boolean(zipPath);
+      finish({
+        ok,
+        zipPath: zipPath || null,
+        code,
+        signal,
+        stdout,
+        stderr,
+        label: spec.label,
+        error: ok
+          ? undefined
+          : stderr.trim() ||
+            (code === null && signal
+              ? `terminated by signal ${signal}`
+              : `exit code ${code}`),
+      });
+    });
+
+    timer = setTimeout(() => {
+      try {
+        if (child.pid && !FORBIDDEN_PIDS.has(child.pid)) {
+          child.kill('SIGTERM');
+        }
+      } catch {
+        /* ignore */
+      }
+      setTimeout(() => {
+        try {
+          if (isChildAlive(child) && child.pid && !FORBIDDEN_PIDS.has(child.pid)) {
+            child.kill('SIGKILL');
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 2_000);
+      finish({
+        ok: false,
+        zipPath: null,
+        code: null,
+        signal: 'SIGTERM',
+        stdout,
+        stderr,
+        label: spec.label,
+        error: `diagnostics export timed out after ${timeoutMs}ms`,
+      });
+    }, timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
+  });
+}
+
 module.exports = {
   DEFAULT_HOST_URL,
   DEFAULT_SPAWN_HOST,
@@ -306,6 +529,9 @@ module.exports = {
   parseHostBind,
   resolveRepoRoot,
   resolveSpawnSpec,
+  resolveAgkCliSpec,
+  parseDiagnosticsZipPath,
+  runDiagnosticsExport,
   hostProbe,
   waitForHostReady,
   isChildAlive,

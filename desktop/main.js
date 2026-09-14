@@ -10,6 +10,7 @@
  *   tray shows “Host starting…” until ready or timeout.
  * - Quit (tray / app) stops owned child only (SIGTERM → SIGKILL). Hide-on-close does not.
  * - Never kills unrelated PIDs / soak 29961·29969 / val02_staging.
+ * - Tray “진단 내보내기…” → child_process `uv run agk diagnostics export` (same CLI).
  */
 
 const fs = require('fs');
@@ -42,6 +43,8 @@ let hostChild = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let hostStatusTimer = null;
 let hostStopInProgress = false;
+/** True while tray diagnostics export child is running. */
+let diagnosticsExportInFlight = false;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -118,6 +121,15 @@ function buildTrayMenu() {
     {
       label: 'Open logs folder',
       click: () => openLogsFolder(),
+    },
+    {
+      label: '진단 내보내기…',
+      enabled: !diagnosticsExportInFlight,
+      click: () => {
+        exportDiagnosticsFromTray().catch((err) => {
+          console.error('[ssak-desktop] diagnostics export failed:', err);
+        });
+      },
     },
     { type: 'separator' },
     {
@@ -231,6 +243,89 @@ function openLogsFolder() {
       'Open logs folder',
       `Could not create or open logs directory:\n${logsDir()}\n\n${err && err.message ? err.message : err}`,
     );
+  }
+}
+
+
+function diagnosticsDefaultZipPath() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const localStamp =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return path.join(ensureLogsDir(), `diagnostics-${localStamp}.zip`);
+}
+
+/**
+ * Tray “진단 내보내기…” — same path as `agk diagnostics export` via child_process
+ * (uv run agk … / venv fallbacks). Does not block the UI event loop.
+ */
+async function exportDiagnosticsFromTray() {
+  if (diagnosticsExportInFlight) {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Export diagnostics',
+      message: 'Diagnostics export is already running.',
+      detail: 'Wait for the current export to finish.',
+      buttons: ['OK'],
+    });
+    return;
+  }
+
+  diagnosticsExportInFlight = true;
+  refreshTrayMenu();
+
+  const outPath = diagnosticsDefaultZipPath();
+  console.log(`[ssak-desktop] diagnostics export → ${outPath}`);
+
+  try {
+    const result = await lifecycle.runDiagnosticsExport({
+      repoRoot: lifecycle.resolveRepoRoot(__dirname),
+      outputPath: outPath,
+      timeoutMs: 120_000,
+    });
+
+    if (result.ok && result.zipPath) {
+      const zipPath = result.zipPath;
+      const revealLabel =
+        process.platform === 'darwin' ? 'Show in Finder' : 'Show in folder';
+      const choice = dialog.showMessageBoxSync({
+        type: 'info',
+        title: 'Export diagnostics',
+        message: 'Diagnostics ZIP ready',
+        detail: zipPath,
+        buttons: [revealLabel, 'OK'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (choice === 0) {
+        try {
+          shell.showItemInFolder(zipPath);
+        } catch (err) {
+          console.error('[ssak-desktop] showItemInFolder failed:', err);
+        }
+      }
+      return;
+    }
+
+    const detailParts = [
+      result.label ? `Command:\n  ${result.label}` : null,
+      result.error ? `Error:\n  ${result.error}` : null,
+      result.stderr ? `stderr:\n${result.stderr.slice(0, 1200)}` : null,
+      `Tried output:\n  ${outPath}`,
+    ].filter(Boolean);
+    dialog.showErrorBox(
+      'Export diagnostics failed',
+      detailParts.join('\n\n') || 'Unknown diagnostics export failure.',
+    );
+  } catch (err) {
+    dialog.showErrorBox(
+      'Export diagnostics failed',
+      err && err.message ? err.message : String(err),
+    );
+  } finally {
+    diagnosticsExportInFlight = false;
+    refreshTrayMenu();
   }
 }
 
