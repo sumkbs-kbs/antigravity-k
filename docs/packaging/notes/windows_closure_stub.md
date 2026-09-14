@@ -2,14 +2,14 @@
 title: Windows packaging closure — design stub
 date: 2026-09-15
 tz: Asia/Seoul
-status: DESIGN_ONLY
+status: STUB-ONLY / DEFERRED
 plan: docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md
-phase: 1 (stub) → 3 (implementation)
+phase: 1 (stub) → 3 (implementation DEFERRED — D-08; no NSIS this checkpoint)
 ---
 
 # Windows 클로저 설계 stub (구현 없음)
 
-> Phase 1 말미 산출물. **설치기/NSIS/portable 구현은 Phase 3.** 이 문서는 계약·인벤토리·리스크만 고정한다.
+> Phase 1 말미 산출물. **설치기/NSIS/portable 구현은 Phase 3** — 현재 **STUB-ONLY / DEFERRED** (계획서 D-08 / §10). Linked from [`DESKTOP_SHELL_REFERENCE_PLAN.md`](../DESKTOP_SHELL_REFERENCE_PLAN.md) Phase 3 + §11. 이 문서는 계약·인벤토리·리스크만 고정한다. **NSIS 구현 금지** until Phase 3 explicitly resumed.
 
 ## 1. 목표 상태 (Phase 3에서 구현)
 

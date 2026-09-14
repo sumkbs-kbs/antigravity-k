@@ -67,6 +67,11 @@
 
 ### 설치
 
+> **패키징 · 사용자 vs 개발자 (짧게)**  
+> - **사용자용:** macOS DMG 설치·실행 → [`docs/packaging/MACOS_DMG_GUIDE.md`](docs/packaging/MACOS_DMG_GUIDE.md) §2.  
+> - **개발자용:** `make dmg` / 클로저·Electron 셸·업데이트 채널 → 같은 가이드 §3 + [`docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md`](docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md) · [`desktop/README.md`](desktop/README.md).  
+> - Windows 설치기는 설계 stub만 (`docs/packaging/notes/windows_closure_stub.md`) — 구현 deferred.
+
 ```bash
 # 1. 저장소 클론
 git clone https://github.com/ssak-comp/Ssak-Ai.git

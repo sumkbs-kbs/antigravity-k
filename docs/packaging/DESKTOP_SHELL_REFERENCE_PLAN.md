@@ -214,16 +214,18 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 
 **참고 DSH:** NSIS + portable, 채널별 아티팩트.
 
+**상태:** **STUB-ONLY / DEFERRED** — 설계 stub만 존재 (`notes/windows_closure_stub.md`). **NSIS/Inno/Electron Builder 설치기 구현 없음** (이 체크포인트에서 구현하지 않음).
+
 **체크리스트**
-- [ ] Windows x64 설치기 설계 문서 (기술: Electron Builder / Inno / NSIS / briefcase 중 Decision)
-- [ ] 설치 경로·시작 메뉴·언인스톨
-- [ ] portable zip (선택)
-- [ ] `scripts/verify_release_artifacts.sh`와 연동 또는 신규 `verify:win-package`
-- [ ] `GA_SUPPORT_MATRIX.md`에 **실측 전제**로만 행 추가 (과장 금지; EX/지원 승격 규칙 준수)
-- [ ] 코드 서명/공증은 별도 BLOCKED_EXTERNAL로 명시 가능
+- [x] Windows x64 설치기 설계 문서 (기술: Electron Builder / Inno / NSIS / briefcase 중 Decision) — **STUB ONLY** → [`docs/packaging/notes/windows_closure_stub.md`](notes/windows_closure_stub.md) (W-A/W-B/W-C 후보; 구현 Decision은 재개 시)
+- [ ] 설치 경로·시작 메뉴·언인스톨 — **DEFERRED** (no installer)
+- [ ] portable zip (선택) — **DEFERRED**
+- [ ] `scripts/verify_release_artifacts.sh`와 연동 또는 신규 `verify:win-package` — **DEFERRED**
+- [ ] `GA_SUPPORT_MATRIX.md`에 **실측 전제**로만 행 추가 (과장 금지; EX/지원 승격 규칙 준수) — **DEFERRED** until real Win package
+- [x] 코드 서명/공증은 별도 BLOCKED_EXTERNAL로 명시 가능 — noted in stub
 
 **통과 기준**
-- 클린 Windows VM 또는 실기에서 설치 → 기동 → 대시보드 1회.
+- 클린 Windows VM 또는 실기에서 설치 → 기동 → 대시보드 1회. — **not met** (stub only; Phase 3 impl deferred)
 
 ---
 
@@ -281,20 +283,27 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 - [x] 제품 모드: **단일 loopback 포트** (API+SPA same origin via `dashboard_dist` on Host) — verified + noted in `phase6_progress.md`
 - [x] 개발 모드만 Vite proxy. `VITE_BACKEND_URL` 기본 `http://127.0.0.1:8000`, 죽은 포트로 뜨면 경고 — `vite.backendHealth.ts` startup probe + legacy `:8400` warning; ServerConfig default **8000**
 - [x] 포트 점유 시: 명확한 에러 + 진단 힌트 (Phase 4 연결) — recovery `suspectPortConflict` + `DIAGNOSTICS.md` Phase 6 port notes
-- [ ] (선택) `port: 0` 랜덤 + 마지막 성공 포트 기억
-- [~] LAN bind는 설정에서 위험 확인 후에만 (`0.0.0.0`) — guide default OFF + restart command; runtime rebind still out of scope
+- [ ] (선택) `port: 0` 랜덤 + 마지막 성공 포트 기억 — **not done** (caveat)
+- [~] LAN bind는 설정에서 위험 확인 후에만 (`0.0.0.0`) — guide default OFF + restart command; **runtime rebind without restart = not done** (caveat / out of scope)
 - [x] 설정 저장(`/api/settings/env`) 스모크: 인증 토큰 있는 상태에서 200 — covered by `tests/test_cr05_settings_secret_contract.py` + `tests/test_phase6_settings_env_smoke.py` (no live secrets)
 
 **모바일·개인사용 추가 체크리스트 (D-04/D-05)**
 - [x] 설정에 “모바일/LAN 접속 안내” (기본 OFF · localStorage) + 위험 고지 — **실제 bind는 재시작 명령**
 - [x] Tailscale/사설 IP 바인드 안내 (`/api/network/access-info` notes)
 - [x] 비-loopback PIN 강제 = 기존 `startup_security`/`AuthPolicy` (문서화). 실기기 스모크는 잔여
-- [ ] 폰 브라우저에서 같은 SPA 로그인·채팅 1회 스모크 (개인 Wi‑Fi 또는 Tailscale) — **open this turn** (no phone required)
+- [ ] 폰 브라우저에서 같은 SPA 로그인·채팅 1회 스모크 (개인 Wi‑Fi 또는 Tailscale) — **not run** (caveat; needs user network)
 - [x] `notes/mobile_host_premise.md`와 Settings 카피 정렬
 
 **통과 기준**
-- 제품 경로에서 5173 없이도 설정 저장·로그인 가능.
-- 루프백만으로 개인 데스크톱 사용 가능 + 옵션 켜면 모바일 Host 접속 가능.
+- 제품 경로에서 5173 없이도 설정 저장·로그인 가능. — **met** (product = Host + `dashboard_dist`; settings smoke via pytest)
+- 루프백만으로 개인 데스크톱 사용 가능 + 옵션 켜면 모바일 Host 접속 가능. — **partial**: loopback path met; phone LAN/Tailscale E2E smoke **not run**
+
+**완료 상태:** **DONE-with-caveat**
+- Caveats (still open, not blocking this close):
+  1. Phone browser LAN/Tailscale E2E smoke not run
+  2. Optional `port: 0` random + last-success memory not done
+  3. Runtime rebind without Host restart not done
+- Evidence: `notes/phase6_progress.md` · `DIAGNOSTICS.md` · Vite `backendProxyHealth` · Settings mobile guide
 
 ---
 
@@ -304,26 +313,30 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 
 **참고 DSH:** generation `release()` idempotent, profile select → restart → commit last-known-good.
 
+**상태:** **DEFERRED** (D-07) — **Ssak project binding이 이미 충분**. 새 Desktop generation 레이어를 만들지 않음.
+
 **체크리스트**
-- [ ] “Desktop generation” 개념을 Ssak에 매핑할지 Decision (Ssak는 project binding이 이미 있음 — **중복 만들지 말 것**)
-- [ ] 서버 재시작이 필요한 설정 변경 목록 정의
-- [ ] 재시작 실패 시 이전 설정으로 롤백 정책
-- [ ] soak/장시간 실행과 충돌 없는지 확인 (EX-05와 별개 레인)
+- [x] “Desktop generation” 개념을 Ssak에 매핑할지 Decision — **DEFER** (D-07): project binding 유지; **no new Desktop generation**
+- [ ] 서버 재시작이 필요한 설정 변경 목록 정의 — **DEFERRED** with Phase 7
+- [ ] 재시작 실패 시 이전 설정으로 롤백 정책 — **DEFERRED** with Phase 7
+- [ ] soak/장시간 실행과 충돌 없는지 확인 (EX-05와 별개 레인) — N/A while deferred; do not touch soak
 
 **통과 기준**
-- 재시작 루프 10회에서 orphan `agk`/포트 리스너 0.
+- 재시작 루프 10회에서 orphan `agk`/포트 리스너 0. — **not pursued** (deferred)
 
 ---
 
 ### Phase 8 — 문서·게이트·핸드오프 마감
 
+**상태:** **IN_PROGRESS** (checkpoint handoff this turn — status table + §8 refreshed; packaging tooling still open)
+
 **체크리스트**
-- [ ] `docs/packaging/MACOS_DMG_GUIDE.md` / Windows 가이드 / DIAGNOSTICS / UPDATE_CHANNELS 최신화
-- [ ] README 설치 섹션이 “개발자용”과 “사용자용”을 분리
-- [ ] `make check-desktop` 또는 동등: type/packaging smoke
-- [ ] 이 계획서 모든 Phase 상태를 DONE/DEFERRED로 갱신
-- [ ] 후속 에이전트용 “남은 일” 표 (§8) 갱신
-- [ ] (선택) CR/GA 문서에 **교차 링크만** (GO 주장 금지)
+- [~] `docs/packaging/MACOS_DMG_GUIDE.md` / Windows 가이드 / DIAGNOSTICS / UPDATE_CHANNELS 최신화 — guides exist; Win = stub only; keep as docs land
+- [x] README 설치 섹션이 “개발자용”과 “사용자용”을 분리 — short packaging pointer blurb added (→ `MACOS_DMG_GUIDE.md` user/dev + this plan)
+- [ ] `make check-desktop` 또는 동등: type/packaging smoke — **still open**
+- [x] 이 계획서 모든 Phase 상태를 DONE/DEFERRED/`DONE-with-caveat`/`STUB-ONLY`로 갱신 — §10 this checkpoint
+- [x] 후속 에이전트용 “남은 일” 표 (§8) 갱신 — this checkpoint
+- [x] (선택) CR/GA 문서에 **교차 링크만** (GO 주장 금지) — CR-14 remains **NO-GO**; no GO claim
 
 ---
 
@@ -388,14 +401,63 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 
 ---
 
-## 8. 후속 에이전트 핸드오프 템플릿
+## 8. 후속 에이전트 핸드오프 / 남은 일
 
-새 에이전트는 아래를 복사해 첫 메시지로 쓰면 된다.
+**Tip (pre-docs-commit base):** `ddcf3599` on `codex/m1-task-events` — see §12 for the docs checkpoint SHA after commit.  
+**Soak:** PIDs `29961`/`29969` (`val02_staging` 28800s) — **ALIVE; do not kill**.  
+**CR-14:** still **NO-GO** — never claim GO from this lane.
+
+### 8.1 상태 요약 (Phases 0–8)
+
+| Phase | 상태 | Notes |
+|---|---|---|
+| 0 | **DONE** | baseline |
+| 1 | **DONE-with-caveat** | DMG + 1a closure; `SSAK_BUNDLE_PYTHON` verified rebuild still open |
+| 2 | **DONE-with-caveat** | Electron thin shell; shell→DMG packaging open |
+| 3 | **STUB-ONLY / DEFERRED** | [`notes/windows_closure_stub.md`](notes/windows_closure_stub.md) only — **no NSIS** |
+| 4 | **DONE-with-caveat** | recovery dialog; Settings export deferred |
+| 5 | **DONE-with-caveat** | soft check; real Releases feed BLOCKED_EXTERNAL |
+| 6 | **DONE-with-caveat** | phone LAN smoke / `port:0` / runtime rebind open |
+| 7 | **DEFERRED** | D-07 — project binding sufficient; no Desktop generation |
+| 8 | **IN_PROGRESS** | this handoff; `make check-desktop` still open |
+
+### 8.2 남은 일 (next work)
+
+| Priority | Item | Notes |
+|---|---|---|
+| P0 | Phone LAN/Tailscale E2E smoke | Phase 6 caveat; needs user network |
+| P1 | Electron shell → DMG packaging | Phase 2 caveat / packaging closure |
+| P1 | `SSAK_BUNDLE_PYTHON=1` verified rebuild + clean-Mac smoke | Phase 1 caveat |
+| P2 | Real update feed (`SSAK_UPDATE_FEED` / GitHub Releases) | Phase 5 BLOCKED_EXTERNAL / deferred |
+| P2 | Windows installer (NSIS/Builder) | Phase 3 **impl** when un-deferred |
+| P3 | Optional `port:0` + last-success; runtime rebind | Phase 6 optional caveats |
+| P3 | `make check-desktop` | Phase 8 |
+| — | EX-05 soak finish | Do not interfere; separate lane |
+| — | CR-14 GO | **NO-GO** until human/EX gates — not this lane |
+
+### 8.3 Next-agent bullet list (copy)
 
 ```text
-작업: docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md 의 다음 미완 Phase부터 진행.
-제약: C-01..C-08 준수. CR-14 후보 동결 유지. soak 죽이지 말 것. 비밀 커밋 금지. 푸시 금지(요청 전).
-먼저: Phase 상태표(§10)에서 첫 [ ] 항목을 in_progress로 바꾸고 Decision Log 확인.
+- Tip base `ddcf3599` (+ docs checkpoint SHA in §12); branch `codex/m1-task-events`.
+- Soak 29961/29969 ALIVE — do not kill; do not claim CR-14 GO (still NO-GO).
+- Phase 6 DONE-with-caveat: phone LAN/Tailscale E2E smoke not run; optional port:0 not done; runtime rebind without restart not done.
+- Phase 3 STUB-ONLY/DEFERRED: design only in notes/windows_closure_stub.md — do not implement NSIS unless explicitly un-deferred.
+- Phase 7 DEFERRED (D-07): Ssak project binding sufficient — no new Desktop generation layer.
+- Left packaging: Electron→DMG; SSAK_BUNDLE_PYTHON=1 verified rebuild/smoke; real update feed; Windows installer when Phase 3 resumes.
+- Phase 8 still open: make check-desktop (or equivalent packaging smoke).
+- Prefer docs/evidence updates in this plan §9/§10/§12 + notes/*; no push unless asked; no secrets/vault.
+- Constraints: C-01..C-08; CR-14 candidate freeze; EX-05 soak separate lane.
+- DSH is reference-only (no harness transplant).
+- Start from §10 first open actionable item (phone smoke or Electron→DMG / BUNDLE_PYTHON — user priority).
+- On finish: update checklists + evidence paths + short briefing.
+```
+
+### 8.4 템플릿 (짧은 킥오프)
+
+```text
+작업: docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md §8.2 남은 일부터 진행.
+제약: C-01..C-08 준수. CR-14 후보 동결 유지. soak 죽이지 말 것. 비밀 커밋 금지. 푸시 금지(요청 전). CR-14 GO 금지.
+먼저: Phase 상태표(§10) + Decision Log(§9) 확인. Phase 3/7은 DEFERRED — 임의 재개 금지.
 완료 시: 체크리스트 갱신 + 증거 경로 + 짧은 한국어 브리핑.
 참고만: https://github.com/anywhere-labs/dsh-desktop (복붙 금지).
 ```
@@ -414,6 +476,8 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | D-04 | 2026-09-15 | 제품 목적 = **개인 사용 + 모바일 Host 연동**. UI 정본은 Host. Electron은 얇은 셸만 | 강병석 | `notes/mobile_host_premise.md` |
 | D-05 | 2026-09-15 | 기본 bind `127.0.0.1`; 모바일은 **명시적** LAN/Tailscale bind + 비-loopback 시 PIN/토큰 필수 | 강병석 | Phase 6 강화 |
 | D-06 | 2026-09-15 | 셸 패키지 경로 **`desktop/`** (비어 있음 확인 후 채택). Host spawn/stop은 Phase 2 후속; 스캐폴드는 Host 기동 가정 | 마뱀 | Phase 2 scaffold |
+| D-07 | 2026-09-15 | Phase 7 **DEFER**: Ssak **project binding**으로 충분. **새 Desktop generation 레이어 만들지 않음** (DSH generation 패턴 이식 안 함) | 강병석 지시 체크포인트 · 마뱀 기록 | Phase 7 |
+| D-08 | 2026-09-15 | Phase 3 **STUB-ONLY / DEFERRED**: `notes/windows_closure_stub.md` 설계만; **NSIS/설치기 구현 안 함** until explicitly resumed | 강병석 지시 체크포인트 · 마뱀 기록 | Phase 3 |
 
 ---
 
@@ -422,27 +486,31 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | Phase | 이름 | 상태 | 담당 | 증거 경로 |
 |---|---|---|---|---|
 | 0 | 범위·결정·베이스라인 | **DONE** | 마뱀 | `docs/packaging/notes/phase0_baseline.md` |
-| 1 | 배포 클로저 | **DONE-with-caveat** (IN_PROGRESS 잔여=클린 Mac FULL은 `SSAK_BUNDLE_PYTHON` 스모크 후) | 마뱀 | `phase1_progress.md` · `MACOS_DMG_GUIDE.md` §5 · `windows_closure_stub.md` |
-| 2 | 셸 UX | **DONE-with-caveat** (manual QA Pass/Fail 미기입; shell DMG/Builder 미완; Host spawn은 dev에서 `uv`/venv PATH 필요) | 마뱀 | `desktop/` · `notes/phase2_progress.md` · `notes/phase2_shell_qa.md` |
-| 3 | Windows 패리티 | NOT_STARTED | | |
+| 1 | 배포 클로저 | **DONE-with-caveat** (잔여=클린 Mac FULL은 `SSAK_BUNDLE_PYTHON` 검증 재빌드/스모크 후) | 마뱀 | `phase1_progress.md` · `MACOS_DMG_GUIDE.md` §5 · `windows_closure_stub.md` |
+| 2 | 셸 UX | **DONE-with-caveat** (manual QA Pass/Fail 미기입; shell→DMG/Builder 미완; Host spawn은 dev에서 `uv`/venv PATH 필요) | 마뱀 | `desktop/` · `notes/phase2_progress.md` · `notes/phase2_shell_qa.md` |
+| 3 | Windows 패리티 | **STUB-ONLY / DEFERRED** (D-08; design only — no installer) | 마뱀 | [`notes/windows_closure_stub.md`](notes/windows_closure_stub.md) |
 | 4 | 복구·진단 | **DONE-with-caveat** (recovery=dialog not custom window; Settings export deferred; signing N/A) | 마뱀 | `agk diagnostics export` · tray 진단 내보내기 · recovery dialog · `DIAGNOSTICS.md` · `notes/phase4_progress.md` · `tests/test_diagnostics_export.py` · `desktop/hostLifecycle.js` · `desktop/main.js` |
 | 5 | 업데이트 채널 | **DONE-with-caveat** (soft check + docs + channel-echo test; real Releases feed / download+confirm / signing = BLOCKED_EXTERNAL or deferred) | 마뱀 | `UPDATE_CHANNELS.md` · `notes/phase5_progress.md` · `desktop/updateChannels.js` · tray 업데이트 확인… · `desktop/test_updateChannels.js` |
-| 6 | 포트·오리진·모바일 bind | **IN_PROGRESS** (Vite proxy health + 8000 defaults + product single-loopback noted; phone LAN smoke still open) | 마뱀 | `notes/phase6_progress.md` · `vite.backendHealth.ts` · `DIAGNOSTICS.md` · access-info+Settings 안내 |
-| 7 | generation 수명 | NOT_STARTED / OPTIONAL | | |
-| 8 | 문서·게이트 마감 | NOT_STARTED | | |
+| 6 | 포트·오리진·모바일 bind | **DONE-with-caveat** (phone LAN/Tailscale E2E smoke not run; optional `port:0` not done; runtime rebind without restart not done) | 마뱀 | `notes/phase6_progress.md` · `vite.backendHealth.ts` · `DIAGNOSTICS.md` · access-info+Settings 안내 |
+| 7 | generation 수명 | **DEFERRED** (D-07 — project binding sufficient; no Desktop generation) | 마뱀 | §9 D-07 |
+| 8 | 문서·게이트 마감 | **IN_PROGRESS** (checkpoint handoff; `make check-desktop` still open) | 마뱀 | §8 남은 일 · README packaging pointer |
 
-상태 값: `NOT_STARTED` | `IN_PROGRESS` | `BLOCKED` | `DONE` | `DEFERRED`
+상태 값: `NOT_STARTED` | `IN_PROGRESS` | `BLOCKED` | `DONE` | `DONE-with-caveat` | `STUB-ONLY` | `DEFERRED`
 
 ---
 
 ## 11. 관련 문서
 
-- `docs/packaging/MACOS_DMG_GUIDE.md`
+- `docs/packaging/MACOS_DMG_GUIDE.md` (사용자용 설치 §2 / 개발자용 빌드 §3)
 - `docs/packaging/DIAGNOSTICS.md`
 - `docs/packaging/UPDATE_CHANNELS.md`
+- `docs/packaging/notes/windows_closure_stub.md` ← **Phase 3 design stub** (구현 없음)
+- `docs/packaging/notes/phase6_progress.md` (및 `phase0`–`phase5` progress notes)
+- `docs/packaging/notes/mobile_host_premise.md`
+- `desktop/README.md` (Electron thin shell)
 - `scripts/build_mac_dmg.sh`
 - `docs/ga/GA_SUPPORT_MATRIX.md` (지원 주장 과장 금지)
-- `docs/ga/CR14_EX_EXECUTION_LEDGER.md` (본 레인과 분리)
+- `docs/ga/CR14_EX_EXECUTION_LEDGER.md` (본 레인과 분리; CR-14 **NO-GO**)
 - DSH: `docs/architecture.en.md`, `docs/user-guide.md`, `docs/faq.md` (upstream 참고용 URL)
 
 ---
@@ -468,3 +536,4 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | Phase 5 **IN_PROGRESS**: D-03=GitHub Releases stub; `UPDATE_CHANNELS.md`; tray **업데이트 확인…** soft check (`SSAK_UPDATE_FEED` unset→「업데이트 서버 미구성」); `updateChannels.js`+fixture test; no auto-install. Signing/CDN BLOCKED_EXTERNAL. CR-14 GO 없음. |
 | 2026-09-15 | 마뱀 | Phase 5 **DONE-with-caveat**: soft check + docs + channel-echo unit test; real GitHub Releases feed / download+confirm install / signing = BLOCKED_EXTERNAL or deferred. `phase5_progress`·§10 마감. CR-14 GO 없음. Soak 29961/29969 미접촉. |
 | 2026-09-15 | 마뱀 | Phase 6 harden: Vite `backendProxyHealth` startup probe (warn on dead proxy / legacy `:8400`); `ServerConfig.port` default **8000**; product single-loopback (`dashboard_dist`) checklist; settings `/api/settings/env` smoke via CR-05 + thin pytest; DIAGNOSTICS port notes. Phone LAN smoke left open. CR-14 GO 없음. Soak 미접촉. |
+| 2026-09-15 | 마뱀 | **Checkpoint handoff (docs):** Phase 6 **DONE-with-caveat** (phone LAN smoke / optional `port:0` / runtime rebind open). Phase 3 **STUB-ONLY/DEFERRED** (D-08; link `windows_closure_stub.md`; no NSIS). Phase 7 **DEFERRED** (D-07; project binding sufficient). §8 남은 일 + next-agent bullets; §10 Phases 0–8 갱신; tip base `ddcf3599`. CR-14 GO 없음. Soak 29961/29969 미접촉. |
