@@ -1,6 +1,11 @@
 # 08 Changelog
 
 
+## 2026-09-14 — CR-14 attempt-040 (선언)
+
+- C33-6 PIN-mode ticket 브라우저 증인 선언: `cr14-pin-ws-ticket.spec.ts` · hermetic `startAuthServer` · `/api/auth/ws-ticket` → `?ticket=` · 4401 fail-first.
+- 후보 `b6003205` · 지문 `02349a8d…` · required **23** · 판정 **NO-GO**(측정 전 선언).
+
 ## 2026-09-14 — CR-14 attempt-039 (REVIEW / NO-GO)
 
 - F-47 leftover `f47-capture-real-local-models` 폐쇄: AGK_SEED_LOCAL_HUB hermetic · HUB_SPEC_FILES · leftover 0.

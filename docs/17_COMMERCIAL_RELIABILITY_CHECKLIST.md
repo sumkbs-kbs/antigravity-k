@@ -11,7 +11,7 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 [개발 계획](16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [검토 기준](qa/2026-09-11-commercial-review/BASELINE.md)
 
-**현재: CR-14 attempt-039 **REVIEW** — F-47 `f47-capture-real-local-models` CLOSED · leftover **0건** · 코드 후보 **커밋** `bbb308f8172c802419cb49a69970c1691d3c80ad` (지문 `0b1a156f…`) · required **23/23 PASS** · 판정 **NO-GO** · **GA 승인 없음** · owner=마뱀 · EX-01 주장 금지.**
+**현재: CR-14 attempt-040 **DECLARED** — C33-6 PIN ticket 브라우저 증인 · 후보 `b6003205` · 지문 `02349a8d…` · required **23** · 판정 **NO-GO** · **GA 승인 없음** · owner=마뱀 · 측정 전(D-52) · EX/D-71/APPROVE 손대지 않음.**
 최근 갱신: 2026-09-14 (**CR-14 attempt-039 REVIEW** — EXTERNAL_HUB hermetic 폐쇄. 후보 `bbb308f8` · 지문 `0b1a156f…` · **23/23** · leftover 0 · ambient hub-seed 2 passed · NO-GO.)
 최근 갱신: 2026-09-14 (**CR-14 attempt-039 DECLARED** — 후보 `bbb308f8` · 지문 `0b1a156f…` · 측정 전 §5 선언. AGK_SEED_LOCAL_HUB · HUB_SPEC_FILES.)
 최근 갱신: 2026-09-14 (**CR-14 attempt-038 REVIEW** — compact leftover 폐쇄. 후보 `4c3f8364` · 지문 `9362bdfc…` · **23/23** · ambient owns compact · leftover EXTERNAL_HUB 1건 · NO-GO.)
