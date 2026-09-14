@@ -52,10 +52,11 @@ pip install -e ".[dev,rag]"
 ## 실행/검증
 
 ```bash
-# 기본 포트는 8400 (config server.port, AGK_SERVER_PORT로 변경 가능)
-uv run agk serve --host 127.0.0.1 --port 8400
-curl -fsS http://127.0.0.1:8400/health
-curl -fsS http://127.0.0.1:8400/openapi.json
+# 기본 포트는 8000 (config server.port / Electron SSAK_HOST_URL / Vite proxy default).
+# AGK_SERVER_PORT로 변경 가능. 레거시 8400은 Vite 프록시와 어긋나 설정 저장 실패를 유발하므로 쓰지 말 것.
+uv run agk serve --host 127.0.0.1 --port 8000
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/openapi.json
 make quality-contract
 ```
 

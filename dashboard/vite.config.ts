@@ -4,13 +4,13 @@ import path from 'path';
 
 import { createAliases } from './vite.alias';
 import { buildStampDefine } from './buildStamp';
+import { backendProxyHealthPlugin, resolveBackendTarget } from './vite.backendHealth';
 
-const backendTarget = process.env.VITE_BACKEND_URL
-  || process.env.AGK_BACKEND_URL
-  || 'http://127.0.0.1:8000';
+// Product Host / Electron default is :8000. Never silently default to legacy :8400.
+const backendTarget = resolveBackendTarget();
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), backendProxyHealthPlugin(backendTarget)],
   // CR-10: BUILD 지표가 하드코딩 대신 실제 빌드 provenance를 쓰도록 주입한다.
   define: buildStampDefine,
   resolve: {

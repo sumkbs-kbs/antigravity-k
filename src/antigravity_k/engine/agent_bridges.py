@@ -10,7 +10,7 @@ Claude Code, Codex 등의 에이전트가 Ssak-Ai를 LLM 백엔드로 사용할 
 
 **Claude Code** (anthropic 프로토콜 — BASE_URL에 `/v1` 접미사 금지, CC가 직접 붙임):
 
-    ANTHROPIC_BASE_URL=http://127.0.0.1:8400
+    ANTHROPIC_BASE_URL=http://127.0.0.1:8000
     ANTHROPIC_API_KEY=ssak-ai-local
     ANTHROPIC_MODEL=qwen3.8:latest
     CLAUDE_CODE_MAX_CONTEXT_TOKENS=262144      # 미등록 모델의 실제 컨텍스트 윈도.
@@ -34,7 +34,7 @@ Claude Code, Codex 등의 에이전트가 Ssak-Ai를 LLM 백엔드로 사용할 
 
     OPENAI_API_KEY=ssak-ai-local codex exec --sandbox read-only --skip-git-repo-check \
       -c model_provider=ssak \
-      -c 'model_providers.ssak.base_url="http://127.0.0.1:8400/v1"' \
+      -c 'model_providers.ssak.base_url="http://127.0.0.1:8000/v1"' \
       -c 'model_providers.ssak.env_key="OPENAI_API_KEY"' \
       -c 'model_providers.ssak.wire_api="responses"' -m qwen3.8:latest "<prompt>" < /dev/null
 
@@ -167,7 +167,7 @@ def resolve_bridge(
     if not resolved_model:
         raise UnknownAgentError("모델이 필요합니다. --model 또는 기본 모델을 지정하세요.")
 
-    base = (api_base or "http://127.0.0.1:8400").rstrip("/")
+    base = (api_base or "http://127.0.0.1:8000").rstrip("/")
     # /v1 접미사 규약이 프로토콜마다 다르다 (Phase 36 수정):
     # - openai 계열(codex 등): 클라이언트가 base + "/chat/completions"|"/responses"를
     #   호출하므로 /v1 포함이 정답 (Phase 35 라이브 검증).

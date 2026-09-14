@@ -254,18 +254,22 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 
 **참고 DSH:** `X-DSH-Desktop-Channel`, 백그라운드 체크 무음 실패, 수동 Check for Updates, 확인 후 다운로드, 교차 채널 금지.
 
+**상태:** **DONE-with-caveat** (soft check + docs + channel-echo unit test landed; real Releases feed / download+confirm install / signing = BLOCKED_EXTERNAL or deferred)
+
 **체크리스트**
 - [x] 채널 모델 문서: `stable` / `beta` (Git 브랜치 ≠ 채널) — **DONE** (`docs/packaging/UPDATE_CHANNELS.md`)
 - [x] 버전 체크 API 계약(자체 또는 GitHub Releases): 요청 채널·현재 버전, 응답 채널 echo — **DONE** (sketch + fixture; D-03=GitHub Releases stub)
 - [~] 클라이언트: 백그라운드 체크(실패 무음) + 트레이 수동 체크(결과 표시) — tray **업데이트 확인…** soft check **DONE**; background silent check deferred
-- [x] 자동 설치 금지(기본): 이 슬라이스는 soft check only (다운로드/설치 UX는 후속); 기본 자동 설치 없음
+- [x] 자동 설치 금지(기본): soft check only; **download+confirm install UX = DEFERRED**
 - [ ] Beta→Stable 병치 설치는 **명시 메뉴**로만 (원치 않으면 스코프아웃 기록)
 - [x] 실패 시 현재 설치 유지 — soft check never mutates install
+- [~] 실 GitHub Releases 피드 / 기본 feed URL — **BLOCKED_EXTERNAL** / deferred (unset → 「업데이트 서버 미구성」 valid)
+- [~] 서명/공증/CDN — **BLOCKED_EXTERNAL**
 
 **통과 기준**
-- 가짜 업데이트 서버 또는 fixture로 채널 혼선이 거부됨을 테스트.
+- 가짜 업데이트 서버 또는 fixture로 채널 혼선이 거부됨을 테스트. — **met** (`desktop/test_updateChannels.js`)
 
-**비고:** 서명/공증/CDN은 외부 의존 — `BLOCKED_EXTERNAL`로 남길 수 있음.
+**비고:** 서명/공증/CDN·실 Releases 피드·다운로드 UX는 외부/후속 — `BLOCKED_EXTERNAL` 또는 deferred. Soft path만으로 Phase 5 닫음.
 
 ---
 
@@ -274,18 +278,18 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 **목적:** 오늘 재현된 Vite `8400`/`5173` 장애류를 제품 경로에서 제거.
 
 **체크리스트**
-- [ ] 제품 모드: **단일 loopback 포트** (API+SPA same origin)
-- [ ] 개발 모드만 Vite proxy. `VITE_BACKEND_URL` 기본 `http://127.0.0.1:8000`, 죽은 포트로 뜨면 경고
-- [~] 포트 점유 시: 명확한 에러 + 진단 힌트 (Phase 4 연결) — recovery dialog port-conflict hint **DONE**; product single-port / bind errors still Phase 6
+- [x] 제품 모드: **단일 loopback 포트** (API+SPA same origin via `dashboard_dist` on Host) — verified + noted in `phase6_progress.md`
+- [x] 개발 모드만 Vite proxy. `VITE_BACKEND_URL` 기본 `http://127.0.0.1:8000`, 죽은 포트로 뜨면 경고 — `vite.backendHealth.ts` startup probe + legacy `:8400` warning; ServerConfig default **8000**
+- [x] 포트 점유 시: 명확한 에러 + 진단 힌트 (Phase 4 연결) — recovery `suspectPortConflict` + `DIAGNOSTICS.md` Phase 6 port notes
 - [ ] (선택) `port: 0` 랜덤 + 마지막 성공 포트 기억
-- [ ] LAN bind는 설정에서 위험 확인 후에만 (`0.0.0.0`)
-- [ ] 설정 저장(`/api/settings/env`) 스모크: 인증 토큰 있는 상태에서 200
+- [~] LAN bind는 설정에서 위험 확인 후에만 (`0.0.0.0`) — guide default OFF + restart command; runtime rebind still out of scope
+- [x] 설정 저장(`/api/settings/env`) 스모크: 인증 토큰 있는 상태에서 200 — covered by `tests/test_cr05_settings_secret_contract.py` + `tests/test_phase6_settings_env_smoke.py` (no live secrets)
 
 **모바일·개인사용 추가 체크리스트 (D-04/D-05)**
 - [x] 설정에 “모바일/LAN 접속 안내” (기본 OFF · localStorage) + 위험 고지 — **실제 bind는 재시작 명령**
 - [x] Tailscale/사설 IP 바인드 안내 (`/api/network/access-info` notes)
 - [x] 비-loopback PIN 강제 = 기존 `startup_security`/`AuthPolicy` (문서화). 실기기 스모크는 잔여
-- [ ] 폰 브라우저에서 같은 SPA 로그인·채팅 1회 스모크 (개인 Wi‑Fi 또는 Tailscale)
+- [ ] 폰 브라우저에서 같은 SPA 로그인·채팅 1회 스모크 (개인 Wi‑Fi 또는 Tailscale) — **open this turn** (no phone required)
 - [x] `notes/mobile_host_premise.md`와 Settings 카피 정렬
 
 **통과 기준**
@@ -422,8 +426,8 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2 | 셸 UX | **DONE-with-caveat** (manual QA Pass/Fail 미기입; shell DMG/Builder 미완; Host spawn은 dev에서 `uv`/venv PATH 필요) | 마뱀 | `desktop/` · `notes/phase2_progress.md` · `notes/phase2_shell_qa.md` |
 | 3 | Windows 패리티 | NOT_STARTED | | |
 | 4 | 복구·진단 | **DONE-with-caveat** (recovery=dialog not custom window; Settings export deferred; signing N/A) | 마뱀 | `agk diagnostics export` · tray 진단 내보내기 · recovery dialog · `DIAGNOSTICS.md` · `notes/phase4_progress.md` · `tests/test_diagnostics_export.py` · `desktop/hostLifecycle.js` · `desktop/main.js` |
-| 5 | 업데이트 채널 | **IN_PROGRESS** (UPDATE_CHANNELS + D-03 GitHub Releases stub + tray soft check; no auto-install; signing/CDN BLOCKED_EXTERNAL) | 마뱀 | `UPDATE_CHANNELS.md` · `notes/phase5_progress.md` · `desktop/updateChannels.js` · tray 업데이트 확인… · `desktop/test_updateChannels.js` |
-| 6 | 포트·오리진·모바일 bind | **IN_PROGRESS** | 마뱀 | `notes/phase6_progress.md` · access-info+Settings 안내 |
+| 5 | 업데이트 채널 | **DONE-with-caveat** (soft check + docs + channel-echo test; real Releases feed / download+confirm / signing = BLOCKED_EXTERNAL or deferred) | 마뱀 | `UPDATE_CHANNELS.md` · `notes/phase5_progress.md` · `desktop/updateChannels.js` · tray 업데이트 확인… · `desktop/test_updateChannels.js` |
+| 6 | 포트·오리진·모바일 bind | **IN_PROGRESS** (Vite proxy health + 8000 defaults + product single-loopback noted; phone LAN smoke still open) | 마뱀 | `notes/phase6_progress.md` · `vite.backendHealth.ts` · `DIAGNOSTICS.md` · access-info+Settings 안내 |
 | 7 | generation 수명 | NOT_STARTED / OPTIONAL | | |
 | 8 | 문서·게이트 마감 | NOT_STARTED | | |
 
@@ -462,3 +466,5 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | Phase 4 recovery: Host-fail → Electron recovery **dialog** (Open logs / Export diagnostics / Retry start / Open in browser / Quit); `suspectPortConflict` 힌트; spawn off는 re-probe only. `DIAGNOSTICS.md`·`phase4_progress`·§10 갱신. Soak 29961/29969 미접촉. CR-14 GO 없음. |
 | 2026-09-15 | 마뱀 | Phase 4 **DONE-with-caveat**: recovery=dialog(not custom window); Settings export deferred; signing N/A. Checklist/§10/phase4_progress 마감. CR-14 GO 없음. Soak 29961/29969 미접촉. |
 | 2026-09-15 | 마뱀 | Phase 5 **IN_PROGRESS**: D-03=GitHub Releases stub; `UPDATE_CHANNELS.md`; tray **업데이트 확인…** soft check (`SSAK_UPDATE_FEED` unset→「업데이트 서버 미구성」); `updateChannels.js`+fixture test; no auto-install. Signing/CDN BLOCKED_EXTERNAL. CR-14 GO 없음. |
+| 2026-09-15 | 마뱀 | Phase 5 **DONE-with-caveat**: soft check + docs + channel-echo unit test; real GitHub Releases feed / download+confirm install / signing = BLOCKED_EXTERNAL or deferred. `phase5_progress`·§10 마감. CR-14 GO 없음. Soak 29961/29969 미접촉. |
+| 2026-09-15 | 마뱀 | Phase 6 harden: Vite `backendProxyHealth` startup probe (warn on dead proxy / legacy `:8400`); `ServerConfig.port` default **8000**; product single-loopback (`dashboard_dist`) checklist; settings `/api/settings/env` smoke via CR-05 + thin pytest; DIAGNOSTICS port notes. Phone LAN smoke left open. CR-14 GO 없음. Soak 미접촉. |

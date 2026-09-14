@@ -78,6 +78,15 @@ When the desktop shell cannot get Host ready (spawn timeout, probe fail, spawn e
 
 If a **port conflict** is suspected (TCP accept while HTTP probe fails, bind `EADDRINUSE`, or stderr/error mentions address-already-in-use), the dialog detail includes a short Phase 4/6 hint: stop the other listener or change `SSAK_HOST_URL` / `--port`, then Retry.
 
+**Phase 6 port notes (product vs Vite):**
+
+| Mode | Port story |
+|---|---|
+| **Product** | Single loopback: `agk serve` (default **`:8000`**) serves API + `dashboard_dist` SPA. Electron `SSAK_HOST_URL` default `http://127.0.0.1:8000`. No Vite. |
+| **Dev Vite** | Vite `:5173`/`:5174` proxies `/api` `/ws` `/v1` → `VITE_BACKEND_URL` / `AGK_BACKEND_URL` / default `http://127.0.0.1:8000`. Startup probe warns if backend dead or target still uses legacy **`:8400`**. |
+| **Conflict** | Host spawn / recovery already hint `EADDRINUSE`; free the listener or pick another `--port` / `SSAK_HOST_URL`. Do not point recovery smoke at soak `:8000`. |
+
+
 ### Manual trigger (dev)
 
 ```bash

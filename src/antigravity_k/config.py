@@ -250,7 +250,10 @@ class ServerConfig(BaseSettings):
     """API 서버 설정."""
 
     host: str = Field(default="127.0.0.1", description="바인딩 호스트")
-    port: int = Field(default=8400, description="API 서버 포트")
+    port: int = Field(
+        default=8000,
+        description="API 서버 포트 (product/Electron/Vite proxy default; legacy 8400 was a silent Vite mismatch trap)",
+    )
     inference_port: int = Field(default=8401, description="추론 엔진 포트")
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_SERVER_")

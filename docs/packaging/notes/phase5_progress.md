@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-15 (Asia/Seoul)  
 **Branch:** `codex/m1-task-events`  
-**Status:** **IN_PROGRESS** (docs + tray soft-check stub; no auto-install; signing/CDN BLOCKED_EXTERNAL)  
+**Status:** **DONE-with-caveat**  
 **Plan:** `docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md` § Phase 5 / §9 D-03 / §10 / §12
 
 ## Decision
@@ -18,7 +18,7 @@
 | `docs/packaging/UPDATE_CHANNELS.md` | Channel model, Git≠channel, request/response sketch, env, BLOCKED_EXTERNAL |
 | `desktop/updateChannels.js` | Soft check + channel echo / cross-channel reject |
 | `desktop/fixtures/update_feed_*.json` | Fixture feed shapes |
-| `desktop/test_updateChannels.js` | Tiny unit/fixture test |
+| `desktop/test_updateChannels.js` | Tiny unit/fixture test (channel-echo) |
 | `desktop/main.js` | Tray **업데이트 확인…** |
 
 ## Env / behavior
@@ -38,13 +38,15 @@
 | `node --check desktop/main.js` / `updateChannels.js` | **ok** |
 | Soak `29961`/`29969` | **Alive** (untouched) |
 
-## Still open
+## Caveats / deferred (why DONE-with-caveat)
 
-- [ ] Publish real GitHub Releases JSON / wire default feed URL (optional; unset remains valid)
-- [ ] Background silent check
-- [ ] Confirm → download → open DMG/installer UX
-- [ ] Beta↔stable side-by-side menu (or scope-out)
-- [ ] Signing / notarization / CDN — **BLOCKED_EXTERNAL**
+| Item | Status |
+|---|---|
+| Real GitHub Releases JSON feed / default feed URL | **BLOCKED_EXTERNAL** / deferred (unset feed remains valid soft path) |
+| Confirm → download → open DMG/installer UX | **DEFERRED** |
+| Code signing / notarization / CDN | **BLOCKED_EXTERNAL** |
+| Background silent check | Deferred (tray soft check done) |
+| Beta↔stable side-by-side menu | Optional / scope-out later |
 
 ## Constraints
 

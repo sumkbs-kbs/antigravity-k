@@ -448,7 +448,7 @@ def build_default_redirect_uri(request_base: str | None = None) -> str:
         base = request_base.rstrip("/")
         return f"{base}/api/mcp/oauth/callback"
     host = "127.0.0.1"
-    port = 8400
+    port = 8000
     try:
         from antigravity_k.config import config as app_config
 
