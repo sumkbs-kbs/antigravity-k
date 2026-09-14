@@ -21,16 +21,12 @@
  * **두 기계 상태**로 잰다: 고침 전 **위반 5건**(알고 있는 프로젝트 쪽 3 = F-37 · 처음 설치한
  * 기계 쪽 2 = F-38) / 고침 후 0(두 테스트 각각 `exit 0`).
  *
- * 다음 질문(이 attempt 가 **재지 않은 것**)
- * -----------------------------------------
- * 크래시 뒤 **이미 열려 있는 화면**이 새 사실을 배우는가 — 그 질문의 준비(실 서버 + 실 로그인 +
- * 실 제출 + **격리된 cwd** + 고정 포트)는 이 파일이 이미 만들어 두었다. 가설은 "목록 조회가
- * `reloadVersion` 에만 매여 있어 스트림이 다시 붙어도 크래시 전 스냅샷이 남는다"이고, **가설은
- * 측정이 아니다**. 이 자리를 "테스트 단위로 비활성화한 껍데기"로 두지 않은 이유가 있다: 그런 표기는
- * `scripts/gate_skip_register.json` 이 소유하는데, 그 등록부의 채널은 **게이트 스킵**이라 대시보드
- * 소스의 표기를 소유할 자리가 없다(`tests/test_cr14_gate_skip_register.py` 의 tripwire 가 그 사실을
- * 지킨다 — 재지 않은 질문을 소유자 없는 스킵으로 만들지 않는다). 그래서 재지 않은 질문은 이 주석·
- * 증거팩·§6 재개 순서에 적었다(질문 자체를 감추지는 않는다).
+ * 다음 질문은 **다른 파일**이 이어받았다
+ * ---------------------------------------
+ * 크래시 뒤 **이미 열려 있는 화면**이 새 사실을 배우는가 — attempt-029 는 그 질문을 **재지 않았고**
+ * (증인 파일 안에 테스트 단위 비활성화 표기로 자리를 남기려다 게이트가 두 번 정당하게 거부했다),
+ * 그 자리는 `cr14-crash-restart-surface.spec.ts`(attempt-030)가 이어받았다. 두 파일이 같은 자를
+ * 쓰도록 도우미는 `../helpers/taskScreen` 이 소유한다 — 질문마다 자를 복사하면 재는 자가 갈라진다.
  *
  * 무엇을 재지 않는가
  * ------------------
@@ -38,195 +34,24 @@
  * - **서버의 저장 구조**는 재지 않는다(와이어 증인·pytest 계약·대시보드 스키마 계약이 판다).
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
-import { authPin, startAuthServer } from '../helpers/hermeticBackend';
+import { startAuthServer } from '../helpers/hermeticBackend';
+import {
+  agentBaseUrl,
+  apiTasks,
+  loginAndOpenAgent,
+  readSurface,
+  rowOf,
+  seedOpenedRegistry,
+  submitFromScreen,
+} from '../helpers/taskScreen';
 
 const WITNESS_PROMPT = 'cr14-f37-submit-witness';
-
-type TaskRow = Readonly<{
-  task_id: string;
-  prompt: string;
-  status: string;
-  execution_owner?: string;
-  resumable?: boolean;
-}>;
-
-type Surface = Readonly<{
-  label: string;
-  cancel: boolean;
-  resume: boolean;
-  connection: string;
-  retryOffered: boolean;
-}>;
-
-type ScreenReadiness = Readonly<{
-  /** 화면이 자기 프로젝트를 알고 있는가(`agk_active_project_id` 를 **이 로드에서** 썼는가). */
-  projectKnown: boolean;
-  /** 서버가 준 프로젝트 목록의 원문(파싱 실패의 근거를 로그에 남기기 위해). */
-  projectsBody: string;
-}>;
-
-type Submission = Readonly<{
-  status: number;
-  body: string;
-  /** 화면이 실제로 보낸 것 — 정체성이 본문 어디에 실렸는지. */
-  sent: Readonly<{ projectHeader: string | null; body: Record<string, unknown> }>;
-}>;
-
-/**
- * 프로젝트 레지스트리를 **미리 심는다**(서버의 cwd 아래 `data/projects.json`).
- *
- * `last_accessed_at` 이 문자열인 레코드가 있어야 화면의 스키마가 목록을 파싱한다 — 이 상태가
- * "이미 프로젝트를 쓰고 있는 기계"이고, F-37 이 사는 자리다.
- */
-async function seedOpenedRegistry(workingDirectory: string): Promise<void> {
-  await mkdir(path.join(workingDirectory, 'data'), { recursive: true });
-  await writeFile(
-    path.join(workingDirectory, 'data', 'projects.json'),
-    JSON.stringify(
-      [
-        {
-          id: 'default',
-          name: 'agk-f37-opened',
-          path: workingDirectory,
-          is_active: true,
-          last_accessed_at: '2026-01-05T09:00:00.000000',
-          tasks: [],
-        },
-      ],
-      null,
-      2,
-    ),
-    { encoding: 'utf8' },
-  );
-}
-
-async function bearerToken(page: Page): Promise<string> {
-  const token = await page.evaluate(() => sessionStorage.getItem('ag_access_token'));
-  if (token === null || token === '') throw new Error('화면이 세션 토큰을 갖고 있지 않다');
-  return token;
-}
-
-async function apiTasks(page: Page, baseUrl: string): Promise<readonly TaskRow[]> {
-  const response = await page.request.get(`${baseUrl}/api/tasks`, {
-    headers: { Authorization: `Bearer ${await bearerToken(page)}` },
-  });
-  expect(response.status(), 'GET /api/tasks 는 화면과 같은 자격으로 물어야 한다').toBe(200);
-  const body = (await response.json()) as { data?: readonly TaskRow[] };
-  return body.data ?? [];
-}
-
-/** 그 프롬프트의 행(화면은 프롬프트를 제목으로 그린다 — aria-label 에는 태스크 ID 가 없다). */
-function rowOf(page: Page, prompt: string) {
-  return page.locator('.task-queue-list li').filter({ hasText: prompt });
-}
-
-/** 화면이 그 행에 대해 그리는 것 — 라벨과 버튼의 존재, 연결 라벨. */
-async function readSurface(page: Page, prompt: string): Promise<Surface> {
-  const item = rowOf(page, prompt);
-  const label = (await item.locator('.task-queue-select span').first().innerText()).trim();
-  const connection = (await page.locator('.task-connection-state').first().innerText()).trim();
-  const actions = item.locator('.task-queue-actions');
-  return {
-    label,
-    cancel: (await actions.getByRole('button', { name: '취소' }).count()) > 0,
-    resume: (await actions.getByRole('button', { name: '재개' }).count()) > 0,
-    connection,
-    retryOffered: (await page.getByRole('button', { name: '다시 연결' }).count()) > 0,
-  };
-}
-
-/** 실제 PIN 로그인 + 원하는 화면이 뜰 때까지 기다린다(우회하지 않는다). */
-async function openScreen(page: Page, probe: ReturnType<Page['locator']>, why: string): Promise<void> {
-  const pinDialog = page.locator('[role="dialog"][aria-label="PIN 인증"]');
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    if ((await probe.count()) > 0) return;
-    if ((await pinDialog.count()) > 0) {
-      await pinDialog.locator('input').first().fill(authPin);
-      await pinDialog.getByRole('button', { name: /잠금 해제|확인/ }).first().click();
-      await expect(pinDialog, `${why} — PIN 해제`).toHaveCount(0, { timeout: 15_000 });
-      continue;
-    }
-    await page.waitForTimeout(500);
-  }
-  throw new Error(`${why} — 화면이 뜨지 않았다`);
-}
-
-/**
- * 로그인하고 `/agent` 를 연 뒤 **화면이 자기 프로젝트를 얻었는지**를 돌려준다.
- *
- * 정체성은 `hydrateFromServer` → `/api/projects` → `agk_active_project_id` 로 스토어에 들어온다.
- * `addInitScript` 가 매 내비게이션 시작에 그 키를 지우므로, 값이 있다는 것은 **이 페이지 로드가**
- * 하이드레이션을 끝냈고 그 프로젝트가 실재한다는 뜻이다(다른 로드의 잔재가 아니다).
- */
-async function loginAndOpenAgent(page: Page, baseUrl: string): Promise<ScreenReadiness> {
-  await page.addInitScript(() => {
-    try {
-      window.localStorage.removeItem('agk_active_project_id');
-    } catch {
-      /* private mode / quota — 이 증인의 전제는 화면이 정체성을 얻는 것이므로 실패로 드러난다 */
-    }
-  });
-  let projectsBody = '';
-  page.on('response', (response) => {
-    if (!response.url().includes('/api/projects')) return;
-    void response.text()
-      .then((text) => {
-        if (text) projectsBody = text.slice(0, 600);
-      })
-      .catch(() => undefined);
-  });
-
-  await page.goto('/');
-  await openScreen(page, page.locator('.sidebar, nav').first(), '첫 화면');
-  await page.goto(`${baseUrl}/agent`);
-  await openScreen(page, page.getByLabel('새 작업 지시'), '/agent 화면');
-
-  let projectKnown = false;
-  try {
-    await expect
-      .poll(
-        async () => page.evaluate(() => window.localStorage.getItem('agk_active_project_id')),
-        { timeout: 15_000, intervals: [250] },
-      )
-      .not.toBeNull();
-    projectKnown = true;
-  } catch {
-    projectKnown = false;
-  }
-  return { projectKnown, projectsBody };
-}
-
-/** 화면의 제출 폼을 실제로 눌러 **보낸 것과 받은 것**을 함께 기록한다. */
-async function submitFromScreen(page: Page, prompt: string): Promise<Submission> {
-  const field = page.getByLabel('새 작업 지시');
-  await field.fill(prompt);
-  const responsePromise = page.waitForResponse((response) => response.url().includes('/api/tasks/submit'));
-  const requestPromise = page.waitForRequest((request) => request.url().includes('/api/tasks/submit'));
-  await page.getByRole('button', { name: '작업 제출' }).click();
-  const request = await requestPromise;
-  const response = await responsePromise;
-  return {
-    status: response.status(),
-    body: (await response.text()).slice(0, 300),
-    sent: {
-      projectHeader: request.headers()['x-agk-project-id'] ?? null,
-      body: request.postDataJSON() as Record<string, unknown>,
-    },
-  };
-}
-
-function agentBaseUrl(stateDirectory: string): Readonly<Record<string, string>> {
-  return {
-    AGK_TASK_DB_PATH: path.join(stateDirectory, 'tasks.db'),
-    AGK_ALLOWED_ROOTS: stateDirectory,
-  };
-}
 
 test('작업 제출이 서버에 도착하고 목록에 나타난다 (F-37)', async ({ browser }) => {
   test.setTimeout(150_000);

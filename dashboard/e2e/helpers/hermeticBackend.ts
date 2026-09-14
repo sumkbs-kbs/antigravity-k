@@ -19,6 +19,7 @@
  * in to a configured PIN.
  */
 
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -32,9 +33,15 @@ export interface HermeticServer {
   baseUrl: string;
   /** 이 서버가 살아 있는 동안의 상태 디렉터리(토큰 비밀·PIN 해시·격리 env 파일). */
   stateDirectory: string;
-  /** uvicorn 프로세스의 pid — 크래시 슬라이스가 신호를 보낸다. */
+  /** 서버 **프로세스 그룹 리더**의 pid — 크래시 슬라이스가 이 그룹째로 신호를 보낸다. */
   pid: number | undefined;
-  /** 이 서버에 신호를 보낸다(기본 `SIGKILL` — 크래시를 재현할 때 정상 종료를 쓰면 다른 질문이 된다). */
+  /**
+   * 이 서버를 멈춘다(기본 `SIGKILL` — 크래시를 재현할 때 정상 종료를 쓰면 다른 질문이 된다).
+   *
+   * 신호는 **프로세스 그룹 전체**로 간다: 이 하네스는 `uv run … uvicorn` 을 띄우므로 실제 서버는
+   * 런처의 **자식**이다 — 런처만 죽이면 uvicorn 이 살아남아 포트를 붙들고 있고, 그 상태에서는
+   * "크래시"가 크래시가 아니다(그 사실을 attempt-030 의 증인이 처음 만났다).
+   */
   kill: (signal?: NodeJS.Signals) => boolean;
   cleanup: () => Promise<void>;
 }
@@ -88,14 +95,21 @@ export async function startBackendServer(
   const stateDirectory = options.stateDirectory
     ?? await mkdtemp(path.join(tmpdir(), 'agk-e2e-auth-'));
   const secretPath = path.join(stateDirectory, 'token_secret');
-  await writeFile(secretPath, randomBytes(32).toString('hex'), {
-    mode: 0o600,
-    encoding: 'utf8',
-  });
+  // 상태 디렉터리를 **재사용**하는 두 번째 서버는 비밀을 **새로 만들지 않는다**: 새로 만들면
+  // 브라우저가 들고 있던 세션이 무효가 되어 질문이 "화면이 새 사실을 배우는가"에서 "사용자가
+  // 로그아웃됐는가"로 바뀐다(이 파일의 docstring 이 처음부터 약속한 성질이다 — 약속과 구현이
+  // 갈라져 있던 것을 attempt-030 의 증인이 만났다).
+  if (!existsSync(secretPath)) {
+    await writeFile(secretPath, randomBytes(32).toString('hex'), {
+      mode: 0o600,
+      encoding: 'utf8',
+    });
+  }
   const isolatedEnvFile = path.join(stateDirectory, 'isolated.env');
   await writeFile(isolatedEnvFile, '# isolated scenario env — intentionally empty\n', {
     encoding: 'utf8',
   });
+
   const projectRoot = path.resolve(process.cwd(), '..');
   const workingDirectory = options.workingDirectory ?? projectRoot;
   const listener = childProcess.spawn(
@@ -129,8 +143,26 @@ export async function startBackendServer(
         ...overrides,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
+      // 새 프로세스 그룹의 리더로 띄운다 — 실제 서버(`uvicorn`)는 런처(`uv`)의 자식이므로
+      // 런처만 죽이는 신호는 **크래시가 아니다**(포트를 붙들고 살아남는다).
+      detached: true,
     },
   );
+  /**
+   * 그룹째로 신호를 보낸다 — `detached: true` 로 띄우므로 `-pid` 가 그 그룹이다.
+   *
+   * 실패하면(이미 죽었거나 그룹이 없으면) 직접 신호로 물러선다: 죽은 프로세스에 신호를 보내는
+   * 것은 오류가 아니고, 두 번째 서버를 정리하는 경로가 그 사실 때문에 실패하면 안 된다.
+   */
+  const signalProcessGroup = (target: number | undefined, signal: NodeJS.Signals): boolean => {
+    if (target === undefined) return false;
+    try {
+      process.kill(-target, signal);
+      return true;
+    } catch {
+      return listener.kill(signal);
+    }
+  };
   let output = '';
   listener.stdout?.on('data', chunk => { output += chunk; });
   listener.stderr?.on('data', chunk => { output += chunk; });
@@ -151,16 +183,22 @@ export async function startBackendServer(
     baseUrl,
     stateDirectory,
     pid: listener.pid,
-    kill: (signal: NodeJS.Signals = 'SIGKILL') => listener.kill(signal),
+    kill: (signal: NodeJS.Signals = 'SIGKILL') => signalProcessGroup(listener.pid, signal),
     cleanup: async () => {
-      listener.kill('SIGTERM');
-      await new Promise(resolve => {
+      signalProcessGroup(listener.pid, 'SIGTERM');
+      const exited = new Promise(resolve => {
         if (listener.exitCode !== null || listener.signalCode !== null) {
           resolve(null);
           return;
         }
         listener.once('exit', resolve);
       });
+      // 정상 종료를 거부하는 서버(또는 이미 크래시한 서버의 남은 그룹)가 정리 단계를 붙들면
+      // 다음 시나리오가 포트를 못 잡는다 — 유예를 넘기면 그룹째 강제로 끝낸다.
+      const forced = new Promise(resolve => setTimeout(resolve, 5_000));
+      await Promise.race([exited, forced]);
+      signalProcessGroup(listener.pid, 'SIGKILL');
+      await exited;
       if (options.removeStateOnCleanup ?? true) {
         await rm(stateDirectory, { recursive: true, force: true });
       }
