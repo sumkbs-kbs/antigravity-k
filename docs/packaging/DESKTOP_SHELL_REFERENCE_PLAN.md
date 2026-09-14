@@ -20,6 +20,14 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 - **하지 않는 일:** DeepSeek Harness / Cordis / DSH 플러그인 스택을 Ssak 엔진에 이식하지 않는다. 에이전트 코어·CR-14 기술 게이트는 Ssak 소유로 유지한다.
 - **성공 정의:** 아래 Phase 체크리스트가 순서대로 DONE이고, 각 Phase의 **완료 증거**가 문서/스크립트/실측으로 남아 후속 에이전트가 이어서 검증할 수 있다.
 
+### 0.05 제품 목적 (사용자 확정 2026-09-15)
+
+- **주 목적:** 개인 사용.
+- **필수 확장:** 모바일에서도 같은 프로그램에 **편리하게 연동·작동**.
+- **함의:** UI·API의 정본은 **Host(`agk serve` HTTP+WS+SPA)**. 데스크톱 셸은 얇게. 모바일은 LAN/Tailscale 등으로 Host에 접속 (기본은 loopback, 비-loopback 시 PIN/토큰 필수).
+- **비목표:** 다중 테넌트 SaaS·불특정 인터넷 공개 서비스화.
+- 상세: `docs/packaging/notes/mobile_host_premise.md`
+
 ### 0.0 진행 기록 의무 (사용자 지시 2026-09-15)
 
 **매 진행 단계마다** 다음을 갱신하지 않으면 작업을 끝낸 것으로 보지 않는다.
@@ -153,10 +161,10 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 **체크리스트**
 - [x] `dashboard` production build가 CI/로컬 한 명령으로 `src/antigravity_k/dashboard_dist` 갱신 — 명령: `pnpm --dir dashboard build` / Makefile `dashboard-build-provenance` (Phase0 확인). DMG 스크립트가 없을 때 자동 호출
 - [~] 런처가 **Vite/5173을 호출하지 않음** — `build_mac_dmg.sh` 런처는 포트 8000/`agk serve` 경로(기존). 자동 회귀 테스트는 미착수
-- [ ] 번들에 포함 목록 문서화: 바이너리, site-packages 또는 venv, `dashboard_dist`, 아이콘, Info.plist
-- [ ] 읽기 전용 볼륨/Applications에서 기동 스모크
+- [~] 번들에 포함 목록: site-packages(uv target)~79M + `dashboard_dist` + src(비밀 exclude) + 아이콘/Info.plist — 가이드 상세 문장은 후속
+- [ ] 읽기 전용 볼륨/Applications에서 기동 스모크 (DMG 마운트 무결성만 PASS, 앱 기동 스모크 미실시)
 - [x] `scripts/build_mac_dmg.sh`에 “클로저 검증” 단계 추가 (필수 파일 누락 시 fail) + `.env`/`auth_hash` 혼입 거부
-- [ ] (선택) `make dmg-smoke`: 마운트 → 실행 → `/api/auth/status` 또는 헬스 → 종료
+- [ ] `make dmg-smoke`: 마운트 → 실행 → `/api/auth/status` 또는 헬스 → 종료 (다음)
 - [ ] Windows: 동등 클로저 설계 초안만 Phase 1 말에 작성 (구현은 Phase 3)
 
 **완료 증거**
@@ -268,8 +276,16 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 - [ ] LAN bind는 설정에서 위험 확인 후에만 (`0.0.0.0`)
 - [ ] 설정 저장(`/api/settings/env`) 스모크: 인증 토큰 있는 상태에서 200
 
+**모바일·개인사용 추가 체크리스트 (D-04/D-05)**
+- [ ] 설정에 “모바일/LAN 접속 허용” (기본 OFF) + 위험 고지
+- [ ] Tailscale/사설 IP 바인드 안내 (불특정 `0.0.0.0` 공개는 비권장·경고)
+- [ ] 비-loopback 요청에 PIN/bearer 강제 (이미 있으면 문서화·스모크)
+- [ ] 폰 브라우저에서 같은 SPA 로그인·채팅 1회 스모크 (개인 Wi‑Fi 또는 Tailscale)
+- [ ] `notes/mobile_host_premise.md`와 설정 카피 일치
+
 **통과 기준**
 - 제품 경로에서 5173 없이도 설정 저장·로그인 가능.
+- 루프백만으로 개인 데스크톱 사용 가능 + 옵션 켜면 모바일 Host 접속 가능.
 
 ---
 
@@ -386,6 +402,8 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | D-01-interim | 2026-09-15 | Phase 1은 기존 `build_mac_dmg.sh` 클로저 강화부터 (Electron 스캐폴드에 블로킹되지 않음) | 마뱀 | Phase 1 진입 규칙 |
 | D-02 | 2026-09-15 (잠정) | Python 클로저 **1a 우선** (site-packages/근접 인터프리터; 스크립트에 부분 구현됨). 1b는 1a 실패 시에만 | 마뱀 | Phase 1에서 검증 |
 | D-03 | TBD | 업데이트 서버 위치 (GitHub Releases vs 자체) | TBD | Phase 5 |
+| D-04 | 2026-09-15 | 제품 목적 = **개인 사용 + 모바일 Host 연동**. UI 정본은 Host. Electron은 얇은 셸만 | 강병석 | `notes/mobile_host_premise.md` |
+| D-05 | 2026-09-15 | 기본 bind `127.0.0.1`; 모바일은 **명시적** LAN/Tailscale bind + 비-loopback 시 PIN/토큰 필수 | 강병석 | Phase 6 강화 |
 
 ---
 
@@ -394,7 +412,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | Phase | 이름 | 상태 | 담당 | 증거 경로 |
 |---|---|---|---|---|
 | 0 | 범위·결정·베이스라인 | **DONE** | 마뱀 | `docs/packaging/notes/phase0_baseline.md` |
-| 1 | 배포 클로저 | **IN_PROGRESS** (다음) | | |
+| 1 | 배포 클로저 | **IN_PROGRESS** | 마뱀 | `notes/phase1_progress.md` · DMG PASS · smoke/미동봉 Python 잔여 |
 | 2 | 셸 UX | NOT_STARTED | | |
 | 3 | Windows 패리티 | NOT_STARTED | | |
 | 4 | 복구·진단 | NOT_STARTED | | |
@@ -424,3 +442,5 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 (핸드오프 초안) | DSH 공개 검토 기반 반영 계획서·체크리스트 최초 작성 |
 | 2026-09-15 | 마뱀 | 커밋 `1314d016`로 계획서 착수. 사용자 지시: **진행 결과는 반드시 문서에 남겨 다음 에이전트가 이어갈 것**. Phase 0 DONE — 베이스라인·D-01/D-01-interim/D-02 기록. Phase 1 다음. |
 | 2026-09-15 | 마뱀 | Phase 0 증거 `notes/phase0_baseline.md` 기록. Phase 1 시작: `build_mac_dmg.sh` fail-closed dist + 비밀 파일 거부. 진행 로그 `notes/phase1_progress.md`. 전체 `make dmg` 실측은 다음 스텝. |
+| 2026-09-15 | 마뱀 | 사용자 목적 확정 반영(D-04/D-05): 개인사용+모바일 Host. DMG가 `src/.env` 복사로 실패 → rsync exclude로 수정 후 `make dmg` 재시도. |
+| 2026-09-15 | 마뱀 | `make dmg` PASS → `dist/Ssak-Ai-0.1.0.dmg` (55M) sha256 `262b54244a…`; 번들 비밀 0건. Phase1 잔여=기동 스모크·Python 동봉 강화·Phase6 모바일 bind. |

@@ -30,3 +30,22 @@ plan: docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md
 - Do not claim CR-14 GO
 - Do not commit `vault_data` / secrets
 - Record every step in plan §10 + this file
+
+## 2026-09-15 — make dmg attempt #1 FAIL then fix
+
+- **FAIL:** secret guard tripped because `cp -R src` copied **`src/.env`** into the bundle (paths only logged; contents not recorded).
+- **FIX:** switch to `rsync` with excludes for `.env`, `.env.*`, `auth_hash`, `auth_hash.*`.
+- **Premise:** personal use + mobile Host (see `mobile_host_premise.md`); secrets stay in user data, never in DMG.
+- **Next:** re-run `make dmg`, record artifact paths + sha256.
+
+## 2026-09-15 — make dmg attempt #2 PASS
+
+- **Command:** `make dmg` (after rsync secret excludes)
+- **Artifact:** `dist/Ssak-Ai-0.1.0.dmg` (~55M)
+- **SHA-256:** `262b54244a60419567f3dd14e8be4d28a8409c0649bcfbd263ebff36cbd1c362` (also `dist/Ssak-Ai-0.1.0.dmg.sha256`)
+- **site-packages bundle:** ~79M inside app; total app resources ~124M before DMG compress
+- **Secret path scan on built `.app`:** 0 hits (`.env` / `auth_hash*`)
+- **Mount integrity:** script verified app + Applications symlink + Info.plist
+- **Log:** `/tmp/ssak-dmg-logs/make-dmg-2026-09-15b.log` (local machine temp; not committed)
+- **Still open:** `dmg-smoke` (launch app → host health); host Python 3.12+ still required by launcher; Electron shell not started; mobile bind UI (Phase 6) not implemented yet
+- **Soak:** left running (not killed)

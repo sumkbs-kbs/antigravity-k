@@ -259,21 +259,24 @@ if [[ ! -f "$DASHBOARD_DIST_SRC/index.html" ]]; then
     exit 1
 fi
 
-# 소스코드 및 필수 설정 복사 (.env 등 비밀은 루트에서 복사하지 않음)
-cp -R "$ROOT_DIR/src" "$APP_BUNDLE_APP/"
+# 소스코드 및 필수 설정 복사
+# 개인사용·모바일 Host 전제: 번들에 비밀(.env/auth_hash)을 넣지 않는다.
+# 실제 키/PIN은 사용자 데이터 디렉터리(~/.antigravity-k 등)에만 둔다.
+rsync -a --delete   --exclude '.env'   --exclude '.env.*'   --exclude 'auth_hash'   --exclude 'auth_hash.*'   --exclude '__pycache__/'   --exclude '*.pyc'   "$ROOT_DIR/src/" "$APP_BUNDLE_APP/src/"
 cp "$ROOT_DIR/pyproject.toml" "$APP_BUNDLE_APP/"
 cp "$ROOT_DIR/config.yaml" "$APP_BUNDLE_APP/"
 [[ -f "$ROOT_DIR/README.md" ]] && cp "$ROOT_DIR/README.md" "$APP_BUNDLE_APP/"
 [[ -f "$ROOT_DIR/LICENSE" ]] && cp "$ROOT_DIR/LICENSE" "$APP_BUNDLE_APP/"
-# dist는 src 복사에 포함되나, 명시적으로 한 번 더 동기화(누락 방지)
+# dist는 명시 동기화(누락 방지)
 rm -rf "$APP_BUNDLE_APP/src/antigravity_k/dashboard_dist"
 cp -R "$DASHBOARD_DIST_SRC" "$APP_BUNDLE_APP/src/antigravity_k/dashboard_dist"
 [[ -f "$ROOT_DIR/uv.lock" ]] && cp "$ROOT_DIR/uv.lock" "$APP_BUNDLE_APP/"
 
-# 비밀 파일이 번들에 섞이면 즉시 실패
-if find "$APP_BUNDLE_APP" \( -name '.env' -o -name '.env.*' -o -name 'auth_hash' \) -type f 2>/dev/null | grep -q .; then
-    echo "ERROR: 번들에 비밀 후보 파일(.env/auth_hash)이 포함되었습니다. 중단합니다." >&2
-    find "$APP_BUNDLE_APP" \( -name '.env' -o -name '.env.*' -o -name 'auth_hash' \) -type f 2>/dev/null >&2 || true
+# 방어: 혹시 남은 비밀 후보가 있으면 즉시 실패 (경로는 출력, 내용은 출력하지 않음)
+SECRET_HITS="$(find "$APP_BUNDLE_APP" \( -name '.env' -o -name '.env.*' -o -name 'auth_hash' -o -name 'auth_hash.*' \) -type f 2>/dev/null || true)"
+if [[ -n "${SECRET_HITS}" ]]; then
+    echo "ERROR: 번들에 비밀 후보 파일이 포함되었습니다. 중단합니다." >&2
+    echo "${SECRET_HITS}" >&2
     exit 1
 fi
 
