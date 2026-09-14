@@ -15,6 +15,64 @@ from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger("antigravity_k.local_model_discovery")
 
+# CR-14 attempt-039 — hermetic ambient 전용 허브 시드(AGK_SEED_LOCAL_HUB).
+# 생산 경로에서는 환경변수가 없으므로 동작하지 않는다. 실 unsloth/GPU 없이
+# ModelHubPage 의 `.hub-card` + `실행 중` 배지를 게이트가 소유하기 위한 픽스처다.
+HERMETIC_HUB_MODEL_ID = "orpheus-3b-0.1-ft-UD-Q4_K_XL"
+
+
+def hermetic_local_hub_seed_enabled() -> bool:
+    raw = os.getenv("AGK_SEED_LOCAL_HUB", "").strip().lower()
+    return raw in {"1", "true", "yes", "hub"}
+
+
+def hermetic_local_hub_fixture() -> DiscoveredLocalModel:
+    """게이트 전용 픽스처 — 실 런타임 API 베이스가 아닌 닫힌 loopback."""
+    return DiscoveredLocalModel(
+        name=HERMETIC_HUB_MODEL_ID,
+        repo=f"unsloth/{HERMETIC_HUB_MODEL_ID}",
+        provider="unsloth",
+        api_base="http://127.0.0.1:9/v1",
+        role="audio",
+        parameter_count_b=3.0,
+        estimated_memory_gb=2.0,
+        context_length=4096,
+        quantization="UD-Q4_K_XL",
+        capabilities=("audio",),
+        source="hermetic_seed",
+        disk_path=f"[hermetic-fixture]/{HERMETIC_HUB_MODEL_ID}",
+        disk_size_gb=1.99,
+        status="running",
+    )
+
+
+def apply_hermetic_local_hub_seed(
+    models: Sequence[DiscoveredLocalModel],
+) -> tuple[DiscoveredLocalModel, ...]:
+    """시드 ON 일 때 명명 모델을 running 으로 올리거나 없으면 픽스처를 넣는다."""
+    if not hermetic_local_hub_seed_enabled():
+        return tuple(models)
+    target = HERMETIC_HUB_MODEL_ID.casefold()
+    updated: list[DiscoveredLocalModel] = []
+    found = False
+    for model in models:
+        if model.name.casefold() == target:
+            found = True
+            updated.append(
+                replace(
+                    model,
+                    status="running",
+                    source=model.source or "hermetic_seed",
+                    provider=model.provider or "unsloth",
+                    quantization=model.quantization or "UD-Q4_K_XL",
+                )
+            )
+        else:
+            updated.append(model)
+    if not found:
+        updated.insert(0, hermetic_local_hub_fixture())
+    return tuple(updated)
+
 
 @dataclass(frozen=True, slots=True)
 class DiscoveredLocalModel:
@@ -65,7 +123,9 @@ class LocalModelDiscovery:
                 found.extend(self._discover_openai(provider, base_url))
         found.extend(self._discover_huggingface_cache())
         found.extend(self._discover_filesystem())
-        return self._deduplicate(found)
+        deduped = self._deduplicate(found)
+        # attempt-039: AGK_SEED_LOCAL_HUB 일 때만 허브 픽스처(실행 중) 적용
+        return apply_hermetic_local_hub_seed(deduped)
 
     def _discover_ollama(self) -> tuple[DiscoveredLocalModel, ...]:
         base_url = os.getenv("AGK_OLLAMA_API_BASE", "http://127.0.0.1:11434").rstrip("/")

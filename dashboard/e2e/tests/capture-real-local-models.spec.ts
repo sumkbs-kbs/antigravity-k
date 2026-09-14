@@ -1,3 +1,9 @@
+/**
+ * CR-14 attempt-039 — hermetic ambient 소유.
+ * AGK_BACKEND_URL = hermetic ambient 서버 + AGK_SEED_LOCAL_HUB=1 로
+ * ModelHub `.hub-card`(orpheus…) + `실행 중` 배지 · Chat 모델 선택기를 재현한다.
+ * 실 unsloth/GPU 가 아니다(EX-01 주장 금지). 생산 경로에는 시드 플래그가 없다.
+ */
 import { test, expect } from '@playwright/test';
 
 test('capture ModelHubPage with real unsloth and local models', async ({ page }) => {

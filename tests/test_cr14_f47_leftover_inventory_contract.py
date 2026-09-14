@@ -1,10 +1,11 @@
 """CR-14 F-47 leftover inventory — 소유되지 않은 ambient 슬라이스를 **센다**.
 
-attempt-038 측정
+attempt-039 측정
 ================
 - ``capture-disclosure-*`` 의 :5173 하드코드는 **값싼 하네스 결함**이었다.
   hermetic baseURL + ``AGK_SEED_LEVEL`` 로 초록 → ambient 게이트가 소유(폐쇄).
-- ``capture-real-local-models`` 는 실 unsloth 허브 상태(EXTERNAL_HUB) — **열린 leftover 1건**.
+- ``capture-real-local-models`` 는 attempt-039 에서 ``AGK_SEED_LOCAL_HUB`` hermetic
+  픽스처로 닫혀 ambient(``HUB_SPEC_FILES``) 가 소유한다 — **열린 leftover 0건**.
 - GREP_INVERT 는 비움(PRODUCT_FLAKE 0). ``compacts a large event stream…`` 은
   attempt-038 에서 시드 스키마 정합으로 닫혀 ambient 가 소유한다.
 - ``renders the execution trace at`` 는 attempt-036, ``should show file activity
@@ -33,7 +34,7 @@ E2E_TESTS = REPO_ROOT / "dashboard" / "e2e" / "tests"
 BOUNDARY = REPO_ROOT / "docs" / "ga" / "CR14_GATE_COVERAGE_BOUNDARY.md"
 
 # 목록 정체성 — 매직 넘버 금지(F-21). 등록부가 원본이다.
-EXPECTED_OPEN_IDS: tuple[str, ...] = ("f47-capture-real-local-models",)
+EXPECTED_OPEN_IDS: tuple[str, ...] = ()
 
 
 def _register() -> dict[str, Any]:
@@ -123,9 +124,24 @@ def test_disclosure_is_owned_by_ambient_seeded_phase_not_vite() -> None:
     assert "DISCLOSURE_SPEC_FILES" in script
 
 
-def test_real_local_models_is_counted_not_swallowed_by_ambient() -> None:
-    """EXTERNAL_HUB 파일이 ambient 소유 목록에 들어가면 안 된다."""
+def _hub_specs_from_script() -> list[str]:
+    text = _script_text()
+    start = text.find("HUB_SPEC_FILES: tuple")
+    assert start >= 0, "HUB_SPEC_FILES 를 스크립트에서 찾지 못했다"
+    end = text.find("\ndef ", start + 1)
+    assert end > start, "HUB_SPEC_FILES 블록 경계를 찾지 못했다"
+    found = re.findall(r'"([^"]+\.spec\.ts)"', text[start:end])
+    assert found, "hub 스펙이 비어 있다"
+    return found
+
+
+def test_real_local_models_is_owned_by_ambient_hub_seed() -> None:
+    """attempt-039 — EXTERNAL_HUB 는 HUB_SPEC_FILES + AGK_SEED_LOCAL_HUB 로 소유되고 열린 목록에서 빠진다."""
+    hub = _hub_specs_from_script()
+    assert "e2e/tests/capture-real-local-models.spec.ts" in hub
     script = _script_text()
+    assert "AGK_SEED_LOCAL_HUB" in script
+    # 메인 ambient 목록에 몰래 넣지 않는다(시드 단계로만)
     match = re.search(
         r"AMBIENT_SPEC_FILES:\s*tuple\[str,\s*\.\.\.\]\s*=\s*\((.*?)\)",
         script,
@@ -134,21 +150,31 @@ def test_real_local_models_is_counted_not_swallowed_by_ambient() -> None:
     assert match
     ambient_owned = re.findall(r'"([^"]+\.spec\.ts)"', match.group(1))
     assert "e2e/tests/capture-real-local-models.spec.ts" not in ambient_owned
-    disclosure = _disclosure_specs_from_script()
-    assert "e2e/tests/capture-real-local-models.spec.ts" not in disclosure
-    # 등록부에 있다
     ids = {str(e["id"]) for e in _register()["entries"]}
-    assert "f47-capture-real-local-models" in ids
+    assert "f47-capture-real-local-models" not in ids
+    closed = {str(c["id"]) for c in _register()["closed_this_attempt"]}
+    assert "f47-capture-real-local-models" in closed
 
 
 def test_teeth_dropping_an_open_id_fails_list_identity() -> None:
-    """이빨 — 열린 id 하나를 빼면 목록 정체성 단언이 실패한다."""
-    shortened = EXPECTED_OPEN_IDS[:-1]
-    try:
-        assert shortened == EXPECTED_OPEN_IDS
-        raise AssertionError("짧아진 목록이 통과하면 안 된다")
-    except AssertionError:
-        pass
+    """이빨 — 열린 id 하나를 빼면 목록 정체성 단언이 실패한다.
+
+    열린 목록이 비어 있으면(attempt-039) 가짜 id 를 하나 넣었을 때 불일치해야 한다.
+    """
+    if EXPECTED_OPEN_IDS:
+        shortened = EXPECTED_OPEN_IDS[:-1]
+        try:
+            assert shortened == EXPECTED_OPEN_IDS
+            raise AssertionError("짧아진 목록이 통과하면 안 된다")
+        except AssertionError:
+            pass
+    else:
+        polluted = ("ghost-leftover-must-fail",)
+        try:
+            assert polluted == EXPECTED_OPEN_IDS
+            raise AssertionError("가짜 열린 id 가 통과하면 안 된다")
+        except AssertionError:
+            pass
 
 
 def test_closed_disclosure_is_recorded() -> None:
@@ -157,4 +183,5 @@ def test_closed_disclosure_is_recorded() -> None:
     assert any(c.get("id") == "f47-invert-execution-trace-axe" for c in closed)
     assert any(c.get("id") == "f47-invert-git-status-file-activity" for c in closed)
     assert any(c.get("id") == "f47-invert-compact-large-stream" for c in closed)
+    assert any(c.get("id") == "f47-capture-real-local-models" for c in closed)
     assert any("dashboard-e2e-ambient" in str(c.get("now_owned_by", "")) for c in closed)

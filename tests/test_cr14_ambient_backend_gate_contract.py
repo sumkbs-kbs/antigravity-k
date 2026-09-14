@@ -22,9 +22,14 @@ attempt-035
   (`DISCLOSURE_SPEC_FILES`). 남은 F-47 leftover 는
   `tests/test_cr14_f47_leftover_inventory_contract.py` 가 센다.
 
+attempt-039
+===========
+- `capture-real-local-models` 는 ``HUB_SPEC_FILES`` + ``AGK_SEED_LOCAL_HUB`` 로 이 게이트가
+  소유한다(EXTERNAL_HUB leftover 폐쇄). EX-01 실 프로바이더 증명이 아니다.
+
 재지 않는 것
 ============
-- `capture-real-local-models` · GREP_INVERT 제품 flake(F-47 leftover 등록부).
+- GREP_INVERT 제품 flake(현재 0). 증인 **내용** 정합은 leftover/제품 계약 소관.
 - 증인의 **내용이 옳은지**는 이 계약의 소관이 아니다(커버리지·required·서버 단계).
 """
 
@@ -47,8 +52,9 @@ DISCLOSURE_SPECS = (
     "capture-disclosure-healthy.spec.ts",
     "capture-disclosure-exhausted.spec.ts",
 )
-# 여전히 이 게이트가 삼키면 안 되는 외부 허브 스펙(F-47 leftover).
-EXTERNAL_HUB_SPECS = ("capture-real-local-models.spec.ts",)
+# attempt-039: EXTERNAL_HUB leftover 폐쇄 — 허브 스펙은 HUB_SPEC_FILES 시드 단계로 소유.
+EXTERNAL_HUB_SPECS: tuple[str, ...] = ()
+HUB_SPECS = ("capture-real-local-models.spec.ts",)
 
 
 def _manifest() -> dict[str, Any]:
@@ -94,12 +100,13 @@ def _script_disclosure_specs() -> list[str]:
 
 
 def test_the_script_owns_named_ambient_specs_that_exist() -> None:
-    """스크립트가 소유하는 파일이 실제로 있고, 외부 허브 스펙을 삼키지 않는다."""
+    """스크립트가 소유하는 파일이 실제로 있고, 허브 스펙은 메인 목록이 아니라 시드 단계로만."""
     owned = _script_owned_specs()
     assert owned, "소유 스펙이 비어 있다"
     for rel in owned:
         name = Path(rel).name
         assert (E2E_TESTS / name).is_file(), f"소유 스펙이 없다: {name}"
+        assert name not in HUB_SPECS, f"허브 스펙을 메인 ambient 목록에 삼켰다(시드 단계로): {name}"
         assert name not in EXTERNAL_HUB_SPECS, f"EXTERNAL_HUB 스펙을 삼켰다: {name}"
 
 
@@ -115,6 +122,29 @@ def test_the_script_owns_disclosure_specs_via_seeded_phase() -> None:
     script = AMBIENT_SCRIPT.read_text(encoding="utf-8")
     assert "seed_level" in script
     assert "AGK_SEED_LEVEL" in script or "seed_level" in script
+
+
+def _script_hub_specs() -> list[str]:
+    text = AMBIENT_SCRIPT.read_text(encoding="utf-8")
+    start = text.find("HUB_SPEC_FILES: tuple")
+    assert start >= 0, "HUB_SPEC_FILES 를 스크립트에서 찾지 못했다"
+    end = text.find("\ndef ", start + 1)
+    assert end > start
+    found = re.findall(r'"([^"]+\.spec\.ts)"', text[start:end])
+    assert found
+    return found
+
+
+def test_the_script_owns_hub_specs_via_local_hub_seed() -> None:
+    """attempt-039 — capture-real-local-models 는 HUB_SPEC_FILES + AGK_SEED_LOCAL_HUB."""
+    owned = _script_hub_specs()
+    names = {Path(rel).name for rel in owned}
+    assert set(HUB_SPECS) == names
+    for name in HUB_SPECS:
+        assert (E2E_TESTS / name).is_file()
+    script = AMBIENT_SCRIPT.read_text(encoding="utf-8")
+    assert "AGK_SEED_LOCAL_HUB" in script
+    assert "seed_local_hub" in script
 
 
 def test_skip_register_classifies_the_ambient_gate() -> None:

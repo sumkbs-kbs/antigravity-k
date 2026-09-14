@@ -10,6 +10,11 @@ attempt-035 (F-47 일부 폐쇄):
   (``AGK_SEED_LEVEL=healthy|exhausted``) 로 소유한다. healthy/exhausted 는 시드가
   프로세스에 고정되므로 **각자 서버를 따로** 띄운다.
 
+attempt-039 (F-47 EXTERNAL_HUB 폐쇄):
+  ``capture-real-local-models`` 는 실 unsloth/GPU 없이 ``AGK_SEED_LOCAL_HUB=1``
+  hermetic 픽스처로 ModelHub ``실행 중`` 배지를 소유한다(``HUB_SPEC_FILES``).
+  생산 경로에는 시드 플래그가 없다 — EX-01 실 프로바이더 증명이 아니다.
+
 격리 (F-44 · F-45):
   AGK_PATH_DATA_DIR / AGK_PATH_LOGS_DIR / AGK_HOOK_VAULT_DIR / AGK_CORS_ORIGINS
   + 격리 cwd + start_new_session=True + /health 폴링 + 그룹 신호 종료.
@@ -51,6 +56,9 @@ DISCLOSURE_SPEC_FILES: tuple[tuple[str, str], ...] = (
 # 이 목록은 ``tests/test_cr14_f47_leftover_inventory_contract.py`` 가 센다(침묵 금지).
 GREP_INVERT: str = ""  # PRODUCT_FLAKE invert 없음(attempt-038). 주석에 따옴표 금지 — 계약이 괄호 안 문자열을 모은다.
 
+# attempt-039: 허브 스펙은 AGK_SEED_LOCAL_HUB 시드 서버로 소유한다(목록 원본 = 이 튜플).
+HUB_SPEC_FILES: tuple[tuple[str, str], ...] = (("hub", "e2e/tests/capture-real-local-models.spec.ts"),)
+
 
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -58,7 +66,9 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def start_server(port: int, state: Path, *, seed_level: str | None = None) -> subprocess.Popen[bytes]:
+def start_server(
+    port: int, state: Path, *, seed_level: str | None = None, seed_local_hub: bool = False
+) -> subprocess.Popen[bytes]:
     (state / "token_secret").write_text("ambient-gate-secret-" + "x" * 16, encoding="utf-8")
     (state / "isolated.env").write_text("# ambient gate isolated env\n", encoding="utf-8")
     hook_vault = state / "vault_data"
@@ -102,6 +112,8 @@ def start_server(port: int, state: Path, *, seed_level: str | None = None) -> su
     }
     if seed_level:
         env["AGK_SEED_LEVEL"] = seed_level
+    if seed_local_hub:
+        env["AGK_SEED_LOCAL_HUB"] = "1"
     proc = subprocess.Popen(  # noqa: S603
         [
             sys.executable,
@@ -201,6 +213,27 @@ def _run_disclosure_seeded() -> int:
     return 0
 
 
+def _run_hub_seeded() -> int:
+    """AGK_SEED_LOCAL_HUB 픽스처 서버로 capture-real-local-models 를 소유한다."""
+    for _seed_label, rel in HUB_SPEC_FILES:
+        port = _free_port()
+        with tempfile.TemporaryDirectory(prefix="agk-ambient-hub-") as tmp:
+            state = Path(tmp)
+            proc = start_server(port, state, seed_local_hub=True)
+            try:
+                rc = run_playwright(
+                    f"http://127.0.0.1:{port}",
+                    [rel],
+                    grep_invert=None,
+                    label="hub-seed",
+                )
+            finally:
+                _stop(proc)
+        if rc != 0:
+            return rc
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -211,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.skip_server:
         # 닫힌 포트 — Chromium 이 UNSAFE 로 거절하는 :1 대신 연결 거부되는 고번호.
-        # disclosure 도 상대경로라 같은 닫힌 포트에서 실패해야 한다(이빨).
+        # disclosure·hub 도 상대경로라 같은 닫힌 포트에서 실패해야 한다(이빨).
         closed = "http://127.0.0.1:59999"
         rc_main = _run_main_suite(closed)
         rc_disc = run_playwright(
@@ -220,7 +253,14 @@ def main(argv: list[str] | None = None) -> int:
             grep_invert=None,
             label="disclosure-skip-server",
         )
-        return 1 if (rc_main == 0 and rc_disc == 0) else (rc_main or rc_disc or 1)
+        rc_hub = run_playwright(
+            closed,
+            [rel for _, rel in HUB_SPEC_FILES],
+            grep_invert=None,
+            label="hub-skip-server",
+        )
+        all_green = rc_main == 0 and rc_disc == 0 and rc_hub == 0
+        return 1 if all_green else (rc_main or rc_disc or rc_hub or 1)
 
     port = _free_port()
     with tempfile.TemporaryDirectory(prefix="agk-ambient-gate-") as tmp:
@@ -232,7 +272,10 @@ def main(argv: list[str] | None = None) -> int:
             _stop(proc)
     if rc != 0:
         return rc
-    return _run_disclosure_seeded()
+    rc_disc = _run_disclosure_seeded()
+    if rc_disc != 0:
+        return rc_disc
+    return _run_hub_seeded()
 
 
 if __name__ == "__main__":

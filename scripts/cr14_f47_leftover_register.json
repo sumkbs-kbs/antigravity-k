@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "scope": "CR-14 F-47 leftovers after attempt-038 — ambient 게이트가 삼키지 않는 Playwright 슬라이스",
-  "why": "attempt-034 가 의도적으로 밖한 F-47 을 측정했다. disclosure/:5173 은 값싼 하네스 결함이라 닫아 ambient 가 소유한다. 나머지는 소유하면 게이트가 항상 빨개지거나(제품 flake)·실 허브에 의존한다. invert 를 유일한 소유자로 두지 않기 위해 **목록 정체성**으로 센다(침묵 금지 · F-21).",
+  "scope": "CR-14 F-47 leftovers after attempt-039 — ambient 게이트가 삼키지 않는 Playwright 슬라이스(열린 0건)",
+  "why": "attempt-034 가 의도적으로 밖한 F-47 을 측정했다. disclosure/:5173 은 값싼 하네스 결함이라 닫아 ambient 가 소유한다. PRODUCT_FLAKE invert 들은 UI/시드 정합으로 닫혔다. attempt-039 는 EXTERNAL_HUB 를 AGK_SEED_LOCAL_HUB hermetic 픽스처로 ambient(HUB_SPEC_FILES) 가 소유한다. 열린 leftover 0 — 목록 정체성으로 센다(침묵 금지 · F-21).",
   "measured_by": "tests/test_cr14_f47_leftover_inventory_contract.py",
   "closed_this_attempt": [
     {
@@ -27,22 +27,13 @@
       "was": "GREP_INVERT: compacts a large event stream behind a snapshot boundary (/1,?000 events/ 비가시)",
       "now_owned_by": "dashboard-e2e-ambient (task-execution compaction snapshot, invert 제거)",
       "how": "fail-first: 연결 오류+0 events. 원인: e2e bigEvents 가 TaskEventSchema 불일치(type/timestamp/message). event() 시드+최신 step title 로 compaction UI(1000 events·step 1002) 점화. GREP_INVERT 제거. 제품 UI/번들 불변."
-    }
-  ],
-  "entries": [
+    },
     {
       "id": "f47-capture-real-local-models",
-      "class": "EXTERNAL_HUB",
-      "file": "dashboard/e2e/tests/capture-real-local-models.spec.ts",
-      "titles": [
-        "capture ModelHubPage with real unsloth and local models",
-        "capture ChatPage model selector with real running and unsloth models"
-      ],
-      "capability": "실 unsloth/로컬 모델 허브에 특정 모델(orpheus-3b…)이 **실행 중**으로 보이는지",
-      "why": "hermetic ambient 서버만으로는 재현 불가. 실측(attempt-035): hub 카드는 보이나 '실행 중' 배지 부재로 실패. Chat 선택기는 통과해도 허브 축이 외부 상태.",
-      "owner": "docs/ga/CR14_GATE_COVERAGE_BOUNDARY.md §2-10",
-      "plan": "실 모델 허브 fixture 또는 mock hub 가 생기기 전까지 required 게이트에 넣지 않는다. 허브 mock 이 생기면 ambient 소유로 옮기고 이 항목을 closed 로 옮긴다.",
-      "review_due": "2026-10-14"
+      "was": "EXTERNAL_HUB — 실 unsloth/로컬 허브의 orpheus… 실행 중 배지",
+      "now_owned_by": "dashboard-e2e-ambient (HUB_SPEC_FILES + AGK_SEED_LOCAL_HUB)",
+      "how": "LocalModelDiscovery.apply_hermetic_local_hub_seed: AGK_SEED_LOCAL_HUB=1 일 때만 orpheus-3b-0.1-ft-UD-Q4_K_XL 을 status=running 으로 올리거나 픽스처를 삽입. 생산 경로(플래그 없음)는 불변. ambient 가 시드 서버로 스펙 소유. EX-01 실 프로바이더 증명 아님."
     }
-  ]
+  ],
+  "entries": []
 }
