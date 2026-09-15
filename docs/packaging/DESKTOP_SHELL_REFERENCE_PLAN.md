@@ -403,7 +403,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 
 ## 8. 후속 에이전트 핸드오프 / 남은 일
 
-**Tip (pre-docs-commit base):** `ddcf3599` on `codex/m1-task-events` — see §12 for the docs checkpoint SHA after commit.  
+**Tip:** `1754db83` on `codex/m1-task-events` (unpushed). **Desktop lane PAUSED** (user 2026-09-15: soak only). See `notes/SESSION_CHECKPOINT_2026-09-15.md`.  
 **Soak:** PIDs `29961`/`29969` (`val02_staging` 28800s) — **ALIVE; do not kill**.  
 **CR-14:** still **NO-GO** — never claim GO from this lane.
 
@@ -432,13 +432,15 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | P2 | Windows installer (NSIS/Builder) | Phase 3 **impl** when un-deferred |
 | P3 | Optional `port:0` + last-success; runtime rebind | Phase 6 optional caveats |
 | P3 | (done) `make check-desktop` | Phase 8 — see `notes/phase8_progress.md` |
+| — | **Desktop packaging PAUSED** | User 2026-09-15: no further desktop until asked; soak watch only |
 | — | EX-05 soak finish | Do not interfere; separate lane |
 | — | CR-14 GO | **NO-GO** until human/EX gates — not this lane |
 
 ### 8.3 Next-agent bullet list (copy)
 
 ```text
-- Tip base see §12 latest SHA; branch `codex/m1-task-events`.
+- **Desktop lane PAUSED** (user): watch EX-05 soak only until asked to resume packaging.
+- Tip `1754db83`; branch `codex/m1-task-events`. Session: `notes/SESSION_CHECKPOINT_2026-09-15.md`.
 - Soak 29961/29969 ALIVE — do not kill; do not claim CR-14 GO (still NO-GO).
 - Phase 6 DONE-with-caveat: phone LAN/Tailscale E2E smoke not run; optional port:0 not done; runtime rebind without restart not done.
 - Phase 3 STUB-ONLY/DEFERRED: design only in notes/windows_closure_stub.md — do not implement NSIS unless explicitly un-deferred.
@@ -478,6 +480,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | D-06 | 2026-09-15 | 셸 패키지 경로 **`desktop/`** (비어 있음 확인 후 채택). Host spawn/stop은 Phase 2 후속; 스캐폴드는 Host 기동 가정 | 마뱀 | Phase 2 scaffold |
 | D-07 | 2026-09-15 | Phase 7 **DEFER**: Ssak **project binding**으로 충분. **새 Desktop generation 레이어 만들지 않음** (DSH generation 패턴 이식 안 함) | 강병석 지시 체크포인트 · 마뱀 기록 | Phase 7 |
 | D-08 | 2026-09-15 | Phase 3 **STUB-ONLY / DEFERRED**: `notes/windows_closure_stub.md` 설계만; **NSIS/설치기 구현 안 함** until explicitly resumed | 강병석 지시 체크포인트 · 마뱀 기록 | Phase 3 |
+| D-09 | 2026-09-15 | **데스크톱 패키징 레인 일시 중단**. 추가 Phase/Electron→DMG/폰 스모크는 사용자 재개 지시 전 진행하지 않음. **EX-05 soak만 감시** | 강병석 | Session checkpoint |
 
 ---
 
@@ -539,3 +542,4 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | **Checkpoint handoff (docs):** Phase 6 **DONE-with-caveat** (phone LAN smoke / optional `port:0` / runtime rebind open). Phase 3 **STUB-ONLY/DEFERRED** (D-08; link `windows_closure_stub.md`; no NSIS). Phase 7 **DEFERRED** (D-07; project binding sufficient). §8 남은 일 + next-agent bullets; §10 Phases 0–8 갱신; tip base `ddcf3599`. CR-14 GO 없음. Soak 29961/29969 미접촉. |
 | 2026-09-15 | 마뱀 | Phase 8 **DONE-with-caveat**: `make check-desktop` (key files + `node desktop/test_updateChannels.js` + narrow pytest diagnostics/network/phase6 settings; no DMG/Host/soak/network feed). Notes `phase8_progress.md`; MACOS guide + desktop README. CR-14 GO 없음. Soak 29961/29969 미접촉. |
 | 2026-09-15 | 마뱀 | **`SSAK_BUNDLE_PYTHON=1` verified:** rebuild DMG ~85M sha256 `34f51420444b3930f4f7922c8226ffbd0c52a03039fdd90a05d0237de82e51c4`; `Resources/python` CPython 3.12.13; ABI fix (`uv pip --python` + fail-closed import); `dmg-smoke` PASS :18080 (bundled py). Soak 29961/29969 ALIVE. CR-14 GO 없음. docs+tiny script fixes only (no dist commit). |
+| 2026-09-15 | 마뱀 | **Desktop lane PAUSED (D-09):** 사용자 지시로 추가 데스크톱 작업 중단 · EX-05 soak만 감시. tip `1754db83`; `SSAK_BUNDLE_PYTHON=1` DMG verified; `make check-desktop` PASS. Session note `notes/SESSION_CHECKPOINT_2026-09-15.md`. CR-14 still NO-GO. Soak 29961/29969 ALIVE. |

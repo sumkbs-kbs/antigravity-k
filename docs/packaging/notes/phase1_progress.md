@@ -92,3 +92,9 @@ plan: docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md
 - **Launcher:** candidates still prefer `$APP_BUNDLE_ROOT/../python/bin/python3` first
 - **Soak:** pids `29961`/`29969` ALIVE before and after (not killed). CR-14 GO **not** claimed.
 - **Note:** default `make dmg` (host Python, ~55M) path unchanged; this artifact is the **bundled** build (larger).
+
+## 2026-09-15 — lane pause (user)
+
+- **D-09:** further desktop packaging halted; EX-05 soak watch only.
+- Tip at pause: `1754db83` (`SSAK_BUNDLE_PYTHON=1` verified earlier same day).
+- See `SESSION_CHECKPOINT_2026-09-15.md`.

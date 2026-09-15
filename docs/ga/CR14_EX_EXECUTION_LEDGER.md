@@ -57,6 +57,7 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 - 출력: `.omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_soak_28800.json`
 - 첫 시도는 tempfile+RegistrySaveError 로 실패 → 고정 workdir 로 재시작. prunable worktree 1건 prune 후 재측정.
 - 감시 루틴: `ex-05-8h-soak` (평일 14–17시)
+- 2026-09-15 pause note: desktop packaging stopped; soak watch-only. PIDs still `29961`/`29969` (workdir `run28800c`). Do not kill.
 
 ## EX-01/03/04 실측 마감 (2026-09-15 06:50 UTC+09:00)
 
@@ -68,3 +69,5 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 
 - 2026-09-15: EX-01 cloud 추가 프로브(NVIDIA/Gemini/ZAI). NVIDIA PASS · Gemini/ZAI/OpenRouter FAIL → EX-01 **PARTIAL**. 비밀 미기록 · GO 미선언 · 커밋/soak 재시작 없음.
 - 2026-09-15: OpenRouter 재실측 — 키 유효 · gpt-4o-mini 402 credits · **openrouter/free PASS** (stream). EX-01 여전히 PARTIAL(유료 모델/타 provider 잔여). 비밀 미기록 · GO 미선언.
+
+- 2026-09-15 (~09:07 KST): **데스크톱 패키징 레인 일시 중단** (사용자). tip `1754db83` unpushed. EX-05 soak **여전히 IN_PROGRESS** — pids `29961`/`29969` ALIVE (~2h20+/28800s at pause note); 종료 JSON 대기. CR-14 GO 미선언. 별도 레인: `docs/packaging/notes/SESSION_CHECKPOINT_2026-09-15.md`.
