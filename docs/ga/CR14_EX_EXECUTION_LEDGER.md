@@ -88,8 +88,8 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 
 - After Decision A (`78012f4a` soft-max auto-compact). Prior 8h result remains FAIL (RSS 1654.9).
 - Command: `val02_staging.py --scenarios SC-1..SC-6 --soak-seconds 28800`
-- workdir: `…/soak/workdir/run28800d`
+- workdir: `…/soak/workdir/run28800e`
 - output: `…/soak/val02_soak_28800_resoake.json`
-- pids: `72317` (uv) / `72319` (python)
+- pids: shell `72699` + `val02_staging` (see pid_resoake.txt); first nohup attempt died — relaunched durable
 - Watch routine **resumed** (`ex-05-8h-soak`).
 - CR-14 still **NO-GO** until resoake PASS + other EX gates.
