@@ -17,7 +17,7 @@
 ## EX 실행 진행 (2026-09-15)
 
 - 대장: [CR14_EX_EXECUTION_LEDGER.md](./CR14_EX_EXECUTION_LEDGER.md)
-- EX-01 로컬 PASS · OpenRouter 401 · EX-03 NOT_AVAILABLE · EX-04 이 macOS DONE · EX-05 soak IN_PROGRESS · EX-02 PARTIAL · EX-06 DONE
+- EX-01 로컬 PASS · OpenRouter 401 · EX-03 NOT_AVAILABLE · EX-04 이 macOS DONE · EX-05 soak FAIL · EX-02 PARTIAL · EX-06 DONE
 - **판정 NO-GO 유지** · GA 승인 없음 · 후보 `b6003205` 불변
 
 ## C14-08 출시 책임자 기록 (2026-09-14) — 근거 있는 NO-GO

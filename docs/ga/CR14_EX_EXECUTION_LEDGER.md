@@ -37,7 +37,7 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 | EX-02 | 모델/라이선스/개인정보·지원 승인 | **PARTIAL** | [CR14_EX02_APPROVAL_RECORD.md](./CR14_EX02_APPROVAL_RECORD.md) — PRODUCT_SELF_APPROVAL(범위 문구) 완료; `BLOCKED_EXTERNAL` legal 미해제 · Experimental→Supported 없음 · GA GO 아님 |
 | EX-03 | 이전 출시 artifact | **DONE** | **NOT_AVAILABLE** — 태그 0 · gh release 401 · dist는 현재 후보만 · `ex03_summary.md` |
 | EX-04 | 지원 OS sandbox 실측 | **DONE** | macOS 26.6.2 arm64 · seatbelt/`sandbox-exec` · pytest 46 passed · `ex04_summary.md` (행렬 미승격) |
-| EX-05 | 8h soak | **IN_PROGRESS** | pid `29961`/`29969` · workdir `…/run28800c` · 종료 후 JSON |
+| EX-05 | 8h soak | **FAIL** | SC-1..SC-5 PASS · **SC-6 FAIL** (`all_pass: false`) · RSS ~66.8→1721.8 MB · **rss_growth_mb=1654.9** vs **rss_leak_mb=64** · duration_s=28800.051 · errors=0 · fd_growth=0 · orphan_worktrees=0 · ops≈150554 · JSON `…/soak/val02_soak_28800.json` · ended ~2026-09-15 14:47 KST |
 | EX-06 | 범위 축소 여부 | **DONE** | 축소 없음 (`EX-06-NO-SHRINK-2026-09-15`) |
 
 ## 진행 노트
@@ -64,10 +64,21 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 - EX-01: 로컬 PASS · OpenRouter 401 → cloud BLOCKED (NVIDIA/Gemini/ZAI 추가 프로브 진행 중일 수 있음)
 - EX-03: NOT_AVAILABLE
 - EX-04: 이 macOS 호스트 DONE (행렬 미승격)
-- EX-02: PARTIAL · EX-05: IN_PROGRESS · EX-06: DONE
+- EX-02: PARTIAL · EX-05: **FAIL** · EX-06: DONE
 - CR-14 GO/DONE 아님
 
 - 2026-09-15: EX-01 cloud 추가 프로브(NVIDIA/Gemini/ZAI). NVIDIA PASS · Gemini/ZAI/OpenRouter FAIL → EX-01 **PARTIAL**. 비밀 미기록 · GO 미선언 · 커밋/soak 재시작 없음.
 - 2026-09-15: OpenRouter 재실측 — 키 유효 · gpt-4o-mini 402 credits · **openrouter/free PASS** (stream). EX-01 여전히 PARTIAL(유료 모델/타 provider 잔여). 비밀 미기록 · GO 미선언.
 
 - 2026-09-15 (~09:07 KST): **데스크톱 패키징 레인 일시 중단** (사용자). tip `1754db83` unpushed. EX-05 soak **여전히 IN_PROGRESS** — pids `29961`/`29969` ALIVE (~2h20+/28800s at pause note); 종료 JSON 대기. CR-14 GO 미선언. 별도 레인: `docs/packaging/notes/SESSION_CHECKPOINT_2026-09-15.md`.
+
+## EX-05 결과 (2026-09-15 ~14:47 KST) — **FAIL**
+
+- Soak finished ~2026-09-15 14:47 KST; pids `29961`/`29969` gone.
+- SC-1..SC-5 **PASS**; SC-6 **FAIL**; `all_pass: false`.
+- SC-6: `duration_s=28800.051`, `errors=0`, `fd_growth=0`, `orphan_worktrees=0`.
+- RSS: ~66.8 → 1721.8 MB; **`rss_growth_mb=1654.9`** vs frozen **`rss_leak_mb=64`** (do not raise without Decision Log + owner).
+- Workload: ~150554 conversation appends on single `soak-conv`.
+- Evidence path only: `.omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_soak_28800.json`
+- **CR-14 remains NO-GO.** Candidate `b6003205` / fingerprint `02349a8d…`.
+- Investigation: `docs/ga/notes/EX05_SC6_RSS_INVESTIGATION_2026-09-15.md`. Desktop packaging paused (D-09). Soak watch routine paused.

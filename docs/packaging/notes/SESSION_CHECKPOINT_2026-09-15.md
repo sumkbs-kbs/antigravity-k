@@ -92,3 +92,10 @@ status: DESKTOP_PAUSED_SOAK_WATCH
 ## Next agent (when user un-pauses desktop)
 
 See plan §8.2 / §8.3. Prefer phone smoke **or** Electron→DMG per user priority. Always update this plan + `notes/*` and prefer docs commits.
+
+## EX-05 outcome (added later same day)
+
+- **FAIL** — SC-6 RSS growth 1654.9 MB ≫ 64 MB threshold; SC-1..5 PASS; full 8h completed.
+- JSON: `.omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_soak_28800.json`
+- Investigation: `docs/ga/notes/EX05_SC6_RSS_INVESTIGATION_2026-09-15.md`
+- CR-14 still **NO-GO**. Desktop still paused. Soak watch routine paused.
