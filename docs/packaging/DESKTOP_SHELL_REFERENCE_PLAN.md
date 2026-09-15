@@ -328,12 +328,12 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 
 ### Phase 8 — 문서·게이트·핸드오프 마감
 
-**상태:** **IN_PROGRESS** (checkpoint handoff this turn — status table + §8 refreshed; packaging tooling still open)
+**상태:** **DONE-with-caveat** (`make check-desktop` wired + local PASS; Win guide still stub; optional packaging caveats remain in §8.2)
 
 **체크리스트**
 - [~] `docs/packaging/MACOS_DMG_GUIDE.md` / Windows 가이드 / DIAGNOSTICS / UPDATE_CHANNELS 최신화 — guides exist; Win = stub only; keep as docs land
 - [x] README 설치 섹션이 “개발자용”과 “사용자용”을 분리 — short packaging pointer blurb added (→ `MACOS_DMG_GUIDE.md` user/dev + this plan)
-- [ ] `make check-desktop` 또는 동등: type/packaging smoke — **still open**
+- [x] `make check-desktop` 또는 동등: type/packaging smoke — **PASS** locally (see `notes/phase8_progress.md`); fast offline gate; no DMG/Host/soak
 - [x] 이 계획서 모든 Phase 상태를 DONE/DEFERRED/`DONE-with-caveat`/`STUB-ONLY`로 갱신 — §10 this checkpoint
 - [x] 후속 에이전트용 “남은 일” 표 (§8) 갱신 — this checkpoint
 - [x] (선택) CR/GA 문서에 **교차 링크만** (GO 주장 금지) — CR-14 remains **NO-GO**; no GO claim
@@ -419,7 +419,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 5 | **DONE-with-caveat** | soft check; real Releases feed BLOCKED_EXTERNAL |
 | 6 | **DONE-with-caveat** | phone LAN smoke / `port:0` / runtime rebind open |
 | 7 | **DEFERRED** | D-07 — project binding sufficient; no Desktop generation |
-| 8 | **IN_PROGRESS** | this handoff; `make check-desktop` still open |
+| 8 | **DONE-with-caveat** | `make check-desktop` PASS; Win stub / packaging caveats remain |
 
 ### 8.2 남은 일 (next work)
 
@@ -431,20 +431,20 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | P2 | Real update feed (`SSAK_UPDATE_FEED` / GitHub Releases) | Phase 5 BLOCKED_EXTERNAL / deferred |
 | P2 | Windows installer (NSIS/Builder) | Phase 3 **impl** when un-deferred |
 | P3 | Optional `port:0` + last-success; runtime rebind | Phase 6 optional caveats |
-| P3 | `make check-desktop` | Phase 8 |
+| P3 | (done) `make check-desktop` | Phase 8 — see `notes/phase8_progress.md` |
 | — | EX-05 soak finish | Do not interfere; separate lane |
 | — | CR-14 GO | **NO-GO** until human/EX gates — not this lane |
 
 ### 8.3 Next-agent bullet list (copy)
 
 ```text
-- Tip base `ddcf3599` (+ docs checkpoint SHA in §12); branch `codex/m1-task-events`.
+- Tip base see §12 latest SHA; branch `codex/m1-task-events`.
 - Soak 29961/29969 ALIVE — do not kill; do not claim CR-14 GO (still NO-GO).
 - Phase 6 DONE-with-caveat: phone LAN/Tailscale E2E smoke not run; optional port:0 not done; runtime rebind without restart not done.
 - Phase 3 STUB-ONLY/DEFERRED: design only in notes/windows_closure_stub.md — do not implement NSIS unless explicitly un-deferred.
 - Phase 7 DEFERRED (D-07): Ssak project binding sufficient — no new Desktop generation layer.
 - Left packaging: Electron→DMG; SSAK_BUNDLE_PYTHON=1 verified rebuild/smoke; real update feed; Windows installer when Phase 3 resumes.
-- Phase 8 still open: make check-desktop (or equivalent packaging smoke).
+- Phase 8 DONE-with-caveat: `make check-desktop` PASS (offline packaging smoke). Remaining packaging = Electron→DMG, BUNDLE_PYTHON, real update feed, Win when un-deferred.
 - Prefer docs/evidence updates in this plan §9/§10/§12 + notes/*; no push unless asked; no secrets/vault.
 - Constraints: C-01..C-08; CR-14 candidate freeze; EX-05 soak separate lane.
 - DSH is reference-only (no harness transplant).
@@ -493,7 +493,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 5 | 업데이트 채널 | **DONE-with-caveat** (soft check + docs + channel-echo test; real Releases feed / download+confirm / signing = BLOCKED_EXTERNAL or deferred) | 마뱀 | `UPDATE_CHANNELS.md` · `notes/phase5_progress.md` · `desktop/updateChannels.js` · tray 업데이트 확인… · `desktop/test_updateChannels.js` |
 | 6 | 포트·오리진·모바일 bind | **DONE-with-caveat** (phone LAN/Tailscale E2E smoke not run; optional `port:0` not done; runtime rebind without restart not done) | 마뱀 | `notes/phase6_progress.md` · `vite.backendHealth.ts` · `DIAGNOSTICS.md` · access-info+Settings 안내 |
 | 7 | generation 수명 | **DEFERRED** (D-07 — project binding sufficient; no Desktop generation) | 마뱀 | §9 D-07 |
-| 8 | 문서·게이트 마감 | **IN_PROGRESS** (checkpoint handoff; `make check-desktop` still open) | 마뱀 | §8 남은 일 · README packaging pointer |
+| 8 | 문서·게이트 마감 | **DONE-with-caveat** (`make check-desktop` PASS; Win guide stub; packaging caveats in §8.2) | 마뱀 | `Makefile` `check-desktop` · `notes/phase8_progress.md` · `MACOS_DMG_GUIDE.md` §3 · `desktop/README.md` |
 
 상태 값: `NOT_STARTED` | `IN_PROGRESS` | `BLOCKED` | `DONE` | `DONE-with-caveat` | `STUB-ONLY` | `DEFERRED`
 
@@ -537,3 +537,4 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | Phase 5 **DONE-with-caveat**: soft check + docs + channel-echo unit test; real GitHub Releases feed / download+confirm install / signing = BLOCKED_EXTERNAL or deferred. `phase5_progress`·§10 마감. CR-14 GO 없음. Soak 29961/29969 미접촉. |
 | 2026-09-15 | 마뱀 | Phase 6 harden: Vite `backendProxyHealth` startup probe (warn on dead proxy / legacy `:8400`); `ServerConfig.port` default **8000**; product single-loopback (`dashboard_dist`) checklist; settings `/api/settings/env` smoke via CR-05 + thin pytest; DIAGNOSTICS port notes. Phone LAN smoke left open. CR-14 GO 없음. Soak 미접촉. |
 | 2026-09-15 | 마뱀 | **Checkpoint handoff (docs):** Phase 6 **DONE-with-caveat** (phone LAN smoke / optional `port:0` / runtime rebind open). Phase 3 **STUB-ONLY/DEFERRED** (D-08; link `windows_closure_stub.md`; no NSIS). Phase 7 **DEFERRED** (D-07; project binding sufficient). §8 남은 일 + next-agent bullets; §10 Phases 0–8 갱신; tip base `ddcf3599`. CR-14 GO 없음. Soak 29961/29969 미접촉. |
+| 2026-09-15 | 마뱀 | Phase 8 **DONE-with-caveat**: `make check-desktop` (key files + `node desktop/test_updateChannels.js` + narrow pytest diagnostics/network/phase6 settings; no DMG/Host/soak/network feed). Notes `phase8_progress.md`; MACOS guide + desktop README. CR-14 GO 없음. Soak 29961/29969 미접촉. |

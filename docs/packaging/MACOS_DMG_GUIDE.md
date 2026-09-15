@@ -72,6 +72,17 @@ SSAK_BUNDLE_PYTHON=1 make dmg
 make dmg-smoke
 ```
 
+### 빠른 패키징/데스크톱 새니티 게이트 (에이전트·로컬)
+
+DMG 재빌드·Host 기동·업데이트 피드 네트워크·soak 간섭 **없이** 수 초~1분대 확인:
+
+```bash
+make check-desktop
+```
+
+포함: 핵심 파일 존재 (`desktop/main.js`, `scripts/dmg_smoke.sh`, `scripts/build_mac_dmg.sh`) · `node desktop/test_updateChannels.js` (오프라인 fixture) · 좁은 pytest (diagnostics export / network access-info / phase6 settings smoke).  
+제외: full-repo ruff/mypy · `make dmg` · Host 장시간 기동. 기록: [`notes/phase8_progress.md`](./notes/phase8_progress.md).
+
 ---
 
 ## 5. 번들 클로저 목록 (Phase 1)

@@ -110,3 +110,15 @@ desktop/
 | Quit stops owned Host only | **working** (SIGTERM→SIGKILL; soak/unrelated never killed) |
 | macOS Dock policy | **documented** — hide keeps process/Dock; Quit clears Dock |
 | Manual QA `phase2_shell_qa.md` | **checklist ready, not executed** |
+
+## Local sanity gate (`make check-desktop`)
+
+From **repo root** (fast, offline, non-destructive — does **not** build DMG, start a long Host, hit an update feed, or touch soak):
+
+```bash
+make check-desktop
+```
+
+Runs: key-file checks · `node desktop/test_updateChannels.js` (or `pnpm --dir desktop run test:update-channels`) · narrow pytest for diagnostics export, network access-info, and Phase 6 settings smoke.
+
+See `docs/packaging/notes/phase8_progress.md` and plan Phase 8.

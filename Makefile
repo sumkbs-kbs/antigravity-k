@@ -2,7 +2,7 @@
 # =======================
 # Commercial-grade task runner for development, testing, and deployment
 
-.PHONY: help install dev test test-e2e smoke-cli verify-clean-machine ga-gate ga-gate-list lint format clean build dmg docker-build \
+.PHONY: help install dev test test-e2e smoke-cli verify-clean-machine ga-gate ga-gate-list lint format clean build dmg dmg-smoke check-desktop docker-build \
         docker-run coverage check ci-setup pre-commit install-script \
         security audit audit-egress sbom doctor search-quality search-quality-extended search-live search-live-extended search-load claim-quality quality-contract local-rag-quality local-benchmark local-benchmark-frontier frontier-evidence \
         build-provenance dashboard-build-provenance dashboard-provenance-verify publish-provenance
@@ -171,6 +171,21 @@ dmg: ## Build macOS .app bundle and distributable .dmg installer
 
 dmg-smoke: ## Smoke Host from built .app on :18080 (does not use :8000)
 	@bash scripts/dmg_smoke.sh
+
+check-desktop: ## Fast desktop/packaging sanity gate (no DMG build, no Host, no soak kill, offline)
+	@echo "── check-desktop: key packaging files ──"
+	@test -f desktop/main.js
+	@test -f scripts/dmg_smoke.sh
+	@test -f scripts/build_mac_dmg.sh
+	@echo "── check-desktop: update-channel fixture test (offline) ──"
+	@node desktop/test_updateChannels.js
+	@echo "── check-desktop: narrow pytest (diagnostics + network access + phase6 settings) ──"
+	@$(PYTHON) -m pytest \
+		tests/test_diagnostics_export.py \
+		tests/test_network_access_api.py \
+		tests/test_phase6_settings_env_smoke.py \
+		-q --tb=short
+	@echo "── check-desktop: PASS (skipped: full-repo ruff/mypy, DMG rebuild, Host start, update feed network) ──"
 
 build-provenance: build ## Build Python distributions and verify their provenance manifest
 	@mkdir -p "$(dir $(PYTHON_PROVENANCE))"
