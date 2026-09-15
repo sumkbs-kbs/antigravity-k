@@ -37,7 +37,7 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 | EX-02 | 모델/라이선스/개인정보·지원 승인 | **PARTIAL** | [CR14_EX02_APPROVAL_RECORD.md](./CR14_EX02_APPROVAL_RECORD.md) — PRODUCT_SELF_APPROVAL(범위 문구) 완료; `BLOCKED_EXTERNAL` legal 미해제 · Experimental→Supported 없음 · GA GO 아님 |
 | EX-03 | 이전 출시 artifact | **DONE** | **NOT_AVAILABLE** — 태그 0 · gh release 401 · dist는 현재 후보만 · `ex03_summary.md` |
 | EX-04 | 지원 OS sandbox 실측 | **DONE** | macOS 26.6.2 arm64 · seatbelt/`sandbox-exec` · pytest 46 passed · `ex04_summary.md` (행렬 미승격) |
-| EX-05 | 8h soak | **FAIL** | SC-1..SC-5 PASS · **SC-6 FAIL** (`all_pass: false`) · RSS ~66.8→1721.8 MB · **rss_growth_mb=1654.9** vs **rss_leak_mb=64** · duration_s=28800.051 · errors=0 · fd_growth=0 · orphan_worktrees=0 · ops≈150554 · JSON `…/soak/val02_soak_28800.json` · ended ~2026-09-15 14:47 KST |
+| EX-05 | 8h soak | **IN_PROGRESS** (resoake after Decision A; prior run **FAIL**) | SC-1..SC-5 PASS · **SC-6 FAIL** (`all_pass: false`) · RSS ~66.8→1721.8 MB · **rss_growth_mb=1654.9** vs **rss_leak_mb=64** · duration_s=28800.051 · errors=0 · fd_growth=0 · orphan_worktrees=0 · ops≈150554 · JSON `…/soak/val02_soak_28800.json` · ended ~2026-09-15 14:47 KST |
 | EX-06 | 범위 축소 여부 | **DONE** | 축소 없음 (`EX-06-NO-SHRINK-2026-09-15`) |
 
 ## 진행 노트
@@ -83,3 +83,13 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 - **CR-14 remains NO-GO.** Candidate `b6003205` / fingerprint `02349a8d…`.
 - Investigation: `docs/ga/notes/EX05_SC6_RSS_INVESTIGATION_2026-09-15.md`. Desktop packaging paused (D-09). Soak watch routine paused.
 - 2026-09-15: Decision **A** — ConversationStore soft-max auto-compact (default 64). SC-6 equality updated to bounded messages. Threshold 64MB unchanged. Short probe pending/recorded separately. CR-14 GO 아님.
+
+## EX-05 resoake start (2026-09-15 15:07 KST)
+
+- After Decision A (`78012f4a` soft-max auto-compact). Prior 8h result remains FAIL (RSS 1654.9).
+- Command: `val02_staging.py --scenarios SC-1..SC-6 --soak-seconds 28800`
+- workdir: `…/soak/workdir/run28800d`
+- output: `…/soak/val02_soak_28800_resoake.json`
+- pids: `72317` (uv) / `72319` (python)
+- Watch routine **resumed** (`ex-05-8h-soak`).
+- CR-14 still **NO-GO** until resoake PASS + other EX gates.
