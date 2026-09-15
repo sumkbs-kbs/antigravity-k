@@ -167,7 +167,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 - [x] `make dmg-smoke`: Host on :18080 → auth/spa 200 → 종료 (PASS; soak/:8000 미사용)
 - [x] Windows: 동등 클로저 설계 stub — `docs/packaging/notes/windows_closure_stub.md` (구현은 Phase 3)
 - [x] Python 1a incremental: 런처가 `Resources/python` 우선; `SSAK_BUNDLE_PYTHON=1` 옵트인 동봉 (기본 OFF, ~55M 유지)
-- [~] 클린 Mac(호스트 Python 없음) — **PARTIAL** until `SSAK_BUNDLE_PYTHON=1` rebuild+smoke verified
+- [x] 클린 Mac 경로 — `SSAK_BUNDLE_PYTHON=1` rebuild + `dmg-smoke` PASS (bundled `Resources/python` 3.12.13; DMG ~85M sha `34f51420…`). 실기기 Python-less Mac 필드는 별도
 
 **완료 증거**
 - [x] `dist/Ssak-Ai-0.1.0.dmg` + `.sha256` — sha256 `262b54244a60419567f3dd14e8be4d28a8409c0649bcfbd263ebff36cbd1c362` (로컬 gitignored; `phase1_progress.md`에 기록)
@@ -412,7 +412,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | Phase | 상태 | Notes |
 |---|---|---|
 | 0 | **DONE** | baseline |
-| 1 | **DONE-with-caveat** | DMG + 1a closure; `SSAK_BUNDLE_PYTHON` verified rebuild still open |
+| 1 | **DONE-with-caveat** | DMG + 1a + `SSAK_BUNDLE_PYTHON=1` rebuild/smoke verified (~85M); Electron→DMG / field Python-less still open |
 | 2 | **DONE-with-caveat** | Electron thin shell; shell→DMG packaging open |
 | 3 | **STUB-ONLY / DEFERRED** | [`notes/windows_closure_stub.md`](notes/windows_closure_stub.md) only — **no NSIS** |
 | 4 | **DONE-with-caveat** | recovery dialog; Settings export deferred |
@@ -427,7 +427,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 |---|---|---|
 | P0 | Phone LAN/Tailscale E2E smoke | Phase 6 caveat; needs user network |
 | P1 | Electron shell → DMG packaging | Phase 2 caveat / packaging closure |
-| P1 | `SSAK_BUNDLE_PYTHON=1` verified rebuild + clean-Mac smoke | Phase 1 caveat |
+| P1 | (done) `SSAK_BUNDLE_PYTHON=1` verified rebuild + dmg-smoke | Phase 1 — see `phase1_progress.md`; field Python-less Mac optional |
 | P2 | Real update feed (`SSAK_UPDATE_FEED` / GitHub Releases) | Phase 5 BLOCKED_EXTERNAL / deferred |
 | P2 | Windows installer (NSIS/Builder) | Phase 3 **impl** when un-deferred |
 | P3 | Optional `port:0` + last-success; runtime rebind | Phase 6 optional caveats |
@@ -443,12 +443,12 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 - Phase 6 DONE-with-caveat: phone LAN/Tailscale E2E smoke not run; optional port:0 not done; runtime rebind without restart not done.
 - Phase 3 STUB-ONLY/DEFERRED: design only in notes/windows_closure_stub.md — do not implement NSIS unless explicitly un-deferred.
 - Phase 7 DEFERRED (D-07): Ssak project binding sufficient — no new Desktop generation layer.
-- Left packaging: Electron→DMG; SSAK_BUNDLE_PYTHON=1 verified rebuild/smoke; real update feed; Windows installer when Phase 3 resumes.
-- Phase 8 DONE-with-caveat: `make check-desktop` PASS (offline packaging smoke). Remaining packaging = Electron→DMG, BUNDLE_PYTHON, real update feed, Win when un-deferred.
+- Left packaging: Electron→DMG; real update feed; Windows installer when Phase 3 resumes. (`SSAK_BUNDLE_PYTHON=1` rebuild/smoke **done** — sha `34f51420…` ~85M).
+- Phase 8 DONE-with-caveat: `make check-desktop` PASS (offline packaging smoke). Remaining packaging = Electron→DMG, real update feed, Win when un-deferred.
 - Prefer docs/evidence updates in this plan §9/§10/§12 + notes/*; no push unless asked; no secrets/vault.
 - Constraints: C-01..C-08; CR-14 candidate freeze; EX-05 soak separate lane.
 - DSH is reference-only (no harness transplant).
-- Start from §10 first open actionable item (phone smoke or Electron→DMG / BUNDLE_PYTHON — user priority).
+- Start from §10 first open actionable item (phone smoke or Electron→DMG — user priority).
 - On finish: update checklists + evidence paths + short briefing.
 ```
 
@@ -486,7 +486,7 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | Phase | 이름 | 상태 | 담당 | 증거 경로 |
 |---|---|---|---|---|
 | 0 | 범위·결정·베이스라인 | **DONE** | 마뱀 | `docs/packaging/notes/phase0_baseline.md` |
-| 1 | 배포 클로저 | **DONE-with-caveat** (잔여=클린 Mac FULL은 `SSAK_BUNDLE_PYTHON` 검증 재빌드/스모크 후) | 마뱀 | `phase1_progress.md` · `MACOS_DMG_GUIDE.md` §5 · `windows_closure_stub.md` |
+| 1 | 배포 클로저 | **DONE-with-caveat** (`SSAK_BUNDLE_PYTHON=1` verified; 잔여=Electron→DMG / 실기기 Python-less 필드 / Windows stub) | 마뱀 | `phase1_progress.md` · `MACOS_DMG_GUIDE.md` §5 · `windows_closure_stub.md` |
 | 2 | 셸 UX | **DONE-with-caveat** (manual QA Pass/Fail 미기입; shell→DMG/Builder 미완; Host spawn은 dev에서 `uv`/venv PATH 필요) | 마뱀 | `desktop/` · `notes/phase2_progress.md` · `notes/phase2_shell_qa.md` |
 | 3 | Windows 패리티 | **STUB-ONLY / DEFERRED** (D-08; design only — no installer) | 마뱀 | [`notes/windows_closure_stub.md`](notes/windows_closure_stub.md) |
 | 4 | 복구·진단 | **DONE-with-caveat** (recovery=dialog not custom window; Settings export deferred; signing N/A) | 마뱀 | `agk diagnostics export` · tray 진단 내보내기 · recovery dialog · `DIAGNOSTICS.md` · `notes/phase4_progress.md` · `tests/test_diagnostics_export.py` · `desktop/hostLifecycle.js` · `desktop/main.js` |
@@ -538,3 +538,4 @@ cr14_fingerprint: 02349a8d06945e438bdc60799ed770a87d6bb67d33d27f09b52008d242536e
 | 2026-09-15 | 마뱀 | Phase 6 harden: Vite `backendProxyHealth` startup probe (warn on dead proxy / legacy `:8400`); `ServerConfig.port` default **8000**; product single-loopback (`dashboard_dist`) checklist; settings `/api/settings/env` smoke via CR-05 + thin pytest; DIAGNOSTICS port notes. Phone LAN smoke left open. CR-14 GO 없음. Soak 미접촉. |
 | 2026-09-15 | 마뱀 | **Checkpoint handoff (docs):** Phase 6 **DONE-with-caveat** (phone LAN smoke / optional `port:0` / runtime rebind open). Phase 3 **STUB-ONLY/DEFERRED** (D-08; link `windows_closure_stub.md`; no NSIS). Phase 7 **DEFERRED** (D-07; project binding sufficient). §8 남은 일 + next-agent bullets; §10 Phases 0–8 갱신; tip base `ddcf3599`. CR-14 GO 없음. Soak 29961/29969 미접촉. |
 | 2026-09-15 | 마뱀 | Phase 8 **DONE-with-caveat**: `make check-desktop` (key files + `node desktop/test_updateChannels.js` + narrow pytest diagnostics/network/phase6 settings; no DMG/Host/soak/network feed). Notes `phase8_progress.md`; MACOS guide + desktop README. CR-14 GO 없음. Soak 29961/29969 미접촉. |
+| 2026-09-15 | 마뱀 | **`SSAK_BUNDLE_PYTHON=1` verified:** rebuild DMG ~85M sha256 `34f51420444b3930f4f7922c8226ffbd0c52a03039fdd90a05d0237de82e51c4`; `Resources/python` CPython 3.12.13; ABI fix (`uv pip --python` + fail-closed import); `dmg-smoke` PASS :18080 (bundled py). Soak 29961/29969 ALIVE. CR-14 GO 없음. docs+tiny script fixes only (no dist commit). |

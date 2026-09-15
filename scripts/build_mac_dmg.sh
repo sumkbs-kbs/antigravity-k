@@ -284,53 +284,87 @@ if [[ -n "${SECRET_HITS}" ]]; then
     exit 1
 fi
 
+# Optional 1a prep: resolve standalone CPython BEFORE site-packages so ABI tags match.
+# Default OFF keeps host-Python DMG ~55M; SSAK_BUNDLE_PYTHON=1 embeds interpreter (~50–60M+).
+resolve_standalone_cpython() {
+    # Prefer uv-managed trees under ~/.local/share/uv/python (not venv→conda).
+    local ver cand real prefix share
+    share="${UV_PYTHON_INSTALL_DIR:-$HOME/.local/share/uv/python}"
+    for ver in 3.12 3.13; do
+        # Direct uv share lookup first (uv python find may return project .venv).
+        for cand in "$share"/cpython-${ver}-macos-*/bin/python${ver} "$share"/cpython-${ver}.*-macos-*/bin/python${ver}; do
+            [[ -x "$cand" ]] || continue
+            real="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$cand" 2>/dev/null || true)"
+            [[ -z "$real" ]] && real="$cand"
+            prefix="$(cd "$(dirname "$real")/.." && pwd)"
+            if [[ -d "$prefix/lib" && -d "$prefix/bin" ]]; then
+                echo "$prefix"
+                return 0
+            fi
+        done
+        if command -v uv >/dev/null 2>&1; then
+            cand="$(uv python find "$ver" 2>/dev/null || true)"
+            if [[ -n "$cand" && -x "$cand" ]]; then
+                real="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$cand" 2>/dev/null || true)"
+                [[ -z "$real" ]] && real="$cand"
+                prefix="$(cd "$(dirname "$real")/.." && pwd)"
+                if [[ -d "$prefix/lib" && -d "$prefix/bin" ]]; then
+                    if [[ "$prefix" == *"/uv/python/"* ]] || [[ "$prefix" == *"cpython-"* ]]; then
+                        echo "$prefix"
+                        return 0
+                    fi
+                fi
+            fi
+        fi
+    done
+    return 1
+}
+
+BUNDLE_PY_DEST=""
+PY_SRC=""
+PIP_PYTHON=""
+if [[ "${SSAK_BUNDLE_PYTHON:-0}" == "1" ]]; then
+    echo "▶ SSAK_BUNDLE_PYTHON=1 — standalone CPython 해석 중 (site-packages ABI 정합)..."
+    if ! PY_SRC="$(resolve_standalone_cpython)"; then
+        echo "ERROR: SSAK_BUNDLE_PYTHON=1 이지만 복사할 standalone CPython을 찾지 못했습니다." >&2
+        echo "  힌트: uv python install 3.12 후 재시도" >&2
+        exit 1
+    fi
+    echo "  → 소스: $PY_SRC"
+    if [[ -x "$PY_SRC/bin/python3" ]]; then
+        PIP_PYTHON="$PY_SRC/bin/python3"
+    elif [[ -x "$PY_SRC/bin/python3.12" ]]; then
+        PIP_PYTHON="$PY_SRC/bin/python3.12"
+    elif [[ -x "$PY_SRC/bin/python3.13" ]]; then
+        PIP_PYTHON="$PY_SRC/bin/python3.13"
+    else
+        echo "ERROR: standalone prefix 에 python3 실행 파일이 없습니다: $PY_SRC/bin" >&2
+        exit 1
+    fi
+fi
+
 # 필수 의존성 패키지 번들링 (uv.lock 기반 정확한 버전으로 독립 런타임 구성)
 echo "▶ 필수 런타임 패키지 번들링 중 (site-packages)..."
 mkdir -p "$APP_BUNDLE_APP/site-packages"
 if command -v uv >/dev/null 2>&1; then
     TEMP_REQS="/tmp/agk_dmg_reqs_$$.txt"
     uv export --no-dev --no-editable --no-hashes | grep -v "^\." > "$TEMP_REQS"
-    uv pip install --target "$APP_BUNDLE_APP/site-packages" -r "$TEMP_REQS" >/dev/null 2>&1
+    # When bundling CPython, install wheels for THAT interpreter (fail-closed ABI match).
+    if [[ -n "$PIP_PYTHON" ]]; then
+        echo "  → uv pip install --python $PIP_PYTHON (동봉 인터프리터 ABI)"
+        uv pip install --python "$PIP_PYTHON" --target "$APP_BUNDLE_APP/site-packages" -r "$TEMP_REQS" >/dev/null 2>&1
+    else
+        uv pip install --target "$APP_BUNDLE_APP/site-packages" -r "$TEMP_REQS" >/dev/null 2>&1
+    fi
     rm -f "$TEMP_REQS"
     echo "  ✓ site-packages 번들링 완료 ($(du -sh "$APP_BUNDLE_APP/site-packages" | cut -f1))"
 fi
 
-# Optional 1a: embed a standalone CPython under Resources/python (default OFF).
-# Keeps normal `make dmg` ~55M; opt-in adds ~50–60M+ interpreter (document size before forcing).
 if [[ "${SSAK_BUNDLE_PYTHON:-0}" == "1" ]]; then
     echo "▶ SSAK_BUNDLE_PYTHON=1 — 동봉 CPython 복사 중 (Resources/python)..."
     BUNDLE_PY_DEST="$RESOURCES_DIR/python"
     rm -rf "$BUNDLE_PY_DEST"
     mkdir -p "$BUNDLE_PY_DEST"
-    PY_SRC=""
-    if command -v uv >/dev/null 2>&1; then
-        # Prefer a managed 3.12 standalone tree (not a venv symlink into miniforge).
-        for ver in 3.12 3.13; do
-            cand="$(uv python find "$ver" 2>/dev/null || true)"
-            if [[ -z "$cand" || ! -x "$cand" ]]; then
-                continue
-            fi
-            # Resolve to realpath; require a uv-managed prefix (has lib/ + bin/).
-            real="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$cand" 2>/dev/null || true)"
-            [[ -z "$real" ]] && real="$cand"
-            prefix="$(cd "$(dirname "$real")/.." && pwd)"
-            if [[ -d "$prefix/lib" && -d "$prefix/bin" ]]; then
-                # Prefer uv share trees over conda/homebrew when possible.
-                if [[ "$prefix" == *"/uv/python/"* ]] || [[ "$prefix" == *"cpython-"* ]]; then
-                    PY_SRC="$prefix"
-                    break
-                fi
-                # Keep as fallback if nothing better found yet
-                [[ -z "$PY_SRC" ]] && PY_SRC="$prefix"
-            fi
-        done
-    fi
-    if [[ -z "$PY_SRC" ]]; then
-        echo "ERROR: SSAK_BUNDLE_PYTHON=1 이지만 복사할 standalone CPython을 찾지 못했습니다." >&2
-        echo "  힌트: uv python install 3.12 후 재시도" >&2
-        exit 1
-    fi
-    echo "  → 소스: $PY_SRC"
     rsync -a --delete \
         --exclude '__pycache__/' \
         --exclude '*.pyc' \
@@ -356,7 +390,15 @@ if [[ "${SSAK_BUNDLE_PYTHON:-0}" == "1" ]]; then
         echo "ERROR: 동봉 Python 버전이 3.12 미만입니다 ($BPY_VER)." >&2
         exit 1
     fi
+    # Fail-closed ABI: native ext must import under bundled interpreter
+    if ! PYTHONPATH="$APP_BUNDLE_APP/site-packages${PYTHONPATH:+:$PYTHONPATH}" \
+        "$BUNDLE_PY_DEST/bin/python3" -c 'import pydantic_core' 2>/dev/null; then
+        echo "ERROR: 동봉 Python 으로 site-packages(pydantic_core) import 실패 — ABI 불일치." >&2
+        echo "  힌트: SSAK_BUNDLE_PYTHON=1 빌드는 동봉 인터프리터로 uv pip install 해야 합니다." >&2
+        exit 1
+    fi
     echo "  ✓ 동봉 Python 완료 ($(du -sh "$BUNDLE_PY_DEST" | cut -f1)) — DMG 용량이 기본(~55M)보다 커집니다"
+    echo "  ✓ ABI 스모크: pydantic_core import OK under Resources/python"
 else
     echo "  · SSAK_BUNDLE_PYTHON unset/0 — 호스트 Python 탐색 유지 (기본 DMG ~55M)"
 fi

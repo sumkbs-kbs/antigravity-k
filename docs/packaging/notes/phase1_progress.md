@@ -23,7 +23,7 @@ plan: docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md
 - [x] Document closure inventory + Python requirement in `MACOS_DMG_GUIDE.md`
 - [x] Windows closure design stub — `notes/windows_closure_stub.md`
 - [x] Decision D-02 confirmed **1a**; launcher prefers `Resources/python` when present; `SSAK_BUNDLE_PYTHON=1` opt-in build (default OFF)
-- [~] Clean Mac without host Python — **PARTIAL** until `SSAK_BUNDLE_PYTHON=1` DMG is rebuilt and smoke-verified
+- [x] Clean Mac without host Python — **`SSAK_BUNDLE_PYTHON=1` rebuild + dmg-smoke PASS** (bundled `Resources/python`; see section below)
 - [ ] Electron scaffold (Phase 2 / D-01) — **not blocking** Phase 1 packaging harden
 
 ### Constraints still active
@@ -66,5 +66,29 @@ plan: docs/packaging/DESKTOP_SHELL_REFERENCE_PLAN.md
 - **Build:** `SSAK_BUNDLE_PYTHON=1` 일 때만 uv-managed CPython을 `Contents/Resources/python/` 에 복사. **기본 OFF** → 일반 `make dmg` ~55M 유지. 동봉 시 ~50–60M+ 추가(문서화).
 - **Docs:** `MACOS_DMG_GUIDE.md` 클로저 인벤토리·Python 요구사항·옵트인 플래그 반영.
 - **Windows stub:** `docs/packaging/notes/windows_closure_stub.md` (설계만).
-- **SSAK_BUNDLE_PYTHON full rebuild:** 이번 턴에서 전체 DMG 재빌드/스모크는 **미실시** (코드+문서만; 용량·시간). 검증은 후속.
+- **SSAK_BUNDLE_PYTHON full rebuild:** 후속 섹션에서 **검증 완료**.
 - **Soak:** EX-05 pids 유지 (죽이지 않음). CR-14 GO 주장 없음.
+
+## 2026-09-15 — SSAK_BUNDLE_PYTHON=1 verified rebuild + smoke
+
+- **Goal:** opt-in 동봉 CPython DMG 재빌드 + `:18080` smoke (soak/:8000 미간섭).
+- **Attempt #1 (pre-fix):** `SSAK_BUNDLE_PYTHON=1 make dmg` → DMG ~82M, `Resources/python` 50M 존재.
+  - **FAIL smoke:** `pydantic_core._pydantic_core` `ModuleNotFoundError` — site-packages가 **cp313** (프로젝트 `.venv`/기본 uv)인데 동봉 인터프리터는 **3.12** (ABI 불일치).
+- **Fix (fail-closed):** `scripts/build_mac_dmg.sh`
+  - `SSAK_BUNDLE_PYTHON=1`이면 standalone CPython을 **site-packages 설치 전에** 해석.
+  - `uv pip install --python <bundled>` 로 동봉 인터프리터 ABI에 맞는 wheels 설치.
+  - 동봉 후 `PYTHONPATH=…/site-packages` + `Resources/python/bin/python3 -c 'import pydantic_core'` 실패 시 빌드 **FAIL**.
+  - uv share 경로 직접 조회 (`~/.local/share/uv/python/cpython-*`) — `uv python find`가 `.venv`→conda를 가리키는 경우 회피.
+  - `scripts/dmg_smoke.sh`: `Resources/python/bin/python3` 있으면 기본으로 사용 (override=`SSAK_DMG_PYTHON`).
+- **Attempt #2 (retry once):** `SSAK_BUNDLE_PYTHON=1 make dmg` **PASS**
+  - Artifact: `dist/Ssak-Ai-0.1.0.dmg` (**85M** / `88824912` bytes)
+  - SHA-256: `34f51420444b3930f4f7922c8226ffbd0c52a03039fdd90a05d0237de82e51c4` (also `dist/Ssak-Ai-0.1.0.dmg.sha256`)
+  - Bundled python: `Ssak-Ai.app/Contents/Resources/python/bin/python3` → `python3.12` (CPython **3.12.13**, ~52–55M)
+  - site-packages: `pydantic_core._pydantic_core.cpython-312-darwin.so`; ABI import OK
+  - Log: `/tmp/ssak-dmg-logs/make-dmg-bundle-python-retry-20260915-090500.log`
+- **dmg-smoke:** `make dmg-smoke` → **PASS** `port=18080 auth=200 spa=200` using bundled python
+  - Log: `/tmp/ssak-dmg-logs/bundle-smoke-18080-bundled-py-retry.log`
+  - `:8000` / soak untouched
+- **Launcher:** candidates still prefer `$APP_BUNDLE_ROOT/../python/bin/python3` first
+- **Soak:** pids `29961`/`29969` ALIVE before and after (not killed). CR-14 GO **not** claimed.
+- **Note:** default `make dmg` (host Python, ~55M) path unchanged; this artifact is the **bundled** build (larger).

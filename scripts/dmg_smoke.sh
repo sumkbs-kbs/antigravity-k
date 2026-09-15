@@ -3,7 +3,17 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_ROOT="${SSAK_DMG_APP_ROOT:-$ROOT/build/mac/Ssak-Ai.app/Contents/Resources/app}"
-PY="${SSAK_DMG_PYTHON:-$ROOT/.venv/bin/python3}"
+# Prefer in-bundle interpreter when present (SSAK_BUNDLE_PYTHON=1 builds); else .venv / override.
+_DEFAULT_BUNDLE_PY="$ROOT/build/mac/Ssak-Ai.app/Contents/Resources/python/bin/python3"
+if [[ -z "${SSAK_DMG_PYTHON:-}" ]]; then
+  if [[ -x "$_DEFAULT_BUNDLE_PY" ]]; then
+    PY="$_DEFAULT_BUNDLE_PY"
+  else
+    PY="$ROOT/.venv/bin/python3"
+  fi
+else
+  PY="$SSAK_DMG_PYTHON"
+fi
 PORT="${SSAK_DMG_SMOKE_PORT:-18080}"
 LOG="${SSAK_DMG_SMOKE_LOG:-/tmp/ssak-dmg-logs/bundle-smoke-$PORT.log}"
 DIR="$(mktemp -d /tmp/ssak-bundle-smoke.XXXXXX)"
