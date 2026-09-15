@@ -82,3 +82,4 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 - Evidence path only: `.omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_soak_28800.json`
 - **CR-14 remains NO-GO.** Candidate `b6003205` / fingerprint `02349a8d…`.
 - Investigation: `docs/ga/notes/EX05_SC6_RSS_INVESTIGATION_2026-09-15.md`. Desktop packaging paused (D-09). Soak watch routine paused.
+- 2026-09-15: Decision **A** — ConversationStore soft-max auto-compact (default 64). SC-6 equality updated to bounded messages. Threshold 64MB unchanged. Short probe pending/recorded separately. CR-14 GO 아님.

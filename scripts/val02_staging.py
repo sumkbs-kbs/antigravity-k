@@ -40,6 +40,7 @@ P95_THRESHOLD_MS = 500.0
 P99_THRESHOLD_MS = 1000.0
 ERROR_RATE_THRESHOLD = 0.0  # 완료기준: error rate threshold 안 — 비율 0 (CAS loser는 정상 흐름)
 FD_LEAK_THRESHOLD = 5
+CONVERSATION_SOFT_MAX_MESSAGES = 64  # align with ConversationStore default (Decision A)
 RSS_LEAK_THRESHOLD_MB = 64.0
 SOAK_DEFAULT_SECONDS = 60  # 정식 gate는 8h(28800) — --soak-seconds로 상향
 
@@ -493,6 +494,20 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
     conv_consistent = final_rev == conv_rev
     conv_record = conv_store.get(project_id="soak", conversation_id="soak-conv")
     conv_message_count = len(conv_record.messages) if conv_record else -1
+    # Decision A: product may auto-compact; require bounded message list, not
+    # message_count == ops (that forced unbounded RAM).
+    soft_max = CONVERSATION_SOFT_MAX_MESSAGES
+    try:
+        import os as _os
+
+        _raw = _os.environ.get("AGK_CONVERSATION_SOFT_MAX_MESSAGES")
+        if _raw is not None and str(_raw).strip() != "":
+            soft_max = max(0, int(_raw))
+    except ValueError:
+        soft_max = CONVERSATION_SOFT_MAX_MESSAGES
+    # After compact: summary + retain_tail(6) => typically <= soft_max (trigger)
+    # and well under soft_max + retain_tail + 1.
+    messages_bounded = soft_max <= 0 or (0 < conv_message_count <= soft_max)
     return {
         "scenario": "SC-6-soak",
         "requested_duration_s": seconds,
@@ -503,6 +518,8 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
         "conversation_revision": final_rev,
         "conversation_message_count": conv_message_count,
         "conversation_append_equality": conv_consistent,
+        "conversation_messages_bounded": messages_bounded,
+        "conversation_soft_max": soft_max,
         "errors": errors,
         "rss_samples_mb": [round(r, 1) for r in rss_samples],
         "rss_growth_mb": round(growth, 1),
@@ -517,7 +534,7 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
             and orphan_wt == 0
             and lock_ok
             and conv_consistent
-            and conv_message_count == conv_ops
+            and messages_bounded
             # 실측 시간이 요청의 90% 미만이면 soak가 조기 종료됐다 — 실패.
             and actual_duration >= seconds * 0.9
         ),

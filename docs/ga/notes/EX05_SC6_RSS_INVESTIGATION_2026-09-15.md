@@ -59,3 +59,18 @@ evidence: .omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_so
 - `append`는 레코드를 로드한 뒤 `record.messages.append(...)`로 **전체 메시지 리스트를 메모리에 유지**한 채 JSON으로 다시 저장.
 - `compact`/요약 prune API는 있으나 **SC-6 soak는 호출하지 않음**.
 - 따라서 ~15만 메시지를 한 conversation에 쌓으면 RSS 폭증은 **제품이 전체 히스토리를 메모리에 올리는 설계 + harness의 unbounded append**가 맞물린 결과.
+
+## Decision A 구현 (2026-09-15)
+
+- 사용자 선택: **(A) 제품이 긴 대화 RSS를 잡는다**
+- `ConversationStore.append`: `AGK_CONVERSATION_SOFT_MAX_MESSAGES` (기본 **64**) 초과 시 같은 CAS 안에서 inline compact (`retain_tail=6`). 추가 revision bump 없음.
+- `0`이면 auto-compact 비활성 (테스트/특수 경로).
+- SC-6 판정: `message_count == ops` 제거 → `conversation_messages_bounded` (`message_count <= soft_max`) + revision 일치 유지. **RSS 64MB 임계값은 변경하지 않음.**
+- 단위 테스트: `tests/test_conversation_store_soft_max_rss.py`
+
+## 120s probe (after Decision A)
+
+- Path: `.omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_soak_120_probe.json`
+- pass=True · duration_s=120.001 · rss_growth_mb=17.3
+- ops=60083 · revision=60083 · messages=53 · bounded=True
+- Full 8h resoaking still required before EX-05 can flip to PASS.

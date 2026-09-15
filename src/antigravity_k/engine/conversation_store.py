@@ -51,7 +51,22 @@ logger = logging.getLogger("antigravity_k.engine.conversation_store")
 MessageRole = Literal["user", "assistant", "system", "tool"]
 
 _DEFAULT_RETAIN_TAIL: Final[int] = 6
+# EX-05 / Decision A: bound in-memory (and on-disk rewritten) history so long
+# chats cannot grow RSS without bound. 0 disables auto-compact.
+_DEFAULT_SOFT_MAX_MESSAGES: Final[int] = 64
 _SUMMARY_MESSAGE_ID: Final[str] = "msg_summary"
+
+
+def _soft_max_messages() -> int:
+    """Return soft max message count (0 = disable auto-compact on append)."""
+    raw = os.environ.get("AGK_CONVERSATION_SOFT_MAX_MESSAGES")
+    if raw is None or raw.strip() == "":
+        return _DEFAULT_SOFT_MAX_MESSAGES
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _DEFAULT_SOFT_MAX_MESSAGES
+
 
 # CR-01: versioned identity layout + one-time migration marker.
 _IDENTITY_SCHEMA_VERSION: Final[str] = "v2"
@@ -467,6 +482,41 @@ class ConversationStore:
                 )
             return record.snapshot()
 
+    def _inline_compact_messages(
+        self,
+        record: ConversationRecord,
+        *,
+        retain_tail: int = _DEFAULT_RETAIN_TAIL,
+        summarize_fn=None,
+    ) -> None:
+        """Replace older messages with a summary in-place (no revision bump).
+
+        Caller must already hold locks and have advanced revision for the
+        triggering mutation. Used by append soft-max bounding (Decision A).
+        """
+        retain_tail = max(0, int(retain_tail))
+        messages = list(record.messages)
+        if len(messages) <= retain_tail:
+            record.retained_message_ids = tuple(m.id for m in record.messages)
+            return
+        old = messages[:-retain_tail] if retain_tail else messages
+        retained = messages[-retain_tail:] if retain_tail else []
+        old_as_dicts = [{"role": m.role, "content": m.content} for m in old]
+        summary_text = summarize_messages(old_as_dicts, summarize_fn)
+        if not summary_text:
+            summary_text = f"[대화 요약 — {len(old)}개 메시지 압축]"
+        summary_msg = ConversationMessage(
+            id=_SUMMARY_MESSAGE_ID if not any(m.id == _SUMMARY_MESSAGE_ID for m in retained) else _new_message_id(),
+            role="system",
+            content=summary_text,
+            created_at=time.time(),
+            provenance="summary",
+        )
+        new_messages = [summary_msg, *retained]
+        record.messages = new_messages
+        record.summary = summary_text
+        record.retained_message_ids = tuple(m.id for m in new_messages)
+
     # ── Mutations (CAS) ─────────────────────────────────────────────────
 
     def append(
@@ -547,7 +597,19 @@ class ConversationStore:
             )
             record.messages.append(msg)
             record.revision = expected_revision + 1
-            record.retained_message_ids = tuple(m.id for m in record.messages)
+            soft_max = _soft_max_messages()
+            if soft_max > 0 and len(record.messages) > soft_max:
+                # Decision A (EX-05): bound RSS for long conversations without an
+                # extra client-visible revision bump beyond this append.
+                self._inline_compact_messages(record, retain_tail=_DEFAULT_RETAIN_TAIL)
+                try:
+                    from antigravity_k.engine.operational_metrics import record_compaction
+
+                    record_compaction("success")
+                except Exception:  # noqa: BLE001 — metrics must not fail append
+                    pass
+            else:
+                record.retained_message_ids = tuple(m.id for m in record.messages)
             record.updated_at = time.time()
             self._persist(record)
             return record.snapshot()
