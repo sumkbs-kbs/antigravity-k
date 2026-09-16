@@ -123,13 +123,38 @@ def seconds_between(start: str, end: str) -> float | None:
     return (b - a).total_seconds()
 
 
+_EXPECTED_FP_RE = re.compile(r"^expected_fingerprint:\s*(\S+)$", re.M)
+
+
+def _schedule_text() -> str:
+    return SCHEDULE.read_text(encoding="utf-8") if SCHEDULE.is_file() else ""
+
+
+def latest_expected_fingerprint(text: str) -> str:
+    """예약 기록(`soak-schedule.txt`)에서 **마지막** 기대 지문.
+
+    왜 “마지막”인가 — 2026-09-16 에 실측한 결함이다. 이 파일은 예약할 때마다 블록을 **덧붙인다**
+    (재장전·취소 기록도 쌓인다). 종전 구현은 `re.search`(= 첫 매치)여서, 재장전이 한 번이라도 있으면
+    판정기가 **철 지난 예약의 지문**을 기대값으로 잡았다. 그날 파일의 첫 값은 `157311cf…`(08:20Z),
+    현재 예약은 `92fcaeb5…`(11:39Z) 였으므로, 고치지 않았다면 밤새 정상으로 끝난 8시간 실행이
+    ③(기대 == 시작)에서 **거짓 FAIL** 로 판정됐을 것이다. 그것이 바로 이 카드가 반복해서 겪은
+    “지표는 PASS 인데 판정 근거가 없다” 상태를 사람 손으로 다시 만드는 일이다.
+
+    `previous_expected_fingerprint:` 같은 다른 키는 줄 시작 앵커(`^`) 때문에 걸리지 않는다.
+    """
+    matches = _EXPECTED_FP_RE.findall(text)
+    return matches[-1] if matches else "UNVERIFIED"
+
+
+def reservation_count(text: str | None = None) -> int:
+    """이 파일에 기록된 예약 이력 수 — 판정 출력에 붙여 “어느 예약을 썼는지”를 보이게 한다."""
+    return len(_EXPECTED_FP_RE.findall(_schedule_text() if text is None else text))
+
+
 def expected_fingerprint(override: str | None = None) -> str:
     if override:
         return override
-    if not SCHEDULE.is_file():
-        return "UNVERIFIED"
-    match = re.search(r"^expected_fingerprint:\s*(\S+)$", SCHEDULE.read_text(encoding="utf-8"), re.M)
-    return match.group(1) if match else "UNVERIFIED"
+    return latest_expected_fingerprint(_schedule_text())
 
 
 def _interpreter() -> str:
@@ -283,12 +308,35 @@ def selftest() -> int:
         ("리포트 없음", {**base}, None, fp, "FAIL"),
     )
     failures = 0
+    total = 0
     for label, block, report, now_fp, want in cases:
+        total += 1
         verdict, _ = judge(block=block, report=report, expected_fp=fp, now_fp=now_fp, seconds=28800)
         matched = verdict == want or (want == "METRICS_PASS" and verdict.startswith("METRICS_PASS"))
         print(f"  [{'OK ' if matched else 'NO '}] {label}: verdict={verdict!r} (기대 {want})")
         failures += 0 if matched else 1
-    print(f"selftest: {len(cases) - failures}/{len(cases)}")
+
+    # 예약 기록 판독 — 이 프로젝트는 재장전을 여러 번 하므로 “첫 예약”을 잡으면 거짓 FAIL 이 된다.
+    schedule_cases: tuple[tuple[str, str, str], ...] = (
+        (
+            "예약 이력 3건 → 마지막을 쓴다",
+            "".join(f"expected_fingerprint: {n * 64}\n" for n in ("1", "2", "3")),
+            "3" * 64,
+        ),
+        ("이력 없음 → UNVERIFIED", "# 예약 없음\n", "UNVERIFIED"),
+        (
+            "previous_expected_fingerprint 는 세지 않는다",
+            "previous_expected_fingerprint: " + "d" * 64 + "\n",
+            "UNVERIFIED",
+        ),
+    )
+    for label, text, want in schedule_cases:
+        total += 1
+        got = latest_expected_fingerprint(text)
+        matched = got == want
+        print(f"  [{'OK ' if matched else 'NO '}] {label}: 기대지문={got[:16]}… (기대 {want[:16]}…)")
+        failures += 0 if matched else 1
+    print(f"selftest: {total - failures}/{total}")
     return 0 if failures == 0 else 1
 
 
@@ -334,6 +382,13 @@ def main() -> int:
         f"  지문: start={str(block.get('start_fingerprint'))[:16]}… end={str(block.get('end_fingerprint'))[:16]}… "
         f"기대={expected[:16]}… 지금={now_fp[:16]}…"
     )
+    if args.expected_fingerprint:
+        print("  기대 지문 출처: --expected-fingerprint (사람이 지정)")
+    else:
+        print(
+            f"  기대 지문 출처: soak-schedule.txt 예약 이력 {reservation_count()}건 중 **마지막**"
+            " (재장전 뒤에는 첫 값이 아니다 — 2026-09-16 실측 결함)"
+        )
     if data:
         print(f"  리포트: {report_path.name} · generated_at {data.get('generated_at')} · workdir {data.get('workdir')}")
         print(f"    thresholds: {json.dumps(data.get('thresholds', {}), ensure_ascii=False)}")

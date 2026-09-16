@@ -45,7 +45,7 @@ _BASE_BLOCK = {
 _GOOD_REPORT: dict[str, Any] = {"all_pass": True, "missing_required": [], "scenarios": []}
 
 
-def _load_judge() -> Any:
+def _load_module() -> Any:
     path = next((c for c in _CANDIDATES if c.is_file()), None)
     if path is None:
         pytest.fail(f"회수 판정기를 찾지 못했다: {[str(c.relative_to(REPO)) for c in _CANDIDATES]}")
@@ -56,10 +56,11 @@ def _load_judge() -> Any:
     # `sys.modules[cls.__module__]` 을 찾기 때문이다(등록 없이는 AttributeError: 'NoneType').
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    return module.judge
+    return module
 
 
-JUDGE = _load_judge()
+MODULE = _load_module()
+JUDGE = MODULE.judge
 
 
 @pytest.mark.parametrize(
@@ -102,6 +103,28 @@ def test_short_wall_clock_is_not_a_pass_even_with_all_pass_report() -> None:
     )
     assert verdict != "PASS"
     assert any(not c.ok and "벽시계" in c.label for c in checks), [c.label for c in checks]
+
+
+def test_schedule_reader_uses_the_latest_reservation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """예약을 재장전하면 블록이 **덧붙는다** — 첫 값을 잡으면 밤새 정상으로 끝난 실행이 거짓 FAIL 이 된다.
+
+    실측(2026-09-16): 종전 구현(`re.search` = 첫 매치)은 `157311cf…`(08:20Z 예약)를 기대값으로 잡았고,
+    현재 예약은 `92fcaeb5…`(11:39Z)였으므로 그대로 두면 ③(기대 == 시작)이 거짓으로 어긋났다.
+    """
+    schedule = tmp_path / "soak-schedule.txt"
+    schedule.write_text(
+        "expected_fingerprint: " + "1" * 64 + "\n"
+        "# ── 운영자 기록: 예약 취소 ──\n"
+        "previous_expected_fingerprint: " + "9" * 64 + "\n"
+        "expected_fingerprint: " + "2" * 64 + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(MODULE, "SCHEDULE", schedule)
+    assert MODULE.expected_fingerprint() == "2" * 64, "마지막 예약을 기대값으로 쓰지 않았다"
+    assert MODULE.reservation_count() == 2
+    # 다른 키(`previous_…`)는 줄 시작 앵커 때문에 기대값으로 새지 않는다.
+    assert MODULE.latest_expected_fingerprint("previous_expected_fingerprint: " + "d" * 64 + "\n") == "UNVERIFIED"
+    assert MODULE.latest_expected_fingerprint("") == "UNVERIFIED"
 
 
 def test_every_failure_reason_is_named() -> None:
