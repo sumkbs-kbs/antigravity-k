@@ -201,3 +201,36 @@ recovery_evidence: soak-recovery-20260916T121312Z.json · soak-recovery-latest.j
 after_this: 이 판정 기록이 쓰인 뒤이므로 코드 수정이 가능하다(수정하면 “지금 트리 == 시작 지문”은 깨어지지만,
   이 FAIL 의 증거는 위 JSON 에 남는다). 다음 순서: 결함 수정 → 계약 시험 → 커밋 → 게이트 23개 재실행 → 8시간 재실행.
   상세: SOAK_8H_FINDINGS.md · GATE_LEDGER.md §16 · handoff.md §10.
+# NX-10 SC-1~6 soak 러너 기록
+generated_at: 2026-09-16T23:26:23Z
+soak_seconds: 28800
+report: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json
+workdir: /tmp/nx10-soak-work-20260916T232623Z
+command: PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 28800 --workdir /tmp/nx10-soak-work-20260916T232623Z
+start_time: 2026-09-16T23:26:23Z
+start_head: 7691ccc5414791f9c54e274be1d05d2f4aea7433
+start_dirty: true
+start_fingerprint: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639bafcf4
+
+# ── 운영자 기록: 수정 뒤 8시간 재실행 (아래 줄들은 `#` 로 시작하므로 판정기의 러너 블록 파서가 건너뜁니다) ──
+# recorded_at: 2026-09-16T23:27:00Z
+# 왜 다시 돌리는가: 직전 실행(12:13:12Z→20:13:16Z)은 **FAIL** 이었고, 원인은 `journal.tail()` 이
+#   append 마다 journal 전체를 파싱한 것이잖다(측정: 8h 상태에서 append 814 ms 중 810 ms). 그 결함을
+#   같은 날 고치고(`7d8c25b5`) 계약 시험 2건으로 고정했으며, 새 지문 `98855031…` 에서 필수 게이트 23개를
+#   재측정해 **22 passed · 1 failed · 0 not_run**(새 실패 0건)을 확인했다. 이제 그 지문에서 8시간을 다시 잰다.
+# 발화 전 점검(preflight) 6/6 OK — 즉시 시작 모드(예약 점검 제외):
+#   [OK] 현재 트리 == HEAD 트리(커밋된 후보) — HEAD=7691ccc5…
+#   [OK] 인터프리터·러너 자산·여유 공간·중복 실행 없음
+#   [OK] 처리량 하한 ≥ 133 ops/s — **실측 443 ops/s**(60초 26,632 ops · 8시간 외삽 ≈12,783,360 ops)
+#   ※ 이 항목을 이번 실행 전에 도구에 추가했다: 직전 8시간 실행은 60초에 2,978 ops(49.6 ops/s)를 내고도
+#     preflight 를 통과했고, 그 뒤 8시간을 그대로 태웠다. 새 항목은 그 사각지대를 닫는다(자기시험 43/43).
+# 시작 기록: start_time 2026-09-16T23:26:23Z · start_head 7691ccc5… · start_fingerprint 98855031…
+#   = 현재 트리 = HEAD 트리 지문(실측) → 이 8시간은 **커밋된 후보 `7691ccc5`** 의 것이다.
+#   start_dirty: true 는 이 창의 `docs/` 편집(지문 제외 경로)과 소유 불명 gitlink `vault_data` 때문이다 —
+#   귀속 판단은 그 줄이 아니라 start_fingerprint 로 한다.
+# 작업디렉터리: /tmp/nx10-soak-work-20260916T232623Z · 종료 예정: 2026-09-17T07:26:23Z = 16:26 KST
+# 보존: 직전 FAIL 실행의 리포트를 이 창의 `soak-28800.json` 이 덮어쓰기 전에
+#   `soak-28800-fail001.json` 으로 사본했다 — sha256 ebc0221f9a710705db9afa2378b6608d353f1bb34d9645777ba58cd64d60b523.
+# 이 시점부터의 제약: `src/`·`tests/`·`scripts/`·`dashboard/` 를 건드리면 종료 지문이 갈려 이 8시간이 무효가 된다.
+#   이 창은 `docs/` 만 수정한다(이미 여러 번 실측된 사실: 문서 편집은 지문을 움직이지 않는다).
+# 회수: 종료 뒤 `python scripts/collect_soak_result.py` 한 줄 — 판정기는 **마지막 완료 블록**과 **마지막 예약**을 쓴다.

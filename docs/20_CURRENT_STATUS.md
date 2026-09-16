@@ -57,6 +57,7 @@ PIN 이 설정된 배포에서는 첫 화면이 PIN 입력이다.
 | ② 교정 결정 A | 2026-09-15 | ConversationStore soft-max auto-compact 기본 64(`78012f4a`) · **임계값 64MB 는 올리지 않음** | 결정 |
 | ③ 재soak | 2026-09-15 15:07 → ~23:08 KST | `duration_s=28801.318` · append `12,102,886` = revision `12,102,886` · 최종 view 26 (≤ soft max 64) · RSS `65.7 → 114.4`(+48.7) · `errors=0` · `fd_growth=0` · `orphan_worktrees=0` · SC-1~6 `all_pass: true` | **JSON 지표 PASS** |
 | ④ 종료·귀속 | — | 래퍼 로그 마지막 줄 `finished exit:141`(원문 명령 미보존 → stdout 절단 가능성, INCONCLUSIVE) · **재soak 당시 코드 후보·시작/종료 지문 귀속 UNVERIFIED** | **미확정** |
+| ⑥ NX-10 수정 뒤 재실행 | 2026-09-16 08:26 KST → 종료 예정 16:26 KST | 꼬리 창 수정(`7d8c25b5`) + 게이트 23개 재측정(22/1/0) 뒤 **같은 지문 `98855031…`** 에서 재실행 · preflight **6/6 OK**(처리량 하한 443 ops/s ≥ 133) · 시작 = 현재 트리 = HEAD 트리(후보 `7691ccc5`) | **실행 중** |
 | ⑤ NX-10 재soak (새 후보 `fd16368c`) | 2026-09-16 21:13 → 09-17 05:13 KST | `duration_s 28800.075`(요청 100.0%) · append `70,430` · view 19 ≤ 64 · `errors 0` · fd 5→5 · `orphan_worktrees 0` · 원본 70,431건 전수 확인 · **`rss_growth_mb 1683.5` ≫ 64 → SC-6 FAIL** · start = end = 기대 지문 = `322b4d3b…` · **exit 1** | **FAIL(원인 측정)** |
 
 요약 JSON 의 SHA256 과 sample 배열 요약(count/min/max/first/last)은
@@ -78,6 +79,11 @@ journal 94.1 MB · `rss_growth_mb` **32.2** 로 `pass: true`, 기울기 평탄�
 **+48 MB < 64**. 같은 실행에서 NX-04 의 `stream_line_count` 가 처음 돌아 통과했다.
 **거짓으로 보고하지 않기 위해**: ⑤ 는 여전히 FAIL 이다 — 고침은 “원인이 사라졌다”는 뜻이고,
 새 지문에서 게이트 23개와 8시간을 다시 재기 전까지 “이김”이 아니다.
+
+**수정 뒤 같은 지문에서 8시간을 다시 시작했다(⑥, 08:26 KST → 16:26 KST)**: `soak_control.sh run` 의
+preflight 가 **6/6**(처리량 하한 포함 — 그 항목을 이번에 추가했다. 직전 실행은 60초에 2,978 ops를 내고도
+통과해 8시간을 태웠다). 직전 FAIL 리포트는 `soak-28800-fail001.json` 으로 보존했고, 회수 판정은
+`python scripts/collect_soak_result.py` 한 줄이다 — **그 전까지 ⑤ 는 FAIL, ⑥ 는 “실행 중”** 이다.
 
 **새 지문에서의 재측정(2026-09-17, attempt `tailfix001`)**: 커밋 `7d8c25b5`(수정) · `099cfc8b`(문서)
 뒤 **작업 트리 지문 = HEAD 트리 지문 = `98855031…`** 에서 필수 **23개를 전수 실행**해

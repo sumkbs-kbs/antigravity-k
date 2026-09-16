@@ -17,7 +17,9 @@
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh arm --at 23:30 --fp <지문>
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel         # 살아 있는 예약을 죽이고 **죽었는지 검증**
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh orphans        # 잠금 주인이 아닌 살아 있는 예약 탐지
-#   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight      # 발화 전: 8시간을 태울 준비가 됐는가(의존성·여유 공간·후보 귀속)
+#   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight      # 발화 전: 8시간을 태울 준비가 됐는가(의존성·여유 공간·후보 귀속·**처리량 하한**)
+#     처리량 하한은 `NX10_PREFLIGHT_PROBE_SECONDS`(기본 60초)·`NX10_PREFLIGHT_MIN_OPS_PER_SEC`(기본 133)로 조정하고,
+#     `NX10_PREFLIGHT_SKIP_THROUGHPUT=1` 로 생략한다(자기시험은 그 문을 쓴다 — 60초 프루브는 시험을 느리게 만든다).
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh run           # 예약을 기다리지 않고 **지금** 시작(같은 preflight 를 통과해야 한다)
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest       # 임시 디렉터리에서 전 수명주기 검증
 #
@@ -369,7 +371,8 @@ _record_cancel() {
 # 22:00 발화 **전에** 답해야 하는 질문: “이 예약은 돌 것이고, 돌면 쓸 수 있는 값이 나오는가?”
 # 지금 결함을 알면 고칠 수 있고, 06:00 에 알면 밤을 버린다. 그래서 8시간이 의존하는 것들을 먼저 본다:
 # 예약이 단일·유효한가 · 지문이 **커밋된 후보**의 것인가 · 인터프리터·러너 자산이 있는가 ·
-# 작업디렉터리(기본 `/tmp`)에 여유가 있는가 · 그리고 **이미 다른 soak 이 돌고 있지 않은가**.
+# 작업디렉터리(기본 `/tmp`)에 여유가 있는가 · **이미 다른 soak 이 돌고 있지 않은가** · 그리고
+# **이 작업량이 8시간에 의미 있는 양을 하는가**(처리량 하한 — 2026-09-16 실패의 사각지대).
 # 종료 코드: 전부 OK 0, 하나라도 FAIL 1.
 _pf_total=0
 _pf_failed=0
@@ -401,6 +404,51 @@ PY
 
 _free_mb() { # $1=디렉터리 → MiB
   df -m "$1" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0
+}
+
+_pf_throughput() {
+  # 왜 이 항목이 있는가: 2026-09-16 의 8시간 soak 은 **60초에 2,978 ops(49.6 ops/s)** 를 내고도
+  # preflight 를 통과했고, 8시간 뒤 **70,430 ops(2.45 ops/s)** 로 끝났다. 원인은 `journal.tail()` 이
+  # append 마다 journal 전체를 파싱한 것이고, 그래서 시간이 갈수록 느려졌다(파일이 커지므로).
+  # 즉 "시작할 때 잠깐 재본 값"만으로는 부족하지만, **많이 느린 것**은 시작 전에 보인다 —
+  # 그 실행의 60초 값은 정상의 1%였다. 이 프루브가 8시간을 태우기 전에 그 사실을 말한다.
+  local secs rate dir out ops log rc measured projected
+  secs="${NX10_PREFLIGHT_PROBE_SECONDS:-60}"
+  # **비율**로 잡는다(절대 개수가 아니다): 프루브 길이를 바꿔도 기준이 같은 뜻을 가지게 하려는 것이다.
+  # 기준 근거(실측): 고친 코드 486 ops/s(60초 29,180) · 고장난 코드 49.6 ops/s(60초 2,978, 평균 2.45 ops/s).
+  # 기본 133/s = 고친 코드의 27% · 고장난 60초 값의 2.7배 — 기계 속도 차이를 견디는 폭이다.
+  rate="${NX10_PREFLIGHT_MIN_OPS_PER_SEC:-133}"
+  if ! dir="$(mktemp -d "${TMPDIR:-/tmp}/nx10-preflight-XXXXXX")"; then
+    _pf_check "처리량 프루브(임시 디렉터리)" 0 "mktemp 실패"
+    return 1
+  fi
+  out="$dir/probe.json"
+  log="$dir/probe.log"
+  # SC-6 만 돌리면 리포트는 `missing_required: SC-1..SC-5` 를 담고 main() 이 **exit 1** 을 낸다 —
+  # 그래서 성공 판정은 exit code 가 아니라 **리포트가 나왔는가** 로 한다(이걸 exit code 로 보면
+  # 프루브가 매번 실패로 보인다 — 실측으로 겪었다).
+  (cd "$REPO" && PYTHONPATH=src "$(_py)" scripts/val02_staging.py --scenarios SC-6 \
+    --soak-seconds "$secs" --workdir "$dir/work" --output "$out") >"$log" 2>&1
+  rc=$?
+  ops="$("$(_py)" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(next(s["completed_ops"] for s in d["scenarios"] if s["scenario"]=="SC-6-soak"))' "$out" 2>/dev/null | tr -dc '0-9')"
+  case "${ops:-}" in ''|*[!0-9]*) ops=0 ;; esac
+  [ "$secs" -gt 0 ] || secs=60
+  measured=$((ops / secs))
+  projected=$((ops * 28800 / secs))
+  if [ "$ops" = "0" ]; then
+    _pf_check "처리량 하한 ≥ ${rate} ops/s" 0 \
+      "SC-6 프루브가 리포트를 내지 않았다(exit=$rc, 0 ops) — 로그를 남겨 둔다: $log"
+    return 1
+  fi
+  if [ "$measured" -ge "$rate" ]; then
+    _pf_check "처리량 하한 ≥ ${rate} ops/s" 1 \
+      "실측 ${measured} ops/s(${secs}초 ${ops} ops · 8시간 외삽 ≈${projected} ops)"
+    rm -rf "$dir"
+    return 0
+  fi
+  _pf_check "처리량 하한 ≥ ${rate} ops/s" 0 \
+    "실측 ${measured} ops/s(${secs}초 ${ops} ops · 8시간 외삽 ≈${projected} ops) — 프루브 로그: $log"
+  return 1
 }
 
 cmd_preflight() {
@@ -482,6 +530,14 @@ cmd_preflight() {
     else
       _pf_check "다른 soak 실행 없음" 1 "실행 잠금 없음 · val02_staging.py 0건"
     fi
+  fi
+
+  # ⑧ 처리량 하한 — 8시간을 태우기 전에 "이 작업량이 8시간에 의미 있는 양을 하는가"를 잰다.
+  # 60초 프루브라 `run` 경로에서는 시작이 1분 늦어지고, 그 대가로 밤을 지킨다.
+  if [ "${NX10_PREFLIGHT_SKIP_THROUGHPUT:-0}" = "1" ]; then
+    _pf_check "처리량 하한(생략됨)" 1 "NX10_PREFLIGHT_SKIP_THROUGHPUT=1"
+  else
+    _pf_throughput || true   # 실패는 _pf_check 가 이미 셌다(여기서 종료 코드를 죽이지 않는다)
   fi
 
   # 참고(실패 아님): 화면 세션·잠자기. 예약은 대기 구간에 caffeinate 를 걸지 않는다.
@@ -677,7 +733,8 @@ sleep 300"
   preflight() {
     NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
       NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/schedule_nx10_soak.sh" \
-      NX10_PREFLIGHT_MIN_FREE_MB="${NX10_PREFLIGHT_MIN_FREE_MB:-2048}" bash "$0" preflight "$@"
+      NX10_PREFLIGHT_MIN_FREE_MB="${NX10_PREFLIGHT_MIN_FREE_MB:-2048}" \
+      NX10_PREFLIGHT_SKIP_THROUGHPUT="${NX10_PREFLIGHT_SKIP_THROUGHPUT:-1}" bash "$0" preflight "$@"
   }
   preflight > "$d/pf-ok.txt" 2>&1
   _st_ck "⑧ 건강한 예약이면 preflight 0" 0 "$?"
@@ -711,12 +768,38 @@ sleep 300"
   _st_ck "⑧ 유령 잠금이면 preflight 1" 1 "$?"
   _st_ck_has "⑧ 유령 잠금을 지목" "$d/pf-ghost.txt" "잠금 상태=armed"
 
+  # ⑧ 처리량 하한 — 5초 프루브로 문 하나만 본다(예약 점검은 빼고, 60초는 시험을 느리게 만든다).
+  #     넉넉한 하한은 통과하고, 터무니없이 높은 하한은 **실패해야** 한다(문이 실제로 작동하는가).
+  NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
+    NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=1 \
+    bash "$0" preflight > "$d/pf-thr-ok.txt" 2>&1
+  _st_ck "⑧ 처리량 하한을 넘으면 preflight 0" 0 "$?"
+  _st_ck_has "⑧ 처리량을 ops/s 로 보고한다" "$d/pf-thr-ok.txt" "처리량 하한 ≥ 1 ops/s"
+  _st_ck_has "⑧ 프루브가 리포트를 냈는지 확인한다" "$d/pf-thr-ok.txt" "8시간 외삽"
+
+  NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
+    NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=99999999 \
+    bash "$0" preflight > "$d/pf-thr-fail.txt" 2>&1
+  _st_ck "⑧ 처리량 미달이면 preflight 1" 1 "$?"
+  _st_ck_has "⑧ 미달 항목을 지목한다" "$d/pf-thr-fail.txt" "처리량 하한"
+
+  # 프루브가 리포트를 내지 못하면(예: 소크 하네스 자체가 깨짐) 0 ops 로 **실패**해야 한다
+  NX10_OUT="$d/out" NX10_REPO="$d/no-such-repo" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
+    NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=1 \
+    bash "$0" preflight > "$d/pf-thr-noreport.txt" 2>&1
+  _st_ck "⑧ 프루브가 리포트를 못 내면 preflight 1" 1 "$?"
+  _st_ck_has "⑧ 그 사유를 문장으로 남긴다" "$d/pf-thr-noreport.txt" "SC-6 프루브가 리포트를 내지 않았다"
+
   # ⑨ `run`(예약을 기다리지 않고 지금 시작) — **거부** 쪽을 고정한다. 해피 패스는 8시간 soak 을 실제로
   #     띄우므로 시험에서 돌리지 않는다(그 자체가 운영 기록이다 — 오늘 밤 실제 시작이 그 증거다).
   d="$tmp/t9"
   mkdir -p "$d/out" "$d/empty"
   NX10_OUT="$d/out" NX10_REPO="$d/empty" NX10_SCHEDULER="$d/does-not-exist.sh" \
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PREFLIGHT_MIN_FREE_MB=99999999 \
+    NX10_PREFLIGHT_SKIP_THROUGHPUT=1 \
     bash "$0" run > "$d/run-fail.txt" 2>&1
   _st_ck "⑨ preflight 실패면 run 거부(exit 2)" 2 "$?"
   _st_ck_has "⑨ 거부 사유를 문장으로 남긴다" "$d/run-fail.txt" "이 상태로 8시간을 시작하지 않는다"
@@ -729,6 +812,7 @@ sleep 300"
   sleep 1
   NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/schedule_nx10_soak.sh" \
+    NX10_PREFLIGHT_SKIP_THROUGHPUT=1 \
     bash "$0" run > "$d/run-armed.txt" 2>&1
   _st_ck "⑨ 예약이 걸려 있으면 run 거부(exit 2)" 2 "$?"
   _st_ck_has "⑨ 예약을 지목" "$d/run-armed.txt" "예약이 이미 걸려 있다"
