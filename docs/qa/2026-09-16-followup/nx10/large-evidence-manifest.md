@@ -6,7 +6,10 @@
 
 검증: `shasum -a 256 <path>` 가 아래 값과 같아야 한다.
 
-(기준: 2026-09-16 커밋 `89dd383b` — 이 시점에 존재한 게이트 리포트 5건 중 1MB 초과분)
+(기준: 2026-09-16 커밋 `1bd95e7d` — 이 시점에 존재한 게이트 리포트 중 1MB 초과분. 커밋 `89dd383b`
+기준으로 추가된 것은 `promote004` 하나다.)
+
+- `docs/qa/2026-09-16-followup/nx10/gate-report-promote004.json` — 1,244,862 B — sha256 `f57f5872304de722b1cc105045f40e492da282f03cf20761f1860b22a4458002`
 
 - `docs/qa/2026-09-16-followup/nx10/gate-report-promote001.json` — 1,299,969 B — sha256 `9cc9a85bb475400387caf84e98b25b44e575e5c92005de51d66dfc853d7d9df0`
 - `docs/qa/2026-09-16-followup/nx10/gate-report-freeze002.json` — 1,290,610 B — sha256 `c0f1090384d5199490d771f20d0fcc9b046a32671cd4644c661b7146a2b3a578`
@@ -20,5 +23,6 @@
 - `promote001` — 승격 직후(측정 중 편집으로 지문이 갈린 attempt, 참고용)
 - `promote002` — 승격 반영 트리 `0f345d0c…`, 22개 중 21 passed
 - `promote003` — **커밋된 후보 `89dd383b`, 23개 중 22 passed · 1 failed · 0 not_run**
+- `promote004` — **커밋된 후보 `1bd95e7d`(회수 판정기 수정), 23개 중 22 passed · 1 failed · 0 not_run**(실패는 타 레인 `python-tests` 뿐)
 
 작은 동반 증거(`gate_verify-*.txt`)는 커밋되어 있다.

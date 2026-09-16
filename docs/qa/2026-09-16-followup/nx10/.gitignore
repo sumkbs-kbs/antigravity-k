@@ -1,0 +1,5 @@
+# NX-10 예약·실행 잠금은 **운영 중에만 존재하는 상태 파일**이다(증거가 아니다).
+# 증거는 soak-exit.txt · soak-schedule.txt · soak-schedule.log 에 문장으로 남는다.
+# `docs/` 는 코드 지문 제외 경로라 이 파일도 지문을 움직이지 않는다.
+.soak-arm.lock/
+.soak-run.lock/

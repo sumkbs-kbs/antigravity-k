@@ -112,6 +112,44 @@ screen -dmS nx10gates bash docs/qa/2026-09-16-followup/nx10/run_remaining_gates.
 허용된다. 다음 창에서 코드를 한 줄이라도 고치면 지문이 바뀌므로 새 리포트로 남기고
 이전 green 을 합산하지 않는다.
 
+## 6b. 예약 통제 (2026-09-16 후속 창 — 사고 조치 + 도구)
+
+**사고:** `pgrep -fl schedule_nx10_soak` 로 보니 **취소됐다고 기록한 예약 3건이 살아서 대기 중**이었다
+(08:20Z·09:47Z·10:26Z). 취소 수단이었던 `screen -S nx10soak -X quit` 은 화면만 닫았고 `login -pflq`
+래퍼가 SIGHUP 을 무시했으므로, 위쪽 cancel 기록 3건의 “시작하지 않았다”는 **사실이 아니었다**.
+그대로 두면 22:00 에 4개가 동시에 깨어났다(그중 3개는 기대 지문이 낡아 드리프트로 멈췄겠지만,
+같은 기록 파일에 동시에 append 하고, 같은 지문 예약이 둘이면 **soak 두 개가 동시에** 돌 수 있었다).
+조치: 세 트리를 SIGTERM 으로 종료하고 `ps` 로 소멸 확인 · 10:47Z 예약도 함께 내림(대기 중 스크립트
+편집은 그 자체로 위험) · 그 뒤 도구를 만들어 **재장전**.
+
+**같은 점검에서 나온 두 번째 결함:** 예약 스크립트의 시작 지문 검사가 PATH 의 `python` 에 의존했다.
+이 기기의 `/usr/bin/python3` 는 3.9.6 이라 `ga_gate.py` 의 3.12 문법을 파싱하지 못해 지문이
+`UNVERIFIED` 가 된다 — 그 PATH 였다면 **22:00 에 아무것도 하지 않고 중단**(8시간 창 손실). 지문 계산을
+`.venv/bin/python` 으로 고정하고, `UNVERIFIED` 는 드리프트보다 **먼저** 막도록 바꿨다(`exit 3`).
+
+**도구:** [soak_control.sh](soak_control.sh) — `arm`(지문을 지금 트리에서 계산) · `status`(단일 예약·고아·
+지문 일치를 한 화면에) · `cancel`(트리 단위 종료 + **검증**) · `orphans` · `selftest`(**22/22**,
+약 1분 45초, 임시 디렉터리에서 사고를 재현). 예약 잠금은 `mkdir` 원자성이고(두 번째 예약은 `exit 2`),
+러너에도 별도 실행 잠금이 생겼다(이미 soak 이 돌면 `exit 5`, 리포트 미생성).
+사고·한계·자기시험이 잡은 결함 4건(macOS `tac` 부재 · 예약 1건이 프로세스 2개로 보이던 오탐 ·
+가짜 프로세스가 파이프를 물고 있는 문제 · heartbeat 중복)은
+[SOAK_SCHEDULING.md](SOAK_SCHEDULING.md) 가 소유한다.
+
+**세 번째 결함(이 창에서 발견·수정): 회수 판정기가 “첫 예약”을 읽었다.** `soak-schedule.txt` 는 예약할
+때마다 블록을 덧붙이는데, `scripts/collect_soak_result.py` 의 `expected_fingerprint()` 가 `re.search`
+(= 첫 매치)로 기대값을 잡아 **철 지난 예약**(`157311cf…`, 08:20Z)을 썼다. 그대로면 밤새 정상으로 끝난
+8시간 실행이 ③(기대 == 시작)에서 **거짓 FAIL** 로 판정된다 — 이 카드가 반복해서 겪은 “지표는 PASS 인데
+귀속이 어긋나 판정 근거가 사라짐”과 같은 종류다. 마지막 예약을 쓰도록 고치고(출처를 출력에 문장으로
+남긴다) 계약 시험 1건 + 자기시험 3건으로 고정했다(자기시험 **9/9**). 커밋 **`1bd95e7d`**(코드 2파일만,
+`git add -A` 0회, 훅 통과). 판정기가 `scripts/` 라 지문이 `92fcaeb5…` → **`322b4d3b…`** 로 이동했고,
+작업 트리 지문 = HEAD 트리 지문(실측) → 그 지문으로 **필수 23개(clean-machine 포함) 재측정**을 돌렸다.
+
+**재장전:** 위 수정 전 상태는 `soak_control.sh arm --at 22:00`(2026-09-16T11:39:27Z, 기대 지문 =
+당시 트리 = `92fcaeb5…`, 단일 예약 pid 79230, 종료 예정 `~06:00 KST`, `status` exit 0)이었다.
+판정기 수정이 지문을 옮겼으므로 그 예약은 **재측정 뒤 `cancel`(검증) → 새 지문으로 `arm`** 으로 다시 세운다
+(취소 기록은 `soak-exit.txt`, 새 기대 지문·대기는 `soak-schedule.txt` 가 소유 — 이 문서에 값을 쓰지 않는다).
+이 창은 이후 `docs/` 만 수정한다.
+
 ## 7. 아직 열려 있는 것 (이 카드가 건드리지 않음)
 
 | 항목 | 상태 | 소유자 |
@@ -119,7 +157,7 @@ screen -dmS nx10gates bash docs/qa/2026-09-16-followup/nx10/run_remaining_gates.
 | owner 허용 기록(NX-00 INCONCLUSIVE · NX-01~06/08 REVIEW · NX-06 cluster BLOCKED · NX-09 F03 수정·F04 닫힘) | **없음** — 기록 전에는 GO 선언 불가 | 사용자/오너 |
 | 손상된 대화의 격리·폐기 절차 | **문서화 + 프로브 완료**(2026-09-16, 이 카드): 제품은 읽기·삭제 모두 fail-closed 라 **삭제도 409**로 거절됨을 실측(view 손상 `ConversationIntegrityError` / journal 손상 `ConversationHistoryCorruptError`), 운영 절차 = 서비스 정지 → 파일 2개를 **저장소 루트 밖**으로 격리 이동 → `write_deletion_marker` → 기동(실측: `deleted=True`·`get()=None`·id 재사용 금지·원본 바이트 보존). **⚠ 루트 안에 격리하면 `legacy_requires_migration` 이 되어 무관한 대화까지 읽기 실패**(실측). 근거 [nx02/damaged-conversation-disposal.md](../nx02/damaged-conversation-disposal.md) · `repro_corrupt_disposal.py` · `corrupt-disposal-output.txt` · [09 운영 가이드](../../../09_OPERATION_GUIDE.md). 남은 것은 사람: **실저장소 리허설·소유자 지정·제품 flag(A안) 채택 여부·격리본 보존 기간** | 미정(절차는 이 카드가 마감) |
 | cue lexicon 회수율 | NX-01 이 넘긴 그대로 | 미정 |
-| SC-1~6 soak(28,800s) | **오늘 22:00 KST 예약 실행(동결 트리)** — `screen -dmS nx10soak bash docs/.../schedule_nx10_soak.sh`. 목표 `2026-09-16T13:00:00Z`, 기대 지문 `157311cf…`, 종료 예정 `~06:00 KST`. 시작 전 지문이 기대값과 다르면 **8시간을 쓰지 않고 중단**(exit 2). 기록: `soak-schedule.txt`·`soak-schedule.log`·`soak-exit.txt`·`soak-28800.json`. **그때까지 코드를 건드리지 않는다.** 1·2차 실행은 아래처럼 중단됐다 |
+| SC-1~6 soak(28,800s) | **오늘 22:00 KST 예약 실행(커밋된 후보 트리)** — `soak_control.sh arm` 으로 걸었다(`screen nx10soak`). 목표 `2026-09-16T13:00:00Z`, 기대 지문 = 현재 트리 = `92fcaeb5…`, 종료 예정 `~06:00 KST`. 시작 전 지문이 기대값과 다르면 **8시간을 쓰지 않고 중단**(exit 2), 계산 자체가 실패하면(`UNVERIFIED`) 더 먼저 중단(exit 3). 기록: `soak-schedule.txt`·`soak-schedule.log`·`soak-exit.txt`·`soak-28800.json`. **그때까지 코드를 건드리지 않는다.** 예약 확인·취소는 `soak_control.sh status`/`cancel` 로만 한다(§6b — `screen -X quit` 은 취소가 아니었다). 1·2차 실행은 아래처럼 중단됐다 |
 | (1·2차) SC-1~6 soak | **1차 중단(오너 판정, 19분 51초)** · **2차 중단(오너 지시로 22:00 예약 실행으로 이동, 3분 39초)** — `2026-09-16T07:41:42Z` 에 SIGTERM, 러너가 `exit: 143` 을 기록(러너 줄과 운영자 중단 기록을 구분해 `soak-exit.txt` 에 남김). 사유: 후보 코드를 더 고치므로(SSE 폐기·quota·GC) 종료 지문이 최종 후보와 달라져 카드의 지문 일치 조건을 못 맞춘다 — 8시간을 써도 판정 근거가 안 된다. 러너는 종료 시에만 리포트를 쓴다(중단 시점 부분 산출물 없음). **작업디렉터리는 유지**: `/tmp/nx10-soak-work-20260916T072151Z` | **동결 후 1회 재실행**(러너 그대로) |
 | 보조도구 승격(`docs/` → `scripts/`·`tests/`), **승격 트리에서 필수 게이트 재측정** | **완료**(2026-09-16, 오너 판정 B): 이동·게이트 7/7(09:46:05Z) → 필수 22개 재측정 **`gate-report-promote002.json`: 21 passed · 1 failed(타 레인 4건) · 0 not_run**, 시작 = 종료 = `0f345d0c…`, 마감 도구 문제는 옛 지문과 동일한 2개(→ 승격이 만든 새 실패 0). `.gitignore` 규칙 포함(GP 검사기 WARN 종결). 첫 두 시도는 **이동 0건으로 롤백**됐고(스테이징 루트 오산 · 검사기의 `parents[4]` 가정), 그 과정에서 리허설·본실행이 표·게이트를 공유하게 됐다. 기록 `promote/promotion-applied.txt`. (이전 상태: 계획 + 리허설 완료, 본실행은 동결 해제 뒤) — 도구 3종(`verify_docs_commands.py`·`collect_soak_result.py`·`cue_lexicon_probe.py`)과 계약 시험 3종이 `docs/` 안에 있어 **어떤 게이트도 지키지 않는다**(정적 검사는 `scripts/`, 스위트는 `tests/`). 이동표·해시·순서 함정: [PROMOTION_PLAN.md](PROMOTION_PLAN.md). **미러 트리 리허설 ALL PASS**(`promote/dry-run-output.txt`: 이동 전 초록 · 승격 위치 초록 · ruff check/format · 이빨 3건 1:1 · 스테이징 사본 0건) — 리허설이 **거짓 FAIL 2건**을 먼저 잡았다(미러 `tests/` 를 골격으로 줄여 링크 검사가 깨짐 · 그 오염이 이빨 판정을 1:1 이 아니라고 오판). 본실행: `promote/apply_promotion.sh`(전제조건·롤백·증거 기록 포함) | 이 카드(계획·리허설) → 실행은 순서 결정 뒤 |
 | **승격 vs soak 순서** | **결정: B**(오너, 2026-09-16 18:35 KST) — 지금 승격하고 22:00 예약을 승격 트리로 재장전했다. **재장전은 두 번**(`soak-schedule.txt` 블록 2·3): `09:47:11Z`(`ab980ba5…`), 그리고 게이트 재측정 뒤 `10:26:34Z`(**`0f345d0c…`**, 대기 9,205초). 두 번째 재장전의 이유는 측정 중 편집으로 지문이 갈렸기 때문이고(순서 교훈은 [CLOSURE_RUNBOOK.md](CLOSURE_RUNBOOK.md) §5b), 그 사실을 `soak-exit.txt` 에 러너 기록과 구분해 남겼다. 취소된 옛 예약·이유는 `soak-exit.txt` 에 러너 기록과 구분해 남겼다. (이전 상태: **결정 필요** — 승격은 지문을 바꾸므로 예약 22:00 soak 과 순서를 정해야 한다: **(A)** soak 뒤 승격(쉽지만 그 8시간은 승격 전 트리를 잰 것) / **(B)** 승격 먼저 + 22:00 재장전(같은 트리에서 전부 잼, 대가는 게이트 재측정 ~19분). 권고 **B** — [PROMOTION_PLAN.md](PROMOTION_PLAN.md) §4. 승격하면 예약 실행기는 지문 불일치로 스스로 중단하므로 **반드시 재장전**해야 한다 | 오너(이 카드가 선택지를 준비) |

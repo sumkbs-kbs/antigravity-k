@@ -125,3 +125,32 @@ cancel_reason: |
 partial_artifacts: none
 previous_expected_fingerprint: 0f345d0ccc210f019c398bbfc425b23aae4d9051a2f3b3e230677359670a8194
 rearmed_by: docs/qa/2026-09-16-followup/nx10/schedule_nx10_soak.sh (2026-09-16T10:47:15Z, 기대 지문 92fcaeb5…, 대기 7,964초)
+
+# ── 운영자 기록: 예약이 4벌 살아 있었다 → 정리하고 통제 도구를 붙였다(final) ──
+incident_recorded_at: 2026-09-16T11:29:00Z
+incident_summary: |
+  pgrep 로 확인한 결과 **취소됐다고 기록한 예약 3건이 살아서 대기 중**이었다(08:20Z·09:47Z·10:26Z).
+  취소 수단이었던 screen -S nx10soak -X quit 은 화면만 닫았고, login -pflq 래퍼가 SIGHUP 을 무시해
+  프로세스는 남았다 — 즉 직전 세 건의 cancel 기록(soak-exit.txt 위쪽)은 **사실이 아니었다**.
+  그대로 두면 22:00 에 4개가 동시에 깨어나 같은 기록 파일에 동시에 append 하고, 같은 지문의
+  예약이 둘이면 soak 두 개가 동시에 돌 수 있었다.
+operator_action: |
+  세 트리(login 래퍼 + bash + python heartbeat)를 SIGTERM 으로 종료하고 ps 로 소멸 확인.
+  편집 안전을 위해 10:47Z 예약도 함께 내렸다(bash 는 실행 중 스크립트를 조각으로 읽는다).
+  그 뒤 soak_control.sh 를 만들고 자기시험 22/22 를 통과시킨 뒤 재장전했다.
+found_defect_2: |
+  예약 스크립트의 시작 지문 검사가 PATH 의 `python` 에 의존했다. 이 기기의 /usr/bin/python3 는
+  3.9.6 이고 ga_gate.py 의 3.12 문법을 파싱하지 못한다 → 그 PATH 였다면 지문이 UNVERIFIED 가 되어
+  22:00 에 스스로 중단했을 것이다. 지문 계산을 .venv/bin/python 으로 고정하고, UNVERIFIED 는
+  불일치보다 **먼저** 막도록 바꿨다(exit 3).
+tooling_added: soak_control.sh (arm·status·cancel·orphans·selftest) · schedule_nx10_soak.sh 단일 예약 잠금 · run_nx10_soak.sh 동시 실행 잠금
+tooling_evidence: SOAK_SCHEDULING.md (§3 자기시험이 잡은 결함 4건: tac 부재·프로세스 2개 오탐·파이프 행·heartbeat 중복)
+previous_expected_fingerprint: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91829d47ec176aa3e
+rearmed_by: docs/qa/2026-09-16-followup/nx10/soak_control.sh arm --at 22:00 (2026-09-16T11:39:27Z, 기대 지문 92fcaeb5…, 대기 4,832초, pid 79230)
+rearm_verification: soak_control.sh status -> exit 0 (단일 예약 · 고아 0 · 지문 일치 · 실행 잠금 none)
+
+# ── 운영자 기록: 예약 취소 (soak_control.sh cancel) ──
+cancel_recorded_at: 2026-09-16T12:04:18Z
+cancel_method: soak_control.sh cancel (SIGTERM → 15 초 대기 → SIGKILL, 트리 단위)
+cancel_target: 취소 요청(pgrep -f schedule_nx10_soak.sh)
+cancel_verification: 검증: 0건 — 죽음 확인

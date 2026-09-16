@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# NX-10 — **승격 뒤 트리**에서 필수 게이트를 재측정한다(지문 `ab980ba5…`).
+# NX-10 — **승격 뒤 트리**에서 필수 게이트를 재측정한다(지문은 실행 시점 트리에서 계산한다).
 #
-# 왜: 승격(`PROMOTION_PLAN.md`, 오너 판정 B)이 `scripts/`·`tests/` 에 파일 6개를 더하고
-# `.gitignore` 를 바꿔 **지문을 이동**시켰다(`157311cf…` → `ab980ba5…`). 동결 트리의
-# `gate-report-freeze002.json`(21/22)은 이제 **옛 지문의 값**이므로 후보로 물려받지 않는다.
+# 왜: 코드가 움직이면(승격·판정기 수정·창의 편집) 동결 트리의 `gate-report-freeze002.json`(21/22)은
+# **옛 지문의 값**이 되어 후보로 물려받을 수 없다 — 그 지문에서 다시 측정해야 한다.
+# 실행 사유는 `NX10_GATE_WHY` 로 주입한다(파일에 박아 두면 다음 attempt 에서 낡는다).
+# `NX10_GATE_ATTEMPT` 로 리포트 이름을 바꾸고(재측정을 지우지 않는다),
+# `NX10_INCLUDE_CLEAN_MACHINE=1` 이면 커밋 뒤 후보 값이 되는 `clean-machine-runtime` 까지 포함해 23개를 한 리포트로 돌린다.
 #
 # `run_freeze_gates.sh` 와 같은 게이트 집합·같은 형태다(차이는 리포트·기록 파일 이름뿐).
 # 제외: `clean-machine-runtime` — `--ref HEAD` 를 export 하므로 여전히 **커밋 뒤에만** 후보 값이 된다.
@@ -53,12 +55,17 @@ fi
 {
   echo "--- promote-gates attempt $(date -u +%FT%TZ) ---"
   echo "# HEAD: $(git rev-parse HEAD)"
-  echo "# why: promotion moved scripts/tests files and .gitignore → fingerprint moved 157311cf… → ab980ba5…"
-  echo "# excluded: clean-machine-runtime (needs a commit: exports --ref HEAD)"
+  # 사유를 파일에 박아 두면 다음 attempt 에서 낡는다(그게 지문 드리프트 오판의 원인이었다) — 호출자가 준다.
+  echo "# why: ${NX10_GATE_WHY:-미기재(환경변수 NX10_GATE_WHY 로 사유를 준다)}"
+  if [ "${NX10_INCLUDE_CLEAN_MACHINE:-0}" = "1" ]; then
+    echo "# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)"
+  else
+    echo "# excluded: clean-machine-runtime (needs a commit: exports --ref HEAD)"
+  fi
   echo "# fingerprint before: $(fp)"
 } >> "$EXITLOG"
 
-echo "=== promote-gates START $(date -u +%FT%TZ) (22 gates) ===" | tee -a "$LOG"
+echo "=== promote-gates START $(date -u +%FT%TZ) ($((${#ONLY_ARGS[@]} / 2)) gates) ===" | tee -a "$LOG"
 "$PY" scripts/ga_gate.py --manifest "$MANIFEST" --output "$REPORT" "${ONLY_ARGS[@]}" \
   >> "$LOG" 2>&1
 code=$?

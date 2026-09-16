@@ -469,6 +469,35 @@ sha256 으로 식별해 두었다.
 | --- | --- | --- | --- | --- |
 | promote002 | `20d529fc`(미커밋 트리) | 22개 중 21/1 | `0f345d0c…` 동일 | `missing_required: clean-machine-runtime` + `required_red: python-tests` |
 | **promote003** | **`89dd383b`(커밋된 후보)** | **23개 중 22/1** | **`92fcaeb5…` 동일** | **`required_red: python-tests` 하나** |
+| **promote004** | **`1bd95e7d`(커밋된 후보)** | **23개 중 22/1** | **`322b4d3b…` 동일** | **`required_red: python-tests` 하나(같음)** |
+
+## 15. 회수 판정기의 기대 지문 결함 수정 + 재측정·재장전 (attempt promote004, 2026-09-16)
+
+**왜 코드를 또 고쳤는가.** 예약 통제 도구를 붙이다가 회수 판정기(`scripts/collect_soak_result.py`)의
+`expected_fingerprint()` 가 `soak-schedule.txt` 에서 `re.search`(= **첫 매치**)를 쓴다는 것을 찾았다.
+그 파일은 예약할 때마다 블록을 **덧붙이므로**, 이 창의 재장전 뒤에는 기대값이 **철 지난 예약의 지문**
+(`157311cf…`, 08:20Z)으로 잡혔다. 그대로 두면 **밤새 정상으로 끝난 8시간 실행이 ③(기대 == 시작)에서
+거짓 FAIL** 로 판정된다 — 이 카드가 반복해서 겪은 “지표는 PASS 인데 귀속이 어긋나 판정 근거가 사라짐”
+(EX-05)을 사람 손으로 다시 만드는 일이고, 그 8시간을 그대로 버리게 된다.
+
+**고침**: 마지막 예약을 쓴다(`latest_expected_fingerprint`) + 판정 출력에 **어느 예약을 썼는지**(이력
+몇 건 중 마지막인지)를 문장으로 남긴다 + 사람이 주는 `--expected-fingerprint` 우회로는 그대로 둔다.
+이빨: 계약 시험 1건(`tests/test_soak_recovery_judge.py`, 승격 위치에서도 돈다) + 자기시험 3건
+(이력 3건 → 마지막 · 이력 없음 → `UNVERIFIED` · `previous_expected_fingerprint:` 는 기대값이 아님).
+판정기 자기시험은 **9/9**(종전 6/6). 커밋 `1bd95e7d`(코드 2파일만).
+
+**실측 확인**: 수정 전 실행 — `기대=157311cf…` / 수정 뒤 — `기대=92fcaeb5… (예약 이력 5건 중 마지막)`.
+
+**재측정**: 판정기가 `scripts/`(= 지문 범위)라 지문이 `92fcaeb5…` → `322b4d3b…` 로 옮겼고, 작업 트리
+지문 = HEAD 트리 지문(`tree_fingerprint_of_commit`)을 **실측으로 확인**한 뒤 필수 23개를 한 번에
+돌렸다(`NX10_INCLUDE_CLEAN_MACHINE=1`, `12:47:04Z`→`12:02:52Z` = 15분 48초, 시작 = 종료 =
+`322b4d3b…`): **22 passed · 1 failed · 0 not_run**. 실패는 `python-tests` 의 타 레인 4건 뿐이고,
+판정 도구 문제도 **`required_red: python-tests` 하나**로 promote003 과 동일하다(새 실패 0건).
+
+**재장전**: 옛 예약(기대 `92fcaeb5…`)은 `soak_control.sh cancel` 로 내렸고 — 출력은
+`[OK] 죽음 확인` · `검증: 살아 있는 예약 0건` — 새 지문으로 `arm` 했다(`12:04:19Z`, 단일 예약,
+`status` exit 0). 기록: `soak-exit.txt`(취소·사고)·`soak-schedule.txt`(새 기대 지문·대기)·
+[SOAK_SCHEDULING.md](./SOAK_SCHEDULING.md)(사고·도구·자기시험).
 
 예약 soak 은 이 지문으로 재장전했다(`soak-schedule.txt`, `10:47:15Z`, 대기 7,964초). 이 창은 이제
 **`docs/` 만** 수정한다 — 그 이유도 이 창에서 실측됐다: 문서 편집은 지문 이동을 일으키지 않았다

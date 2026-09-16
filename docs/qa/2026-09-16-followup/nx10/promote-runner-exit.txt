@@ -25,3 +25,12 @@ promote-gates exit:1 end:2026-09-16T10:46:58Z report:gate-report-promote003.json
 # fingerprint after: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91829d47ec176aa3e
 ga_gate_verify exit:1
 runner done:2026-09-16T10:46:58Z
+--- promote-gates attempt 2026-09-16T11:47:04Z ---
+# HEAD: 1bd95e7d12491dd21a38e3d2141bfaa3f55ed213
+# why: soak 회수 판정기의 기대 지문 결함 수정(scripts/collect_soak_result.py, 커밋 1bd95e7d) — 재장전 전 필수 23개 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: 322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe
+promote-gates exit:1 end:2026-09-16T12:02:52Z report:gate-report-promote004.json
+# fingerprint after: 322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe
+ga_gate_verify exit:1
+runner done:2026-09-16T12:02:52Z

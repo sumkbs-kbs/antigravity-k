@@ -22,9 +22,11 @@
 set -u
 
 REPO="/Users/mr.k/program/coding/ssak_comp/Ssak-Ai"
-OUT_REL="docs/qa/2026-09-16-followup/nx10"
+OUT_REL="${NX10_SOAK_OUT_REL:-docs/qa/2026-09-16-followup/nx10}"
+# 증거 경로를 **절대경로로 덮어쓸 수 있게** 둔다: 그래야 "동시 실행을 거부하는가"를 임시 디렉터리에서
+# 검증할 수 있다(거부 경로가 본 증거에 시험 흔적을 남기지 않는다).
 cd "$REPO" || exit 1
-OUT="$REPO/$OUT_REL"
+OUT="${NX10_SOAK_OUT_DIR:-$REPO/$OUT_REL}"
 PY="$REPO/.venv/bin/python"
 SOAK_SECONDS="${SOAK_SECONDS:-28800}"
 REPORT="$OUT/soak-${SOAK_SECONDS}.json"
@@ -32,7 +34,52 @@ REPORT="$OUT/soak-${SOAK_SECONDS}.json"
 # 더럽히면 다른 레인의 `git status`/프라이어블 worktree 판정에 끼어든다. (60초 리허설은
 # 저장소 안에 만들었던 적이 있다 — 그 디렉토리들은 증거로 남기고, 정식 실행부터는 /tmp 를 쓴다.)
 WORKDIR="${NX10_SOAK_WORKDIR:-/tmp/nx10-soak-work-$(date -u +%Y%m%dT%H%M%SZ)}"
-FINGERPRINT_CMD=(python -c "import sys,pathlib; sys.path.insert(0,'scripts'); import ga_gate; print(ga_gate.worktree_fingerprint(pathlib.Path('.')))")
+# 지문은 **venv 파이썬**으로만 계산한다(실측: /usr/bin/python3 = 3.9.6 은 ga_gate.py 의 3.12 문법을
+# 파싱하지 못해 지문이 UNVERIFIED 로 떨어진다).
+FINGERPRINT_CMD=("$PY" -c "import sys,pathlib; sys.path.insert(0,'scripts'); import ga_gate; print(ga_gate.worktree_fingerprint(pathlib.Path('.')))")
+RUNLOCK="$OUT/.soak-run.lock"   # 8시간 실행 단일 잠금 — 별개 예약/수동 실행이 겹치는 것을 막는다
+
+# ── 동시 실행 방지 ───────────────────────────────────────────────────────────
+# soak 은 포트·작업 디렉토리(`/tmp/nx10-soak-work-*`)·리포트를 혼자 쓴다. 두 개가 동시에 돌면
+# 서로의 지표를 오염시키고 어느 쪽 결과도 후보에 쓸 수 없다. 그래서 실행은 단일만 허용한다.
+_soak_lock() {
+  local owner_pid
+  if mkdir "$RUNLOCK" 2>/dev/null; then
+    {
+      echo "pid: $$"
+      echo "started_at: $(date -u +%FT%TZ)"
+    } > "$RUNLOCK/owner"
+    return 0
+  fi
+  owner_pid="$(sed -n 's/^pid: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
+  if [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
+    {
+      echo ""
+      echo "# soak 실행 거부 — 이미 돌고 있다"
+      echo "generated_at: $(date -u +%FT%TZ)"
+      echo "refused_reason: concurrent soak (run lock held by live pid $owner_pid)"
+    } >> "$OUT/soak-exit.txt"
+    echo "=== soak REFUSED (concurrent run, owner pid $owner_pid) $(date -u +%FT%TZ) ===" | tee -a "$OUT/soak-run.log"
+    exit 5
+  fi
+  # 중단된 옛 실행이 남긴 잠금은 지우지 않고 증거로 밀어 둔다.
+  mv "$RUNLOCK" "$RUNLOCK.stale-$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
+  mkdir "$RUNLOCK" 2>/dev/null && {
+    echo "pid: $$"
+    echo "started_at: $(date -u +%FT%TZ)"
+  } > "$RUNLOCK/owner"
+  return 0
+}
+
+_soak_unlock() {
+  local owner_pid
+  owner_pid="$(sed -n 's/^pid: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
+  if [ -n "$owner_pid" ] && [ "$owner_pid" != "$$" ]; then return 0; fi
+  rm -rf "$RUNLOCK"
+}
+
+_soak_lock
+trap '_soak_unlock' EXIT INT TERM HUP
 
 {
   echo "# NX-10 SC-1~6 soak 러너 기록"

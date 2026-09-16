@@ -1,18 +1,30 @@
 # NX-10 마감 절차 (soak 회수 → 커밋 → clean-machine → 판정)
 
-작성: 2026-09-16, 동결 지문 `157311cf…` 기준. 이 문서는 **다음 사람(또는 다음 창)이 그대로 따라
-실행할 수 있는 순서**만 담는다. 값의 소유자는 [GATE_LEDGER.md](GATE_LEDGER.md) §12 와
-[BATCH_FREEZE.md](BATCH_FREEZE.md) 다.
+작성: 2026-09-16. 커밋 전에는 동결 지문 `157311cf…` 기준이었고, 지금은 **커밋된 후보
+`92fcaeb5…`** 기준이다. 이 문서는 **다음 사람(또는 다음 창)이 그대로 따라 실행할 수 있는 순서**만
+담는다. 값의 소유자는 [GATE_LEDGER.md](GATE_LEDGER.md) §12 와 [BATCH_FREEZE.md](BATCH_FREEZE.md) 다.
+예약을 걸고·확인하고·취소하는 일의 소유자는 [SOAK_SCHEDULING.md](SOAK_SCHEDULING.md) 다.
 
-## 0. 현재 상태 (2026-09-16T08:5xZ 기준)
+## 0. 현재 상태 (2026-09-16T12:0xZ, 커밋 뒤 기준)
 
 | 항목 | 값 |
 |---|---|
-| 동결 지문 | `157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce` (커밋 전, dirty) |
-| 필수 게이트 | 동결 트리 22개 중 **21 passed · 1 failed · 0 not_run** (`gate-report-freeze002.json`) |
-| 마감 도구(`ga_gate_verify`) | **FAIL** — 문제는 정확히 2개: `missing_required: clean-machine-runtime` · `required_red: python-tests` |
-| soak | 8시간 SC-1~6, **오늘 22:00 KST 예약**(`screen nx10soak`, 기대 지문 위와 동일, 종료 예정 `~06:00 KST`) |
-| 코드 | **동결** — 22:00 전에 `src/`·`tests/`·`scripts/`·`dashboard/` 를 건드리면 예약 실행기가 지문 불일치로 중단한다 |
+| 후보 지문 | `322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe` (`1bd95e7d` — 회수 판정기가 마지막 예약을 읽도록 고친 커밋; 그 전 후보는 `89dd383b`/`92fcaeb5…`) |
+| 필수 게이트 | 커밋된 후보에서 23개 중 **22 passed · 1 failed · 0 not_run** (`gate-report-promote004.json`; 동일한 값이 `promote003` 에도 있다) |
+| 마감 도구(`ga_gate_verify`) | **FAIL** — 문제는 정확히 1개: `required_red: python-tests`(타 레인 EX-05 2 · CR-14 울타리 2) |
+| soak | 8시간 SC-1~6, **오늘 22:00 KST 예약**(`soak_control.sh arm`, 기대 지문 = 위 후보, 종료 예정 `~06:00 KST`) |
+| 코드 | 커밋 완료 — 이 창은 이제 **`docs/` 만** 수정한다(문서는 지문 제외 경로다) |
+
+## 1-0. 예약 상태·취소 (도구가 있다)
+
+```bash
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh status   # exit 0 = 단일 예약 · 고아 0 · 지문 일치
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel   # 취소 — 죽었는지 검증하고 기록한다
+```
+
+**`screen -X quit` 을 취소 수단으로 쓰지 않는다** — 2026-09-16 에 그것으로 "취소했다"고 기록한 예약
+3건이 실제로는 살아 있었다(취소를 검증하지 않았다). `cancel` 은 트리 단위로 종료하고
+`검증: 살아 있는 예약 0건` 을 출력한다. 상세·자기시험 증거: [SOAK_SCHEDULING.md](SOAK_SCHEDULING.md).
 
 ## 1. soak 회수 (아침, 순서 중요)
 
@@ -161,7 +173,6 @@ bash docs/qa/2026-09-16-followup/nx10/run_clean_machine_gate.sh   # HEAD 기준 
 
 1. ~~`.gitignore` 에 `data/auth_hash.bak*` 추가~~ → **2026-09-16 완료**(승격 배치 3b 단계): 규칙이 들어갔고
    검사기가 WARN 대신 `[OK] data/auth_hash.bak.pre-0000 이 무시된다` 를 출력한다(추적 중 파일 기준선 567건 불변).
-   규칙의 효력은 미니 저장소 음성/양성 대조군으로 확인했다(`promote/dry-run-output.txt`).
    규칙의 효력은 미니 저장소 음성/양성 대조군으로 확인했고(`promote/dry-run-output.txt`),
    부작용 기준선도 기록해 두었다: 이 저장소는 **이미 추적 중인데 무시되는 파일이 567건** 있으므로 게이트는
    "0건"이 아니라 "새 규칙으로 **늘어나지 않았다**"이다(`git ls-files -i -c` 전후 비교).
@@ -179,6 +190,24 @@ bash docs/qa/2026-09-16-followup/nx10/run_clean_machine_gate.sh   # HEAD 기준 
    · `docs/19` · `docs/20` · `handoff` · `BATCH_FREEZE` 를 새 `scripts/` 경로로 갱신했고,
    검사기 자신의 `DOCS`/`REFERENCED_PATHS` 에도 승격본을 등록해 **다음 사람이 스테이징 경로를 다시 안내하면
    그 검사기가 잡는다**(§3-4 가 말한 "문자열 치환 금지"를 도구로 대신한다).
+
+5. **`soak_control.sh` 승격 + 검사기 등록**(2026-09-16 추가 — soak 회수 뒤). 예약 통제 도구는 지금
+   `docs/qa/2026-09-16-followup/nx10/` 에 있어서 **어떤 게이트도 지키지 않는다**(정적 검사는 `scripts/`,
+   스위트는 `tests/`). 승격할 것: ① `scripts/soak_control.sh` 로 이동 ② `--selftest` 22개를 계약 시험으로
+   고정(`tests/test_soak_schedule_control.py` — 리허설·본실행이 표를 공유하지 않도록 `promote/paths.sh`·
+   `gates.sh` 에 등록) ③ 검사기 `DOCS` 에 [SOAK_SCHEDULING.md](./SOAK_SCHEDULING.md) 추가 · `REFERENCED_PATHS`
+   에 `soak_control.sh` 추가 · `DOCUMENTED_CLI` 에 `--at`·`--fp` 추가. **지금 하면 안 되는 이유**:
+   `scripts/` 는 지문 대상이라 편집하면 22:00 예약이 드리프트로 스스로 중단된다(이 창은 그래서
+   검사기 등록을 미뤘다 — `docs/` 만 수정했다).
+
+## 5a. 회수 판정이 **어느 예약**을 기준으로 하는가 (2026-09-16 수정)
+
+`soak-schedule.txt` 는 예약할 때마다 블록을 **덧붙인다**(재장전·취소 기록도 쌓인다). 회수 판정기
+(`scripts/collect_soak_result.py`)는 이제 **마지막** `expected_fingerprint` 를 쓰고, 판정 출력에
+“예약 이력 N건 중 마지막”을 문장으로 남긴다. 종전에는 첫 매치를 써서 재장전 뒤에 **철 지난 예약의
+지문**으로 판정했고, 그대로 두면 정상으로 끝난 8시간 실행이 ③에서 거짓 FAIL 이 된다(실측·수정·재측정:
+[GATE_LEDGER.md](GATE_LEDGER.md) §15). 사람이 특정 지문으로 판정하려면 `--expected-fingerprint` 를 쓴다
+(그 경우 판정 출력이 “사람이 지정”으로 적는다).
 
 ## 5b. ⚠ 예약과 측정의 순서 (2026-09-16 에 실제로 물린 두 규칙)
 
@@ -204,8 +233,14 @@ bash docs/qa/2026-09-16-followup/nx10/run_clean_machine_gate.sh   # HEAD 기준 
 리허설 작업디렉터리는 `docs/` 안(지문 제외), 8시간 러너는 `/tmp`(역시 제외). 그래서 22:00 판정에서
 지문 불일치가 나오면 그것은 **soak 이 아니라 그 사이에 누군가 코드를 만졌다**는 뜻이다.
 
-실행 직전 상태(2026-09-16T10:27Z 기준): 예약 기대 지문 = 현재 트리 지문 = `0f345d0c…`,
-대기 9,205초, 종료 예정 `~06:00 KST`. 이 시점 이후 이 창은 **`docs/` 만** 수정한다.
+실행 직전 상태(2026-09-16T12:04Z 기준, `soak_control.sh status` 출력): 예약 기대 지문 = 현재 트리
+지문 = `322b4d3b…`, 단일 예약 · 고아 0 · 실행 잠금 none, 대기 3,339초, 종료 예정 `~06:00 KST`.
+이 시점 이후 이 창은 **`docs/` 만** 수정한다(코드 수정은 예약을 무효로 만든다 — 12:0xZ 에 실제로 한 번
+그렇게 됐고, 그 때는 커밋 → 재측정 → 재장전으로 다시 세웠다: [GATE_LEDGER.md](GATE_LEDGER.md) §15).
+
+또 하나의 전제(2026-09-16 추가): 시작 지문 계산은 **`.venv/bin/python`** 으로만 한다. 시스템
+`/usr/bin/python3`(3.9.6)는 `ga_gate.py` 의 3.12 문법을 파싱하지 못해 지문이 `UNVERIFIED` 가 되고,
+예약 실행기는 이제 그것을 **드리프트보다 먼저** 막는다(`exit 3`, 기록 사유 `fingerprint unverifiable`).
 
 ## 6. 이 절차를 쓰는 사람에게
 
