@@ -1,0 +1,83 @@
+{
+  "dependency_locks": [
+    {
+      "path": "uv.lock",
+      "sha256": "cd6b8281a7efe3c0c8e24a71f1621e17d9b041d1c3f77e001308da401d1aed23"
+    },
+    {
+      "path": "dashboard/pnpm-lock.yaml",
+      "sha256": "38427bbca3cfbb89da921ffb515b456840b6bb1938c449827215470f7b229a06"
+    },
+    {
+      "path": "dashboard/package-lock.json",
+      "sha256": "662596899ebc407c2699ce2dc3e92b8ddeb13ce6fb9dcd6a2c6aa1dffc976d98"
+    }
+  ],
+  "gates": [
+    {
+      "category": "runtime",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "--extra",
+        "dev",
+        "--extra",
+        "rag",
+        "--extra",
+        "documents",
+        "python",
+        "scripts/run_dashboard_e2e_ambient.py"
+      ],
+      "cwd": ".",
+      "duration_seconds": 46.349517,
+      "exit_code": 0,
+      "finding_ids": [
+        "CR-14 F-46",
+        "CR-14 F-45",
+        "CR-14 F-47"
+      ],
+      "finished_at": "2026-09-16T06:35:15.437403+00:00",
+      "id": "dashboard-e2e-ambient",
+      "required": true,
+      "started_at": "2026-09-16T06:34:29.087876+00:00",
+      "status": "passed",
+      "stderr": "Installed 147 packages in 463ms\n",
+      "stdout": "[dashboard-e2e-ambient] main base_url=http://127.0.0.1:60372 specs=5\nAlready up to date\nDone in 134ms using pnpm v11.3.0\n\nRunning 16 tests using 9 workers\n\n  \u2713   8 [chromium] \u203a e2e/tests/task-execution.spec.ts:144:3 \u203a renders the execution trace at 375px (2.2s)\n  \u2713   9 [chromium] \u203a e2e/tests/task-execution.spec.ts:144:3 \u203a renders the execution trace at 768px (2.3s)\n  \u2713   6 [chromium] \u203a e2e/tests/file-explorer.spec.ts:34:3 \u203a Environment Rail \u2014 file browsing \u203a should render the environment rail by default (2.4s)\n  \u2713  11 [chromium] \u203a e2e/tests/task-execution.spec.ts:206:1 \u203a shows a recoverable replay error (1.1s)\n  \u2713   4 [chromium] \u203a e2e/tests/capture-desktop-layout.spec.ts:3:1 \u203a capture desktop layout screenshot (3.8s)\n  \u2713  13 [chromium] \u203a e2e/tests/task-execution.spec.ts:316:1 \u203a repairs a live stream gap with authoritative replay before completing (662ms)\n  \u2713  10 [chromium] \u203a e2e/tests/task-execution.spec.ts:144:3 \u203a renders the execution trace at 1280px (2.1s)\n  \u2713   2 [chromium] \u203a e2e/tests/capture-model-selection.spec.ts:3:1 \u203a capture model selection popover with real local models (4.3s)\n  \u2713  15 [chromium] \u203a e2e/tests/task-execution.spec.ts:394:1 \u203a does not mark an incomplete terminal replay as complete (832ms)\n  \u2713  14 [chromium] \u203a e2e/tests/task-execution.spec.ts:352:1 \u203a compacts a large event stream behind a snapshot boundary without losing the latest events (1.1s)\n  \u2713   1 [chromium] \u203a e2e/tests/file-explorer.spec.ts:58:3 \u203a Environment Rail \u2014 file browsing \u203a should mount the editor from the \ucf54\ub4dc tab (5.3s)\n  \u2713   3 [chromium] \u203a e2e/tests/file-explorer.spec.ts:66:3 \u203a Environment Rail \u2014 file browsing \u203a should mount the change panel from the \ubcc0\uacbd tab (5.3s)\n  \u2713   7 [chromium] \u203a e2e/tests/file-explorer.spec.ts:74:3 \u203a Environment Rail \u2014 file browsing \u203a should toggle the environment rail closed and open (5.3s)\n  \u2713   5 [chromium] \u203a e2e/tests/file-explorer.spec.ts:42:3 \u203a Environment Rail \u2014 file browsing \u203a should show file activity from git status (5.3s)\n  \u2713  12 [chromium] \u203a e2e/tests/task-execution.spec.ts:214:1 \u203a runs submit, approval, cancel, resume, and reconnect without sequence duplication (3.3s)\nWS_CONTRACT_LATENCY=[{\"index\":1,\"kind\":\"end\",\"attempts\":1,\"fileWriteMs\":0,\"wsDeliveryMs\":88,\"e2eMs\":188,\"reactRenderMs\":100},{\"index\":2,\"kind\":\"start\",\"attempts\":1,\"fileWriteMs\":0,\"wsDeliveryMs\":286,\"e2eMs\":289,\"reactRenderMs\":3},{\"index\":3,\"kind\":\"end\",\"attempts\":1,\"fileWriteMs\":0,\"wsDeliveryMs\":186,\"e2eMs\":187,\"reactRenderMs\":1},{\"index\":4,\"kind\":\"start\",\"attempts\":1,\"fileWriteMs\":0,\"wsDeliveryMs\":206,\"e2eMs\":291,\"reactRenderMs\":85},{\"index\":5,\"kind\":\"end\",\"attempts\":1,\"fileWriteMs\":1,\"wsDeliveryMs\":136,\"e2eMs\":188,\"reactRenderMs\":52},{\"index\":6,\"kind\":\"start\",\"attempts\":1,\"fileWriteMs\":0,\"wsDeliveryMs\":157,\"e2eMs\":186,\"reactRenderMs\":29},{\"index\":7,\"kind\":\"end\",\"attempts\":1,\"fileWriteMs\":0,\"wsDeliveryMs\":177,\"e2eMs\":187,\"reactRenderMs\":10},{\"index\":8,\"kind\":\"start\",\"attempts\":1,\"fileWriteMs\":0,\"wsDeliveryMs\":272,\"e2eMs\":290,\"reactRenderMs\":18},{\"index\":9,\"kind\":\"end\",\"attempts\":1,\"fileWriteMs\":0,\"wsDeliveryMs\":192,\"e2eMs\":293,\"reactRenderMs\":101},{\"index\":10,\"kind\":\"start\",\"attempts\":1,\"fileWriteMs\":0,\"wsDeliveryMs\":102,\"e2eMs\":188,\"reactRenderMs\":86}]\n  \u2713  16 [chromium] \u203a e2e/tests/ws-contract-e2e.spec.ts:68:1 \u203a WS contract: bridged + API events reach the dashboard with exact payloads (10.7s)\n\n  16 passed (15.7s)\n[dashboard-e2e-ambient] disclosure-healthy base_url=http://127.0.0.1:60669 specs=1\nAlready up to date\nDone in 136ms using pnpm v11.3.0\n\nRunning 1 test using 1 worker\n\n  \u2713  1 [chromium] \u203a e2e/tests/capture-disclosure-healthy.spec.ts:10:1 \u203a capture disclosure card healthy green state with 30 percent budget usage (3.1s)\n\n  1 passed (3.4s)\n[dashboard-e2e-ambient] disclosure-exhausted base_url=http://127.0.0.1:60691 specs=1\nAlready up to date\nDone in 135ms using pnpm v11.3.0\n\nRunning 1 test using 1 worker\n\n  \u2713  1 [chromium] \u203a e2e/tests/capture-disclosure-exhausted.spec.ts:10:1 \u203a capture disclosure card exhausted state with time-until-reset countdown (5.0s)\n\n  1 passed (5.3s)\n[dashboard-e2e-ambient] hub-seed base_url=http://127.0.0.1:60715 specs=1\nAlready up to date\nDone in 135ms using pnpm v11.3.0\n\nRunning 2 tests using 2 workers\n\n  \u2713  2 [chromium] \u203a e2e/tests/capture-real-local-models.spec.ts:9:1 \u203a capture ModelHubPage with real unsloth and local models (3.5s)\n  \u2713  1 [chromium] \u203a e2e/tests/capture-real-local-models.spec.ts:27:1 \u203a capture ChatPage model selector with real running and unsloth models (3.9s)\n\n  2 passed (4.2s)\n",
+      "task_ids": [
+        "C14-03"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-16T06:34:28.958473+00:00",
+  "git": {
+    "dirty": true,
+    "sha": "20d529fc1f17c8ff580eaf0d853dcd1ce92172d5",
+    "tree_fingerprint": "da54e07b5284f00116901609a7873e2eb206b0a5b7bd9d0f1f607f4e78207cb8",
+    "tree_fingerprint_scope": "code (docs/ and .omo/ excluded)"
+  },
+  "manifest": {
+    "path": "scripts/commercial_ga_gates.json",
+    "sha256": "a40867c743a9df5ba5854548476fcc53913e5364968a01e30e00c3e03b2eadb7"
+  },
+  "merged": false,
+  "output_decoding": {
+    "encoding": "utf-8",
+    "errors": "backslashreplace"
+  },
+  "platform": {
+    "machine": "arm64",
+    "python_implementation": "CPython",
+    "python_version": "3.13.12",
+    "release": "25.6.0",
+    "system": "Darwin"
+  },
+  "schema_version": 1,
+  "summary": {
+    "failed": 0,
+    "passed": 1,
+    "required_failed": 0,
+    "total": 1
+  }
+}

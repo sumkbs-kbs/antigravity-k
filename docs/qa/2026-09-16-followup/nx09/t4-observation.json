@@ -1,0 +1,30 @@
+{
+  "composerText": "[첨부 파일: nx09-attach.png] ",
+  "chipVisible": true,
+  "chipText": "📎 nx09-attach.png (0KB)×",
+  "chipMime": "image/png",
+  "imageReachedProvider": true,
+  "imageSurfaces": [
+    "/api/chat"
+  ],
+  "firstTurnProviderHits": 11,
+  "secondTurnProviderHits": 4,
+  "secondTurnWithImage": 0,
+  "providerPaths": [
+    "/api/tags",
+    "/api/tags",
+    "/api/show",
+    "/api/tags",
+    "/api/tags",
+    "/chat/completions",
+    "/api/chat",
+    "/api/chat",
+    "/chat/completions",
+    "/chat/completions",
+    "/api/chat",
+    "/chat/completions",
+    "/api/chat",
+    "/api/chat",
+    "/chat/completions"
+  ]
+}

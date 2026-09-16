@@ -1,0 +1,20 @@
+{
+  "tree": "before-head",
+  "store_module": "/private/tmp/nx01-before/src/antigravity_k/engine/conversation_store.py",
+  "turns_written": 40,
+  "compacted": true,
+  "view_message_count": 5,
+  "view_has_turn_0": false,
+  "view_is_bounded": true,
+  "originals_api_present": false,
+  "originals_message_count": 0,
+  "originals_cover_every_turn": false,
+  "original_history_recoverable": false,
+  "journal_files": [],
+  "storage_files": [
+    ".cas.lock",
+    "v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json"
+  ],
+  "view_path": "v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json",
+  "compact_summary_present": true
+}

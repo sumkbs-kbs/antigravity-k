@@ -1,0 +1,28 @@
+2026-09-15 audit; HEAD ffb0ebb312b76d86742d3e4065628a9704f8268e
+Root direct runtime observation, current .venv Python, ConversationStore in auto-cleaned TemporaryDirectory.
+Synthetic user message0=EARLY_REQUIREMENT_KEEP_OFFLINE; subsequent content=turn-{i}; expected_revision=i; 123 appends.
+{'appends': 64, 'revision': 64, 'messages': 64, 'early_requirement_present': True}
+{'appends': 65, 'revision': 65, 'messages': 7, 'early_requirement_present': True}
+{'appends': 122, 'revision': 122, 'messages': 64, 'early_requirement_present': True}
+{'appends': 123, 'revision': 123, 'messages': 7, 'early_requirement_present': False}
+No source modifications; temp folder automatically removed.
+
+Soak observation at ~20:43 KST:
+PID72711 elapsed05:36:21 CPU89.9% RSS114192KiB, .venv/bin/python3.
+Final val02_soak_28800_resoake.json did not exist. In-progress only.
+Later observation elapsed05:43:55 RSS116208KiB, alive. No peak/growth/pass inference.
+
+Browser live localhost8000:
+Title Ssak-Ai — Cold-blooded engineering.
+AX: PIN 인증 / 시스템 잠금 / 외부 접속 보안을 위해 PIN 번호를 입력하세요. / PIN 번호 / 잠금 해제.
+No credentials entered, authentication not bypassed, post-login UI not evaluated.
+
+Zenodo REST metadata read:
+GET https://zenodo.org/api/records/10676866
+id10676866; title FlyWire Whole-brain Connectome Connectivity Data; version783.0; metadata.license.id=cc-by-4.0.
+Only metadata fetched. No whole-connectome download or inference experiment.
+
+Current Git status preserved:
+ m vault_data
+?? data/auth_hash.bak.pre-0000
+No secret file contents read or copied into this report.

@@ -1,0 +1,107 @@
+{
+  "base_url": "http://127.0.0.1:57446",
+  "provider_port": 57445,
+  "status": 200,
+  "first_lines": [
+    "data: {\"id\": \"chatcmpl-stream\", \"object\": \"chat.completion.chunk\", \"model\": \"probe-model\", \"choices\": [{\"delta\": {\"content\": \"\\ud83d\\udee1\\ufe0f **[\\uc815\\ubc00 \\uc5d4\\uc9c0\\ub2c8\\uc5b4\\ub9c1 \\ubaa8\\ub4dc]**\\n\\n\"}, \"index\": 0, \"finish_reason\": null}]}",
+    "data: {\"id\": \"chatcmpl-stream\", \"object\": \"chat.completion.chunk\", \"model\": \"probe-model\", \"choices\": [{\"delta\": {\"content\": \"\\ud83c\\udfe2 \"}, \"index\": 0, \"finish_reason\": null}]}",
+    "data: {\"id\": \"chatcmpl-stream\", \"object\": \"chat.completion.chunk\", \"model\": \"probe-model\", \"choices\": [{\"delta\": {\"content\": \"**[CEO]** \\ud83d\\udc68\\u200d\\ud83d\\udcbb **WORKER** \\uc704\\uc784 (`coding-swarm`)\\n\\n\"}, \"index\": 0, \"finish_reason\": null}]}",
+    "data: {\"id\": \"chatcmpl-stream\", \"object\": \"chat.completion.chunk\", \"model\": \"probe-model\", \"choices\": [{\"delta\": {\"content\": \"PROBE-REPLY\"}, \"index\": 0, \"finish_reason\": null}]}",
+    "data: {\"id\": \"chatcmpl-stream\", \"object\": \"chat.completion.chunk\", \"model\": \"probe-model\", \"choices\": [{\"delta\": {\"content\": \"\\n\\ud83d\\udd04 *\\ud488\\uc9c8 \\ubbf8\\ub2ec (15%) \\u2014 \\uc790\\ub3d9 \\uac1c\\uc120 \\uc911...*\\n\"}, \"index\": 0, \"finish_reason\": null}]}",
+    "data: {\"id\": \"chatcmpl-stream\", \"object\": \"chat.completion.chunk\", \"model\": \"probe-model\", \"choices\": [{\"delta\": {\"content\": \"\\n\\n\\u23f3 **[Agent Memory]** \\uc774\\ubc88 \\ub17c\\uc758\\uc758 \\ud575\\uc2ec\\uc744 \\uc138\\ucee8\\ub4dc \\ube0c\\ub808\\uc778(Wiki)\\uc5d0 \\uae30\\ub85d\\ud558\\uae30 \\uc704\\ud574 \\uc815\\uc81c \\uc911\\uc785\\ub2c8\\ub2e4...\\n\"}, \"index\": 0, \"finish_reason\": null}]}"
+  ],
+  "provider_requests": [
+    {
+      "path": "/api/show",
+      "body_len": 23,
+      "has_image": false
+    },
+    {
+      "path": "/chat/completions",
+      "body_len": 657,
+      "has_image": false
+    },
+    {
+      "path": "/api/chat",
+      "body_len": 1870,
+      "has_image": false
+    },
+    {
+      "path": "/api/chat",
+      "body_len": 48156,
+      "has_image": true
+    },
+    {
+      "path": "/chat/completions",
+      "body_len": 1258,
+      "has_image": false
+    },
+    {
+      "path": "/chat/completions",
+      "body_len": 1258,
+      "has_image": false
+    },
+    {
+      "path": "/api/chat",
+      "body_len": 1553,
+      "has_image": false
+    }
+  ],
+  "images_reached_provider": [
+    {
+      "path": "/api/chat",
+      "body_len": 48156,
+      "has_image": true
+    }
+  ],
+  "trace": {
+    "attach_to_latest_user_turn": [
+      {
+        "attachments": 1,
+        "images_on_last": 1
+      }
+    ],
+    "collect_images": [
+      1
+    ],
+    "prompt_message": [
+      0,
+      0,
+      1,
+      0,
+      0
+    ],
+    "normalize_message": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+    ],
+    "manager_calls": [
+      {
+        "method": "stream_generate",
+        "kwarg_images": 0,
+        "has_raw_messages": false,
+        "raw_message_images": 0,
+        "prompt_images": 0
+      },
+      {
+        "method": "stream_generate",
+        "kwarg_images": 1,
+        "has_raw_messages": false,
+        "raw_message_images": 0,
+        "prompt_images": 0
+      },
+      {
+        "method": "stream_generate",
+        "kwarg_images": 0,
+        "has_raw_messages": true,
+        "raw_message_images": 0,
+        "prompt_images": 0
+      }
+    ]
+  }
+}

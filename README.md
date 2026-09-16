@@ -17,6 +17,10 @@
 > Apple Silicon에서 Ollama `qwen3.8`을 기본으로 사용하는 로컬 우선 자율형 엔지니어링 에이전트 **Ssak-Ai**입니다.
 > Ollama, 직접 MLX, LM Studio OpenAI 호환 서버를 하나의 모델 레지스트리와 CLI, 모던 데스크톱 대시보드로 연결하고, 계획·도구 호출·RAG·메모리·평가 루프로 로컬 모델의 작업 품질을 극대화합니다.
 
+> **지금 무엇이 참인가**(게이트 판정·8시간 soak 경과·열려 있는 기술 축·사람 축·포트 역할·지원 범위)는
+> [현재 상태 단일 요약](docs/20_CURRENT_STATUS.md) 하나가 소유합니다. 이 README 는 설치·실행·기능을
+> 소유하고, 상태 배너를 중복해서 들고 있지 않습니다.
+
 ## 기능
 
 | 기능 | 설명 |
@@ -34,7 +38,7 @@
 | 💰 **비용 제어** | 일일 예산, 시간당 Rate Limit, 모델별 과금 추정 |
 | 🏆 **상용화 준비도 (GA-100)** | 33/33 전 과제 완료(**구현 이력**, GA 승인·출시 판정 아님), DR 4종 리허설, 8개 도메인 실전 코딩 벤치마크 검증 |
 | 🔁 **최종 독립 검토(RP 시리즈, 과거)** | 2026-09-10 REQUEST CHANGES → 개선 작업 진행 중(RP-01~11, RP-13 독립 검증 완료 DONE, RP-12 8시간 soak-006 순항 중, 20/20 상용화 게이트 PASS). 이 표는 **RP 이력**이며 현재 상태가 아니다. 상세: [검토 보고서](docs/qa/2026-09-10/FINAL_REVIEW.md) · [개선 계획](docs/14_FINAL_REVIEW_REMEDIATION_PLAN.md) · [증거 인덱스](docs/ga/final-review-remediation.md) · [실행 체크리스트](docs/15_FINAL_REVIEW_REMEDIATION_CHECKLIST.md) |
-| 🧪 **현재 상태(CR 시리즈)** | **CR-01 ~ CR-14 REVIEW · 최종 판정 NO-GO · required gate 전 항목 PASS를 커밋된 후보에서 달성**(되돌리기 0회 · 단일 코드 지문). **이 표는 휘발성 값을 담지 않는다** — 후보 SHA·게이트 인벤토리·코드 지문의 값은 [판정서 §5 판정 카드](docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md)가 유일한 소유자이고, `C14-F22-1/2` 계약이 이 표에 값을 박는 것을 막는다(값을 박으면 다음 기록 커밋이 `README.md` 를 고쳐 **지문을 옮기고 그 순간 gate 증거가 낡는다** — attempt-013 에서 실제로 발생, F-22). **주의: attempt-013 이전의 20/20 은 게이트 도구가 실행자의 셸에서 와서 “lock 이 검증됐다”를 뜻하지 않았다** — 지금은 게이트가 자기 환경을 스스로 재고(계약 3종), wall-clock 성능 검사는 전용 required 게이트(`python-benchmark`)에서 돈다. **기술 축은 모두 닫혔고**(F-07 포함) 남은 차단 사유는 **사람의 영역**이다 — 독립 검토자·출시 책임자 **미배정**, 외부 승인(EX-01~06) **미확보**, C14-03/04/05 미실행, **GA 승인 없음**. 참고: `git status` 에 ` M vault_data` 한 줄이 남지만 그것은 별도 저장소의 런타임 이벤트 로그이며 코드·산출물은 clean 이다(F-13). RP 상태와 CR 상태를 합산해 DONE으로 읽지 않는다. 재현→수정→회귀 증거는 `.omo/evidence/commercial-reliability/CR-0X/**`(gitignore 대상 — 작업 트리에만 있다)에 있다. 상세: [계획서 16](docs/16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [체크리스트 17](docs/17_COMMERCIAL_RELIABILITY_CHECKLIST.md) · [최종 후보 판정서](docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md) · [최종 준비도 보고서](docs/10_FINAL_READINESS_REPORT.md) |
+| 🧪 **현재 상태(CR 시리즈)** | **CR-01 ~ CR-14 REVIEW · 최종 판정 NO-GO · required gate 전 항목 PASS를 커밋된 후보에서 달성**(되돌리기 0회 · 단일 코드 지문). **이 표는 휘발성 값을 담지 않는다** — 후보 SHA·게이트 인벤토리·코드 지문의 값은 [판정서 §5 판정 카드](docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md)가 유일한 소유자이고, `C14-F22-1/2` 계약이 이 표에 값을 박는 것을 막는다(값을 박으면 다음 기록 커밋이 `README.md` 를 고쳐 **지문을 옮기고 그 순간 gate 증거가 낡는다** — attempt-013 에서 실제로 발생, F-22). **주의: attempt-013 이전의 20/20 은 게이트 도구가 실행자의 셸에서 와서 “lock 이 검증됐다”를 뜻하지 않았다** — 지금은 게이트가 자기 환경을 스스로 재고(계약 3종), wall-clock 성능 검사는 전용 required 게이트(`python-benchmark`)에서 돈다. **이 후보 범위에서는** 기술 축이 닫혔고(F-07 포함) 남은 차단 사유는 **사람의 영역**이다 — 독립 검토자 **미배정**(출시 책임자가 code/security/QA 를 **겸직**), 외부 승인(EX-01~06) **미확보**, C14-03/04/05 미실행, **GA 승인 없음**. **그 문장을 현재 작업 트리나 신뢰성 계획(NX) 범위로 넓혀 읽지 않는다** — NX-01~06 은 REVIEW, NX-06 런타임은 BLOCKED, NX-07~NX-15 는 TODO 이고 이 후보 이후의 변경은 **커밋되지 않았다**([현재 상태](docs/20_CURRENT_STATUS.md) §4). 참고: `git status` 에 ` M vault_data` 한 줄이 남지만 그것은 별도 저장소의 런타임 이벤트 로그이며 코드·산출물은 clean 이다(F-13). RP 상태와 CR 상태를 합산해 DONE으로 읽지 않는다. 재현→수정→회귀 증거는 `.omo/evidence/commercial-reliability/CR-0X/**`(gitignore 대상 — 작업 트리에만 있다)에 있다. 상세: [계획서 16](docs/16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [체크리스트 17](docs/17_COMMERCIAL_RELIABILITY_CHECKLIST.md) · [최종 후보 판정서](docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md) · [최종 준비도 보고서](docs/10_FINAL_READINESS_REPORT.md) |
 
 ## 기능↔구현 매트릭스
 
@@ -94,8 +98,8 @@ cd dashboard && pnpm install --frozen-lockfile && pnpm run build && cd ..
 ### 실행
 
 ```bash
-# API 서버 실행 (기본 포트 8400 — AGK_SERVER_PORT로 변경 가능)
-uv run agk serve --host 127.0.0.1 --port 8400
+# API 서버 실행 (기본 포트 8000 — AGK_SERVER_PORT로 변경 가능)
+uv run agk serve --host 127.0.0.1 --port 8000
 
 # 기본 Qwen3.8 로컬 에이전트 실행
 uv run agk run "현재 프로젝트의 테스트 실패 원인을 요약해줘" --model qwen3.8
@@ -215,9 +219,13 @@ make pre-commit    # Pre-commit 훅 설치 및 실행
 ## API 문서
 
 서버 실행 후:
-- **Swagger UI**: http://localhost:8400/docs
-- **ReDoc**: http://localhost:8400/redoc
-- **OpenAPI JSON**: http://localhost:8400/openapi.json
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+- **OpenAPI JSON**: http://localhost:8000/openapi.json
+
+같은 포트가 대시보드(브라우저에서 그 주소를 열면 나오는 화면)와 `/health`·`/api/ready` 를 함께 낸다.
+포트가 헷갈리기 쉬운 세 자리 — 제품 서버(기본 8000) / 대시보드 개발 서버(Vite 5173) / 패키징 셸이 쓰는
+`SSAK_HOST_URL` — 는 [현재 상태 §1](docs/20_CURRENT_STATUS.md)이 구분해 둔다.
 
 ## 환경 변수
 
@@ -233,7 +241,7 @@ cp .env.example .env
 | 변수 | 기본값 | 설명 |
 |:---|---:|:---|
 | `AGK_SERVER_HOST` | `127.0.0.1` | 바인딩 호스트 (외부 공개 시 강한 PIN 필수) |
-| `AGK_SERVER_PORT` | `8400` | API 서버 포트 |
+| `AGK_SERVER_PORT` | `8000` | API 서버 포트 (코드 기본값과 같다). 같은 호스트에서 OpenAI 호환 로컬 런타임도 8000을 쓰므로 겹치면 한쪽을 옮긴다 |
 | `AGK_SEC_ACCESS_PIN` | 비어 있음 | API 접근 PIN (production 또는 비-루프백 바인딩에서는 8자 이상 필수) |
 | `AGK_ENV` | `development` | 실행 환경 (`development`/`production`) |
 | `AGK_CORS_ORIGINS` | `localhost:5173,8000` | CORS 허용 오리진 |

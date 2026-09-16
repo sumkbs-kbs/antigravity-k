@@ -1,0 +1,71 @@
+{
+  "dependency_locks": [
+    {
+      "path": "uv.lock",
+      "sha256": "cd6b8281a7efe3c0c8e24a71f1621e17d9b041d1c3f77e001308da401d1aed23"
+    },
+    {
+      "path": "dashboard/pnpm-lock.yaml",
+      "sha256": "38427bbca3cfbb89da921ffb515b456840b6bb1938c449827215470f7b229a06"
+    },
+    {
+      "path": "dashboard/package-lock.json",
+      "sha256": "662596899ebc407c2699ce2dc3e92b8ddeb13ce6fb9dcd6a2c6aa1dffc976d98"
+    }
+  ],
+  "gates": [
+    {
+      "category": "supply_chain",
+      "command": [
+        "bash",
+        "scripts/audit_python_dependencies.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 6.863951,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-05"
+      ],
+      "finished_at": "2026-09-16T06:04:05.598434+00:00",
+      "id": "dependency-audit-python",
+      "required": true,
+      "started_at": "2026-09-16T06:03:58.734443+00:00",
+      "status": "passed",
+      "stderr": "",
+      "stdout": "AUDIT-INPUTS: {\"schema\":\"agk-python-audit-inputs/1\",\"shipped_extras\":[\"rag\"],\"audit_record_file\":\"uv.lock\",\"targets\":{\"base\":{\"packages\":65,\"sha256_16\":\"df004291cc4f7f85\"},\"extras\":{\"rag\":{\"packages\":145,\"sha256_16\":\"819d699e946bf502\"}},\"union\":{\"packages\":145,\"sha256_16\":\"bc3078ae20c84152\"}}}\nAUDIT-SUMMARY: audited=124 vulnerable_packages=1 findings=5\n  chromadb==1.5.9  PYSEC-2026-311  (severity: high)\n  chromadb==1.5.9  PYSEC-2026-311  (severity: high)\n  chromadb==1.5.9  PYSEC-2026-3814  (severity: high)\n  chromadb==1.5.9  PYSEC-2026-3815  (severity: high)\n  chromadb==1.5.9  PYSEC-2026-3813  (severity: high)\nAUDIT-VERDICT: {\"excepted\":[{\"id\":\"PYSEC-2026-311\",\"package\":\"chromadb\",\"owner\":\"rel-03-maintainer\",\"expires\":\"2026-12-08\"},{\"id\":\"PYSEC-2026-311\",\"package\":\"chromadb\",\"owner\":\"rel-03-maintainer\",\"expires\":\"2026-12-08\"},{\"id\":\"PYSEC-2026-3814\",\"package\":\"chromadb\",\"owner\":\"rel-03-maintainer\",\"expires\":\"2026-12-08\"},{\"id\":\"PYSEC-2026-3815\",\"package\":\"chromadb\",\"owner\":\"rel-03-maintainer\",\"expires\":\"2026-12-08\"},{\"id\":\"PYSEC-2026-3813\",\"package\":\"chromadb\",\"owner\":\"rel-03-maintainer\",\"expires\":\"2026-12-08\"}],\"unresolved\":[],\"expired\":[]}\nAUDIT-STATUS: PASS \u2014 high/critical \ubbf8\ud574\uacb0 0\uac74 (\uc608\uc678 \uc801\uc6a9 5\uac74, \uc704 \ubaa9\ub85d\uc5d0 \uadfc\uac70\u00b7\ub9cc\ub8cc\uc77c \uae30\ub85d)\n",
+      "task_ids": [
+        "REL-03"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-16T06:03:58.594239+00:00",
+  "git": {
+    "dirty": true,
+    "sha": "20d529fc1f17c8ff580eaf0d853dcd1ce92172d5",
+    "tree_fingerprint": "da54e07b5284f00116901609a7873e2eb206b0a5b7bd9d0f1f607f4e78207cb8",
+    "tree_fingerprint_scope": "code (docs/ and .omo/ excluded)"
+  },
+  "manifest": {
+    "path": "scripts/commercial_ga_gates.json",
+    "sha256": "a40867c743a9df5ba5854548476fcc53913e5364968a01e30e00c3e03b2eadb7"
+  },
+  "merged": false,
+  "output_decoding": {
+    "encoding": "utf-8",
+    "errors": "backslashreplace"
+  },
+  "platform": {
+    "machine": "arm64",
+    "python_implementation": "CPython",
+    "python_version": "3.13.12",
+    "release": "25.6.0",
+    "system": "Darwin"
+  },
+  "schema_version": 1,
+  "summary": {
+    "failed": 0,
+    "passed": 1,
+    "required_failed": 0,
+    "total": 1
+  }
+}

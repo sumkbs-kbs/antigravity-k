@@ -10,7 +10,9 @@ tags: [development-plan, reliability, security, migration, agent-handoff]
 
 # 상용 신뢰성 상세 개선 개발 계획서
 
-> **최신 (2026-09-14, attempt-039 REVIEW) — F-47 EXTERNAL_HUB CLOSED · 후보 `bbb308f8` / `0b1a156f…` · required **23/23** · leftover **0** · NO-GO**
+> **이 문서는 CR 이력이다.** 아래 배너들은 attempt 시점의 기록이며 현재 상태가 아니다 — 현재 상태의 단일 소유자는 [현재 상태 요약](20_CURRENT_STATUS.md)(2026-09-16)이다.
+
+> **이력 (2026-09-14, attempt-039 REVIEW) — F-47 EXTERNAL_HUB CLOSED · 후보 `bbb308f8` / `0b1a156f…` · required **23/23** · leftover **0** · NO-GO**
 > owner=`마뱀` · ambient owns file-activity (코드 탭 + empty-state). 남은 leftover: EXTERNAL_HUB · compact-large-stream.
 > owner=`마뱀` · 후보 `ae28360448f442e1194e1e93fcabf9e51bc8aada` · 지문 `ac0757cc…` · required **23/23 PASS**.
 > 닫힘: capture-disclosure-* (:5173→/settings + AGK_SEED_LEVEL). 센 leftover: f47-capture-real-local-models · f47-invert-*. 판정 NO-GO.
@@ -351,7 +353,7 @@ CR-05와 같은 파일을 직렬 수정한다. 상태는 loading → ready 또�
 
 **판정:** P1 미해결, required gate 실패/미실행, 필수 외부 승인 부재, source mismatch 중 하나라도 있으면 NO-GO. NO-GO 기록 완료는 평가 작업 산출물이며 GA 승인이나 CR-14 DONE으로 계산하지 않는다. DEFERRED는 선택·범위 밖 항목에만 사용하고 필수 항목의 우회 수단으로 쓰지 않는다.
 
-**attempt-016 결과(2026-09-13, 최신):** **선언한 초록의 출처를 게이트 밖에서 확인한다(F-24) — attempt-015 한계 R-9 를 닫았다. 제품 런타임 변경 0건.**
+**attempt-016 결과(2026-09-13 — 이 문서의 이력이며 최신이 아니다. 현재 attempt 는 §1 상단과 `docs/20_CURRENT_STATUS.md` 를 본다):** **선언한 초록의 출처를 게이트 밖에서 확인한다(F-24) — attempt-015 한계 R-9 를 닫았다. 제품 런타임 변경 0건.**
 
 **(a) 무엇이 비어 있었나.** attempt-015 의 조항 ④는 "보고서가 **있으면** 그 보고서가 자기가 이름 붙인 트리를 쟀는가"를 본다. 그 계약이 **존재**를 요구할 수 없는 이유는 구조적이다: 보고서는 게이트 실행이 끝날 때 쓰이므로 그 실행 **안에서는** 존재할 수 없다. 그래서 attempt-013 의 21/21 이 HEAD 가 아닌 트리를 가리키게 됐을 때 "그 초록의 출처가 있는가"를 아무도 묻지 않았다.
 

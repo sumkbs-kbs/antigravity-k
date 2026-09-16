@@ -1,0 +1,36 @@
+=== NX-04 focused regression (working tree, uncommitted) ===
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/test_val02_conversation_multiprocess.py tests/test_nx02_history_journal.py tests/test_nx01_compaction_retention.py tests/test_conversation_store_soft_max_rss.py tests/test_conversation_store_ctx01.py tests/test_fr05_conversation_authoritative_reads.py -q -p no:randomly
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+61 passed, 1 warning in 27.69s
+
+=== 반복 안정성 (NX-04 파일 단독 5회) ===
+14 passed in 3.06s
+14 passed in 3.07s
+14 passed in 3.08s
+14 passed in 3.04s
+14 passed in 3.09s
+
+=== NX-04 드라이버 (판정 분리 + 10 seed) ===
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python docs/qa/2026-09-16-followup/nx04/repro_nx04_cas_vs_compaction.py  # exit 0 = PASS
+→ after-run-output.json.txt (verdict PASS, old judge claimed_lost_messages=58)
+
+=== SC-2 / SC-6 (staging) ===
+$ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python scripts/val02_staging.py --scenarios SC-2 --output docs/qa/2026-09-16-followup/nx04/staging-sc2.json
+→ SC-2 pass=true (appended 150 == originals 150, view 34 bounded, 압축 2세대, stale 거절 299)
+$ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python scripts/val02_staging.py --scenarios SC-6 --soak-seconds 20 --output docs/qa/2026-09-16-followup/nx04/staging-sc6.json
+→ SC-6: NX-04 필드 전부 통과, pass=false 는 환경(prunable worktree 1건) 때문
+
+=== ruff ===
+All checks passed!
+
+=== 전체 스위트 (NX-04 반영 후, 작업 트리) ===
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/ -q -p no:randomly --ignore=tests/test_benchmark_performance.py --deselect tests/test_cr14_fence_movement_detection.py
+6459 passed, 9 skipped, 13 deselected, 1 warning in 584.10s (0:09:44)
+
+NX-04 이전(NX-02 시점) 같은 명령: 6448 passed / 9 skipped
+차이 +11 = tests/test_val02_conversation_multiprocess.py 3건 → 14건 (NC-04 계약 분리 + 10 seed 반복)
+중요: 전체 스위트 안에서 실행해도 옛 계약의 비결정 실패(assert 27 >= 85 등)가 재발하지 않는다.
+제외한 두 파일은 작업 트리와 무관한 기존 사유:
+  --ignore=tests/test_benchmark_performance.py            (wall-clock 민감, NX-03 handoff 참조)
+  --deselect tests/test_cr14_fence_movement_detection.py  (git history 만 읽는 fence 검사, 후보 커밋 이동)

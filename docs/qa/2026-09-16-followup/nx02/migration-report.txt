@@ -1,0 +1,132 @@
+=== fixture: legacy (pre-v2) conversation storage with one view record ===
+
+--- scripts/migrate_conversation_storage.py --storage-dir /tmp/nx02-mig/conversations   (exit code in Report: state) ---
+{
+  "mode": "dry-run",
+  "state": "dry_run",
+  "marker_written": false,
+  "journal_backfilled": null,
+  "journal_plan": [
+    {
+      "project_id": "p",
+      "conversation_id": "conv",
+      "target": "v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json",
+      "action": "would_create",
+      "journal_seq": 0,
+      "history_incomplete": false
+    }
+  ],
+  "journal_backfill": null,
+  "journal_verification_failures": null,
+  "planned": [
+    {
+      "project_id": "p",
+      "conversation_id": "conv",
+      "target": "v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json",
+      "sources": [
+        "legacy_proj/conv.json"
+      ],
+      "action": "copy",
+      "view_advanced": false
+    }
+  ],
+  "conflicts": []
+}
+
+--- scripts/migrate_conversation_storage.py --storage-dir /tmp/nx02-mig/conversations --apply  (exit code in Report: state) ---
+{
+  "mode": "apply",
+  "state": "applied",
+  "marker_written": true,
+  "journal_backfilled": 1,
+  "journal_plan": null,
+  "journal_backfill": [
+    {
+      "project_id": "p",
+      "conversation_id": "conv",
+      "target": "v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json",
+      "action": "created",
+      "journal_seq": 1,
+      "history_incomplete": false
+    }
+  ],
+  "journal_verification_failures": null,
+  "planned": [
+    {
+      "project_id": "p",
+      "conversation_id": "conv",
+      "target": "v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json",
+      "sources": [
+        "legacy_proj/conv.json"
+      ],
+      "action": "copy",
+      "view_advanced": false
+    }
+  ],
+  "conflicts": []
+}
+
+--- scripts/migrate_conversation_storage.py --storage-dir /tmp/nx02-mig/conversations --apply  (exit code in Report: state) ---
+{
+  "mode": "apply",
+  "state": "already_migrated",
+  "marker_written": false,
+  "journal_backfilled": 0,
+  "journal_plan": null,
+  "journal_backfill": [
+    {
+      "project_id": "p",
+      "conversation_id": "conv",
+      "target": "v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json",
+      "action": "already_present",
+      "journal_seq": 1
+    }
+  ],
+  "journal_verification_failures": null,
+  "planned": [
+    {
+      "project_id": "p",
+      "conversation_id": "conv",
+      "target": "v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json",
+      "sources": [
+        "legacy_proj/conv.json"
+      ],
+      "action": "already_present",
+      "view_advanced": false
+    }
+  ],
+  "conflicts": []
+}
+
+--- scripts/migrate_conversation_storage.py --storage-dir /tmp/nx02-mig/conversations --verify-only  (exit code in Report: state) ---
+{
+  "mode": "verify-only",
+  "state": "verified",
+  "marker_written": false,
+  "journal_backfilled": null,
+  "journal_plan": null,
+  "journal_backfill": null,
+  "journal_verification_failures": [],
+  "planned": [
+    {
+      "project_id": "p",
+      "conversation_id": "conv",
+      "target": "v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json",
+      "sources": [
+        "legacy_proj/conv.json"
+      ],
+      "action": "already_present",
+      "view_advanced": false
+    }
+  ],
+  "conflicts": []
+}
+
+=== journal files on disk after apply ===
+legacy_proj/conv.json
+migration_v2.json
+v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.json
+v2/148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940/2ec3e47dcf05a139d895b271f899f0da4f51c6dfa8f7c0eb93caa89a5b03ef58.jsonl
+
+=== journal content (base event) ===
+{"schema":"agk.conv-journal.v1","seq":1,"revision":1,"event_type":"base","project_id":"p","conversation_id":"conv","created_at":1789515305.732298,"messages":[{"id":"msg_legacy","role":"user","content":"legacy turn","created_at":1.0,"provenance":"append"}],"memory":{}}

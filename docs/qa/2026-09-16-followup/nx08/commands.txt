@@ -1,0 +1,60 @@
+# NX-08 실행 기록 (그대로 복사해 재현할 수 있는 순서)
+
+## 0. 기준 나무 고정 (작업 트리 무변경)
+
+    cd /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+    rm -rf /tmp/nx08-before && mkdir -p /tmp/nx08-before
+    git archive HEAD src | tar -x -C /tmp/nx08-before
+
+## 1. before 측정 (HEAD 엔진, 드라이버가 SIGKILL·fsync 실패를 실제로 일으킨다)
+
+    PYTHONPATH=src .venv/bin/python \
+      docs/qa/2026-09-16-followup/nx08/repro_nx08_vault_persistence.py \
+      --label before --src /tmp/nx08-before/src \
+      --out docs/qa/2026-09-16-followup/nx08/before-run-output.json
+    # exit 0 (측정 완료) / tally {"CONFIRMED": 6, "NOT_REPRODUCED": 7, "INCONCLUSIVE": 2}
+
+## 2. after 측정 (작업 트리 엔진)
+
+    PYTHONPATH=src .venv/bin/python \
+      docs/qa/2026-09-16-followup/nx08/repro_nx08_vault_persistence.py \
+      --label after \
+      --out docs/qa/2026-09-16-followup/nx08/after-run-output.json
+    # exit 0 / tally {"CONFIRMED": 1, "NOT_REPRODUCED": 12, "INCONCLUSIVE": 2}
+
+## 3. 계약 시험
+
+    .venv/bin/python -m pytest tests/test_nx08_vault_durability.py -q                 # 17 passed
+    for i in 1 2 3 4 5; do .venv/bin/python -m pytest tests/test_nx08_vault_durability.py -q | tail -1; done
+    # 5회 모두 17 passed (비결정성 없음)
+
+## 4. 좁은 회귀 (vault·privacy·세션 원자성)
+
+    .venv/bin/python -m pytest tests/test_nx08_vault_durability.py tests/test_vault.py \
+      tests/test_vault_api.py tests/test_vault_contracts.py tests/test_vault_privacy_api.py \
+      tests/test_vault_privacy_service.py tests/test_vault_task_isolation.py \
+      tests/test_wiki_vault_privacy.py tests/test_cr02_session_durability.py -q
+    # 103 passed
+
+## 5. 전체 스위트 (단일 호출은 600초 예산을 넘어 3분할 — 파일 집합은 NX-07 과 동일 + nx08)
+
+    { cat /tmp/nx07-chunk0.txt; echo; echo "tests/test_nx08_vault_durability.py"; } > /tmp/nx08-chunk0.txt
+    .venv/bin/python -m pytest $(cat /tmp/nx08-chunk0.txt | tr '\n' ' ') -q    # 2 failed, 2071 passed, 3 skipped
+    .venv/bin/python -m pytest $(cat /tmp/nx07-chunk1.txt | tr '\n' ' ') -q    # 2075 passed
+    .venv/bin/python -m pytest $(cat /tmp/nx07-chunk2.txt | tr '\n' ' ') -q    # 5 failed, 2401 passed, 7 skipped
+    .venv/bin/python -m pytest tests/evals -q                                  # 11 passed
+
+## 6. 정적 검사
+
+    .venv/bin/ruff check src/antigravity_k/engine/vault.py \
+      src/antigravity_k/engine/vault_privacy.py src/antigravity_k/engine/vault_privacy_git.py \
+      tests/test_nx08_vault_durability.py \
+      docs/qa/2026-09-16-followup/nx08/repro_nx08_vault_persistence.py
+    # All checks passed!
+
+    .venv/bin/python -m mypy src/antigravity_k/engine/vault.py \
+      src/antigravity_k/engine/vault_privacy.py src/antigravity_k/engine/vault_privacy_git.py
+    # Success: no issues found in 3 source files
+
+메모: 이 체크아웃의 `.venv/bin/mypy` shebang 은 다른 경로(antigravity-k/.venv)를 가리켜
+깨져 있다 — `.venv/bin/python -m mypy` 로 실행했다. (venv 자체는 건드리지 않았다.)

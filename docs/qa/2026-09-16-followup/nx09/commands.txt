@@ -1,0 +1,49 @@
+# NX-09 commands (2026-09-16)
+
+## 탐침(일회용, 측정 후 삭제)
+cd dashboard && NX09_ARTIFACT_DIR=<repo>/docs/qa/2026-09-16-followup/nx09 \
+  npx playwright test e2e/tests/nx09-probe.spec.ts --reporter=line --workers=1
+# → probe.json (배관·503 원인·provider 경로 확인). 이후 파일 삭제.
+
+## 기준선(커밋된 dist) = before
+cd dashboard && git status --short ../src/antigravity_k/dashboard_dist   # 깨끗함(커밋본)
+for m in settings-current-pin settings-pin-status changeAccessPin; do
+  printf "%-22s src=%s dist=%s\n" "$m" "$(git grep -l -- "$m" HEAD -- dashboard/src | wc -l)" \
+    "$(grep -rl -- "$m" ../src/antigravity_k/dashboard_dist/assets | wc -l)"
+done
+# settings-current-pin 2/0 · settings-pin-status 2/0 · changeAccessPin 5/0 → 서빙 번들이 소스보다 낡음(F04)
+
+## 현재 소스를 서빙하게 만든다(UI 관측의 전제)
+cd dashboard && pnpm build
+
+## 증인(실 브라우저 + hermetic 서버 + 가짜 provider)
+cd dashboard && NX09_ARTIFACT_DIR=<repo>/docs/qa/2026-09-16-followup/nx09 \
+  npx playwright test e2e/tests/nx09-user-journey.spec.ts --reporter=line --workers=1
+# 최종: 8 passed = 7 + 1 expected-fail(T4 = NX-09-F03 미해결)
+
+## F06 재검증 — 창 두 개(창 A 는 이동시키지 않는다)
+cd dashboard && NX09_ARTIFACT_DIR=<repo>/docs/qa/2026-09-16-followup/nx09 \
+  npx playwright test e2e/tests/nx09-user-journey.spec.ts -g "T8" --reporter=line --workers=1
+# → 1 passed (7.1s) · t8-observation.json: sessionsRevoked=1, closedChatSockets=1/1, closeLatencyMs=[571]
+# 판정: F06 = NOT_REPRODUCED(한 창 측정 아티팩트). 설정 화면 자체는 이벤트 WS 를 열지 않는다.
+
+## 서버 쪽 확정 측정(실 uvicorn + 실 ticket WS + 레지스트리)
+uv run --project . --no-sync python docs/qa/2026-09-16-followup/nx09/repro_nx09_ws_revocation.py
+
+## 회귀
+cd dashboard && npx vitest run                                  # 89 files / 888 tests passed
+cd dashboard && npx playwright test --reporter=line --workers=3 # 191 passed / 10 failed(아래 설명)
+uv run --project . --no-sync python -m pytest tests/test_auth.py tests/test_nx05_auth_epoch_revocation.py -q
+uv run --project . --no-sync python -m pytest -q -k "ws or session_state or conversation" tests/
+uv run --project . --no-sync python -m pytest tests/test_nx0*.py tests/test_cr0*.py \
+  tests/test_conversation*.py tests/test_auth*.py tests/test_ws*.py -q
+
+## 정적검사
+uv run --project . --no-sync ruff check src/antigravity_k/api/routes/session_state.py \
+  docs/qa/2026-09-16-followup/nx09/repro_nx09_ws_revocation.py
+uv run --project . --no-sync mypy src/antigravity_k/api/routes/session_state.py
+cd dashboard && npx tsc -b --pretty false
+
+## 되돌리기(이번 변경)
+# 작업 트리만 되돌린다(커밋 없음): dashboard_dist 는 빌드본이므로 `git checkout -- src/antigravity_k/dashboard_dist`
+# 로 커밋본(낡은 번들)으로 되돌릴 수 있다 — 되돌리면 UI 관측은 다시 낡은 번들을 잰다(F04).

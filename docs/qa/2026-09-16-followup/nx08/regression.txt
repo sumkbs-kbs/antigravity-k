@@ -1,0 +1,51 @@
+# NX-08 회귀 기록
+
+기준선은 NX-07 시점(2026-09-16, `docs/qa/2026-09-16-followup/nx07/regression.txt`):
+**6541 passed · 7 failed · 10 skipped** (+ evals 11).
+
+## 계약 시험
+
+    tests/test_nx08_vault_durability.py            17 passed   (단독 5회 반복도 17 passed)
+
+수용 항목 ↔ 시험:
+
+| 카드/판정 | 시험 |
+|---|---|
+| A1 fsync 실패 | `test_fsync_failure_preserves_previous_bytes`, `test_replace_failure_preserves_previous_bytes` |
+| A2 저장 도중 프로세스 종료 | `test_killed_process_during_write_keeps_previous_note` |
+| 임시 파일·권한 위생 | `test_successful_write_is_byte_exact_and_leaves_no_temp`, `test_write_preserves_existing_permissions_and_new_files_use_umask`, `test_orphan_temp_from_killed_process_is_swept_on_next_write`, `test_fresh_temp_of_live_process_is_not_swept`, `test_directory_fsync_unavailable_is_not_fatal` |
+| C1·C2·C3·C4 frontmatter | `test_crlf_frontmatter_metadata_is_parsed`, `test_crlf_note_read_round_trip`, `test_frontmatter_at_eof_without_trailing_newline_does_not_raise`, `test_delimiter_inside_body_is_not_a_closing_delimiter`, `test_writer_reader_round_trip_keeps_metadata`, `test_malformed_and_non_mapping_frontmatter_do_not_leak_frontmatter` |
+| D1 복구 권한 | `test_scoped_restore_restores_content_without_widening_permissions` |
+| 파생 경로(마스킹) | `test_privacy_redact_failure_keeps_original_and_no_temp`, `test_privacy_redact_success_replaces_secret` |
+
+## 좁은 회귀
+
+    nx08 + vault + vault_api + vault_contracts + vault_privacy_api + vault_privacy_service
+    + vault_task_isolation + wiki_vault_privacy + cr02_session_durability     103 passed
+
+## 전체 스위트 (3분할, 겹침·누락 없음)
+
+| 구간 | 결과 |
+|---|---|
+| chunk0 (157파일 + nx08) | 2 failed, **2071 passed**, 3 skipped (198s) |
+| chunk1 (156파일) | **2075 passed** (148s) |
+| chunk2 (154파일) | 5 failed, **2401 passed**, 7 skipped (263s) |
+| `tests/evals` | **11 passed** |
+| 합계 | **6558 passed · 7 failed · 10 skipped** |
+
+    NX-07 6541 + 신규 17 = 6558 ✓ (다른 파일의 증감 없음 — nx08 외 제품 코드 변경은
+    vault/privacy 3파일뿐이고 그 3파일을 쓰는 시험은 모두 통과)
+
+### 실패 7건은 전부 이전부터 있던 것
+
+* `test_cr14_fence_movement_detection.py` 2건 — 후보 선언 **이후** 데스크톱 레인 커밋이
+  지문을 옮겼다(내 문서 편집은 미커밋이라 그 목록에 없다). NX-07 에서도 같은 2건.
+* `test_ws01_project_binding.py` 5건 — 사용자 홈의 레거시 v1 대화 파일 3건 때문에
+  CR-01 migration gate 가 503 을 낸다(환경 조건, 기준 트리에서도 동일 실패). NX-07 과 동일.
+* `tests/test_perf02_benchmarks.py` 는 이번 실행에서 **통과**했다 — 파일 단독 실행에서도
+  통과하는 성능 시험이라(NX-02 기록에도 wall-clock flake 로 남아 있음) 수치에 포함했다.
+
+## 정적 검사
+
+    ruff check (변경 3파일 + 시험 + 드라이버) ...... All checks passed!
+    mypy (변경 3파일) ............................. Success: no issues found in 3 source files

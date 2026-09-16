@@ -1,0 +1,47 @@
+# NX-09-F03 regression (2026-09-16)
+
+## 계약 시험(신규)
+`tests/test_nx09_f03_multimodal_attachments.py` → **21 passed**
+검증·거부 사유 · 내부 정규형(content 문자열 + message-level images) · 파트 끌어올리기 ·
+표면별 payload(ollama `images` / openai 파트 / anthropic `source.base64`) · 스냅샷 텍스트 정책 ·
+작업 프롬프트 문자열 보장.
+
+## 갱신한 기존 계약 시험(1건)
+`tests/test_model_manager_stream.py::test_content_parts_flattened_to_string`
+— 옛 계약("파트를 전부 텍스트로 납작하게 만든다")이 곧 F03 이었다. 텍스트는 접고 이미지는
+`images` 로 살리는 계약으로 바꿨다(그대로 두면 결함이 시험으로 보호된다).
+
+## 관련 pytest
+```
+tests/test_inference_providers.py tests/test_model_manager_generate.py
+tests/test_model_manager_lifecycle.py tests/test_model_manager_stream.py
+tests/test_task_context_snapshot.py tests/test_orchestrator.py tests/test_orchestrator_handlers.py
+tests/test_tool_loop.py tests/test_ctx01_reject_fixes.py tests/test_ctx02_reject_fixes.py
+tests/test_ctx03_compress_observability.py tests/test_conversation_api_ctx01.py
++ tests/test_nx09_f03_multimodal_attachments.py
+→ 254 passed
+```
+넓은 선택:
+```
+pytest -q tests/ -k "tool_loop or orchestrator or agent_runtime or inference or multimodal or
+  snapshot or chat or provider or attachment"
+→ 408 passed, 6188 deselected, 0 failed
+```
+
+## E2E 증인
+```
+npx playwright test e2e/tests/nx09-user-journey.spec.ts --workers=1
+→ 8 passed (1.6m)   ·   -g "T4" 단독 → 1 passed (6.7s)
+```
+T4 산출물: `imageReachedProvider=true`, `imageSurfaces=["/api/chat"]`, `secondTurnWithImage=0`,
+`chipVisible=true`, `chipMime="image/png"`.
+
+## 정적검사
+- `ruff check src/antigravity_k/engine/ src/antigravity_k/api/routes/chat.py` — clean
+- `npx tsc -b --pretty false` — exit 0 · `npx eslint e2e/tests/nx09-user-journey.spec.ts` — clean
+
+## 측정 한계
+- 전달(Vision 입력 도달)만 fake provider 로 증명했다 — live/cloud provider 의 실제 인식 품질은
+  이 카드 범위 밖이다.
+- 대시보드 E2E 전량(다른 스펙 포함)은 이 카드에서 다시 돌리지 않았다: 번들이 빌드본이어야 하고
+  이 환경에는 ambient 서버가 있다(NX-09 본체의 기록 참조). UI 증인은 nx09 파일만 돌렸다.

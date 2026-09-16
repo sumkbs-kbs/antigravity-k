@@ -1,0 +1,246 @@
+{
+  "schema": "nx04-cas-vs-compaction/1",
+  "tree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx04/repro_nx04_cas_vs_compaction.py",
+  "cap_env": "AGK_CONVERSATION_SOFT_MAX_MESSAGES",
+  "product_cap": 64,
+  "judge_comparison": {
+    "observation": {
+      "soft_max": 64,
+      "appends_requested": 120,
+      "successes": 120,
+      "view_messages": 62,
+      "originals": 120,
+      "original_ids_in_order": true,
+      "revision": 120,
+      "compaction_generations": 1,
+      "constraint_preserved": true,
+      "elapsed_s": 0.153,
+      "appends_per_s": 784.2
+    },
+    "old": {
+      "judge": "old(view_count >= successes)",
+      "claimed_lost_messages": 58,
+      "verdict": "FAIL"
+    },
+    "new": {
+      "judge": "new(cas+compaction split)",
+      "cas": {
+        "originals_lost": 0,
+        "revision_matches_successes": true,
+        "originals_in_order": true
+      },
+      "compaction": {
+        "compaction_enabled": true,
+        "view_bounded": true,
+        "generations": 1,
+        "compaction_observed": true,
+        "no_compaction_as_configured": true
+      },
+      "verdict": "PASS"
+    },
+    "note": "같은 저장 결과를 옛 판정식은 유실로 오인하고(claimed_lost_messages>0), 새 판정식은 CAS 유실 0 + 압축 관측으로 분리 보고한다."
+  },
+  "cap0_configuration": {
+    "observation": {
+      "soft_max": 0,
+      "appends_requested": 20,
+      "successes": 20,
+      "view_messages": 20,
+      "originals": 20,
+      "original_ids_in_order": true,
+      "revision": 20,
+      "compaction_generations": 0,
+      "constraint_preserved": false,
+      "elapsed_s": 0.011,
+      "appends_per_s": 1823.0
+    },
+    "judgement": {
+      "judge": "new(cas+compaction split)",
+      "cas": {
+        "originals_lost": 0,
+        "revision_matches_successes": true,
+        "originals_in_order": true
+      },
+      "compaction": {
+        "compaction_enabled": false,
+        "view_bounded": true,
+        "generations": 0,
+        "compaction_observed": true,
+        "no_compaction_as_configured": true
+      },
+      "verdict": "PASS"
+    }
+  },
+  "seeded_repetitions": {
+    "count": 10,
+    "all_verdicts_pass": true,
+    "elapsed_s": [
+      0.15,
+      0.152,
+      0.154,
+      0.151,
+      0.152,
+      0.156,
+      0.153,
+      0.158,
+      0.157,
+      0.151
+    ],
+    "elapsed_median_s": 0.152,
+    "elapsed_max_s": 0.158,
+    "appends_per_s_median": 807.0,
+    "runs": [
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.15,
+        "appends_per_s": 819.6,
+        "verdict": "PASS",
+        "seed": 0
+      },
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.152,
+        "appends_per_s": 809.8,
+        "verdict": "PASS",
+        "seed": 1
+      },
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.154,
+        "appends_per_s": 799.9,
+        "verdict": "PASS",
+        "seed": 2
+      },
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.151,
+        "appends_per_s": 812.0,
+        "verdict": "PASS",
+        "seed": 3
+      },
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.152,
+        "appends_per_s": 811.2,
+        "verdict": "PASS",
+        "seed": 4
+      },
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.156,
+        "appends_per_s": 789.2,
+        "verdict": "PASS",
+        "seed": 5
+      },
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.153,
+        "appends_per_s": 804.2,
+        "verdict": "PASS",
+        "seed": 6
+      },
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.158,
+        "appends_per_s": 778.9,
+        "verdict": "PASS",
+        "seed": 7
+      },
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.157,
+        "appends_per_s": 784.9,
+        "verdict": "PASS",
+        "seed": 8
+      },
+      {
+        "soft_max": 64,
+        "appends_requested": 123,
+        "successes": 123,
+        "view_messages": 7,
+        "originals": 123,
+        "original_ids_in_order": true,
+        "revision": 123,
+        "compaction_generations": 2,
+        "constraint_preserved": true,
+        "elapsed_s": 0.151,
+        "appends_per_s": 812.2,
+        "verdict": "PASS",
+        "seed": 9
+      }
+    ]
+  },
+  "verdict": "PASS"
+}

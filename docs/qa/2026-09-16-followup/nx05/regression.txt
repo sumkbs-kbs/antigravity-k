@@ -1,0 +1,63 @@
+=== NX-05 focused regression (working tree, uncommitted) ===
+
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+    tests/test_nx05_auth_epoch_revocation.py -q -p no:cacheprovider --override-ini addopts=''
+21 passed, 1 warning in 6.37s
+
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+    tests/test_nx05_auth_epoch_revocation.py tests/test_auth.py tests/test_auth_policy_truth_table.py \
+    tests/test_sec02_pin_rate_limit.py tests/test_sec03_ws_origin_ticket.py \
+    -q -p no:cacheprovider --override-ini addopts=''
+108 passed, 1 warning in 104.96s
+
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+    tests/test_api_forwarder_security.py tests/test_auth_policy_truth_table.py \
+    -q -p no:cacheprovider --override-ini addopts=''
+32 passed, 1 warning in 1.94s
+
+=== 드라이버 (before/after) ===
+$ NX05_TREE=before PYTHONPATH=/tmp/nx05-before/src .venv/bin/python \
+    docs/qa/2026-09-16-followup/nx05/repro_nx05_pin_change_revocation.py   → exit 3 (결함 재현)
+$ NX05_TREE=after PYTHONPATH=src .venv/bin/python \
+    docs/qa/2026-09-16-followup/nx05/repro_nx05_pin_change_revocation.py   → exit 0 (폐기 관측)
+→ before-run-output.json / after-run-output.json
+
+=== ruff / mypy ===
+$ .venv/bin/ruff check <auth 관련 9파일>                     → All checks passed!
+$ .venv/bin/python -m mypy <auth 관련 6파일>                 → Success: no issues found in 6 source files
+(주: `.venv/bin/mypy` shebang 이 `coding/antigravity-k/.venv` 를 가리켜 실행 불가 — 환경 문제, 카드 무관)
+
+=== 대시보드 (cwd=dashboard) ===
+$ pnpm typecheck   → exit 0
+$ pnpm test        → Test Files 87 passed (87) / Tests 880 passed (880)   (2회 연속 동일)
+   NX-04 시점 879 passed(86 files) → +1 file / +4 tests = src/pages/SettingsPage.nx05.test.tsx
+$ pnpm build       → exit 0 (✓ built in 21.94s)
+   생성물은 src/antigravity_k/dashboard_dist/ (추적 대상) 이므로 커밋하지 않고 git checkout 으로 되돌렸다.
+   → 데스크톱 번들 반영은 NX-10/NX-11 패키징 단계에서 pnpm build 로 재생성해야 한다.
+
+=== 전체 스위트 (NX-04 와 같은 플래그, 순서 보존 위해 두 절반으로 분할) ===
+공통 플래그: -q -p no:randomly --ignore=tests/test_benchmark_performance.py \
+             --deselect tests/test_cr14_fence_movement_detection.py
+
+$ pytest <halfA: test_a* … test_cl* 86 files>   → 1106 passed, 2 skipped   (51.34s)
+$ pytest <halfB: test_cr01_* … 끝 378 files>    → 5379 passed, 7 skipped, 13 deselected (572.10s)
+합계: 6485 passed / 9 skipped / 13 deselected / 0 failed
+
+수집 비교: pytest tests --collect-only = 6502 (NX-04 시점 6481 → +21 = 신규 NX-05 시험 수).
+          파일 목록으로 나눠 수집하면 6507 (+5 는 파일 목록/디렉터리 수집 차이, 실행 실패 아님).
+
+제외한 두 파일은 작업 트리와 무관한 기존 사유:
+  --ignore=tests/test_benchmark_performance.py            (wall-clock 민감, NX-03 handoff 참조)
+  --deselect tests/test_cr14_fence_movement_detection.py  (git history 만 읽는 fence 검사, 후보 커밋 이동)
+
+=== 환경/하네스 관측: WS-01 실패는 작업 트리 회귀가 아니다 ===
+$ pytest tests/test_ws01_project_binding.py                      → 5 failed, 8 passed
+$ PYTHONPATH=/tmp/nx05-before/src pytest tests/test_ws01_project_binding.py  → 같은 5 failed, 8 passed
+$ pytest tests/test_cr01_conversation_identity.py tests/test_ws01_project_binding.py  → 32 passed
+원인(실측): 사용자 실 홈의 대화 저장소에 v1 레이아웃 파일 3건이 남아 있고 migration 표식이 없다.
+  실패 본문: {"error":"conversation_storage_migration_required", "storage_dir":"/Users/mr.k/.antigravity/conversations",
+             "legacy_record_count":3, "marker_path":".../migration_v2.json"}
+  파일 3건의 mtime 은 9/10~9/11 로 이번 세션 이전이며, 이 카드가 만든 것이 아니다(삭제·이전하지 않았다).
+  CR-01 파일을 먼저 실행하면 통과하는 이유는 `reset_conversation_store_for_tests(fresh)` 가 전역 싱글톤을
+  임시 저장소로 바꿔 두고 복원하지 않기 때문 — **하네스 순서 의존**이며 NX-08/NX-09 에서 다룰 문제다.
+  NX-04 전체 실행(같은 플래그)에서도 CR-01 이 앞서므로 이 파일은 통과했다(위 halfB 결과에 포함).

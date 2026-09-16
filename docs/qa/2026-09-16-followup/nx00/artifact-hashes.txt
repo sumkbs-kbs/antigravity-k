@@ -1,0 +1,12 @@
+# NX-00 artifact hashes (observed 2026-09-16, read-only)
+# path: .omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/
+741d64e31bf0df7251b51104108d7178ddedf538a50fafa164d23007cd6c948f  val02_soak_28800_resoake.json
+bb4546fadfadded1d5702c825e6da4057adf07752a396a452c37f309fea2c2bc  val02_soak_28800_resoake.log
+7f60bcb03bf9c2b9a233bac1aa77e6ab1d002da281b29ccb04957cacf455292f  val02_soak_28800.json
+96c2e51069d88a216da16e36a8e2a55f6d68049f131cfe0279a405233a439149  val02_soak_28800.log
+228e1b327fe7ae1e0dad53a3a3e5523aa62b86a386332a2b3720a83cc2c6f8a8  pid.txt
+228e1b327fe7ae1e0dad53a3a3e5523aa62b86a386332a2b3720a83cc2c6f8a8  pid_resoake.txt
+9df9a9403cac9f6f6c70a336ffa4b10aaa65ea3303b92fd010f16f514bce3312  val02_soak_120_probe.json
+
+# pid contents: 72709 72711
+# wrapper log tail:   finished exit:141

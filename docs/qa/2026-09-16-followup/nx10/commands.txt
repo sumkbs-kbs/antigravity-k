@@ -1,0 +1,58 @@
+NX-10 (후보 고정 · 필수 게이트 실행) — 실행 명령 대장
+작성 2026-09-16 · 프로젝트 루트에서 실행 · Python 은 프로젝트 `.venv` 사용
+
+# 0. 후보 식별자
+git rev-parse HEAD                                   # 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+git status --porcelain                               # dirty=true
+.venv/bin/python -c "import sys,pathlib;sys.path.insert(0,'scripts');import ga_gate;print(ga_gate.worktree_fingerprint(pathlib.Path('.')))"
+# → da54e07b5284f00116901609a7873e2eb206b0a5b7bd9d0f1f607f4e78207cb8
+
+# 1. 기준선(귀속 확정) — HEAD 를 그대로 추출해 같은 명령을 돌린다. 작업 트리는 건드리지 않는다.
+rm -rf /tmp/nx10-base && mkdir -p /tmp/nx10-base && git archive HEAD | tar -x -C /tmp/nx10-base
+cd /tmp/nx10-base && uv run --isolated --frozen --extra dev --extra rag --extra documents mypy src/ | tail -3
+cd /tmp/nx10-base && uv run --isolated --frozen --extra dev --extra rag --extra documents basedpyright src/ scripts/ --level error | tail -1
+cd /tmp/nx10-base && uv run --isolated --frozen --extra dev bandit -r src/antigravity_k -ll -x src/antigravity_k/engine/secret_scanner.py | tail -12
+
+# 2. 게이트 (manifest 에서 목록·명령을 읽는다 — 하드코딩 금지)
+MANIFEST=scripts/commercial_ga_gates.json
+OUT=docs/qa/2026-09-16-followup/nx10
+
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt001.json \
+  --only python-ruff --only python-format --only python-mypy --only python-basedpyright
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt002.json \
+  --only python-ruff --only python-format --only python-mypy --only python-basedpyright
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt003.json \
+  --only python-ruff --only python-format --only python-mypy --only python-basedpyright \
+  --only security-bandit --only package-build
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt004.json \
+  --only python-ruff --only python-format --only python-mypy --only python-basedpyright \
+  --only security-bandit --only package-build --only sbom-generate --only api-e2e
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt005.json \
+  --only dashboard-install --only dashboard-lint --only dashboard-typecheck
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt006.json \
+  --only dashboard-test --only dashboard-build
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt007.json \
+  --only dashboard-build                       # 번들 재생성 후 안정 확인 → passed
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt008.json \
+  --only dashboard-e2e-witnesses               # 30 passed
+docker info >/dev/null 2>&1 && echo UP || echo DOWN     # → UP (docker-build 조건부 실행 근거)
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt009.json \
+  --only accessibility-e2e --only dependency-audit-dashboard
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt010.json \
+  --only docker-build
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-attempt011.json \
+  --only dependency-audit-python
+
+# 3. 리팩터 회귀 (같은 지문에서) — seam 을 옮겼으므로 반드시 함께 돌린다
+uv run --isolated --frozen --extra dev --extra rag --extra documents pytest \
+  tests/test_nx08_vault_durability.py tests/test_nx05_auth_epoch_revocation.py \
+  tests/test_nx09_f03_multimodal_attachments.py tests/test_model_manager_stream.py \
+  tests/test_session_state.py tests/test_auth.py tests/test_sec03_ws_origin_ticket.py \
+  tests/test_auth_policy_truth_table.py tests/test_vault.py tests/test_vault_privacy_service.py \
+  tests/test_vault_contracts.py -q --tb=short          # → 192 passed
+
+# 4. 아직 안 돈 필수 게이트 5개 (다음 창)
+.venv/bin/python scripts/ga_gate.py --manifest $MANIFEST --output $OUT/gate-report-next-<try>.json \
+  --only python-tests --only python-benchmark --only master-e2e \
+  --only dashboard-e2e-ambient --only clean-machine-runtime
+# --merge-into 는 같은 SHA·같은 manifest sha·같은 지문일 때만 허용된다.

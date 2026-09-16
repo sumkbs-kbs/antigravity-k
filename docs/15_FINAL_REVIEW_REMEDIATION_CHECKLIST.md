@@ -9,6 +9,8 @@ tags: [checklist, remediation, agent-coordination, release-gate]
 
 # 최종 검토 개선 실행 체크리스트
 
+> **이 문서는 RP 이력이다.** RP 완료는 GA 승인이 아니다. 현재 상태의 단일 소유자는 [현재 상태 요약](20_CURRENT_STATUS.md)(2026-09-16)이다.
+
 이 문서는 `docs/14_FINAL_REVIEW_REMEDIATION_PLAN.md`의 실행 상태 원장이다. **작성 시 구현을 실행하지 않았으며 전 항목 미완료**다. 보고서의 FR은 발견 ID, RP는 개발 작업 ID다. 반드시 둘을 연결한다.
 
 ## 상태·체크 규칙

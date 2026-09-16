@@ -1,0 +1,28 @@
+{
+  "label": "before",
+  "sequential_two_instance": {
+    "session_id": "f79952bd_9820e9c283244326983561c1ac5d3575",
+    "file_after_create": true,
+    "b_loaded_same_id": true,
+    "deleted_count": 1,
+    "files_after_clear": [],
+    "file_after_clear": false,
+    "tombstones_after_clear": [],
+    "b_save_succeeded": true,
+    "b_save_error": "",
+    "file_after_b_save": true,
+    "payload_messages_after_b_save": [
+      "SYNTHETIC-DELETED-MARKER",
+      "stale-writer-turn"
+    ],
+    "payload_revision_after_b_save": 1,
+    "marker_present_after_b_save": true,
+    "restart_resumed_id": "f79952bd_9820e9c283244326983561c1ac5d3575",
+    "restart_resumed_original": true,
+    "restart_messages": [
+      "SYNTHETIC-DELETED-MARKER",
+      "stale-writer-turn"
+    ],
+    "marker_present_after_restart": true
+  }
+}

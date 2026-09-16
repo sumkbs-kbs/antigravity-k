@@ -1,0 +1,41 @@
+NX-04 증거 생성 명령 (cwd = /Users/mr.k/program/coding/ssak_comp/Ssak-Ai)
+==========================================================================
+기준선 커밋/브랜치: ffb0ebb312b76d86742d3e4065628a9704f8268e (codex/m1-task-events)
+
+1) before 재현 — HEAD 테스트 파일 그대로 (경량 조건에서는 결함이 숨는다)
+   git show HEAD:tests/test_val02_conversation_multiprocess.py > /tmp/nx04-before/test_val02_old.py
+   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest /tmp/nx04-before/test_val02_old.py -q -p no:randomly
+     → 3 passed (5회 반복 모두 통과: 비결정성)
+   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+     tests/test_conversation_store_soft_max_rss.py tests/test_conversation_store_ctx01.py \
+     tests/test_fr_context_end_to_end.py tests/test_obs01_operational_metrics.py \
+     /tmp/nx04-before/test_val02_old.py -q -p no:randomly
+     → 34 passed (3회 반복 모두 통과)
+   기록된 실제 실패: nx01/regression.txt 40행 (`append 성공 85건 중 58건이 침묵 덮어쓰기로 유실됐다 / assert 27 >= 85`)
+
+2) before/after 결정적 재현 (같은 저장 결과 × 두 판정식)
+   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python \
+     docs/qa/2026-09-16-followup/nx04/repro_nx04_cas_vs_compaction.py \
+     > docs/qa/2026-09-16-followup/nx04/after-run-output.json.txt     # exit 0 = PASS
+   → old judge: claimed_lost_messages 58 / new judge: PASS (원본 120/120, 압축 1세대, view 62 ≤ 64)
+
+3) 새 계약 시험 (14건)
+   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+     tests/test_val02_conversation_multiprocess.py -q -p no:randomly     # 14 passed ×5회 반복
+
+4) staging SC-2 / SC-6
+   PYTHONDONTWRITEBYTECODE=1 .venv/bin/python scripts/val02_staging.py --scenarios SC-2 \
+     --output docs/qa/2026-09-16-followup/nx04/staging-sc2.json          # SC-2 pass=true
+   PYTHONDONTWRITEBYTECODE=1 .venv/bin/python scripts/val02_staging.py --scenarios SC-6 --soak-seconds 20 \
+     --output docs/qa/2026-09-16-followup/nx04/staging-sc6.json          # NX-04 필드 통과, pass=false 는 환경
+
+5) 관련 회귀 (6파일, 61 passed) — regression.txt 참조
+
+6) 정적 검사
+   .venv/bin/ruff check tests/test_val02_conversation_multiprocess.py scripts/val02_staging.py \
+     docs/qa/2026-09-16-followup/nx04/repro_nx04_cas_vs_compaction.py    # All checks passed!
+
+환경: macOS(darwin), Python 3.13(.venv), pytest 9.x, multiprocessing start method = spawn,
+`AGK_CONVERSATION_SOFT_MAX_MESSAGES` 로 cap 구성(0 = 압축 끔, 64 = 제품 기본).
+주의: 공유 체크아웃의 `git worktree list` 에 다른 작업 스트림의 prunable worktree 1건이 있어
+SC-6 의 `orphan_worktrees` 항목이 1로 잡힌다(이 카드에서 prune 하지 않음).

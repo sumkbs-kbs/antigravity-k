@@ -116,7 +116,7 @@
 - F-45: hermetic NO_PIN · `AGK_HOOK_VAULT_DIR` · Origin allowlist(`AGK_CORS_ORIGINS`)
 - F-46: 게이트가 서버를 기동·격리·그룹 종료 · `--skip-server` 이빨 · 계약 7건
 - F-47: disclosure/:5173 · 실 모델 허브 · invert flake 는 의도적 밖
-- 측정: **23/23 PASS** · python-tests **6383/13** · ambient **11 passed** · `tree_moved` 0 · 마감 PASS
+- 측정(attempt-034 · 후보 `b1f3af5a…`): required 게이트 **23/23 PASS** · python-tests **6383/13** · ambient **11 passed** · `tree_moved` 0 · 마감 PASS
 - 판정 **NO-GO** 유지(EX/C14-08 미해결) · 푸시 없음
 
 - **CR-14 attempt-033 — 화면이 보내는 경로는 서버가 서는 경로여야 한다(F-43 폐쇄, 제품 런타임 2줄) + 런타임 상태는 코드 스코프 밖에 있다(F-44 폐쇄, 측정 중 발견, 제품 0줄)**

@@ -10,6 +10,8 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 # Ssak-Ai 상용화 준비도 100% 실행 체크리스트
 
+> **이 문서는 이력이다.** 체크는 구현 이력이며 GA 승인·출시 판정이 아니다. 현재 상태의 단일 소유자는 [현재 상태 요약](20_CURRENT_STATUS.md)(2026-09-16)이다.
+
 ## 사용 규칙
 
 - 상태 값은 `TODO`, `IN_PROGRESS`, `BLOCKED`, `REVIEW`, `DONE`만 사용한다.

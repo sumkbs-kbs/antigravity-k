@@ -1,0 +1,60 @@
+{
+  "check": "nx07_doc_consistency",
+  "label": "after",
+  "root": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai",
+  "check_count": 8,
+  "failed_count": 0,
+  "pass": true,
+  "checks": [
+    {
+      "check": "readme_port_guidance",
+      "pass": true,
+      "problem_count": 0,
+      "problems": [],
+      "note": "code_default_port=8000 dev_ui_port=5173"
+    },
+    {
+      "check": "port_roles_documented",
+      "pass": true,
+      "problem_count": 0,
+      "problems": []
+    },
+    {
+      "check": "single_status_owner_links",
+      "pass": true,
+      "problem_count": 0,
+      "problems": []
+    },
+    {
+      "check": "gate_count_scope",
+      "pass": true,
+      "problem_count": 0,
+      "problems": []
+    },
+    {
+      "check": "human_axis_not_only",
+      "pass": true,
+      "problem_count": 0,
+      "problems": [],
+      "note": "열린 카드 11개(작업 트리 docs/19 기준): NX-00-F01, NX-02-F01, NX-06, NX-08, NX-09, NX-10, NX-11, NX-12, NX-13, NX-14, NX-15"
+    },
+    {
+      "check": "open_axes_documented",
+      "pass": true,
+      "problem_count": 0,
+      "problems": []
+    },
+    {
+      "check": "support_matrix_levels",
+      "pass": true,
+      "problem_count": 0,
+      "problems": []
+    },
+    {
+      "check": "soak_phase_separation",
+      "pass": true,
+      "problem_count": 0,
+      "problems": []
+    }
+  ]
+}

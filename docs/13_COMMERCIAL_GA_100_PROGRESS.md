@@ -13,6 +13,8 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 # Ssak-Ai 상용화 준비도 100% 진행 기록
 
+> **이 문서는 이력이다.** 진행률은 구현 이력이며 GA 승인·출시 판정이 아니다. 현재 상태의 단일 소유자는 [현재 상태 요약](20_CURRENT_STATUS.md)(2026-09-16)이다.
+
 ## 현재 상태
 
 | 항목 | 값 |
@@ -65,7 +67,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 - **실전 코딩 평가 스위트 이식 (Track 2)**:
   - `tests/evals/real_coding/` 하위에 `unified_tasks.py`, `hard_composite_tasks.py`, `stability_eval.py` 이식 완료.
   - `test_real_coding_harness.py`를 추가하여 모의 생성기를 통해 CI에서도 네트워크/모델 의존성 없이 100% 검증 가능한 회귀 테스트 구축.
-  - `tests/test_ssak_search_client.py`, `tests/test_unified_agent.py`, `tests/test_agent_ask_api.py`, `tests/evals/real_coding/` 전수 23/23 tests 통과 (1.76초).
+  - `tests/test_ssak_search_client.py`, `tests/test_unified_agent.py`, `tests/test_agent_ask_api.py`, `tests/evals/real_coding/` 전수 통과(23건 · 1.76초). 이 23건은 CR-14 required 게이트 인벤토리와 다른 뜻이고 판정 근거가 아니다.
 - **GA 릴리즈 패키징 및 정적 검증 (Track 3)**:
   - `tests/test_rel*.py`, `tests/test_release*.py`: 77/77 tests passed.
   - `pnpm --dir dashboard build`: Vite 프로덕션 빌드 1.52초 완료 (`dashboard_dist`).

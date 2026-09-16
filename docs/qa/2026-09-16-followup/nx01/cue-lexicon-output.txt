@@ -1,0 +1,71 @@
+=== 1~3. 메시지 → kind 판정 (합성 코퍼스) ===
+  [X] A_direct           expected=approval actual=requirement — '배포 전에 반드시 나에게 물어봐'
+  [X] B_paraphrase       expected=prohibition actual=None — '네트워크는 꺼 두고 작업해줘'
+      note: 금지/차단 계열 cue 없음
+  [X] B_paraphrase       expected=prohibition actual=None — '외부로는 나가지 않게 해줘'
+      note: '않게' 는 cue 가 아니다
+  [X] B_paraphrase       expected=prohibition actual=None — '그 파일은 건드리지 않는 게 좋겠어'
+      note: '건드리지' 미등록
+  [X] B_paraphrase       expected=prohibition actual=None — '이번엔 로컬에서만 돌려줘'
+      note: '로컬에서만' 미등록
+  [X] B_paraphrase       expected=prohibition actual=None — 'Avoid touching production'
+      note: 'avoid' 미등록
+  [X] B_paraphrase       expected=prohibition actual=None — 'Please hold off on the migration'
+      note: 'hold off' 미등록
+  [X] B_paraphrase       expected=approval actual=None — '그건 실행하기 전에 나한테 알려줘'
+      note: '알려줘' 는 approval cue 아님
+  [X] B_paraphrase       expected=approval actual=None — '내가 오케이 할 때까지 기다려'
+      note: '오케이' 미등록
+  [X] B_paraphrase       expected=approval actual=None — 'Let me decide that one'
+      note: 'let me' 미등록
+  [X] B_paraphrase       expected=requirement actual=None — '이 부분은 그대로 두는 게 좋아'
+      note: '그대로' 미등록
+  [X] B_paraphrase       expected=requirement actual=None — '그 값은 바뀌면 안 돼'
+      note: '바뀌면 안 돼' — 금지 cue 도 아님
+  [X] B_paraphrase       expected=requirement actual=None — 'We should stick with the current layout'
+      note: 'stick with' 미등록
+  [X] C_false_positive   expected=None actual=prohibition — '이 버그 재현되면 blocking 인지 봐줘'
+      note: 'block' 부분일치
+  [X] C_false_positive   expected=None actual=prohibition — '오프라인 미팅 얘기가 있었어'
+      note: '오프라인' 부분일치
+  [X] C_false_positive   expected=None actual=requirement — 'keep going, 결과만 보여줘'
+      note: 'keep' 부분일치
+  [X] C_false_positive   expected=None actual=requirement — '그 라이브러리는 only 테스트에서 써'
+      note: 'only' — 지시는 아님
+  [X] C_false_positive   expected=None actual=prohibition — '제한적인 상황이라고 생각해'
+      note: '제한' 부분일치
+  [X] C_false_positive   expected=None actual=requirement — 'mustard 색으로 바꿔줘'
+      note: 'must' 부분일치
+  A_direct           9/10
+  B_paraphrase       0/12
+  C_false_positive   1/7
+  전체              10/29
+
+=== 4~5. supersede 판정 ===
+  [O] supersede=True cue='더 이상' — '이제부터 네트워크 써도 돼, 더 이상 금지 아님' (명시적 해제)
+  [O] supersede=True cue='취소' — '그 규칙 취소할게' (취소)
+  [O] supersede=True cue='no longer' — 'You can change the schema now, no longer required' (영문 해제)
+  [X] supersede=True expected=False cue='변경' — '이 파일 좀 변경해줘' ('변경' 이 편집 요청)
+  [X] supersede=True expected=False cue='대신' — '그거 대신 이걸로 해줘' ('대신' 이 치환 요청)
+  [O] supersede=False cue=None — '이번엔 다른 방법으로 해보자' ('다른 방법' — supersede 아님)
+  [O] supersede=False cue=None — '새 스크립트 하나 만들어줘' (대조군: supersede 없음)
+  5/7
+
+=== 6. 실제 경로(update_from_messages)에서의 피해 여부 ===
+  [O] 명시적 해제(정상 동작): status=superseded (기대 superseded) kind=prohibition
+      진짜 해제 → superseded 가 맞다(양성 대조군)
+  [O] 다른 주제의 편집 요청: status=active (기대 active) kind=prohibition
+      토큰 교집합이 없어 기대대로 유지된다
+  [O] 같은 파일 + '변경': status=active (기대 active) kind=prohibition
+      한국어 조사 때문에 토큰이 안 겹쳐 supersede 가 안 걸릴 수 있다(측정 대상)
+  [X] 승인 규칙 표현이 사전 밖: status=absent (기대 active) kind=None
+      승인 규칙으로 구조화돼야 하는데, '확인해줘' 가 approval cue 가 아니라 사라졌는지
+  [X] 영문 'instead' + 토큰 교집합: status=superseded (기대 active) kind=requirement
+      'instead' 는 supersede cue 이고 'deploy' 가 겹친다 — 편집 요청이 상시 규칙을 내리는가
+  [X] 평범한 요청의 제약 승격: status=active (기대 absent) kind=requirement
+      제약이 아니어야 한다(승격되면 프롬프트 오염)
+  3/6
+
+=== 요약 ===
+  감지 실패(blind spot) 13건 · 잘못 감지(false positive) 6건 · supersede 오류 2건 · 경로 피해 의심 3건 ['승인 규칙 표현이 사전 밖(기대 active, 실제 absent)', "영문 'instead' + 토큰 교집합(기대 active, 실제 superseded)", '평범한 요청의 제약 승격(기대 absent, 실제 active)']
+  ※ 이 코퍼스는 **합성**이라 실사용 회수율이 아니다(설계: nx01/cue-lexicon-measurement.md).

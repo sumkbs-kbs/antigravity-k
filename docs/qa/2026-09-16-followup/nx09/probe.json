@@ -1,0 +1,148 @@
+{
+  "login": "ok",
+  "modelSelectCount": 0,
+  "chatInputCount": 1,
+  "chatBodySnippet": "SSAK-AI / RESEARCH GROUP\n[chat]\n[studio]\n[models]\n[git]\n[skills]\n[history]\nSYS · 04:06:38Z\nBUILD:\nv0.1.0\nUPTIME:\n0M 03S\nNODE:\nPID-67376 · NOMINAL\nCPU:\n17.6%\nMEM:\n80.5%\nVAULT:\n0 INDEXED\nLINK:\nLIVE · 1s ago\nSsak-Ai\n// V0.8.0\n∨\n🔍\n🔔\n📝\n// 01 · 새 채팅\nAI 채팅\n+\n🔀\n// 02 · 풀 리퀘스트\nGit\n⏱️\n// 03 · 예약 / 실행\n🧩\n// 04 · 플러그인\n⋯\n// 05 · 탐색 / 스킬\n// PROJECTS\n+\n📁\nnx09-probe\n⎇ codex/m1-task-events\n●68\n/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/agk-nx09-probe-vxN9J2\n// ACTIVE (0)\n+ NEW\n// no active tasks\n// RECENTS\n// no recent threads\nMK\nmr.k // OPERATOR\nılı\nVOICE\n[?]\nSsak-Ai Dashboard\nnx09-probe\n/\nNew Conv",
+  "modelRows": [
+    "fake-model-aollamareasoning",
+    "Qwen3.8-27B-UD-Q8_K_XLunsloth27Breasoning현재 선택",
+    "Qwen3.8-Flash-Next-GGUF-UD-IQ4_XSUNSLOTH87.25 GBUD-IQ4_XSreasoning",
+    "orpheus-3b-0.1-ft-UD-Q4_K_XLUNSLOTH1.99 GBUD-Q4_K_XLaudio",
+    "minimax_h3_fl2va_pruned-Q8_0UNSLOTH19.97 GBQ8_0reasoning",
+    "qwen3vl_32b_minimax_h3-Q4_K_MUNSLOTH16.97 GBQ4_K_Mreasoning",
+    "Qwen3-ASR-0.6B-Q8_0UNSLOTH0.75 GBQ8_0audio",
+    "Qwen3.8-27BUNSLOTH3.7 GBreasoning",
+    "bge-small-en-v1.5-f16UNSLOTH0.06 GBembedding",
+    "Llama-3.2-1B-Instruct-4bitmlx0.66 GB4bitreasoning",
+    "KoSimCSE-roberta-multitaskhuggingface0.41 GBreasoning",
+    "distiluse-base-multilingual-cased-v1huggingface0.51 GBreasoning",
+    "paraphrase-multilingual-MiniLM-L12-v2huggingface0.45 GBreasoning",
+    "Qwen3-30B-A3B-4bitmlx16.01 GB4bitreasoning",
+    "all-MiniLM-L6-v2huggingface0.09 GBreasoning",
+    "Qwen2.5-0.5B-4bitmlx0.27 GB4bitreasoning",
+    "OpenAI GPT-4o (OpenRouter)",
+    "OpenAI GPT-4o-mini (OpenRouter)",
+    "Qwen3 Next 80B (OpenRouter 무료)",
+    "Qwen3 Next 80B (OpenRouter, 기본 선택)",
+    "Nemotron 3 Super 120B (OpenRouter 무료)",
+    "Nemotron 3 Ultra 550B (OpenRouter 무료)",
+    "Gemma 4 26B (OpenRouter 무료, 빠름)",
+    "Nemotron 3 Nano Omni 30B (OpenRouter 무료, 추론)"
+  ],
+  "modelPicked": "fake-model-a",
+  "modelLabelAfterPick": "fake-model-a",
+  "sendBtnVisible": true,
+  "userBubbles": [
+    "NX-09 탐침 메시지"
+  ],
+  "assistantBubbles": [
+    "✦Ssak-Ai🛡️ [정밀 엔지니어링 모드]\n🏢\n⚠️ 응답 없음\n🔁 [Quality Revision] 피드백을 반영해 응답을 다시 생성했습니다.\nPROBE-응답-본문\n📊 Tokens Used: In: 8 | Out: 7📋 복사"
+  ],
+  "assistantCount": 1,
+  "bodyTail": "3.2%\nMEM:\n81.1%\nVAULT:\n0 INDEXED\nLINK:\nLIVE · 3s ago\nSsak-Ai\n// V0.8.0\n∨\n🔍\n🔔\n📝\n// 01 · 새 채팅\nAI 채팅\n+\n🔀\n// 02 · 풀 리퀘스트\nGit\n⏱️\n// 03 · 예약 / 실행\n🧩\n// 04 · 플러그인\n⋯\n// 05 · 탐색 / 스킬\n// PROJECTS\n+\n📁\nnx09-probe\n⎇ codex/m1-task-events\n●68\n/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/agk-nx09-probe-vxN9J2\n// ACTIVE (0)\n+ NEW\n// no active tasks\n// RECENTS\n// no recent threads\nMK\nmr.k // OPERATOR\nılı\nVOICE\n[?]\nSsak-Ai Dashboard\nnx09-probe\n/\nNew Conversation\n✎\n⌗\n⌘\n🕓\n◫\n□\nNX-09 탐침 메시지\n🤖\n✦\nSsak-Ai\n\n🛡️ [정밀 엔지니어링 모드]\n\n🏢\n⚠️ 응답 없음\n\n🔁 [Quality Revision] 피드백을 반영해 응답을 다시 생성했습니다.\n\nPROBE-응답-본문\n\n📊\nTokens Used: In: 8 | Out: 7\n📋 복사\n📁\nnx09-probe\n🖥️\n로컬\n⑂\nmain\n+\n🛡️!\n전체 액세스\n⌄\n🌐\nSearch\n‹/›\nCode\n⊞\nMCP\n⌄\nfake-model-a\n⌄\n🎙️\nılı\n환경\n코드\n변경\n✕\n◇\n에이전트 상태\n대기 중\n0초\n경과\n0\n도구 호출\n0\n파일 수정\n0\n파일 읽기\n⚡\n실시간 활동\n0개\n⌄\n아직 활동이 없습니다.\n📊\n토큰 사용량\n입력 (Prompt)\n3\n출력 (Completion)\n38\n총 사용량\n41\n📝\n파일 변경 추적\n변경된 파일이 없습니다.\n⚠\n에러 / 경고\n⌄\n✓ 에러 없음",
+  "providerHits": [
+    {
+      "method": "GET",
+      "path": "/api/tags",
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/tags",
+      "body": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/show",
+      "body": "{\"name\": \"fake-model-a\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/show",
+      "body": "{\"name\": \"fake-model-a\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tags",
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/tags",
+      "body": ""
+    },
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "body": "{\"model\": \"fake-model-a\", \"stream\": false, \"temperature\": 0.0, \"max_tokens\": 10, \"repeat_penalty\": 1.3, \"options\": {\"min_p\": 0.05}, \"messages\": [{\"role\": \"user\", \"content\": \"You are an autonomous intent router. Analyze the user request and categorize it into ONE of these exactly:\\n1. 'TDD' - requires writing new code, fixing bugs, or implementing software features.\\n2. 'SEARCH' - simple web search for information (e.g. stock price, weather, news).\\n3. 'GENERAL' - simple question, explanation, general chat.\\n\\nReply EXACTLY with the category name.\\n\\nUser Request: NX-09 \\ud0d0\\uce68 \\uba54\\uc2dc\\uc9c0\"}]}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat",
+      "body": "{\"model\": \"fake-model-a\", \"stream\": true, \"keep_alive\": \"30m\", \"think\": false, \"options\": {\"num_ctx\": 8000, \"num_predict\": 2048, \"temperature\": 0.5, \"repeat_penalty\": 1.3, \"min_p\": 0.05}, \"messages\": [{\"role\": \"user\", \"content\": \"You are the CEO/Orchestrator of Ssak-Ai. Analyze the user's request and determine the best task_type among: [simple_chat, coding, autonomous_coding, reasoning, review, design, complex, debate]. Based on the task_type, return ONLY a JSON object (no markdown, no explanation) with these fields:\\n\\n1) For single-step tasks (simple_chat, coding, autonomous_coding, reasoning, review, design):\\n{\\\"task_type\\\": \\\"<type>\\\", \\\"delegate_to\\\": \\\"<ROLE>\\\", \\\"confidence\\\": \\\"high|medium|low\\\", \\\"reasoning\\\":\\\"...\\\", \\\"refined_prompt\\\": \\\"...\\\"}\\nRoles: ANTIGRAVITY_AGENT(autonomous_coding), WORKER(coding), ENG_MANAGER(reasoning), QA(review),DESIGNER(design), SELF(simple_chat)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat",
+      "body": "{\"model\": \"fake-model-a\", \"stream\": true, \"keep_alive\": \"30m\", \"think\": false, \"options\": {\"num_ctx\": 8000, \"num_predict\": 4096, \"temperature\": 0.5, \"repeat_penalty\": 1.3, \"min_p\": 0.05}, \"messages\": [{\"role\": \"user\", \"content\": \"System: \\ub2f9\\uc2e0\\uc740 Ssak-Ai \\uc2dc\\uc2a4\\ud15c\\uc758 \\ud575\\uc2ec \\uc778\\uacf5\\uc9c0\\ub2a5 \\ud30c\\ud2b8\\ub108\\uc785\\ub2c8\\ub2e4.\\n\\ub2f9\\uc2e0\\uc758 \\ubaa9\\ud45c\\ub294 \\uc0ac\\uc6a9\\uc790\\uc758 \\uc758\\ub3c4\\ub97c \\uc815\\ud655\\ud788 \\ud30c\\uc545\\ud558\\uace0, \\ud544\\uc694\\ud55c \\uacbd\\uc6b0 \\ub3c4\\uad6c\\ub97c \\uc801\\uadf9\\uc801\\uc73c\\ub85c \\uc0ac\\uc6a9\\ud558\\uc5ec\\ucd5c\\uc801\\uc758 \\uacb0\\uacfc\\ub97c \\uc81c\\uacf5\\ud558\\ub294 \\uac83\\uc785\\ub2c8\\ub2e4.\\n\\uc0ac\\uc6a9\\uc790\\uac00 \\ub0a0\\uc528, \\ub274\\uc2a4, \\ucd5c\\uc2e0 \\uc815\\ubcf4 \\ub4f1 \\uc2e4\\uc2dc\\uac04 \\ub370\\uc774\\ud130\\uac00 \\ud544\\uc694\\ud55c \\uc9c8\\ubb38\\uc744 \\ud558\\uac70\\ub098,\\ub2f9\\uc2e0\\uc774 100%"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "body": "{\"model\": \"fake-model-a\", \"stream\": false, \"temperature\": 0.2, \"max_tokens\": 4096, \"repeat_penalty\": 1.3, \"options\": {\"min_p\": 0.05}, \"messages\": [{\"role\": \"user\", \"content\": \"[QUALITY REVISION]\\n\\uc6d0\\ub798 \\uc0ac\\uc6a9\\uc790 \\uc694\\uccad\\uc5d0 \\ub2f5\\ud55c \\uc544\\ub798 \\uc751\\ub2f5\\uc744 \\ud488\\uc9c8 \\uac8c\\uc774\\ud2b8 \\ud53c\\ub4dc\\ubc31\\uc5d0 \\ub530\\ub77c \\ub2e4\\uc2dc \\uc791\\uc131\\ud558\\uc138\\uc694.\\n\\ub204\\ub77d\\ub41c \\uc694\\uad6c\\uc0ac\\ud56d\\uc744 \\ubcf4\\uc644\\ud558\\uace0, \\uc790\\uc5f0\\uc2a4\\ub7ec\\uc6b4 \\ud55c\\uad6d\\uc5b4\\uc640 \\uba85\\ud655\\ud55c \\uad6c\\uc870\\ub97c \\uc0ac\\uc6a9\\ud558\\uc138\\uc694.\\n\\ub0b4\\ubd80 \\ucd94\\ub860\\uc774\\ub098 \\ud488\\uc9c8 \\uac8c\\uc774\\ud2b8 \\ubb38\\uad6c\\ub294 \\ucd9c\\ub825\\ud558\\uc9c0 \\ub9d0\\uace0 \\ucd5c\\uc885 \\ub2f5\\ubcc0\\ub9cc \\uc791\\uc131\\ud558\\uc138\\uc694.\\n\\n\\n[\\uc0ac\\uc6a9\\uc790 \\uc694\\uccad]\\nNX-09 \\ud0d0\\uce68 \\uba54\\uc2dc\\uc9c0\\n\\n[\\uae30\\uc874 \\uc"
+    }
+  ],
+  "tokenPresent": true,
+  "trafficTail": [
+    "→ GET /assets/CommandPalette-BgN6Zerr.js ",
+    "→ GET /assets/FolderBrowser-DNq0qCcU.js ",
+    "→ GET /api/session/disclosure ",
+    "→ GET /v1/health ",
+    "← 200 /api/session/disclosure",
+    "← 200 /v1/health",
+    "→ GET /api/system/status ",
+    "→ GET /api/git/status?path=. ",
+    "→ GET /api/projects ",
+    "→ GET /api/models/local ",
+    "→ GET /v1/models ",
+    "→ GET /api/projects ",
+    "→ GET /api/workspace/context ",
+    "→ GET /api/system/access-mode ",
+    "→ GET /api/mcp/servers ",
+    "→ POST /api/auth/ws-ticket ",
+    "← 200 /api/git/status?path=.",
+    "← 200 /api/projects",
+    "← 200 /v1/models",
+    "← 200 /api/system/access-mode",
+    "← 200 /api/mcp/servers",
+    "← 200 /api/projects",
+    "← 200 /api/auth/ws-ticket",
+    "← 200 /api/workspace/context",
+    "← 200 /api/models/local",
+    "← 200 /api/system/status",
+    "→ POST /api/models/load {\"model\":\"fake-model-a\"}",
+    "← 200 /api/models/load",
+    "→ GET /api/models/local ",
+    "← 200 /api/models/local",
+    "→ POST /v1/chat/completions {\"model\":\"fake-model-a\",\"messages\":[{\"role\":\"user\",\"content\":\"NX-09 탐침 메시지\"}],\"new_turn\":{\"role\":\"user\",\"content\":\"NX-09 탐침 메시지\"},\"conversation_revision\":0,\"use_conversation_store\":true,\"stream\":true,\"agent_mode\":true,\"plan_mode\":false,\"tdd_mode\":false,\"web_search\":false,\"code_mode\":false,\"mcp_servers\":[\"codebase-memory-mcp\"],\"project_id\":\"default\"}",
+    "← 200 /v1/chat/completions",
+    "→ GET /v1/health ",
+    "← 200 /v1/health",
+    "→ GET /api/system/status ",
+    "← 200 /api/system/status",
+    "→ GET /v1/health ",
+    "← 200 /v1/health",
+    "→ GET /api/system/status ",
+    "← 200 /api/system/status"
+  ],
+  "bodies": [
+    "200 /api/auth/login :: {\"access_token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyIiwiaWF0IjoxNzg5NTMxNTk1LCJleHAiOjE3ODk1MzUxOTUsImlzcyI6ImFudGlncmF2aXR5LWsiLCJlcG9jaCI6MX0.u8YncK2-eKbRGO45_l6TesYMTEQTF-Og9roozEX7ia0\",\"token_type\":\"bearer\",\"expires_in\":3600}",
+    "200 /v1/models :: {\"object\":\"list\",\"data\":[{\"id\":\"qwen3.8\",\"object\":\"model\",\"created\":1789531596,\"owned_by\":\"system\",\"role\":\"reasoning\",\"description\":\"Qwen3.8 27B (Ollama / Local, 고성능 단일 메인 모델)\",\"provider_capability\":{\"model\":\"qwen3.8\",\"provider\":\"ollama\",\"is_local\":true,\"native_tool_calling\":\"supported\",\"runtime_status\":\"available\",\"source\":\"ollama:/api/show\",\"detail\":\"Ollama model metadata reported its capability list.\",\"reported_capabilities\":[\"completion\",\"vision\",\"tools\",\"thinking\"],\"reported_model_count\":0,",
+    "200 /api/models/local :: {\"ok\":true,\"total\":16,\"recommended_default\":\"Qwen3.8-27B-UD-Q8_K_XL\",\"models\":[{\"id\":\"fake-model-a\",\"name\":\"fake-model-a\",\"provider\":\"ollama\",\"role\":\"reasoning\",\"description\":\"fake-model-a (ollama / running)\",\"parameter_count_b\":0.0,\"is_local\":true,\"context_length\":0,\"quantization\":\"\",\"status\":\"running\",\"disk_path\":\"\",\"disk_size_gb\":0.0,\"source\":\"ollama\",\"tier\":\"unknown\"},{\"id\":\"Qwen3.8-Flash-Next-GGUF-UD-IQ4_XS\",\"name\":\"Qwen3.8-Flash-Next-GGUF-UD-IQ4_XS\",\"provider\":\"unsloth\",\"role\":\"reasoning\",",
+    "200 /api/models/local :: {\"ok\":true,\"total\":16,\"recommended_default\":\"Qwen3.8-27B-UD-Q8_K_XL\",\"models\":[{\"id\":\"fake-model-a\",\"name\":\"fake-model-a\",\"provider\":\"ollama\",\"role\":\"reasoning\",\"description\":\"fake-model-a (ollama / running)\",\"parameter_count_b\":0.0,\"is_local\":true,\"context_length\":0,\"quantization\":\"\",\"status\":\"running\",\"disk_path\":\"\",\"disk_size_gb\":0.0,\"source\":\"ollama\",\"tier\":\"unknown\"},{\"id\":\"Qwen3.8-Flash-Next-GGUF-UD-IQ4_XS\",\"name\":\"Qwen3.8-Flash-Next-GGUF-UD-IQ4_XS\",\"provider\":\"unsloth\",\"role\":\"reasoning\",",
+    "200 /v1/chat/completions :: data: {\"id\": \"chatcmpl-stream\", \"object\": \"chat.completion.chunk\", \"model\": \"fake-model-a\", \"choices\": [{\"delta\": {\"content\": \"\\ud83d\\udee1\\ufe0f **[\\uc815\\ubc00 \\uc5d4\\uc9c0\\ub2c8\\uc5b4\\ub9c1 \\ubaa8\\ub4dc]**\\n\\n\"}, \"index\": 0, \"finish_reason\": null}]}\n\ndata: {\"id\": \"chatcmpl-stream\", \"object\": \"chat.completion.chunk\", \"model\": \"fake-model-a\", \"choices\": [{\"delta\": {\"content\": \"\\ud83c\\udfe2 \"}, \"index\": 0, \"finish_reason\": null}]}\n\ndata: {\"id\": \"chatcmpl-stream\", \"object\": \"chat.completion.chunk"
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "collected_at": "2026-09-16T10:27:11Z",
+  "verdict": "FAIL",
+  "judged_run_start": "2026-09-16T08:15:38Z",
+  "runner": {
+    "generated_at": "2026-09-16T08:15:38Z",
+    "soak_seconds": "28800",
+    "report": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json",
+    "workdir": "/tmp/nx10-soak-work-20260916T081538Z",
+    "command": "PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 28800 --workdir /tmp/nx10-soak-work-20260916T081538Z",
+    "start_time": "2026-09-16T08:15:38Z",
+    "start_head": "20d529fc1f17c8ff580eaf0d853dcd1ce92172d5",
+    "start_dirty": "true",
+    "start_fingerprint": "157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce",
+    "exit": "143",
+    "end_time": "2026-09-16T08:19:17Z",
+    "end_head": "20d529fc1f17c8ff580eaf0d853dcd1ce92172d5",
+    "end_dirty": "true",
+    "end_fingerprint": "157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce",
+    "cancel_recorded_at": "2026-09-16T10:26:34Z",
+    "cancel_method": "screen -S nx10soak -X quit (시작 전 대기 중이었고 시작하지 않았다 — 이 예약의 러너 기록은 없다)",
+    "cancel_elapsed_seconds": "4920  # 08:20:00Z 예약 → 09:35:07Z 취소 (대기 82분, 시작 전)",
+    "cancel_reason": "|",
+    "partial_artifacts": "none  # 시작 전 교체 — 이 예약의 리포트는 존재하지 않는다",
+    "retained_workdir": "/tmp/nx10-soak-work-20260916T081538Z",
+    "scheduled_next": "docs/qa/2026-09-16-followup/nx10/soak-schedule.txt (22:00 KST / 13:00Z 시작, 종료 ~06:00 KST)",
+    "previous_expected_fingerprint": "ab980ba5b43b195d8a1d074861b76dc7a52ffe03d5fb75628e673d87a5c3bcd2",
+    "rearmed_by": "docs/qa/2026-09-16-followup/nx10/schedule_nx10_soak.sh (2026-09-16T10:26:34Z, 기대 지문 0f345d0c…, 대기 9,205초)"
+  },
+  "checks": [
+    {
+      "label": "① 지표(all_pass·missing_required)",
+      "ok": false,
+      "detail": "리포트 없음(러너가 종료 시에만 쓴다)"
+    },
+    {
+      "label": "② 실행 exit==0",
+      "ok": false,
+      "detail": "exit=143 (143=SIGTERM: 중단됨)"
+    },
+    {
+      "label": "② 실행 벽시계 ≥ 28800s",
+      "ok": false,
+      "detail": "219s"
+    },
+    {
+      "label": "③ 시작 지문 == 종료 지문",
+      "ok": true,
+      "detail": "157311cf106f6e1d…"
+    },
+    {
+      "label": "③ 기대 지문 == 시작 지문",
+      "ok": true,
+      "detail": "157311cf106f6e1d…"
+    },
+    {
+      "label": "③ 지금 트리 == 시작 지문(측정 후 코드 무변경)",
+      "ok": false,
+      "detail": "달라짐 → 이 green 은 후보의 것이 아니다"
+    }
+  ],
+  "report_file": "soak-28800.json",
+  "report_present": false,
+  "duration_seconds": 219.0,
+  "worktree_fingerprint_now": "0f345d0ccc210f019c398bbfc425b23aae4d9051a2f3b3e230677359670a8194"
+}

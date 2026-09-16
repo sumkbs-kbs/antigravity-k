@@ -68,7 +68,7 @@ README 현재 상태 줄은 CR-12 계약이 `미배정` 문자열을 강제하�
 - **fail-first**: hermetic ambient 에서 hub 카드는 보이나 `실행 중` 배지 부재(orpheus status=`cached`) · chat selector 는 통과.
 - **고침**: `LocalModelDiscovery.apply_hermetic_local_hub_seed` — 플래그 ON 일 때만 orpheus… 를 `running` 으로 올리거나 픽스처 삽입. ambient `HUB_SPEC_FILES` 소유. 생산 경로 불변.
 - **후보**: `bbb308f8172c802419cb49a69970c1691d3c80ad` · 지문 `0b1a156f…` · required **23** 선언 · leftover **0건**.
-- **측정**: required **23/23/0/0** · close 대기(카드 수치 채움) · ambient hub-seed **2 passed** · leftover **0**.
+- **측정**(attempt-039 · 후보 `bbb308f8…` · 지문 `0b1a156f…`): required 게이트 **23/23/0/0** · close 대기(카드 수치 채움) · ambient hub-seed **2 passed** · leftover **0**.
 - **EX-01 주장 금지** — 게이트 커버리지 leftover 폐쇄. **판정 NO-GO 유지**.
 - 값의 자리는 §5 판정 카드.
 

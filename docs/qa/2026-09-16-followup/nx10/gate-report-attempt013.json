@@ -1,0 +1,85 @@
+{
+  "dependency_locks": [
+    {
+      "path": "uv.lock",
+      "sha256": "cd6b8281a7efe3c0c8e24a71f1621e17d9b041d1c3f77e001308da401d1aed23"
+    },
+    {
+      "path": "dashboard/pnpm-lock.yaml",
+      "sha256": "38427bbca3cfbb89da921ffb515b456840b6bb1938c449827215470f7b229a06"
+    },
+    {
+      "path": "dashboard/package-lock.json",
+      "sha256": "662596899ebc407c2699ce2dc3e92b8ddeb13ce6fb9dcd6a2c6aa1dffc976d98"
+    }
+  ],
+  "gates": [
+    {
+      "category": "python_backend",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "--extra",
+        "dev",
+        "--extra",
+        "rag",
+        "--extra",
+        "documents",
+        "pytest",
+        "tests/",
+        "-m",
+        "benchmark",
+        "-v",
+        "--tb=short"
+      ],
+      "cwd": ".",
+      "duration_seconds": 22.044541,
+      "exit_code": 0,
+      "finding_ids": [
+        "CR-14 F-21"
+      ],
+      "finished_at": "2026-09-16T06:25:23.863079+00:00",
+      "id": "python-benchmark",
+      "required": true,
+      "started_at": "2026-09-16T06:25:01.818426+00:00",
+      "status": "passed",
+      "stderr": "Installed 147 packages in 514ms\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.12, pytest-9.1.1, pluggy-1.6.0 -- /Users/mr.k/.cache/uv/builds-v0/.tmpxjhNWr/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai\nconfigfile: pyproject.toml\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.13.0\nasyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollecting ... collected 6596 items / 6580 deselected / 16 selected\n\ntests/test_benchmark_performance.py::test_context_enrich_total_latency PASSED [  6%]\ntests/test_benchmark_performance.py::test_context_enrich_search_latency PASSED [ 12%]\ntests/test_benchmark_performance.py::test_context_enrich_build_tree_latency PASSED [ 18%]\ntests/test_benchmark_performance.py::test_code_review_total_latency PASSED [ 25%]\ntests/test_benchmark_performance.py::test_code_review_git_diff_latency PASSED [ 31%]\ntests/test_benchmark_performance.py::test_code_review_mock_llm_latency PASSED [ 37%]\ntests/test_benchmark_performance.py::test_max_engine_total_latency PASSED [ 43%]\ntests/test_benchmark_performance.py::test_max_engine_worker_config_latency PASSED [ 50%]\ntests/test_benchmark_performance.py::test_max_engine_prompt_building_latency PASSED [ 56%]\ntests/test_benchmark_performance.py::test_max_engine_selector_latency PASSED [ 62%]\ntests/test_benchmark_performance.py::test_max_engine_format_trace_latency PASSED [ 68%]\ntests/test_benchmark_performance.py::test_rag_total_latency PASSED       [ 75%]\ntests/test_benchmark_performance.py::test_rag_chunk_python_latency PASSED [ 81%]\ntests/test_benchmark_performance.py::test_rag_chunk_markdown_latency PASSED [ 87%]\ntests/test_benchmark_performance.py::test_rag_search_semantic_latency PASSED [ 93%]\ntests/test_benchmark_performance.py::test_rag_hybrid_search_latency PASSED [100%]\n\n=============================== warnings summary ===============================\n../../../../.cache/uv/builds-v0/.tmpxjhNWr/lib/python3.13/site-packages/fastapi/testclient.py:1\n  /Users/mr.k/.cache/uv/builds-v0/.tmpxjhNWr/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=============== 16 passed, 6580 deselected, 1 warning in 18.43s ================\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-16T06:25:01.682969+00:00",
+  "git": {
+    "dirty": true,
+    "sha": "20d529fc1f17c8ff580eaf0d853dcd1ce92172d5",
+    "tree_fingerprint": "da54e07b5284f00116901609a7873e2eb206b0a5b7bd9d0f1f607f4e78207cb8",
+    "tree_fingerprint_scope": "code (docs/ and .omo/ excluded)"
+  },
+  "manifest": {
+    "path": "scripts/commercial_ga_gates.json",
+    "sha256": "a40867c743a9df5ba5854548476fcc53913e5364968a01e30e00c3e03b2eadb7"
+  },
+  "merged": false,
+  "output_decoding": {
+    "encoding": "utf-8",
+    "errors": "backslashreplace"
+  },
+  "platform": {
+    "machine": "arm64",
+    "python_implementation": "CPython",
+    "python_version": "3.13.12",
+    "release": "25.6.0",
+    "system": "Darwin"
+  },
+  "schema_version": 1,
+  "summary": {
+    "failed": 0,
+    "passed": 1,
+    "required_failed": 0,
+    "total": 1
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "firstId": "mu3nygzbfsdwbkau",
+  "secondId": "mu3nyhesqxb53joc",
+  "firstBody": "200 {\"snapshot\":{\"conversation_id\":\"mu3nygzbfsdwbkau\",\"project_id\":\"default\",\"revision\":2,\"message_count\":2,\"summary\":null,\"retained_message_ids\":[\"msg_99d047e18cc2\",\"msg_f2fda20b9696\"]},\"messages\":[{\"id\":\"msg_99d047e18cc2\",\"role\":\"user\",\"content\":\"NX-09 T6 첫 대화\",\"created_at\":1789536718.21837,\"provenance\":\"append\"},{\"id\":\"msg_f2fda20b9696\",\"role\":\"assistant\",\"content\":\"🛡️ **[정밀 엔지니어링 모드]**\\n\\n🏢 \\n⚠️ 응답 없음\\n\\n\\n🔁 **[Quality Revision]** 피드백을 반영해 응답을 다시 생성했습니다.\\n\\nNX09-FAKE-PROVIDER-응답\\n\\n📊 **[Token Usage]** In: 6 tokens | Out: 7 tokens\",\"created_at\":1789536718.425827,\"provenance\":\"append\"}],\"token_estimate\":77}",
+  "secondBody": "200 {\"snapshot\":{\"conversation_id\":\"mu3nyhesqxb53joc\",\"project_id\":\"default\",\"revision\":2,\"message_count\":2,\"summary\":null,\"retained_message_ids\":[\"msg_caf851cef746\",\"msg_5c5335935eb8\"]},\"messages\":[{\"id\":\"msg_caf851cef746\",\"role\":\"user\",\"content\":\"NX-09 T6 둘째 대화\",\"created_at\":1789536719.840626,\"provenance\":\"append\"},{\"id\":\"msg_5c5335935eb8\",\"role\":\"assistant\",\"content\":\"🛡️ **[정밀 엔지니어링 모드]**\\n\\n🏢 \\n⚠️ 응답 없음\\n\\n\\n🔁 **[Quality Revision]** 피드백을 반영해 응답을 다시 생성했습니다.\\n\\nNX09-FAKE-PROVIDER-응답\\n\\n📊 **[Token Usage]** In: 7 tokens | Out: 7 tokens\",\"created_at\":1789536720.025547,\"provenance\":\"append\"}],\"token_estimate\":78}",
+  "storeFiles": [
+    "<state>/conversations/v2/37a8eec1ce19687d132fe29051dca629d164e2c4958ba141d5f4133a33f0688f/1c1dc3dad540d6c42c0fffccc28734e00adb43831abb2e9087acb17ded02940b.json",
+    "<state>/conversations/v2/37a8eec1ce19687d132fe29051dca629d164e2c4958ba141d5f4133a33f0688f/1c1dc3dad540d6c42c0fffccc28734e00adb43831abb2e9087acb17ded02940b.jsonl",
+    "<state>/conversations/v2/37a8eec1ce19687d132fe29051dca629d164e2c4958ba141d5f4133a33f0688f/6c4a72aea2b3d2845ce4ed09cc8895e15a5d6d2911fbb56841ef9ae46da49efe.json",
+    "<state>/conversations/v2/37a8eec1ce19687d132fe29051dca629d164e2c4958ba141d5f4133a33f0688f/6c4a72aea2b3d2845ce4ed09cc8895e15a5d6d2911fbb56841ef9ae46da49efe.jsonl"
+  ],
+  "fallbackRecords": 0
+}

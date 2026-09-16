@@ -1,0 +1,259 @@
+{
+  "conversation_id": "soak-conv",
+  "project_id": "soak",
+  "revision": 2979,
+  "messages": [
+    {
+      "id": "msg_summary",
+      "role": "system",
+      "content": "[대화 요약 — 59개 메시지 압축]\n[보존된 사용자 제약 (구조화)]\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n[이전 압축 요약 — 보존]\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이\n[user]: soak turn 2900\n[user]: soak turn 2901\n[user]: soak turn 2902\n[user]: soak turn 2903\n[user]: soak turn 2904\n<!-- agk-summary schema=agk.summary.v1 g=51 c=1 a=1 b=4000 -->",
+      "created_at": 1789543299.36247,
+      "provenance": "summary"
+    },
+    {
+      "id": "msg_01b8b05091d7",
+      "role": "user",
+      "content": "soak turn 2958",
+      "created_at": 1789543299.171278,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_0be8b429e5b3",
+      "role": "user",
+      "content": "soak turn 2959",
+      "created_at": 1789543299.20962,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_f6349b114284",
+      "role": "user",
+      "content": "soak turn 2960",
+      "created_at": 1789543299.247891,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_9da48bfb59a8",
+      "role": "user",
+      "content": "soak turn 2961",
+      "created_at": 1789543299.2860081,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_6007976c782e",
+      "role": "user",
+      "content": "soak turn 2962",
+      "created_at": 1789543299.324231,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_76d7d64dad39",
+      "role": "user",
+      "content": "soak turn 2963",
+      "created_at": 1789543299.362231,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_6f853081b0ed",
+      "role": "user",
+      "content": "soak turn 2964",
+      "created_at": 1789543299.400828,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_f89d0b14e600",
+      "role": "user",
+      "content": "soak turn 2965",
+      "created_at": 1789543299.4391758,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_e60e38599f7f",
+      "role": "user",
+      "content": "soak turn 2966",
+      "created_at": 1789543299.477602,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_7fd0f8412144",
+      "role": "user",
+      "content": "soak turn 2967",
+      "created_at": 1789543299.515718,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_1b4e424a356f",
+      "role": "user",
+      "content": "soak turn 2968",
+      "created_at": 1789543299.553262,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_388e0744bdb5",
+      "role": "user",
+      "content": "soak turn 2969",
+      "created_at": 1789543299.5908911,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_59e038b59fdf",
+      "role": "user",
+      "content": "soak turn 2970",
+      "created_at": 1789543299.628384,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_277daf388ed6",
+      "role": "user",
+      "content": "soak turn 2971",
+      "created_at": 1789543299.665832,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_650ab64b04fd",
+      "role": "user",
+      "content": "soak turn 2972",
+      "created_at": 1789543299.7033112,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_3f676d989dfc",
+      "role": "user",
+      "content": "soak turn 2973",
+      "created_at": 1789543299.7412128,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_105658c0e5f1",
+      "role": "user",
+      "content": "soak turn 2974",
+      "created_at": 1789543299.778833,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_59770f640ca4",
+      "role": "user",
+      "content": "soak turn 2975",
+      "created_at": 1789543299.8168352,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_92e90a636915",
+      "role": "user",
+      "content": "soak turn 2976",
+      "created_at": 1789543299.854329,
+      "provenance": "append"
+    },
+    {
+      "id": "msg_038965d9f17c",
+      "role": "user",
+      "content": "soak turn 2977",
+      "created_at": 1789543299.8919182,
+      "provenance": "append"
+    }
+  ],
+  "summary": "[대화 요약 — 59개 메시지 압축]\n[보존된 사용자 제약 (구조화)]\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n[이전 압축 요약 — 보존]\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이\n[user]: soak turn 2900\n[user]: soak turn 2901\n[user]: soak turn 2902\n[user]: soak turn 2903\n[user]: soak turn 2904\n<!-- agk-summary schema=agk.summary.v1 g=51 c=1 a=1 b=4000 -->",
+  "retained_message_ids": [
+    "msg_summary",
+    "msg_01b8b05091d7",
+    "msg_0be8b429e5b3",
+    "msg_f6349b114284",
+    "msg_9da48bfb59a8",
+    "msg_6007976c782e",
+    "msg_76d7d64dad39",
+    "msg_6f853081b0ed",
+    "msg_f89d0b14e600",
+    "msg_e60e38599f7f",
+    "msg_7fd0f8412144",
+    "msg_1b4e424a356f",
+    "msg_388e0744bdb5",
+    "msg_59e038b59fdf",
+    "msg_277daf388ed6",
+    "msg_650ab64b04fd",
+    "msg_3f676d989dfc",
+    "msg_105658c0e5f1",
+    "msg_59770f640ca4",
+    "msg_92e90a636915",
+    "msg_038965d9f17c"
+  ],
+  "forked_from": null,
+  "created_at": 1789543239.887617,
+  "updated_at": 1789543299.891924,
+  "memory": {
+    "schema": "agk.summary.v1",
+    "generation": 51,
+    "constraints": [
+      {
+        "id": "c_eac84c5c68",
+        "kind": "prohibition",
+        "text": "승인 없이 도구를 실행하지 마",
+        "status": "active",
+        "source_message_id": "msg_a12b6b625628",
+        "source_revision": 65,
+        "superseded_by": null,
+        "superseded_reason": null
+      }
+    ],
+    "summarized_ranges": [
+      {
+        "generation": 44,
+        "revision": 2559,
+        "message_count": 59,
+        "first_message_id": "msg_summary",
+        "last_message_id": "msg_bf51caa70d1e"
+      },
+      {
+        "generation": 45,
+        "revision": 2617,
+        "message_count": 59,
+        "first_message_id": "msg_summary",
+        "last_message_id": "msg_d052bd2da2cb"
+      },
+      {
+        "generation": 46,
+        "revision": 2675,
+        "message_count": 59,
+        "first_message_id": "msg_summary",
+        "last_message_id": "msg_fb3fbfd4a184"
+      },
+      {
+        "generation": 47,
+        "revision": 2733,
+        "message_count": 59,
+        "first_message_id": "msg_summary",
+        "last_message_id": "msg_c47aee85b606"
+      },
+      {
+        "generation": 48,
+        "revision": 2791,
+        "message_count": 59,
+        "first_message_id": "msg_summary",
+        "last_message_id": "msg_4b6b7ed8a8ef"
+      },
+      {
+        "generation": 49,
+        "revision": 2849,
+        "message_count": 59,
+        "first_message_id": "msg_summary",
+        "last_message_id": "msg_32aa1ea2138a"
+      },
+      {
+        "generation": 50,
+        "revision": 2907,
+        "message_count": 59,
+        "first_message_id": "msg_summary",
+        "last_message_id": "msg_d0e2151f33d9"
+      },
+      {
+        "generation": 51,
+        "revision": 2965,
+        "message_count": 59,
+        "first_message_id": "msg_summary",
+        "last_message_id": "msg_5b492f171d57"
+      }
+    ],
+    "carried_summary": "- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이 도구를 실행하지 마\n- (c_eac84c5c68) 금지: 승인 없이"
+  },
+  "journal_seq": 2979,
+  "history_incomplete": false,
+  "view_schema": "agk.conv-view.v1"
+}

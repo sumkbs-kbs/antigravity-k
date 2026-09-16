@@ -1,0 +1,91 @@
+{
+  "check": "nx07_doc_consistency",
+  "label": "before",
+  "root": "/private/tmp/nx07-before",
+  "check_count": 8,
+  "failed_count": 8,
+  "pass": false,
+  "checks": [
+    {
+      "check": "readme_port_guidance",
+      "pass": false,
+      "problem_count": 4,
+      "problems": [
+        "README 의 `agk serve --port` 예시가 코드 기본값과 다르다: [8400] vs 8000",
+        "README 의 API 문서 주소가 서버 포트를 가리키지 않는다: [8400] vs 8000",
+        "README 의 `AGK_SERVER_PORT` 기본값이 코드와 다르다: [8400] vs 8000",
+        "README 가 레거시 8400 을 다시 들여왔다(Vite 프록시와 어긋나는 값이다)"
+      ],
+      "note": "code_default_port=8000 dev_ui_port=5173"
+    },
+    {
+      "check": "port_roles_documented",
+      "pass": false,
+      "problem_count": 1,
+      "problems": [
+        "docs/20_CURRENT_STATUS.md 없음"
+      ]
+    },
+    {
+      "check": "single_status_owner_links",
+      "pass": false,
+      "problem_count": 11,
+      "problems": [
+        "README.md 가 현재 상태 소유자를 링크로 가리키지 않는다",
+        "docs/10_FINAL_READINESS_REPORT.md 가 현재 상태 소유자를 링크로 가리키지 않는다",
+        "docs/11_COMMERCIAL_GA_100_PLAN.md 가 현재 상태 소유자를 링크로 가리키지 않는다",
+        "docs/12_COMMERCIAL_GA_100_CHECKLIST.md 가 현재 상태 소유자를 링크로 가리키지 않는다",
+        "docs/13_COMMERCIAL_GA_100_PROGRESS.md 가 현재 상태 소유자를 링크로 가리키지 않는다",
+        "docs/14_FINAL_REVIEW_REMEDIATION_PLAN.md 가 현재 상태 소유자를 링크로 가리키지 않는다",
+        "docs/15_FINAL_REVIEW_REMEDIATION_CHECKLIST.md 가 현재 상태 소유자를 링크로 가리키지 않는다",
+        "docs/16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md 가 현재 상태 소유자를 링크로 가리키지 않는다"
+      ]
+    },
+    {
+      "check": "gate_count_scope",
+      "pass": false,
+      "problem_count": 3,
+      "problems": [
+        "docs/08_CHANGELOG.md:119 — 후보/지문/범위 표기 없는 23/23",
+        "docs/13_COMMERCIAL_GA_100_PROGRESS.md:68 — 후보/지문/범위 표기 없는 23/23",
+        "docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md:71 — 후보/지문/범위 표기 없는 23/23"
+      ]
+    },
+    {
+      "check": "human_axis_not_only",
+      "pass": false,
+      "problem_count": 2,
+      "problems": [
+        "README 가 기술 축 전체를 닫힌 것으로 주장한다(범위 한정 없음)",
+        "README 의 사람 축 주장이 범위 한정·현재 상태 링크 없이 서 있다 (열린 카드 12개)"
+      ],
+      "note": "열린 카드 12개(작업 트리 docs/19 기준): NX-00-F01, NX-02-F01, NX-06, NX-07, NX-08, NX-09, NX-10, NX-11, NX-12, NX-13, NX-14, NX-15"
+    },
+    {
+      "check": "open_axes_documented",
+      "pass": false,
+      "problem_count": 1,
+      "problems": [
+        "docs/20_CURRENT_STATUS.md 없음"
+      ]
+    },
+    {
+      "check": "support_matrix_levels",
+      "pass": false,
+      "problem_count": 3,
+      "problems": [
+        "지원표에 정의되지 않은 분류 단계: **Not evaluated**",
+        "지원표가 DMG 산출물 행을 들고 있지 않다",
+        "지원표가 여전히 '패키징 산출물 없음'이라는 낡은 근거를 들고 있다"
+      ]
+    },
+    {
+      "check": "soak_phase_separation",
+      "pass": false,
+      "problem_count": 1,
+      "problems": [
+        "docs/20_CURRENT_STATUS.md 없음"
+      ]
+    }
+  ]
+}

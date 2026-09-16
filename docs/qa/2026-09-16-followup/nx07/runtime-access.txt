@@ -1,0 +1,29 @@
+=== README 가 안내하는 접속을 그대로 따라간 관측 (2026-09-16) ===
+전제: 8000은 이미 실행 중인 인스턴스(PID 27606/34194)가 점유 — 새로 띄우지 않았고 종료하지도 않았다(읽기 전용).
+
+--- curl -fsS http://127.0.0.1:8000/health
+http=200
+{"status":"ok","version":"0.1.0","build":{"version":"0.1.0","build_id":null,"built_at":null,"channel":null},"backends":[],"rag_index_files":0,"cov_active":false}
+
+--- curl -fsS http://127.0.0.1:8000/api/ready
+http=200
+status= degraded traffic= accept
+   task_db required None task_db ok
+   registry required None registry ok
+   writable_storage required None writable: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+   model_manager optional None models: none loaded
+
+--- curl -fsS http://127.0.0.1:8000/openapi.json
+http=200 bytes=219728
+title= Ssak-Ai API version= 0.1.0 paths= 227
+
+--- curl http://127.0.0.1:8000/ (대시보드 화면)
+http=200 bytes=2313
+<title>Ssak-Ai — Cold-blooded engineering</title>
+assets/index-wDeQZjxb.js
+assets/vendor-CpNyzM52.js
+assets/query-aIZIJ48L.js
+
+--- Swagger UI 경로 (README 안내)
+docs http=200
+redoc http=200

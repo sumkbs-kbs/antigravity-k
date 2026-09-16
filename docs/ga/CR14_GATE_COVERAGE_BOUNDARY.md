@@ -447,7 +447,8 @@ NO_PIN 누락 · 공유 `vault_data/hooks` 침묵 · hermetic Origin 이 `ws_ori
 - ~~C33-6 PIN-mode ticket 스트림 witness~~ (**attempt-040 CLOSED** — `cr14-pin-ws-ticket.spec.ts`)
 - D-71 상대경로 상태 기본값 마이그레이션(명시적 비범위)
 
-인벤토리는 **22 → 23**. `23/23` 은 "게이트에 넣은 것을 다 돌렸다"이지 "모든 브라우저 경로가
+인벤토리는 **22 → 23**. `23/23`(required 게이트 인벤토리 — 후보 귀속은 attempt 별 기록이 소유한다)은
+"게이트에 넣은 것을 다 돌렸다"이지 "모든 브라우저 경로가
 검증됐다"가 아니다(§2-9 의 F-47 이 그 경계를 소유한다 — leftover 처분은 §2-10).
 
 

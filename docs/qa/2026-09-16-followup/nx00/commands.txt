@@ -1,0 +1,35 @@
+# NX-00 실행 명령 · cwd · exit code (2026-09-16, macOS arm64 / .venv python 3.13.12)
+# cwd = 저장소 루트 (명시한 경우 제외)
+
+1) git rev-parse HEAD && git status --short
+   exit 0 — HEAD ffb0ebb312b76d86742d3e4065628a9704f8268e
+   dirty: " m vault_data", "?? data/auth_hash.bak.pre-0000", "?? docs/18_…", "?? docs/19_…", "?? docs/qa/2026-09-16-followup/"
+   (vault_data / auth 백업은 이 카드 범위 아님, 내용 미열람)
+
+2) cd .omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak && shasum -a 256 <artifact files>
+   exit 0 — 원본 해시는 docs/qa/2026-09-16-followup/nx00/artifact-hashes.txt
+
+3) PYTHONDONTWRITEBYTECODE=1 .venv/bin/python docs/qa/2026-09-16-followup/nx00/verify_soak_artifact.py
+   exit 0 — 출력: nx00/independent-parse.txt (verdict: PASS (metrics only), problems: [])
+
+4) cd .omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak && python3 -
+
+   from pathlib import Path
+   log = Path("val02_soak_28800_resoake.log").read_text(encoding="utf-8").splitlines()
+   art = Path("val02_soak_28800_resoake.json").read_text(encoding="utf-8").splitlines()
+   ... (접두부 비교; 전체 코드는 nx00/log-prefix-check.txt 하단)
+   exit 0 — 출력: nx00/log-prefix-check.txt
+
+5) grep -rn "finished exit" .        # 래퍼 원문 탐색
+   exit 0 — 매치: docs/qa/2026-09-16-followup/BASELINE.md, docs/18_RELIABILITY_AND_CONNECTOME_DEVELOPMENT_PLAN.md
+   저장소에 래퍼 스크립트 없음 → 명령 원문 복구 불가(INCONCLUSIVE 근거)
+
+6) grep -rln "resoake" .omo ; grep -rn "tee \|nohup\|disown" docs/ga/CR14_EX_EXECUTION_LEDGER.md docs/ga/notes/*.md
+   exit 0 — .omo/run-continuation/*.json 은 2026-08 세션 기록으로 무관.
+     ledger 93행: "pids: shell 72699 + val02_staging … first nohup attempt died — relaunched durable"
+     → 파이프 연결 구조는 기록되지 않았다.
+
+7) git check-ignore -v .omo/evidence ; grep -n "omo" .gitignore
+   exit 0 — .gitignore 117행 `.omo/` (증거를 docs/qa 로 옮긴 이유)
+
+환경: PYTHONDONTWRITEBYTECODE=1 사용, 원본 파일에 대한 쓰기 명령 없음.

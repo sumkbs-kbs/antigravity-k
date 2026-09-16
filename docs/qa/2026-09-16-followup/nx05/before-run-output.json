@@ -1,0 +1,31 @@
+{
+  "tree": "before",
+  "tree_module": "/private/tmp/nx05-before/src/antigravity_k/api/auth_routes.py",
+  "epoch_support_present": false,
+  "state_document_is_json": false,
+  "state_epoch": null,
+  "old_pin_login_status_after_external_change": 200,
+  "old_pin_accepted_after_external_change": true,
+  "login_before_change_status": 200,
+  "change_pin_status": 200,
+  "change_pin_response_keys": [
+    "detail",
+    "ok"
+  ],
+  "change_pin_reports_reauth": false,
+  "old_bearer_status_after_change": 200,
+  "old_bearer_accepted_after_change": true,
+  "old_pin_login_status_after_change": 401,
+  "old_pin_accepted_after_change": false,
+  "new_pin_login_status_after_change": 200,
+  "new_pin_accepted_after_change": true,
+  "open_ws_revocation_api_present": false,
+  "stale_ws_ticket_subject_after_change": "nx05",
+  "stale_ws_ticket_reusable": true,
+  "revoked_and_rejected": false,
+  "still_valid_credentials": [
+    "old_bearer_accepted_after_change",
+    "old_pin_accepted_after_external_change",
+    "stale_ws_ticket_reusable"
+  ]
+}

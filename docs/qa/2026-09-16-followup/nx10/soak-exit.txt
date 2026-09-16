@@ -1,0 +1,113 @@
+# NX-10 SC-1~6 soak 러너 기록
+generated_at: 2026-09-16T07:01:43Z
+soak_seconds: 60
+report: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-60.json
+workdir: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T070143Z
+command: PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-60.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 60 --workdir /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T070143Z
+start_time: 2026-09-16T07:01:43Z
+start_head: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+start_dirty: true
+start_fingerprint: da54e07b5284f00116901609a7873e2eb206b0a5b7bd9d0f1f607f4e78207cb8
+exit: 1
+end_time: 2026-09-16T07:02:47Z
+end_head: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+end_dirty: true
+end_fingerprint: da54e07b5284f00116901609a7873e2eb206b0a5b7bd9d0f1f607f4e78207cb8
+# NX-10 SC-1~6 soak 러너 기록
+generated_at: 2026-09-16T07:20:36Z
+soak_seconds: 60
+report: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-60.json
+workdir: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z
+command: PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-60.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 60 --workdir /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z
+start_time: 2026-09-16T07:20:36Z
+start_head: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+start_dirty: true
+start_fingerprint: c65fe0e1649e5e89f621e33a521ac24520e4fa317df5f7a1f57392654fefb213
+exit: 0
+end_time: 2026-09-16T07:21:40Z
+end_head: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+end_dirty: true
+end_fingerprint: c65fe0e1649e5e89f621e33a521ac24520e4fa317df5f7a1f57392654fefb213
+# NX-10 SC-1~6 soak 러너 기록
+generated_at: 2026-09-16T07:21:51Z
+soak_seconds: 28800
+report: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json
+workdir: /tmp/nx10-soak-work-20260916T072151Z
+command: PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 28800 --workdir /tmp/nx10-soak-work-20260916T072151Z
+start_time: 2026-09-16T07:21:51Z
+start_head: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+start_dirty: true
+start_fingerprint: c65fe0e1649e5e89f621e33a521ac24520e4fa317df5f7a1f57392654fefb213
+exit: 143
+end_time: 2026-09-16T07:41:42Z
+end_head: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+end_dirty: true
+end_fingerprint: c65fe0e1649e5e89f621e33a521ac24520e4fa317df5f7a1f57392654fefb213
+# ── 운영자 기록: 이 실행은 **의도적으로 중단했다** (러너 출력이 아니라 사람이 남긴 줄) ──
+cancel_recorded_at: 2026-09-16T07:41:42Z
+cancel_method: kill -TERM <runner pid> (러너 자신이 exit 143 을 기록 — 래퍼 exit 를 잃지 않는다)
+cancel_elapsed_seconds: 1191  # 07:21:51Z → 07:41:42Z (19분 51초, 예정 28800초)
+cancel_reason: |
+  후보 코드를 더 고칠 예정이므로 이 실행의 종료 지문이 최종 후보와 달라진다 → 카드의
+  "시작/종료 지문 동일" 조건을 만족하지 못해 판정 근거가 될 수 없다. 8시간을 태우기 전에
+  중단하고, 후보에 닿는 변경을 한 배치로 끝낸 뒤 **동결된 트리 위에서 다시 실행**한다.
+partial_artifacts: none  # 러너는 종료 시점에만 soak-28800.json 을 쓴다(리포트 없음)
+retained_workdir: /tmp/nx10-soak-work-20260916T072151Z  (삭제하지 않음 — 중단 시점 상태 보존)
+valid_baseline_instead: soak-60.json (60초 리허설, all_pass: true — 이 값은 유효하다)
+# NX-10 SC-1~6 soak 러너 기록
+generated_at: 2026-09-16T08:15:38Z
+soak_seconds: 28800
+report: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json
+workdir: /tmp/nx10-soak-work-20260916T081538Z
+command: PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 28800 --workdir /tmp/nx10-soak-work-20260916T081538Z
+start_time: 2026-09-16T08:15:38Z
+start_head: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+start_dirty: true
+start_fingerprint: 157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce
+exit: 143
+end_time: 2026-09-16T08:19:17Z
+end_head: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+end_dirty: true
+end_fingerprint: 157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce
+# ── 운영자 기록: 2차 실행도 **의도적으로 중단**했다 (러너 출력이 아니라 사람이 남긴 줄) ──
+cancel_recorded_at: 2026-09-16T08:19:17Z
+cancel_method: kill -TERM <runner pid 28583> (러너가 exit 143 을 기록)
+cancel_elapsed_seconds: 219  # 08:15:38Z → 08:19:17Z (3분 39초, 예정 28800초)
+cancel_reason: |
+  오너 지시(2026-09-16 17:20 KST): 오늘 **22:00 로컬**에 돌리는 것으로 일정을 옮긴다.
+  그래서 이 실행은 시작한 지 3분 39초 만에 끊었고, 예약 실행기
+  (schedule_nx10_soak.sh)가 22:00 KST(= 13:00Z)에 같은 동결 트리에서 다시 시작한다.
+  중단 지문과 예약 실행기의 기대 지문이 같다: 157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce
+partial_artifacts: none  # 러너는 종료 시점에만 soak-28800.json 을 쓴다
+retained_workdir: /tmp/nx10-soak-work-20260916T081538Z
+scheduled_next: docs/qa/2026-09-16-followup/nx10/soak-schedule.txt (22:00 KST / 13:00Z 시작, 종료 ~06:00 KST)
+
+# ── 운영자 기록: 22:00 **예약 자체를 취소**했다 (러너 출력이 아니라 사람이 남긴 줄) ──
+cancel_recorded_at: 2026-09-16T09:35:07Z
+cancel_method: screen -S nx10soak -X quit (예약 실행기는 아직 대기 중이었고 시작하지 않았다 — 시작/종료 지문·exit 기록은 없다)
+cancel_elapsed_seconds: 4920  # 08:20:00Z 예약 → 09:35:07Z 취소 (대기 82분, 시작 전)
+cancel_reason: |
+  오너 판정(2026-09-16 18:35 KST) — **보조도구 승격을 먼저 한다**(PROMOTION_PLAN §4 옵션 B).
+  승격은 `scripts/`·`tests/` 에 파일 6개를 더하고 `.gitignore` 를 바꾸므로 **코드지문이 이동한다**.
+  예약을 그대로 두면 22:00 에 실행기가 `aborted_reason: fingerprint drift` 로 스스로 멈추므로,
+  먼저 끊고 **승격 + 게이트 재측정 뒤 새 지문으로 재장전**한다 — 그래야 오늘 8시간이
+  '승격 전 트리'가 아니라 **최종 후보 트리**를 잰다.
+  되돌림 없음: 이 취소는 실행 기록을 지우지 않는다(1·2차 중단 기록과 이 줄이 모두 남는다).
+partial_artifacts: none  # 시작 전 취소 — 이 실행의 리포트·러너 기록은 존재하지 않는다
+previous_expected_fingerprint: 157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce
+rearmed_by: docs/qa/2026-09-16-followup/nx10/schedule_nx10_soak.sh (승격 뒤 새 지문으로 재장전 — 기록은 soak-schedule.txt)
+
+# ── 운영자 기록: 2차 예약도 실행 전에 교체했다 (러너 출력이 아니라 사람이 남긴 줄) ──
+cancel_recorded_at: 2026-09-16T10:26:34Z
+cancel_method: screen -S nx10soak -X quit (시작 전 대기 중이었고 시작하지 않았다 — 이 예약의 러너 기록은 없다)
+cancel_reason: |
+  예약을 **먼저** 걸고(09:47Z, 기대 지문 ab980ba5…) 그 뒤에 승격 트리에서 게이트를 재측정했는데,
+  측정이 끝난 지문이 0f345d0c… 였다(추정: 이 창이 측정 중(09:52Z)에 `scripts/verify_docs_commands.py` 를
+  고쳤다 — 시작/종료 지문이 갈린 promote001 이 그 증거다). 그대로 두면 22:00 에 실행기가
+  `fingerprint drift` 로 8시간을 쓰지 않고 멈췄을 것이므로(설계대로지만 의도는 아니다),
+  측정이 끝난 뒤에 다시 걸었다.
+  순서 교훈: **마지막 측정 → 지문 확인 → 예약 재장전 → 그 뒤에는 docs/ 만 수정**.
+  재현 확인: 무편집 구간의 promote002 는 시작 = 종료 = 0f345d0c…(게이트가 트리를 흔들지 않았다).
+partial_artifacts: none  # 시작 전 교체 — 이 예약의 리포트는 존재하지 않는다
+previous_expected_fingerprint: ab980ba5b43b195d8a1d074861b76dc7a52ffe03d5fb75628e673d87a5c3bcd2
+rearmed_by: docs/qa/2026-09-16-followup/nx10/schedule_nx10_soak.sh (2026-09-16T10:26:34Z, 기대 지문 0f345d0c…, 대기 9,205초)

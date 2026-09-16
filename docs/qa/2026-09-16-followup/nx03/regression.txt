@@ -1,0 +1,23 @@
+=== NX-03 regression log (2026-09-16, HEAD ffb0ebb + NX-03 working tree) ===
+
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/test_nx03_session_delete_race.py -q -p no:cacheprovider --override-ini addopts=''
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+17 passed, 1 warning in 4.48s
+
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/test_cr02_session_durability.py tests/test_memory_scope.py tests/test_memory_compliance.py tests/test_project_memory.py tests/test_durable_memory_purge.py tests/test_claw_integration.py tests/test_ws03_project_lifecycle.py -q -p no:cacheprovider --override-ini addopts=''
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+120 passed, 1 warning in 6.82s
+
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests -q -p no:cacheprovider --override-ini addopts='' -k 'session or memory or claw or lifecycle or api_session'
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+559 passed, 1 skipped, 5912 deselected, 1 warning in 48.31s
+
+$ .venv/bin/ruff check src/antigravity_k/engine/session_manager.py src/antigravity_k/api/error_handler.py src/antigravity_k/api/routes/system_api.py tests/test_nx03_session_delete_race.py
+All checks passed!
+
+$ .venv/bin/python -m mypy src/antigravity_k/engine/session_manager.py
+Success: no issues found in 1 source file
+
+# 전체 스위트(10분): 6455 passed, 10 skipped, 3 deselected, 1 failed
+#   FAILED tests/test_benchmark_performance.py::test_context_enrich_total_latency — CodeTreeIndexer/FileSummarizer wall-clock 임계값 테스트
+#   이 테스트 파일 단독 실행: 16 passed (7.34s). NX-03 이 건드린 모듈을 import 하지 않는다(파일 인덱싱 latency).

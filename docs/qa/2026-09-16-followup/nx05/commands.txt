@@ -1,0 +1,74 @@
+=== NX-05 실행 명령 (cwd=저장소 루트, 작업 트리 = 미커밋) ===
+
+# 0) 기준 트리(HEAD) 준비 — 작업 트리를 건드리지 않는 읽기 전용 추출
+$ rm -rf /tmp/nx05-before && mkdir -p /tmp/nx05-before
+$ git archive HEAD src | tar -x -C /tmp/nx05-before
+
+# 1) 재현 드라이버: before / after
+$ NX05_TREE=before PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/nx05-before/src \
+    .venv/bin/python docs/qa/2026-09-16-followup/nx05/repro_nx05_pin_change_revocation.py
+  → exit 3 (이전 bearer 수락, 구 PIN 로그인 수락, stale WS ticket 재사용)
+$ NX05_TREE=after PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
+    .venv/bin/python docs/qa/2026-09-16-followup/nx05/repro_nx05_pin_change_revocation.py
+  → exit 0 (모두 거부, state schema=agk.auth.v1, epoch=2)
+
+# 2) 신규 수용 시험
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+    tests/test_nx05_auth_epoch_revocation.py -q -p no:cacheprovider --override-ini addopts=''
+  → 21 passed
+
+# 3) 인증·정책·WS 회귀(좁은 범위)
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+    tests/test_nx05_auth_epoch_revocation.py tests/test_auth.py \
+    tests/test_auth_policy_truth_table.py tests/test_sec02_pin_rate_limit.py \
+    tests/test_sec03_ws_origin_ticket.py -q -p no:cacheprovider --override-ini addopts=''
+  → 108 passed
+
+# 4) forwarder(레거시 PIN 폴백) 회귀
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+    tests/test_api_forwarder_security.py tests/test_auth_policy_truth_table.py \
+    -q -p no:cacheprovider --override-ini addopts=''
+  → 32 passed
+
+# 5) 정적 검사
+$ .venv/bin/ruff check src/antigravity_k/security/auth_state.py src/antigravity_k/api/auth_routes.py \
+    src/antigravity_k/engine/auth.py src/antigravity_k/security/ws_ticket.py \
+    src/antigravity_k/api/auth_policy.py src/antigravity_k/api/startup_security.py \
+    src/antigravity_k/api/routes/session_state.py scripts/api_forwarder.py \
+    tests/test_nx05_auth_epoch_revocation.py
+  → All checks passed!
+$ .venv/bin/python -m mypy src/antigravity_k/security/auth_state.py src/antigravity_k/engine/auth.py \
+    src/antigravity_k/security/ws_ticket.py src/antigravity_k/api/auth_policy.py \
+    src/antigravity_k/api/auth_routes.py src/antigravity_k/api/routes/session_state.py
+  → Success: no issues found in 6 source files
+  (주: 저장소의 `.venv/bin/mypy` shebang 이 `coding/antigravity-k/.venv` 를 가리켜 깨져 있다 →
+   `python -m mypy` 로 실행했다. 환경 문제이며 이 카드의 변경과 무관.)
+
+# 6) 대시보드 (cwd=dashboard)
+$ pnpm typecheck   → exit 0
+$ pnpm test        → 87 files / 880 passed (NX-05 시험 4건 포함 전후 각각 실행, 2회 연속 동일)
+$ pnpm build       → exit 0 (21.94s). 생성된 `src/antigravity_k/dashboard_dist/` 는
+                     파생 산출물이라 커밋하지 않고 되돌렸다(NX-10/NX-11 패키징 단계에서 재생성).
+
+# 7) 전체 스위트 — NX-04 와 같은 플래그(-p no:randomly, benchmark 제외, CR-14 fence deselected)
+#    파일 목록을 앞/뒤 절반으로 나눠 실행했다(도구 실행 한도). 순서 보존을 위해
+#    CR-01 파일을 뒤 절반의 첫 파일로 두었다(전체 실행과 같은 순서).
+$ pytest <halfA: tests/test_a*.py … test_cl*>(86 files) -q -p no:randomly \
+    --ignore=tests/test_benchmark_performance.py --deselect tests/test_cr14_fence_movement_detection.py
+  → 1106 passed, 2 skipped  (51.34s)
+$ pytest <halfB: tests/test_cr01_… 파일부터 끝까지>(378 files) -q -p no:randomly \
+    --ignore=tests/test_benchmark_performance.py --deselect tests/test_cr14_fence_movement_detection.py
+  → 5379 passed, 7 skipped, 13 deselected  (572.10s)
+  합계: 6485 passed / 9 skipped / 13 deselected, 실패 0
+수집 비교: pytest tests --collect-only → 6502 (NX-04 시점 6481, +21 = 신규 NX-05 시험 수)
+          파일 목록으로 나눠 수집하면 6507 (+5 는 디렉터리 수집과 파일 목록 수집의 차이)
+
+# 8) 환경 이슈 확인(이 카드의 변경과 무관함을 증명)
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/test_ws01_project_binding.py \
+    -q -p no:cacheprovider --override-ini addopts=''          → 5 failed / 8 passed
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/nx05-before/src .venv/bin/python -m pytest \
+    tests/test_ws01_project_binding.py -q -p no:cacheprovider --override-ini addopts=''
+  → 같은 5 실패 (기준 트리에서도 동일 → 작업 트리 회귀 아님)
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+    tests/test_cr01_conversation_identity.py tests/test_ws01_project_binding.py -q -p no:cacheprovider -p no:randomly
+  → 32 passed (CR-01 이 앞설 때만 통과 = 하네스 순서 의존)

@@ -1,0 +1,75 @@
+{
+  "dependency_locks": [
+    {
+      "path": "uv.lock",
+      "sha256": "cd6b8281a7efe3c0c8e24a71f1621e17d9b041d1c3f77e001308da401d1aed23"
+    },
+    {
+      "path": "dashboard/pnpm-lock.yaml",
+      "sha256": "38427bbca3cfbb89da921ffb515b456840b6bb1938c449827215470f7b229a06"
+    },
+    {
+      "path": "dashboard/package-lock.json",
+      "sha256": "662596899ebc407c2699ce2dc3e92b8ddeb13ce6fb9dcd6a2c6aa1dffc976d98"
+    }
+  ],
+  "gates": [
+    {
+      "category": "runtime",
+      "command": [
+        "uv",
+        "run",
+        "--isolated",
+        "--frozen",
+        "python",
+        "scripts/run_full_system_e2e_test.py"
+      ],
+      "cwd": ".",
+      "duration_seconds": 2.401678,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-16T06:25:26.729706+00:00",
+      "id": "master-e2e",
+      "required": true,
+      "started_at": "2026-09-16T06:25:24.328013+00:00",
+      "status": "passed",
+      "stderr": "Installed 64 packages in 71ms\n",
+      "stdout": "================================================================================\n\ud83d\udef8 MASTER END-TO-END SYSTEM TEST: SSAK-AI (QWEN3.8-27B)\n================================================================================\n\n[1/6] Fast-Path Layer (<5ms symbol discovery)...\n  \u2705 Fast-Path direct dispatch verified\n\n[2/6] Autonomous Flight Mission Controller...\n  \u2705 Flight autopilot completed all subgoals autonomously\n\n[3/6] Static Security & Code Verifier Gate...\n  \u2705 Zero-latency AST & security verification verified\n\n[4/6] Incremental AST & Blast Radius Call Hierarchy...\n  \u2705 Blast radius caller tracking verified\n\n[5/6] Reflexion Memory & Working Memory Compactor...\n  \u2705 Memory distillation and negative constraint injection verified\n\n[6/6] Zero-Waste Code Density Maximizer...\n  \u2705 100% pure code token density verified\n\n================================================================================\n\ud83c\udf89 MASTER SYSTEM SCORE: 6/6 (100%)\n================================================================================\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-16T06:25:24.194009+00:00",
+  "git": {
+    "dirty": true,
+    "sha": "20d529fc1f17c8ff580eaf0d853dcd1ce92172d5",
+    "tree_fingerprint": "da54e07b5284f00116901609a7873e2eb206b0a5b7bd9d0f1f607f4e78207cb8",
+    "tree_fingerprint_scope": "code (docs/ and .omo/ excluded)"
+  },
+  "manifest": {
+    "path": "scripts/commercial_ga_gates.json",
+    "sha256": "a40867c743a9df5ba5854548476fcc53913e5364968a01e30e00c3e03b2eadb7"
+  },
+  "merged": false,
+  "output_decoding": {
+    "encoding": "utf-8",
+    "errors": "backslashreplace"
+  },
+  "platform": {
+    "machine": "arm64",
+    "python_implementation": "CPython",
+    "python_version": "3.13.12",
+    "release": "25.6.0",
+    "system": "Darwin"
+  },
+  "schema_version": 1,
+  "summary": {
+    "failed": 0,
+    "passed": 1,
+    "required_failed": 0,
+    "total": 1
+  }
+}

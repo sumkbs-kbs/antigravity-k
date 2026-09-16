@@ -1,0 +1,112 @@
+=== NX-02 caller trace (2026-09-16, HEAD ffb0ebb) ===
+
+## 1. conversation API surface (read/write) — 삭제·export 엔드포인트 유무
+85:@router.get("/v1/conversations/{conversation_id}")
+93:@router.post("/v1/conversations/append")
+126:@router.post("/v1/conversations/compact")
+127:@router.post("/compact")
+167:@router.post("/v1/conversations/fork")
+
+## 2. 클라이언트에 반환되는 history = record.messages (prompt view)
+def _history_response(project_id: str, conversation_id: str) -> ConversationHistoryResponse:
+    store = get_conversation_store()
+    record = store.get(project_id=project_id, conversation_id=conversation_id)
+    if record is None:
+        raise ConversationNotFoundError(
+            detail=f"Conversation not found: {conversation_id}",
+            context={"project_id": project_id, "conversation_id": conversation_id},
+        )
+    messages = tuple(
+        ConversationHistoryMessage(
+            id=m.id,
+            role=m.role,
+            content=m.content,
+            created_at=m.created_at,
+            provenance=m.provenance,
+        )
+        for m in record.messages
+    )
+    return ConversationHistoryResponse(
+        snapshot=record.snapshot(),
+        messages=messages,
+        token_estimate=record.estimate_tokens(),
+    )
+
+
+
+## 3. prompt view 를 만드는 곳 (원본 파괴 지점)
+557-            created_at=time.time(),
+558-            provenance="summary",
+559-        )
+560-        new_messages = [summary_msg, *retained]
+561:        record.messages = new_messages
+--
+729-                created_at=time.time(),
+730-                provenance="summary",
+731-            )
+732-            new_messages = [summary_msg, *retained]
+733:            record.messages = new_messages
+
+## 4. view -> 세션 저장소 투영 (두 번째 durable store 오염)
+                # One-way store → session projection only after successful CAS.
+                if self._session_manager and after is not None:
+                    current_session = cast(
+                        dict[str, object], getattr(self._session_manager, "_current_session", {}) or {}
+                    )
+                    if current_session is not None:
+                        current_session["messages"] = after.prompt_messages()
+                        try:
+                            self._session_manager.save()
+                        except Exception:
+
+## 5. fork 는 압축된 messages 를 복사한다
+779-                        id=_new_message_id(),
+780-                        role=m.role,
+781-                        content=m.content,
+782-                        created_at=time.time(),
+783-                        # NX-01: keep store-summary provenance so a compacted
+784-                        # fork still carries its previous summary forward.
+785-                        provenance="summary" if m.provenance == "summary" else "fork",
+786-                    )
+787:                    for m in source.messages
+
+## 6. conversation 삭제/export 경로 탐색
+(매치 없음 -> 대화 삭제/export API·retention 은 현재 구현되어 있지 않다)
+
+## 7. ConversationStore.clear_memory 는 캐시만 비운다
+872:    def clear_memory(self) -> None:
+873-        """Test helper: drop in-memory cache (disk files remain)."""
+874-        with self._lock:
+875-            self._records.clear()
+876-
+877-
+
+## 8. 기존 migration 도구(ADR 이 재사용할 절차)
+7:v2    : ``<storage>/v2/<sha256(project_id)>/<sha256(conversation_id)>.json``
+30:        --backup-dir ~/.antigravity/conversations-backup-2026-09-11
+93:def _sha256_bytes(payload: bytes) -> str:
+94:    return hashlib.sha256(payload).hexdigest()
+146:        digest = _sha256_bytes(payload)
+174:            if _sha256_bytes(target.read_bytes()) == entry.digest:
+202:def _default_backup_dir(storage_dir: Path) -> Path:
+203:    """Sibling backup root (never inside the storage root)."""
+204:    base = storage_dir.parent / f"{storage_dir.name}.migration-backup"
+213:def _backup_sources(storage_dir: Path, backup_dir: Path, plan: list[PlanEntry]) -> list[dict[str, str]]:
+214:    if backup_dir == storage_dir or storage_dir in backup_dir.parents:
+215:        raise ValueError(f"backup directory must live outside the storage root: {backup_dir}")
+216:    if backup_dir.exists() and any(backup_dir.iterdir()):
+217:        raise FileExistsError(f"backup directory is not empty: {backup_dir}")
+218:    backup_dir.mkdir(parents=True, exist_ok=True)
+223:            destination = backup_dir / relative
+226:            copied.append({"source": str(relative), "backup": str(destination)})
+238:        if _sha256_bytes(payload) != entry.digest:
+269:    return _sha256_bytes("\n".join(sorted(lines)).encode("utf-8"))
+314:        "backup_dir": None,
+
+## 9. prompt view 소비자
+src/antigravity_k/api/routes/chat.py:314:    history, snapshot = store.assemble_history_for_request(
+src/antigravity_k/engine/conversation_store.py:799:    def assemble_history_for_request(
+tests/test_ctx01_reject_fixes.py:256:    history, _ = store.assemble_history_for_request(
+tests/test_conversation_store_ctx01.py:151:    before_msgs, _ = store.assemble_history_for_request(
+tests/test_conversation_store_ctx01.py:165:    after_msgs, _ = store.assemble_history_for_request(
+tests/test_conversation_store_ctx01.py:242:    history, snap = store.assemble_history_for_request(

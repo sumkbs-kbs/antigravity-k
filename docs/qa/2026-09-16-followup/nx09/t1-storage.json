@@ -1,0 +1,22 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:56928",
+      "localStorage": [
+        {
+          "name": "agk_active_project",
+          "value": "/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/agk-nx09-4jwDP7"
+        },
+        {
+          "name": "antigravity_chat_default",
+          "value": "{\"sessions\":[{\"id\":\"mu3nwjngmb0r6tgt\",\"title\":\"NX-09 T1 사용자 요청\",\"updatedAt\":\"2026-09-16T05:30:28.546Z\",\"messages\":[{\"role\":\"user\",\"content\":\"NX-09 T1 사용자 요청\"},{\"role\":\"assistant\",\"content\":\"🛡️ **[정밀 엔지니어링 모드]**\\n\\n🏢 \\n⚠️ 응답 없음\\n\\n\\n🔁 **[Quality Revision]** 피드백을 반영해 응답을 다시 생성했습니다.\\n\\nNX09-FAKE-PROVIDER-응답\\n\\n📊 **[Token Usage]** In: 9 tokens | Out: 7 tokens\\n\"}],\"conversationRevision\":2}],\"activeSessionId\":\"mu3nwjngmb0r6tgt\"}"
+        },
+        {
+          "name": "agk_active_project_id",
+          "value": "default"
+        }
+      ]
+    }
+  ]
+}

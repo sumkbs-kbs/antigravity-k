@@ -1,0 +1,7 @@
+# ga_gate_verify 경계 확인 (2026-09-16)
+# 명령: uv run scripts/ga_gate_verify.py --report docs/qa/2026-09-16-followup/nx10/gate-report-attempt011.json --manifest scripts/commercial_ga_gates.json
+# HEAD: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5 (dirty=true)
+
+error: Unable to find lockfile for Python script, but `--frozen` was provided. To create a lockfile, run `uv lock --script`.
+
+# exit=0
