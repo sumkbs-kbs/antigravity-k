@@ -18,6 +18,7 @@
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel         # 살아 있는 예약을 죽이고 **죽었는지 검증**
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh orphans        # 잠금 주인이 아닌 살아 있는 예약 탐지
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight      # 발화 전: 8시간을 태울 준비가 됐는가(의존성·여유 공간·후보 귀속)
+#   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh run           # 예약을 기다리지 않고 **지금** 시작(같은 preflight 를 통과해야 한다)
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest       # 임시 디렉터리에서 전 수명주기 검증
 #
 # 종료 코드: arm/cancel 은 성공 0, 거부 2(이미 예약 있음), 검증 실패 3(죽이지 못했다).
@@ -403,10 +404,18 @@ _free_mb() { # $1=디렉터리 → MiB
 }
 
 cmd_preflight() {
+  # `NX10_PF_SKIP_RESERVATION=1` 이면 **예약과 무관한** 점검만 한다 — 즉시 시작(`run`)이 그 경로를 쓴다
+  # (예약이 없으면 “발화까지 남은 초”도 “기대 지문”도 정의되지 않는다. 두 경로가 같은 함수를 쓰는 이유는
+  # 한쪽만 재는 사각지대를 만들지 않기 위해서다).
+  local skip_res="${NX10_PF_SKIP_RESERVATION:-0}"
   local roots owner state fp_now fp_commit fp_expected cmd remaining minfree free target_utc
-  printf 'NX-10 soak 발화 전 점검 (%s)\n  repo=%s\n' "$(_utc)" "$REPO"
+  _pf_total=0
+  _pf_failed=0
+  printf 'NX-10 soak 발화 전 점검 (%s)%s\n  repo=%s\n' "$(_utc)" \
+    "$([ "$skip_res" = "1" ] && echo ' — 즉시 시작 모드(예약 점검 제외)' || echo '')" "$REPO"
 
   # ① 예약은 하나이고, 살아 있고, **그 프로세스가 맞는가**(pid 재사용·유령 잠금 방지)
+  if [ "$skip_res" != "1" ]; then
   roots="$(_roots)"
   owner="$(_lock_owner_pid 2>/dev/null || true)"
   local nroots
@@ -420,13 +429,16 @@ cmd_preflight() {
   fi
   state="$(_lock_state)"
   _pf_check "잠금 상태=armed" "$([ "$state" = "armed" ] && echo 1 || echo 0)" "state=$state"
+  fi # ← skip_res 끝
 
-  # ② 지문: 예약 기대 == 지금 트리 **그리고** 지금 트리 == HEAD 트리(= 커밋된 후보)
+  # ② 지문: (예약 시) 기대 == 지금 트리 **그리고** 지금 트리 == HEAD 트리(= 커밋된 후보)
   fp_expected="$(_lock_field expected_fingerprint 2>/dev/null || true)"
   fp_now="$(_tree_fingerprint)"
   fp_commit="$(_commit_fingerprint)"
+  if [ "$skip_res" != "1" ]; then
   _pf_check "기대 지문 == 현재 트리" "$([ -n "$fp_expected" ] && [ "$fp_expected" = "$fp_now" ] && echo 1 || echo 0)" \
     "기대=${fp_expected:0:12}… 현재=${fp_now:0:12}…"
+  fi
   # 이 항등식이 “soak 이 재는 것이 커밋된 후보”라는 뜻이다(아니면 결과를 후보에 귀속할 수 없다).
   _pf_check "현재 트리 == HEAD 트리(커밋된 후보)" "$([ "$fp_commit" != "UNVERIFIED" ] && [ "$fp_now" = "$fp_commit" ] && echo 1 || echo 0)" \
     "HEAD=${fp_commit:0:12}…"
@@ -434,7 +446,9 @@ cmd_preflight() {
   # ③ 발화가 미래인가(지나간 예약을 붙잡고 앉아 있지 않은가)
   remaining="$(_remaining 2>/dev/null || echo 0)"
   target_utc="$(_lock_field target_utc 2>/dev/null || true)"
+  if [ "$skip_res" != "1" ]; then
   _pf_check "발화 시각이 아직 오지 않았다" "$([ "${remaining:-0}" -gt 0 ] && echo 1 || echo 0)" "남은=${remaining}s"
+  fi
 
   # ④ 인터프리터가 지문을 계산할 수 있는가(3.9 로 해석되면 UNVERIFIED 로 스스로 중단된다)
   if "$(_py)" -c "import sys; sys.path.insert(0,'$REPO/scripts'); import ga_gate" >/dev/null 2>&1; then
@@ -472,12 +486,59 @@ cmd_preflight() {
 
   # 참고(실패 아님): 화면 세션·잠자기. 예약은 대기 구간에 caffeinate 를 걸지 않는다.
   printf '  [note] screen 세션: %s개\n' "$(screen -ls 2>/dev/null | grep -c "\.${SCREEN_NAME}[[:space:]]" | tr -d ' ')"
-  printf '  [note] 발화까지: %ss · 발화 예정: %s · 종료 예정(발화+8h): %s\n' "$remaining" \
-    "${target_utc:-?}" "$(_end_of_run 2>/dev/null || echo '?')"
+  if [ "$skip_res" != "1" ]; then
+    printf '  [note] 발화까지: %ss · 발화 예정: %s · 종료 예정(발화+8h): %s\n' "$remaining" \
+      "${target_utc:-?}" "$(_end_of_run 2>/dev/null || echo '?')"
+  fi
   printf '  [note] 뚜껑을 닫으면 잠들어 발화를 놓칠 수 있다(대기 구간에 caffeinate 를 걸지 않았다).\n'
 
   printf '\n  PREFLIGHT: %s/%s OK\n' "$((_pf_total - _pf_failed))" "$_pf_total"
   [ "$_pf_failed" = "0" ] && return 0 || return 1
+}
+
+# ── run — 예약을 기다리지 않고 **지금** 시작한다 ────────────────────────────
+# 수동 타이핑은 오늘 사고가 난 바로 그 자리다(caffeinate 를 빼먹으면 기기가 자고, screen 을 빼먹으면
+# 터미널을 닫을 때 죽는다). 그래서 포장은 도구가 한다: **예약과 같은 preflight** 를 통과해야 시작하고,
+# 이미 예약이 걸려 있으면 거부하며(두 개가 뜨지 않게), 시작 뒤 실행 잠금·프로세스를 확인한다.
+cmd_run() {
+  local roots rpid waited=0
+  if ! NX10_PF_SKIP_RESERVATION=1 cmd_preflight; then
+    printf '\n거부: 위 점검이 실패했다 — 이 상태로 8시간을 시작하지 않는다.\n' >&2
+    return 2
+  fi
+  roots="$(_roots)"
+  if [ -n "$roots" ]; then
+    printf '거부: 예약이 이미 걸려 있다. 두 개가 뜨지 않도록 먼저 `cancel` 로 내려라.\n' >&2
+    printf '%s\n' "$roots" | sed 's/^/  root pid=/' >&2
+    return 2
+  fi
+  if [ ! -f "$RUNNER" ]; then
+    printf '거부: 러너가 없다: %s\n' "$RUNNER" >&2
+    return 2
+  fi
+  printf '\n즉시 시작: %s\n' "$RUNNER"
+  # 예약 경로와 **같은 포장**(화면 + caffeinate -i)으로 띄운다.
+  if [ "${NX10_NO_CAFFEINATE:-0}" = "1" ] || ! command -v caffeinate >/dev/null 2>&1; then
+    printf '  (caffeinate 없이 시작 — 대기 중 잠들 수 있다)\n'
+    screen -dmS "$SCREEN_NAME" bash "$RUNNER"
+  else
+    screen -dmS "$SCREEN_NAME" caffeinate -i bash "$RUNNER"
+  fi
+  while [ "$waited" -lt 30 ]; do
+    rpid="$(sed -n 's/^pid: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
+    if [ -n "$rpid" ] && _alive "$rpid"; then break; fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if [ -z "${rpid:-}" ] || ! _alive "$rpid"; then
+    printf '경고: 러너가 30초 안에 실행 잠금을 잡지 않았다 — %s 를 보라.\n' "$OUT/soak-run.log" >&2
+    return 3
+  fi
+  printf '시작됨: 실행 잠금 pid=%s · 화면 세션 %s\n' "$rpid" "$SCREEN_NAME"
+  printf '  확인: tail -3 %s · tail -f %s\n' "$EXIT_TXT" "$OUT/soak-run.log"
+  printf '%s run: 즉시 시작(pid %s, caffeinate=%s)\n' "$(_utc)" "$rpid" \
+    "$([ "${NX10_NO_CAFFEINATE:-0}" = "1" ] && echo no || echo yes)" >> "$SCHED_LOG"
+  return 0
 }
 
 # ── selftest ────────────────────────────────────────────────────────────────
@@ -650,6 +711,29 @@ sleep 300"
   _st_ck "⑧ 유령 잠금이면 preflight 1" 1 "$?"
   _st_ck_has "⑧ 유령 잠금을 지목" "$d/pf-ghost.txt" "잠금 상태=armed"
 
+  # ⑨ `run`(예약을 기다리지 않고 지금 시작) — **거부** 쪽을 고정한다. 해피 패스는 8시간 soak 을 실제로
+  #     띄우므로 시험에서 돌리지 않는다(그 자체가 운영 기록이다 — 오늘 밤 실제 시작이 그 증거다).
+  d="$tmp/t9"
+  mkdir -p "$d/out" "$d/empty"
+  NX10_OUT="$d/out" NX10_REPO="$d/empty" NX10_SCHEDULER="$d/does-not-exist.sh" \
+    NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PREFLIGHT_MIN_FREE_MB=99999999 \
+    bash "$0" run > "$d/run-fail.txt" 2>&1
+  _st_ck "⑨ preflight 실패면 run 거부(exit 2)" 2 "$?"
+  _st_ck_has "⑨ 거부 사유를 문장으로 남긴다" "$d/run-fail.txt" "이 상태로 8시간을 시작하지 않는다"
+
+  #     예약이 이미 걸려 있으면 두 개가 뜨지 않게 거부한다
+  d="$tmp/t9b"
+  mkdir -p "$d/out"
+  _fake_sched "$d/schedule_nx10_soak.sh" 'sleep 60'
+  bash "$d/schedule_nx10_soak.sh" > "$d/fake.log" 2>&1 & local fake9=$!
+  sleep 1
+  NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
+    NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/schedule_nx10_soak.sh" \
+    bash "$0" run > "$d/run-armed.txt" 2>&1
+  _st_ck "⑨ 예약이 걸려 있으면 run 거부(exit 2)" 2 "$?"
+  _st_ck_has "⑨ 예약을 지목" "$d/run-armed.txt" "예약이 이미 걸려 있다"
+  kill -TERM "$fake9" 2>/dev/null || true
+
   # ⑤ 죽은 주인의 잠금은 '예약됨'이 아니라 'stale' 로 보인다(상태를 속이지 않는다)
   d="$tmp/t5"
   mkdir -p "$d/out/.soak-arm.lock"
@@ -708,6 +792,7 @@ case "${1:-status}" in
   cancel) shift; cmd_cancel "$@" ;;
   orphans) shift; cmd_orphans "$@" ;;
   preflight) shift; cmd_preflight "$@" ;;
+  run) shift; cmd_run "$@" ;;
   selftest) shift; cmd_selftest "$@" ;;
   -h | --help | help) sed -n '2,30p' "$0" ;;
   *)

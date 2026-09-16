@@ -61,6 +61,13 @@ PIN 이 설정된 배포에서는 첫 화면이 PIN 입력이다.
 요약 JSON 의 SHA256 과 sample 배열 요약(count/min/max/first/last)은
 [soak 요약](qa/2026-09-16-followup/soak-summary.json)에 있고 원본은 수정하지 않았다.
 
+**2026-09-16 갱신 — NX-10 의 새 후보 시험이 실행 중이다.** `soak_control.sh run` 으로 `12:13:12Z`
+(21:13 KST)에 시작했고(오너 지시로 22:00 예약을 기다리지 않았다 — 예약은 먼저 `cancel` 로 **검증 종료**),
+종료 예정은 `20:13Z` = **05:13 KST** 다. 기록은 `nx10/soak-exit.txt`(러너 블록: `start_head` · `start_fingerprint`)
+가 소유하고, 판정은 아침에 `scripts/collect_soak_result.py` 한 줄로 한다(지표 + 실행 + 귀속 3단계).
+**이 시점부터 코드를 건드리면 그 8시간이 무효가 된다** — 회수 판정이 끝나기 전에 `src/`·`tests/`·`scripts/` 를
+만지면 “지금 트리 == 시작 지문”이 깨진다.
+
 **그래서 "8시간 soak PASS"는 JSON 지표 기준이며, ④ 가 닫히기 전에는 게이트 PASS 로 승격하지 않는다.**
 종료 원문은 복구 불가로 종결하고 NX-10 의 새 후보 시험으로 대체한다(NX-00-F01).
 

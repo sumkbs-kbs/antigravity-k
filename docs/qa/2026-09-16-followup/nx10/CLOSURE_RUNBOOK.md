@@ -12,8 +12,19 @@
 | 후보 지문 | `322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe` (`1bd95e7d` — 회수 판정기가 마지막 예약을 읽도록 고친 커밋; 그 전 후보는 `89dd383b`/`92fcaeb5…`) |
 | 필수 게이트 | 커밋된 후보에서 23개 중 **22 passed · 1 failed · 0 not_run** (`gate-report-promote004.json`; 동일한 값이 `promote003` 에도 있다) |
 | 마감 도구(`ga_gate_verify`) | **FAIL** — 문제는 정확히 1개: `required_red: python-tests`(타 레인 EX-05 2 · CR-14 울타리 2) |
-| soak | 8시간 SC-1~6, **오늘 22:00 KST 예약**(`soak_control.sh arm`, 기대 지문 = 위 후보, 종료 예정 `~06:00 KST`) |
+| soak | 8시간 SC-1~6 **실행 중** — `2026-09-16T12:13:12Z`(21:13 KST) `soak_control.sh run` 으로 시작(오너 지시로 22:00 예약을 기다리지 않았다; 예약은 먼저 `cancel` 로 **검증 종료**). 종료 예정 `20:13Z` = **05:13 KST**. 시작 지문 = `322b4d3b…` = 예약 기대 = HEAD 트리 |
 | 코드 | 커밋 완료 — 이 창은 이제 **`docs/` 만** 수정한다(문서는 지문 제외 경로다) |
+
+## 0b. soak 은 이미 돌고 있다 (2026-09-16T12:13Z 시작)
+
+- 상태 보기: `tail -3 docs/qa/2026-09-16-followup/nx10/soak-run.log` · `screen -ls` · 실행 잠금 `pid` 는
+  `.soak-run.lock/owner`(이 잠금이 살아 있는 한 soak 이 돈다).
+- **이 시점부터 코드를 건드리면 8시간이 무효다**(종료 지문이 시작과 갈린다). 문서(`docs/`)만 수정한다.
+- 아침에는 **회수 판정을 먼저** 끝낸다(§1). 판정기가 “지금 트리 == 시작 지문”까지 보므로, 판정을 끝내기
+  전에 코드를 만지면 그 green 은 후보의 것이 아니게 된다.
+- 시작 기록: `soak-exit.txt`(러너 블록 `start_time 12:13:12Z` · `start_head fd16368c` ·
+  `start_fingerprint 322b4d3b…`) · 작업디렉터리 `/tmp/nx10-soak-work-20260916T121312Z` ·
+  `start_dirty: true`(이 창의 `docs/` 편집과 gitlink `vault_data` 때문 — 귀속은 지문으로 본다).
 
 ## 1-0. 예약 상태·취소 (도구가 있다)
 

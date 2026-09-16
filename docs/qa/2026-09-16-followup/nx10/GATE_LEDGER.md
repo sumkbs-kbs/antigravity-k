@@ -496,7 +496,14 @@ sha256 으로 식별해 두었다.
 
 **재장전**: 옛 예약(기대 `92fcaeb5…`)은 `soak_control.sh cancel` 로 내렸고 — 출력은
 `[OK] 죽음 확인` · `검증: 살아 있는 예약 0건` — 새 지문으로 `arm` 했다(`12:04:19Z`, 단일 예약,
-`status` exit 0). 기록: `soak-exit.txt`(취소·사고)·`soak-schedule.txt`(새 기대 지문·대기)·
+`status` exit 0).
+
+**그리고 22:00 을 기다리지 않고 시작했다**(오너 지시, `12:13:12Z` = 21:13 KST): 그 예약도 `cancel` 로
+검증 종료한 뒤 `soak_control.sh run` — 발화 전 preflight(즉시 시작 모드 5/5 OK: 현재 트리 == HEAD 트리 ·
+인터프리터 · 러너 자산 · `/tmp` 여유 · 도는 soak 없음)를 통과했고, 예약과 **같은 포장**(screen +
+`caffeinate -i`)으로 러너를 띄웠다(수동 타이핑 0줄). 러너가 적은 `start_head fd16368c…` ·
+`start_fingerprint 322b4d3b…` · 종료 예정 `20:13Z` = 05:13 KST. 작업디렉터리
+`/tmp/nx10-soak-work-20260916T121312Z` · 실행 잠금 pid 89463. 기록: `soak-exit.txt`(취소·사고)·`soak-schedule.txt`(새 기대 지문·대기)·
 [SOAK_SCHEDULING.md](./SOAK_SCHEDULING.md)(사고·도구·자기시험).
 
 예약 soak 은 이 지문으로 재장전했다(`soak-schedule.txt`, `10:47:15Z`, 대기 7,964초). 이 창은 이제

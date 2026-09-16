@@ -146,7 +146,15 @@ screen -dmS nx10gates bash docs/qa/2026-09-16-followup/nx10/run_remaining_gates.
 `git add -A` 0회, 훅 통과). 판정기가 `scripts/` 라 지문이 `92fcaeb5…` → **`322b4d3b…`** 로 이동했고,
 작업 트리 지문 = HEAD 트리 지문(실측) → 그 지문으로 **필수 23개(clean-machine 포함) 재측정**을 돌렸다.
 
-**재장전:** 위 수정 전 상태는 `soak_control.sh arm --at 22:00`(2026-09-16T11:39:27Z, 기대 지문 =
+**실제 시작(2026-09-16T12:13:12Z = 21:13 KST):** 오너 지시(“soak 진행해줘”)로 **22:00 발화를 기다리지 않고**
+`cancel`(검증: `[OK] 죽음 확인` · 살아 있는 예약 0건) → `run`(즉시 시작 모드 preflight 5/5 OK, 예약과 같은
+포장: screen + `caffeinate -i`)으로 시작했다. 시작 지문 `322b4d3b…` = 예약 기대 = HEAD 트리(실측)이라
+**이 8시간은 커밋된 후보 `fd16368c` 의 것**으로 귀속될 수 있다(`start_dirty: true` 는 `docs/` 편집과 gitlink
+`vault_data` 때문이며, 귀속 판단은 `start_fingerprint` 로 한다). 종료 예정 `20:13Z` = **05:13 KST**.
+작업디렉터리 `/tmp/nx10-soak-work-20260916T121312Z` · 실행 잠금 pid 89463(살아 있는 동안 soak 이 돈다).
+**이 시점부터 코드를 건드리면 그 8시간이 무효다** — 이 창은 문서만 수정하고, 아침에는 회수 판정을 먼저 끝낸다.
+
+**재장전 이력:** 위 수정 전 상태는 `soak_control.sh arm --at 22:00`(2026-09-16T11:39:27Z, 기대 지문 =
 당시 트리 = `92fcaeb5…`, 단일 예약 pid 79230, 종료 예정 `~06:00 KST`, `status` exit 0)이었다.
 판정기 수정이 지문을 옮겼으므로 그 예약은 **재측정 뒤 `cancel`(검증) → 새 지문으로 `arm`** 으로 다시 세운다
 (취소 기록은 `soak-exit.txt`, 새 기대 지문·대기는 `soak-schedule.txt` 가 소유 — 이 문서에 값을 쓰지 않는다).

@@ -12,7 +12,8 @@ bash docs/qa/2026-09-16-followup/nx10/soak_control.sh arm       # 22:00 예약(�
 bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel    # 취소 — **죽었는지 검증**한다
 bash docs/qa/2026-09-16-followup/nx10/soak_control.sh orphans   # 잠금 밖에서 도는 예약 탐지
 bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight # 발화 전: 이 밤을 태울 준비가 됐는가(10개 점검)
-bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest  # 임시 디렉터리에서 32개 검사
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh run        # 기다리지 않고 **지금** 시작(같은 preflight 통과 필요, 이미 예약이 있으면 거부)
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest  # 임시 디렉터리에서 36개 검사
 ```
 
 | 무엇을 보장하는가 | 어떻게 |
@@ -23,9 +24,22 @@ bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest  # 임시 디렉�
 | 재는 것이 **커밋된 후보** | `preflight` 가 `현재 트리 지문 == HEAD 트리 지문`을 확인한다(`tree_fingerprint_of_commit`). 아니면 8시간이 끝나도 결과를 후보에 귀속할 수 없다 |
 | 그 밖의 전제도 발화 **전에** | `preflight` 는 인터프리터가 `ga_gate` 를 임포트하는가 · 러너·측정 자산 · `/tmp` 여유(기본 2048 MiB) · 이미 도는 soak 없음까지 보고, 하나라도 어긍나면 `exit 1` |
 | 8시간은 **한 번만** | 러너가 별도 잠금(`.soak-run.lock`)을 잡는다 — 예약이 둘로 늘어나도 soak 은 둘로 늘어나지 않는다 |
+| 시작 포장이 사람 손에 달려 있지 않다 | `run` 이 발화 전 **같은 preflight** 를 돌리고(실패하면 `exit 2`), 이미 예약이 걸려 있으면 거부하며, 예약과 **같은 포장**(`screen` + `caffeinate -i`)으로 띄우고 실행 잠금·프로세스로 시작을 확인한다 |
 
 `arm` 은 `screen -dmS nx10soak` 을 쓰고, 예약 스크립트는 **대기 중**에는 잠금을 잡고 있다가 발화 직전
 지문 확인을 통과하면 잠금을 놓고 러너로 `exec` 한다. 그래서 `status` 의 잠금 상태는 곧 "대기 중인가"다.
+
+## 0b. 실제 실행 기록 (2026-09-16)
+
+- **22:00 KST 예약을 기다리지 않고 21:13 KST(`12:13:12Z`)에 즉시 시작**했다(오너 지시). 절차는 `cancel`
+  (검증: `[OK] 죽음 확인` · 살아 있는 예약 0건) → `run`(즉시 시작 모드 preflight 5/5 OK) → 실행 잠금
+  (pid 89463)과 `val02_staging.py` 로 시작 확인. 종료 예정 `20:13Z` = **05:13 KST**. 기록: `soak-exit.txt`
+  (러너 블록 `start_time 12:13:12Z` · `start_head fd16368c` · `start_fingerprint 322b4d3b…`), 작업디렉터리
+  `/tmp/nx10-soak-work-20260916T121312Z`.
+- `start_dirty: true` 는 이 창의 `docs/` 편집(지문 제외 경로)과 소유 불명 gitlink `vault_data` 때문이다 —
+  **후보 귀속은 `start_fingerprint` 로 본다**(예약 기대값 = HEAD 트리 지문 = `322b4d3b…`, 실측).
+- 이 시점부터 코드를 건드리면 종료 지문이 갈려 8시간이 무효다. 이 창은 문서만 수정한다(다음 날 아침도
+  회수 판정을 먼저 끝내고 나서야 코드를 만진다 — 판정기는 “지금 트리 == 시작 지문”까지 본다).
 
 ## 1. 사고: 취소했다고 기록한 예약 3건이 살아 있었다 (2026-09-16)
 

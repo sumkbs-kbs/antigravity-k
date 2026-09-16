@@ -149,8 +149,42 @@ previous_expected_fingerprint: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91
 rearmed_by: docs/qa/2026-09-16-followup/nx10/soak_control.sh arm --at 22:00 (2026-09-16T11:39:27Z, 기대 지문 92fcaeb5…, 대기 4,832초, pid 79230)
 rearm_verification: soak_control.sh status -> exit 0 (단일 예약 · 고아 0 · 지문 일치 · 실행 잠금 none)
 
+# ── 운영자 기록: 22:00 을 기다리지 않고 즉시 시작했다(final — 이 실행이 8시간을 돈다) ──
+started_at: 2026-09-16T12:13:12Z (21:13 KST)
+decision: |
+  오너 지시(“soak 진행해줘”)로 예약 발화(13:00Z)를 기다리지 않고 즉시 시작했다.
+  종전 계획(22:00 KST 발화 → ~06:00 KST 종료)에서 앞당겨진 만큼 종료도 앞당겨진다(발화+8시간 = 20:13Z = 05:13 KST).
+procedure: |
+  1) soak_control.sh cancel — 대기 중이던 예약을 트리 단위로 종료하고 **검증**했다(출력: [OK] 죽음 확인 · 살아 있는 예약 0건).
+     그대로 두었으면 13:00Z 에 두 번째가 떠서 같은 리포트·작업디렉터리를 다툴 수 있었다(러너의 실행 잠금이 막지만, 기록이 섞인다).
+  2) soak_control.sh run — 예약과 **같은 preflight**(즉시 시작 모드: 예약 점검 제외, 5/5 OK)를 통과한 뒤
+     예약 경로와 같은 포장(screen + caffeinate -i)으로 러너를 띄웠다. 수동 타이핑을 하지 않았다.
+  3) 실행 잠금(pid 89463)과 val02_staging.py 프로세스로 시작을 확인했다.
+note_start_dirty: |
+  러너가 적은 start_dirty: true 는 이 창의 `docs/` 편집(지문 제외 경로)과 소유 불명 gitlink `vault_data` 때문이다.
+  후보 귀속은 이 줄이 아니라 start_fingerprint 로 본다(322b4d3b… = 예약 기대값 = HEAD 트리 지문, 실측).
+note_from_now: |
+  이 시점부터 `src/`·`tests/`·`scripts/`·`dashboard/` 를 건드리면 종료 지문이 시작과 갈려 이 8시간이 무효가 된다.
+  `docs/` 는 지문 제외 경로라 이 창은 계속 문서만 고친다(그 사실은 60초 리허설로도 관측되어 있다 — 시작=종료 지문 동일).
+
 # ── 운영자 기록: 예약 취소 (soak_control.sh cancel) ──
 cancel_recorded_at: 2026-09-16T12:04:18Z
 cancel_method: soak_control.sh cancel (SIGTERM → 15 초 대기 → SIGKILL, 트리 단위)
 cancel_target: 취소 요청(pgrep -f schedule_nx10_soak.sh)
 cancel_verification: 검증: 0건 — 죽음 확인
+
+# ── 운영자 기록: 예약 취소 (soak_control.sh cancel) ──
+cancel_recorded_at: 2026-09-16T12:13:12Z
+cancel_method: soak_control.sh cancel (SIGTERM → 15 초 대기 → SIGKILL, 트리 단위)
+cancel_target: 취소 요청(pgrep -f schedule_nx10_soak.sh)
+cancel_verification: 검증: 0건 — 죽음 확인
+# NX-10 SC-1~6 soak 러너 기록
+generated_at: 2026-09-16T12:13:12Z
+soak_seconds: 28800
+report: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json
+workdir: /tmp/nx10-soak-work-20260916T121312Z
+command: PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 28800 --workdir /tmp/nx10-soak-work-20260916T121312Z
+start_time: 2026-09-16T12:13:12Z
+start_head: fd16368c8c5148026563109c9bb7c7ffdb432ab4
+start_dirty: true
+start_fingerprint: 322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe
