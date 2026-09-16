@@ -111,3 +111,17 @@ cancel_reason: |
 partial_artifacts: none  # 시작 전 교체 — 이 예약의 리포트는 존재하지 않는다
 previous_expected_fingerprint: ab980ba5b43b195d8a1d074861b76dc7a52ffe03d5fb75628e673d87a5c3bcd2
 rearmed_by: docs/qa/2026-09-16-followup/nx10/schedule_nx10_soak.sh (2026-09-16T10:26:34Z, 기대 지문 0f345d0c…, 대기 9,205초)
+
+# ── 운영자 기록: 3차 예약도 실행 전에 교체했다(final) ──
+cancel_recorded_at: 2026-09-16T10:47:15Z
+cancel_method: screen -S nx10soak -X quit (시작 전 대기 중이었고 시작하지 않았다)
+cancel_reason: |
+  오너 지시로 **커밋**했다(3분할: d929da01 · 6417690e · 89dd383b). 커밋이 지문을 옮겼다:
+  `0f345d0c…` → `92fcaeb5…`. 원인은 파일 내용이 아니라 **맵에서 사라진 항목**이다 — 추적 중이지만
+  작업트리에서 삭제된 옛 번들 30개는 맵에 `MISSING_CONTENT` 로 있었는데, 그 삭제를 커밋하면서
+  인덱스에서도 빠졌다. 그래서 커밋 전 기록(CLOSURE_RUNBOOK §3.1)의 “지문은 커밋으로 변하지 않는다”를
+  **실측으로 정정**하고, 커밋 뒤에 필수 게이트를 다시 재고(attempt promote003) 그 지문으로 재장전했다.
+  확인: promote003 은 시작 = 종료 = `92fcaeb5…`.
+partial_artifacts: none
+previous_expected_fingerprint: 0f345d0ccc210f019c398bbfc425b23aae4d9051a2f3b3e230677359670a8194
+rearmed_by: docs/qa/2026-09-16-followup/nx10/schedule_nx10_soak.sh (2026-09-16T10:47:15Z, 기대 지문 92fcaeb5…, 대기 7,964초)

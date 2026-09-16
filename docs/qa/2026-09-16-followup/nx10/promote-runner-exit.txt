@@ -16,3 +16,12 @@ promote-gates exit:1 end:2026-09-16T10:25:33Z report:gate-report-promote002.json
 # fingerprint after: 0f345d0ccc210f019c398bbfc425b23aae4d9051a2f3b3e230677359670a8194
 ga_gate_verify exit:1
 runner done:2026-09-16T10:25:33Z
+--- promote-gates attempt 2026-09-16T10:31:12Z ---
+# HEAD: 89dd383b453dc0982b58810434fddea4eec849f4
+# why: promotion moved scripts/tests files and .gitignore → fingerprint moved 157311cf… → ab980ba5…
+# excluded: clean-machine-runtime (needs a commit: exports --ref HEAD)
+# fingerprint before: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91829d47ec176aa3e
+promote-gates exit:1 end:2026-09-16T10:46:58Z report:gate-report-promote003.json
+# fingerprint after: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91829d47ec176aa3e
+ga_gate_verify exit:1
+runner done:2026-09-16T10:46:58Z

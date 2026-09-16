@@ -44,6 +44,12 @@ ONLY_ARGS=(
   --only dashboard-e2e-witnesses --only dashboard-e2e-ambient
 )
 
+# 커밋 뒤에는 `clean-machine-runtime` 도 후보 값이 된다(`--ref HEAD` 를 export 하므로 커밋된 트리를 검증한다).
+# NX10_INCLUDE_CLEAN_MACHINE=1 로 켜면 그 게이트까지 한 리포트에 들어가 `missing_required` 가 빈다.
+if [ "${NX10_INCLUDE_CLEAN_MACHINE:-0}" = "1" ]; then
+  ONLY_ARGS+=(--only clean-machine-runtime)
+fi
+
 {
   echo "--- promote-gates attempt $(date -u +%FT%TZ) ---"
   echo "# HEAD: $(git rev-parse HEAD)"

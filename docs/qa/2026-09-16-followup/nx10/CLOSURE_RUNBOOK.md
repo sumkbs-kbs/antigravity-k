@@ -61,14 +61,38 @@ tail -12 docs/qa/2026-09-16-followup/nx10/soak-exit.txt                         
 
 ### 3.1 지문과 커밋의 관계 (실측 근거)
 
-`worktree_fingerprint()` 는 **추적+미추적 코드 파일의 내용 해시**로 계산된다(`scripts/ga_gate.py`
-`_tree_fingerprint` — “커밋 SHA 만으로는 미커밋 후보를 구분할 수 없다”). 커밋은 파일 내용을 바꾸지
-않으므로 **지문은 커밋으로 변하지 않는다** — 22:00 예약 soak 의 기대 지문이 그대로 유효하다.
-그래도 커밋 전후로 확인해 기록한다:
+`worktree_fingerprint()` 는 **추적+미커밋(무시되지 않은) 코드 파일의 내용 해시**다(`scripts/ga_gate.py`
+`tree_digests` — `git ls-files --cached --others --exclude-standard`). 한동안 이 문서는 “커밋은 파일
+내용을 바꾸지 않으므로 지문도 변하지 않는다”고 적었는데, **2026-09-16 실측이 그것을 반박했다**:
+커밋하면서 **맵에서 사라지는 항목**이 생긴다: 추적 중이지만 작업 트리에서 삭제된 파일은 맵에
+`MISSING_CONTENT` 로 남아 있었는데, 그 삭제를 커밋하면 인덱스에서도 빠져 항목 자체가 없어진다 —
+이번 배치의 번들 교체(추적 중이던 옛 번들 30개 삭제)가 정확히 그 경우였고, 지문이
+`0f345d0c…` → `92fcaeb5…` 로 옮겼다.
+그래서 규칙은 이렇다: **커밋 뒤에는 지문을 다시 재고, 예약은 그 뒤에 건다**(실제로 재장전했다).
+커밋 전후로 확인해 기록한다:
 
 ```bash
 .venv/bin/python -c "import sys,pathlib; sys.path.insert(0,'scripts'); import ga_gate; print(ga_gate.worktree_fingerprint(pathlib.Path('.')))"
 ```
+
+### 3.1b 실제로 커밋됐다 — 3분할, 2026-09-16 (오너 지시 "수정 사항들 모두 커밋")
+
+| # | SHA | 범위 |
+| --- | --- | --- |
+| 1 | `d929da01` | 후보 코드 + 계약 + **승격된 도구 3종**(`scripts/`)·계약 시험 3종(`tests/`) + `.gitignore` 규칙 — 67 파일 |
+| 2 | `6417690e` | 대시보드 소스·e2e + `dashboard_dist/**`(재번들) + `release/**`(SBOM·notices) — 50 파일 |
+| 3 | `89dd383b` | 증거·문서(`docs/**`, `README.md`) — 216 파일 |
+
+- **`git add -A` 를 쓰지 않았다**(경로 명시). `data/auth_hash.bak.pre-0000` 은 승격 배치가 넣은
+  `.gitignore` 규칙으로 이제 **무시되어 스테이징되지 않았고**(`git check-ignore` 로 확인),
+  **`vault_data` 는 의도적으로 제외**해 미커밋으로 남겼다(소유 불명 gitlink — 이 카드의 것이 아니다).
+- **pre-commit 훅을 우회하지 않았다**(`--no-verify` 0회). 대신 커밋 전에 훅을 먼저 돌렸다 — 실제로
+  문서 묶음에서 `ruff --fix`·trailing-whitespace·EOF-fixer 가 파일을 고쳤고, 그 뒤 재스테이징해 훅을
+  전건 PASS 로 통과시켰다. **1MB 초과 4개**(`gate-report-*.json`)는 `check-added-large-files --maxkb=1024`
+  을 넘어 커밋하지 않았다: 정책을 우회하는 대신 원본은 디스크에 두고
+  [`large-evidence-manifest.md`](./large-evidence-manifest.md) 에 sha256 을 남겼다.
+- 커밋이 **지문을 옮겼다**(§3.1 의 정정) → 그 뒤 필수 게이트를 다시 쟀다(attempt `promote003`,
+  `clean-machine-runtime` 포함). 예약 soak 은 그 뒤에 재장전했다.
 
 ### 3.2 제안하는 분할 (3개)
 

@@ -28,3 +28,13 @@ wait_seconds: 9205
 expected_fingerprint: 0f345d0ccc210f019c398bbfc425b23aae4d9051a2f3b3e230677359670a8194
 runner: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/run_nx10_soak.sh
 pid: 64244
+# NX-10 soak 예약 기록 (오너 지정 시각 실행)
+scheduled_at: 2026-09-16T10:47:15Z
+scheduled_local: 2026-09-16T19:47:15+0900
+at_local: 22:00
+target_local: 2026-09-16T22:00:00+09:00
+target_utc: 2026-09-16T13:00:00+00:00
+wait_seconds: 7964
+expected_fingerprint: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91829d47ec176aa3e
+runner: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/run_nx10_soak.sh
+pid: 74617

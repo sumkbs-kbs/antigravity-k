@@ -447,6 +447,33 @@ NX-05 SSE 실연결 폐기 · NX-02 journal retention 기본값 · NX-03 tombsto
 (`10:26Z`, `soak-schedule.txt`), 그 뒤 이 창은 `docs/` 만 수정한다. 이 두 규칙은 절차 문서에도 적었다
 ([CLOSURE_RUNBOOK.md](./CLOSURE_RUNBOOK.md) §5b).
 
+## 14. 커밋 3분할 + 커밋된 후보에서 필수 23개 완주 (attempt promote003, 2026-09-16)
+
+오너 지시로 이 창의 변경을 3분할로 커밋했다(경로 명시 스테이징, `git add -A` 0회, 훅 우회 0회):
+`d929da01`(후보 코드+계약+승격 도구+`.gitignore`) · `6417690e`(대시보드 소스·번들·SBOM) · `89dd383b`(증거·문서).
+`vault_data`(gitlink, 소유 불명)는 **의도적으로 미커밋**으로 남겼고, 1MB 초과 게이트 리포트 4개는
+`check-added-large-files` 정책을 우회하지 않고 [`large-evidence-manifest.md`](./large-evidence-manifest.md) 에
+sha256 으로 식별해 두었다.
+
+**커밋이 지문을 옮겼다**(`0f345d0c…` → `92fcaeb5…`): 내용이 아니라 **맵에서 사라진 항목** 때문이다 —
+추적 중이지만 삭제된 옛 번들 30개는 맵에 `MISSING_CONTENT` 로 있었고, 그 삭제가 인덱스에 반영되면서 항목이
+없어졌다. 그래서 “커밋은 지문을 안 바꿔진다”는 종전 문장(§12 문맥)을 실측으로 정정했다.
+
+그 지문에서 필수 **23개를 한 창에서 완주**했다(`gate-report-promote003.json`, 시작 = 종료 = `92fcaeb5…`,
+15분 46초): **22 passed · 1 failed · 0 not_run**. 여기서 `clean-machine-runtime` 이 처음 후보 값이 된다
+(**passed, 43.7s**) — 그 게이트는 `--ref HEAD` 를 export 하므로 **커밋을 요구**했고, 그동안
+`missing_required` 의 유일한 항목이었다. 결과적으로 마감 도구(`ga_gate_verify`)가 지적하는 문제는
+**정확히 하나로 줄었다**: `required_red: python-tests`(타 레인 4건 — EX-05 승격 2 · CR-14 울타리 2).
+
+| attempt | HEAD | 게이트 | 지문 before→after | 판정 도구 문제 |
+| --- | --- | --- | --- | --- |
+| promote002 | `20d529fc`(미커밋 트리) | 22개 중 21/1 | `0f345d0c…` 동일 | `missing_required: clean-machine-runtime` + `required_red: python-tests` |
+| **promote003** | **`89dd383b`(커밋된 후보)** | **23개 중 22/1** | **`92fcaeb5…` 동일** | **`required_red: python-tests` 하나** |
+
+예약 soak 은 이 지문으로 재장전했다(`soak-schedule.txt`, `10:47:15Z`, 대기 7,964초). 이 창은 이제
+**`docs/` 만** 수정한다 — 그 이유도 이 창에서 실측됐다: 문서 편집은 지문 이동을 일으키지 않았다
+(문서 발행 중 지문 재계산 → 동일).
+
 ## 11. 판정 (카드 §판정)
 
 - 이 attempt 는 **GO 가 아니다**. required 상태가 **22 passed · 1 failed · 0 not_run** 이고(카드 §수용은

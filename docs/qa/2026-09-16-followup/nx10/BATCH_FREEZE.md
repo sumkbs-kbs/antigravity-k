@@ -73,8 +73,10 @@
    CLI 플래그 13개·`AGK_*` 변수 13개·경로 21개가 **전부 실제로 존재**하고, 커밋 대상 121파일 비밀 스캔도
    깨끗하다. **WARN 1건**: `data/auth_hash.bak.pre-0000` 이 무시되지 않아 `git add -A` 로 커밋될 수 있다
    (→ 경로 명시 스테이징, `.gitignore` 수정은 동결 해제 뒤).
-3. `clean-machine-runtime` — `--ref HEAD` 를 export 하므로 **커밋 뒤에만** 후보 값이 된다.
-4. `ga_gate_verify`(후보 일치·soak 미충족 시 정직한 판정)와 attempt-close.
+3. ~~`clean-machine-runtime`~~ → **후보 값 확보 완료**(2026-09-16): 커밋(`89dd383b`) 뒤 attempt
+   `promote003` 이 이 게이트를 포함해 23개를 완주했고 **passed(43.7s)** — `missing_required` 가 비었다.
+4. **`ga_gate_verify` 가 지적하는 문제는 이제 하나다**: `required_red: python-tests`(타 레인 4건).
+   soak 결과가 도착하면 attempt-close 절차로 넘긴다.
 5. 타 레인 충돌 2건(EX-05 승격 판정 · CR-14 후보 재선언) — 게이트 수치에 계속 −4 로 나타난다.
 6. **보조도구 승격**(`docs/` → `scripts/`·`tests/`) — **완료**(2026-09-16T09:46:05Z, 오너 판정 **B**):
    도구 3종 + 계약 시험 3종 이동 + `.gitignore` 규칙, 게이트 **7/7**, 지문 `157311cf…` → **`ab980ba5…`**.
@@ -89,9 +91,11 @@
    `soak-exit.txt`·`soak-schedule.txt` 에 러너 기록과 구분해 남겼다.
    **새 지문에서의 필수 게이트 재측정**: `run_promote_gates.sh` → `gate-report-promote002.json`
    (**22개 중 21 passed · 1 failed**(`python-tests`, 타 레인 4건) · 시작 = 종료 = `0f345d0c…`),
-   마감 도구 문제는 옛 지문과 동일한 2개(`missing_required: clean-machine-runtime` · `required_red: python-tests`)
-   — 승격이 **새 문제를 만들지 않았다**. `promote001.json` 은 측정 중 편집으로 지문이 갈린 attempt 라
-   값은 참고로만 둔다. 아래 §3 의 `157311cf…` 값은 이제 **옛 지문의 값**이므로 후보로 물려받지 않는다.
+   그 뒤 **커밋**(`d929da01`·`6417690e`·`89dd383b`)이 지문을 `92fcaeb5…` 로 옮겨 **`promote003` 으로
+   다시 쟀고**, 거기서 `clean-machine-runtime` 까지 포함해 **23개 중 22 passed · 1 failed · 0 not_run**
+   — 마감 도구 문제는 **`required_red: python-tests` 하나**만 남았다(아래 §4-4 참조).
+   `promote001.json` 은 측정 중 편집으로 지문이 갈린 attempt 라 값은 참고로만 둔다.
+   아래 §3 의 `157311cf…` 값은 이제 **옛 지문의 값**이므로 후보로 물려받지 않는다.
 
 **판정은 여전히 NO-GO/REVIEW 다.** 이 문서는 "동결했고 그 지문에서 무엇을 쟀다"의 기록이지
 출시 판정이 아니다.
