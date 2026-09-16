@@ -34,3 +34,12 @@ promote-gates exit:1 end:2026-09-16T12:02:52Z report:gate-report-promote004.json
 # fingerprint after: 322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe
 ga_gate_verify exit:1
 runner done:2026-09-16T12:02:52Z
+--- promote-gates attempt 2026-09-16T22:52:51Z ---
+# HEAD: 099cfc8ba0a3a3e773a724e335487fe54201364d
+# why: 미기재(환경변수 NX10_GATE_WHY 로 사유를 준다)
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639bafcf4
+promote-gates exit:1 end:2026-09-16T23:12:20Z report:gate-report-tailfix001.json
+# fingerprint after: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639bafcf4
+ga_gate_verify exit:1
+runner done:2026-09-16T23:12:20Z

@@ -522,6 +522,41 @@ sha256 으로 식별해 두었다.
 - 지문이 다른 attempt 는 합산하지 않았고, 실패한 attempt(001~003, 006, 012)도 **지우지 않고**
   그대로 남겼다.
 
+## 17. 꼬리 창 수정 뒤 필수 23개 재측정 (attempt tailfix001, 2026-09-16)
+
+**회수 → 수정 → 계약 시험 → 커밋 → 재측정** 순서를 끝까지 돌린 attempt 다.
+명령: `NX10_GATE_ATTEMPT=tailfix001 NX10_INCLUDE_CLEAN_MACHINE=1 bash run_promote_gates.sh`(22:52:51Z → 23:12:20Z).
+
+| 항목 | 값 |
+|---|---|
+| 커밋 | `7d8c25b5`(tail 창 수정 + 계약 시험 2건) · `099cfc8b`(문서 10파일) · HEAD `099cfc8b` |
+| 지문 | **시작 = 종료 = `98855031…` = HEAD 트리 지문**(측정 중 코드 무편집) |
+| 게이트 | **23개 전수: 22 passed · 1 failed · 0 not_run** — `clean-machine-runtime` **passed(43.0s)**, 이번에는 후보 값이다 |
+| 마감 도구 | `ga_gate_verify` FAIL — 문제는 **정확히 하나** `required_red: python-tests`(`gate_verify-tailfix001.txt`) |
+| `python-tests` | `5 failed, 6621 passed, 13 skipped, 16 deselected, 20 xfailed`(635.6s) |
+| 실패 목록 | **promote004 와 시험 단위로 동일**(CR-14 울타리 3 · NX-07 문서 정합성 2) → **이 수정이 만든 새 실패 0건** |
+
+### 17-1. 종전 수치 하나를 정정한다 (오기)
+
+종전 기록 여러 곳이 이 실패를 **“타 레인 4건(EX-05 2 · CR-14 울타리 2)”** 로 적었다. 실물 리포트를
+다시 열어보니 **틀렸다**: `promote004` 와 `tailfix001` 둘 다 **5건**이고, 내역은
+**CR-14 울타리 3건** + **NX-07 문서 정합성 2건** 이다.
+
+- “EX-05 2건”으로 부른 두 건은 사실 `tests/test_nx07_doc_consistency.py` 의 테스트다 — 그 내용이
+  EX-05 대장 행을 보므로 그렇게 불렸지만, **파일 이름과 소유 레인이 다르다**(문서 정합성 계약).
+- 세 번째 CR-14 건은 `test_worktree_matches_the_declared_fingerprint_when_the_code_scope_is_settled` 다.
+  이 attempt 에서도 빨간색이지만, **promote004 에서도 이미 빨간색**이었다 — 내 수정이 만든 것이 아니다.
+
+이 정정은 §12·§14·§15 의 결론을 바꾸지 않는다(게이트 수 22/1/0 · 마감 도구 지적 1개는 그대로 참이다).
+바뀌는 것은 **빨간 5건의 귀속 문장**이다.
+
+### 17-2. 판정 (attempt tailfix001)
+
+**여전히 NO-GO.** ① required red 1(`python-tests`)은 타 레인/오너의 일이고, ③ CR-14 울타리 3건은
+**후보 재선언 전까지 설계상 빨간색**이며(선언 후보 뒤에 코드 스코프 커밋이 있다), ④ owner 허용 기록이 없다.
+수정이 닫은 것은 **원인 하나(SC-6 RSS 의 원인)** 이고, 그것도 8시간 재실행으로 확인해야 한다.
+**“22 passed”를 GO 로 확대 해석하지 않는다** — 이 카드가 시종일관 지켜온 규칙이다.
+
 ## 16. 8시간 soak 회수 판정 — SC-6 RSS FAIL, 원인은 측정됨 (2026-09-16 실행 / 09-17 회수)
 
 **회수 행.** 명령: `PYTHONPATH=src .venv/bin/python scripts/collect_soak_result.py` (2026-09-16T22:09:18Z).
@@ -566,7 +601,8 @@ SC-6 도 FAIL 이다. 수정 → 재측정 순서는 문서 §6.
 | 회귀 확인 | 전체 스위트 `5 failed, 6640 passed, 10 skipped, 20 xfailed`(10분 31초). 5건 중 **이 수정의 것 0건**: ① benchmark latency(기능 게이트는 `-m "not benchmark"` 로 제외 — 단독 실행 2.65s pass) ② CR-14 울타리 2건(코드 스코프 이동 = 설계된 빨간색) ③ NX-07 문서 일관성 2건(**HEAD 내용으로도 같은 위반** — `docs/ga/CR14_EX_EXECUTION_LEDGER.md` 의 EX-05 행이 `PASS` 한 단어인데 그 실행의 귀속은 UNVERIFIED). 대화 저장소 계약 79건 전부 통과 · 문서 검사기 ALL OK(링크 134) |
 
 상세와 한계(무엇을 주장하지 않는가): [SOAK_8H_FINDINGS.md](./SOAK_8H_FINDINGS.md) §5c·§5d·§7.
-이 수정은 지문을 움직인다 — **새 작업 트리 지문 `792a7d5d…`**(시작 지문 `322b4d3b…` 와 다름).
-다음 측정은 이 지문에서 하고, 8시간 soak 재실행은 그 뒤다.
+이 수정은 지문을 움직인다 — 커밋 뒤 **작업 트리 지문 = HEAD 트리 지문 = `98855031…`**
+(코드 `7d8c25b5` · 문서 `099cfc8b`; 시작 지문 `322b4d3b…` 와 다름). 게이트 23개는 이 지문에서
+재측정했고(`tailfix001`), 8시간 soak 재실행은 그 뒤다.
 **교차 레인 항목**: EX-05 대장 행의 두 단계 분리(위 표 ③)는 CR-14 레인/오너의 일이다 — 이 카드가
 그 문서의 문장을 바꾸지 않는다(§6 의 경계와 같다).

@@ -10,6 +10,9 @@
 기준으로 추가된 것은 `promote004` 하나다.)
 
 - `docs/qa/2026-09-16-followup/nx10/gate-report-promote004.json` — 1,244,862 B — sha256 `f57f5872304de722b1cc105045f40e492da282f03cf20761f1860b22a4458002`
+- `docs/qa/2026-09-16-followup/nx10/gate-report-tailfix001.json` — 1,307,420 B — sha256 `99d3e26c94abdc32db0213be465cc2726f986983c1424573950f1eec9fb6a207`
+  (커밋 `7d8c25b5`·`099cfc8b` 뒤 지문 `98855031…` = HEAD 에서 23개 전수 — **22 passed · 1 failed · 0 not_run**.
+  이 리포트도 1MiB 를 넘으므로 정책대로 커밋하지 않는다 — 값은 [GATE_LEDGER.md](./GATE_LEDGER.md) §17 이 소유한다.)
 
 - `docs/qa/2026-09-16-followup/nx10/gate-report-promote001.json` — 1,299,969 B — sha256 `9cc9a85bb475400387caf84e98b25b44e575e5c92005de51d66dfc853d7d9df0`
 - `docs/qa/2026-09-16-followup/nx10/gate-report-freeze002.json` — 1,290,610 B — sha256 `c0f1090384d5199490d771f20d0fcc9b046a32671cd4644c661b7146a2b3a578`
@@ -23,6 +26,7 @@
 - `promote001` — 승격 직후(측정 중 편집으로 지문이 갈린 attempt, 참고용)
 - `promote002` — 승격 반영 트리 `0f345d0c…`, 22개 중 21 passed
 - `promote003` — **커밋된 후보 `89dd383b`, 23개 중 22 passed · 1 failed · 0 not_run**
-- `promote004` — **커밋된 후보 `1bd95e7d`(회수 판정기 수정), 23개 중 22 passed · 1 failed · 0 not_run**(실패는 타 레인 `python-tests` 뿐)
+- `promote004` — **커밋된 후보 `1bd95e7d`(회수 판정기 수정), 23개 중 22 passed · 1 failed · 0 not_run**(실패는 타 레인 `python-tests` 5건)
+- `tailfix001` — **커밋된 후보 `099cfc8b`(꼬리 창 수정), 23개 중 22 passed · 1 failed · 0 not_run** — 실패 목록이 `promote004` 와 **시험 단위로 동일**(새 실패 0건), `clean-machine-runtime` passed 43.0s
 
 작은 동반 증거(`gate_verify-*.txt`)는 커밋되어 있다.
