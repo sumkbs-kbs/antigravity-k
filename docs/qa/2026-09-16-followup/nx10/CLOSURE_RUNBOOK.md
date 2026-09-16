@@ -18,9 +18,14 @@
 ## 1-0. 예약 상태·취소 (도구가 있다)
 
 ```bash
-bash docs/qa/2026-09-16-followup/nx10/soak_control.sh status   # exit 0 = 단일 예약 · 고아 0 · 지문 일치
-bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel   # 취소 — 죽었는지 검증하고 기록한다
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh status     # exit 0 = 단일 예약 · 고아 0 · 지문 일치
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight  # exit 0 = 밤을 태울 준비가 됐다(10개 점검)
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel     # 취소 — 죽었는지 검증하고 기록한다
 ```
+
+`preflight` 가 답하는 것 중 가장 중요한 것은 **후보 귀속**이다: `현재 트리 지문 == HEAD 트리 지문`
+(`tree_fingerprint_of_commit`)이면 8시간이 끝났을 때 그 값을 **커밋된 후보**의 것으로 쓸 수 있다.
+아니면(예: 커밋 뒤에 코드를 더 만졌다) 결과를 귀속할 수 없으므로 지금 고친다 — 06:00 에 알면 밤을 버린다.
 
 **`screen -X quit` 을 취소 수단으로 쓰지 않는다** — 2026-09-16 에 그것으로 "취소했다"고 기록한 예약
 3건이 실제로는 살아 있었다(취소를 검증하지 않았다). `cancel` 은 트리 단위로 종료하고

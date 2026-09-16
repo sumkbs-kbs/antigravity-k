@@ -11,7 +11,8 @@ bash docs/qa/2026-09-16-followup/nx10/soak_control.sh status    # 예약 상태(
 bash docs/qa/2026-09-16-followup/nx10/soak_control.sh arm       # 22:00 예약(지문은 지금 트리에서 계산)
 bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel    # 취소 — **죽었는지 검증**한다
 bash docs/qa/2026-09-16-followup/nx10/soak_control.sh orphans   # 잠금 밖에서 도는 예약 탐지
-bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest  # 임시 디렉터리에서 22개 검사
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight # 발화 전: 이 밤을 태울 준비가 됐는가(10개 점검)
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest  # 임시 디렉터리에서 32개 검사
 ```
 
 | 무엇을 보장하는가 | 어떻게 |
@@ -19,6 +20,8 @@ bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest  # 임시 디렉�
 | 예약은 **하나만** | `mkdir` 원자성으로 `.soak-arm.lock` 을 잡고, 주인이 살아 있으면 두 번째 예약은 `exit 2` 로 거부 |
 | 취소가 **진짜 취소** | 트리(래퍼·bash·heartbeat) 단위로 SIGTERM → 유예 후 SIGKILL 승격 → **재검색해 0건을 확인**하고 그 문장을 증거에 남긴다 |
 | 예약된 지문은 **지금 트리** | `arm` 이 직접 계산한다(고정 해시를 손으로 넘기지 않는다). 계산 실패(`UNVERIFIED`)면 예약을 거부 |
+| 재는 것이 **커밋된 후보** | `preflight` 가 `현재 트리 지문 == HEAD 트리 지문`을 확인한다(`tree_fingerprint_of_commit`). 아니면 8시간이 끝나도 결과를 후보에 귀속할 수 없다 |
+| 그 밖의 전제도 발화 **전에** | `preflight` 는 인터프리터가 `ga_gate` 를 임포트하는가 · 러너·측정 자산 · `/tmp` 여유(기본 2048 MiB) · 이미 도는 soak 없음까지 보고, 하나라도 어긍나면 `exit 1` |
 | 8시간은 **한 번만** | 러너가 별도 잠금(`.soak-run.lock`)을 잡는다 — 예약이 둘로 늘어나도 soak 은 둘로 늘어나지 않는다 |
 
 `arm` 은 `screen -dmS nx10soak` 을 쓰고, 예약 스크립트는 **대기 중**에는 잠금을 잡고 있다가 발화 직전
@@ -70,8 +73,8 @@ miniforge 3.13 이라 통과하지만 **`/usr/bin/python3` 는 3.9.6** 이고 `g
 
 ## 3. 자기시험이 잡은 것 (설계를 고친 자리)
 
-`selftest` 는 **본 저장소의 예약을 건드리지 않고** 임시 디렉터리에서 사고를 재현한다(22개 검사,
-약 1분 45초, `22/22 passed`). 첫 실행은 `10/17` 이었고 실패는 전부 **도구 쪽 결함**이었다:
+`selftest` 는 **본 저장소의 예약을 건드리지 않고** 임시 디렉터리에서 사고를 재현한다(32개 검사,
+약 2분, `32/32 passed`). 첫 실행은 `10/17` 이었고 실패는 전부 **도구 쪽 결함**이었다:
 
 | 증상 | 진짜 원인 | 고침 |
 |---|---|---|
@@ -83,7 +86,9 @@ miniforge 3.13 이라 통과하지만 **`/usr/bin/python3` 는 3.9.6** 이고 `g
 시험 항목: ① 살아 있는 예약이면 `arm` 거부 ② `UNVERIFIED` 면 예약 거부 ③ 취소 후 잔존 0건 검증
 ④ SIGTERM 무시 프로세스도 KILL 승격으로 종료 ⑤ stale 잠금은 `stale` 로 표기(속이지 않음)
 ⑤b 잠금 주인을 품은 예약은 고아가 아니다 ⑥ 전체 수명주기(진짜 예약 스크립트 + 스텁 러너:
-잠금 → 발화 → 잠금 해제 → 러너 1회 → 시작 지문 기록) ⑦ 러너의 동시 실행 거부(`exit 5`, 리포트 미생성).
+잠금 → 발화 → 잠금 해제 → 러너 1회 → 시작 지문 기록) ⑦ 러너의 동시 실행 거부(`exit 5`, 리포트 미생성)
+⑧ `preflight` 7건 — 건강한 예약 0 · 후보 귀속(현재 트리 == HEAD)까지 보는가 · 여유 공간 미달 1 ·
+이미 도는 soak 1 · 지문 불일치 1 · 유령 잠금 1(각각 해당 항목을 문장으로 지목하는지까지).
 
 ## 4. 남은 한계 (다음 사람이 알아야 할 것)
 

@@ -128,8 +128,10 @@ screen -dmS nx10gates bash docs/qa/2026-09-16-followup/nx10/run_remaining_gates.
 `.venv/bin/python` 으로 고정하고, `UNVERIFIED` 는 드리프트보다 **먼저** 막도록 바꿨다(`exit 3`).
 
 **도구:** [soak_control.sh](soak_control.sh) — `arm`(지문을 지금 트리에서 계산) · `status`(단일 예약·고아·
-지문 일치를 한 화면에) · `cancel`(트리 단위 종료 + **검증**) · `orphans` · `selftest`(**22/22**,
-약 1분 45초, 임시 디렉터리에서 사고를 재현). 예약 잠금은 `mkdir` 원자성이고(두 번째 예약은 `exit 2`),
+지문 일치를 한 화면에) · `cancel`(트리 단위 종료 + **검증**) · `orphans` · `preflight`(발화 전 10개 점검) ·
+`selftest`(**32/32**, 약 2분, 임시 디렉터리에서 사고를 재현). `preflight` 는 **8시간이 끝나도 결과를
+후보에 귀속할 수 있는가**를 미리 묻는다 — `현재 트리 지문 == HEAD 트리 지문`(`tree_fingerprint_of_commit`)을
+직접 확인하고, 인터프리터·러너 자산·`/tmp` 여유·이미 도는 soak 까지 함께 본다(실측: 10/10 OK). 예약 잠금은 `mkdir` 원자성이고(두 번째 예약은 `exit 2`),
 러너에도 별도 실행 잠금이 생겼다(이미 soak 이 돌면 `exit 5`, 리포트 미생성).
 사고·한계·자기시험이 잡은 결함 4건(macOS `tac` 부재 · 예약 1건이 프로세스 2개로 보이던 오탐 ·
 가짜 프로세스가 파이프를 물고 있는 문제 · heartbeat 중복)은

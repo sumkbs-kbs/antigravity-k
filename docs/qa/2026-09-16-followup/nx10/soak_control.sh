@@ -17,6 +17,7 @@
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh arm --at 23:30 --fp <지문>
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel         # 살아 있는 예약을 죽이고 **죽었는지 검증**
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh orphans        # 잠금 주인이 아닌 살아 있는 예약 탐지
+#   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight      # 발화 전: 8시간을 태울 준비가 됐는가(의존성·여유 공간·후보 귀속)
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest       # 임시 디렉터리에서 전 수명주기 검증
 #
 # 종료 코드: arm/cancel 은 성공 0, 거부 2(이미 예약 있음), 검증 실패 3(죽이지 못했다).
@@ -363,6 +364,122 @@ _record_cancel() {
   printf '%s cancel: %s / %s\n' "$(_utc)" "$1" "$2" >> "$SCHED_LOG"
 }
 
+# ── preflight ────────────────────────────────────────────────────────────────
+# 22:00 발화 **전에** 답해야 하는 질문: “이 예약은 돌 것이고, 돌면 쓸 수 있는 값이 나오는가?”
+# 지금 결함을 알면 고칠 수 있고, 06:00 에 알면 밤을 버린다. 그래서 8시간이 의존하는 것들을 먼저 본다:
+# 예약이 단일·유효한가 · 지문이 **커밋된 후보**의 것인가 · 인터프리터·러너 자산이 있는가 ·
+# 작업디렉터리(기본 `/tmp`)에 여유가 있는가 · 그리고 **이미 다른 soak 이 돌고 있지 않은가**.
+# 종료 코드: 전부 OK 0, 하나라도 FAIL 1.
+_pf_total=0
+_pf_failed=0
+
+_pf_check() { # 이름 결과 상세
+  _pf_total=$((_pf_total + 1))
+  if [ "$2" = "1" ]; then
+    printf '  [OK  ] %s%s\n' "$1" "${3:+ — $3}"
+  else
+    _pf_failed=$((_pf_failed + 1))
+    printf '  [FAIL] %s%s\n' "$1" "${3:+ — $3}"
+  fi
+}
+
+_commit_fingerprint() {
+  (cd "$REPO" && "$(_py)" -c "import sys,pathlib; sys.path.insert(0,'scripts'); import ga_gate; print(ga_gate.tree_fingerprint_of_commit(pathlib.Path('.'),'HEAD'))" 2>/dev/null) || echo UNVERIFIED
+}
+
+_end_of_run() { # 예약 발화 + 8시간(28800s) → UTC 문자열. 못 구하면 빈 값.
+  local t
+  t="$(_lock_field target_utc)" || return 1
+  [ -n "$t" ] || return 1
+  "$(_py)" - "$t" <<'PY'
+import datetime, sys
+t = datetime.datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00")) + datetime.timedelta(seconds=28800)
+print(t.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+PY
+}
+
+_free_mb() { # $1=디렉터리 → MiB
+  df -m "$1" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0
+}
+
+cmd_preflight() {
+  local roots owner state fp_now fp_commit fp_expected cmd remaining minfree free target_utc
+  printf 'NX-10 soak 발화 전 점검 (%s)\n  repo=%s\n' "$(_utc)" "$REPO"
+
+  # ① 예약은 하나이고, 살아 있고, **그 프로세스가 맞는가**(pid 재사용·유령 잠금 방지)
+  roots="$(_roots)"
+  owner="$(_lock_owner_pid 2>/dev/null || true)"
+  local nroots
+  nroots="$(printf '%s\n' "$roots" | grep -c . || true)"
+  cmd="$(ps -o command= -p "${owner:-0}" 2>/dev/null || true)"
+  _pf_check "예약 프로세스 단일(루트 1개)" "$([ "$nroots" = "1" ] && echo 1 || echo 0)" "roots=$nroots"
+  if [ -n "$owner" ] && _alive "$owner" && printf '%s' "$cmd" | grep -q -- "$PATTERN"; then
+    _pf_check "잠금 주인이 살아 있는 예약 프로세스" 1 "pid=$owner"
+  else
+    _pf_check "잠금 주인이 살아 있는 예약 프로세스" 0 "pid=${owner:-없음} cmd=${cmd:-없음} — 유령/재사용 의심"
+  fi
+  state="$(_lock_state)"
+  _pf_check "잠금 상태=armed" "$([ "$state" = "armed" ] && echo 1 || echo 0)" "state=$state"
+
+  # ② 지문: 예약 기대 == 지금 트리 **그리고** 지금 트리 == HEAD 트리(= 커밋된 후보)
+  fp_expected="$(_lock_field expected_fingerprint 2>/dev/null || true)"
+  fp_now="$(_tree_fingerprint)"
+  fp_commit="$(_commit_fingerprint)"
+  _pf_check "기대 지문 == 현재 트리" "$([ -n "$fp_expected" ] && [ "$fp_expected" = "$fp_now" ] && echo 1 || echo 0)" \
+    "기대=${fp_expected:0:12}… 현재=${fp_now:0:12}…"
+  # 이 항등식이 “soak 이 재는 것이 커밋된 후보”라는 뜻이다(아니면 결과를 후보에 귀속할 수 없다).
+  _pf_check "현재 트리 == HEAD 트리(커밋된 후보)" "$([ "$fp_commit" != "UNVERIFIED" ] && [ "$fp_now" = "$fp_commit" ] && echo 1 || echo 0)" \
+    "HEAD=${fp_commit:0:12}…"
+
+  # ③ 발화가 미래인가(지나간 예약을 붙잡고 앉아 있지 않은가)
+  remaining="$(_remaining 2>/dev/null || echo 0)"
+  target_utc="$(_lock_field target_utc 2>/dev/null || true)"
+  _pf_check "발화 시각이 아직 오지 않았다" "$([ "${remaining:-0}" -gt 0 ] && echo 1 || echo 0)" "남은=${remaining}s"
+
+  # ④ 인터프리터가 지문을 계산할 수 있는가(3.9 로 해석되면 UNVERIFIED 로 스스로 중단된다)
+  if "$(_py)" -c "import sys; sys.path.insert(0,'$REPO/scripts'); import ga_gate" >/dev/null 2>&1; then
+    _pf_check "인터프리터가 ga_gate 를 임포트한다" 1 "$(_py) $("$(_py)" -V 2>&1)"
+  else
+    _pf_check "인터프리터가 ga_gate 를 임포트한다" 0 "$(_py) 로 실패(3.12 문법 필요)"
+  fi
+
+  # ⑤ 8시간이 필요로 하는 자산이 그 자리에 있는가
+  local missing=() f
+  for f in "$SCHEDULER" "$RUNNER" "$REPO/scripts/val02_staging.py" "$REPO/scripts/ga_gate.py" "$REPO/src/antigravity_k"; do
+    [ -e "$f" ] || missing+=("$f")
+  done
+  _pf_check "러너·측정 자산 존재" "$([ "${#missing[@]}" -eq 0 ] && echo 1 || echo 0)" "${missing[*]:-전부 있음}"
+
+  # ⑥ 작업디렉터리 여유(8시간 soak 은 `/tmp` 에 수백 MB~GB 를 쓴다)
+  minfree="${NX10_PREFLIGHT_MIN_FREE_MB:-2048}"
+  free="$(_free_mb /tmp)"
+  _pf_check "작업디렉터리 여유 ≥ ${minfree} MiB" "$([ "${free:-0}" -ge "$minfree" ] && echo 1 || echo 0)" "/tmp 여유=${free} MiB"
+
+  # ⑦ 이미 돌고 있는 soak 이 없는가(리포트·작업디렉터리를 다투지 않게)
+  local running
+  running="$(pgrep -f 'val02_staging.py' 2>/dev/null | grep -v -x -e "$$" -e "${PPID:-0}" || true)"
+  if [ -n "$running" ]; then
+    _pf_check "다른 soak 실행 없음" 0 "val02_staging.py pid=$running"
+  else
+    local rpid
+    rpid="$(sed -n 's/^pid: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
+    if [ -n "$rpid" ] && _alive "$rpid"; then
+      _pf_check "다른 soak 실행 없음" 0 "실행 잠금 주인 pid=$rpid 가 살아 있다"
+    else
+      _pf_check "다른 soak 실행 없음" 1 "실행 잠금 없음 · val02_staging.py 0건"
+    fi
+  fi
+
+  # 참고(실패 아님): 화면 세션·잠자기. 예약은 대기 구간에 caffeinate 를 걸지 않는다.
+  printf '  [note] screen 세션: %s개\n' "$(screen -ls 2>/dev/null | grep -c "\.${SCREEN_NAME}[[:space:]]" | tr -d ' ')"
+  printf '  [note] 발화까지: %ss · 발화 예정: %s · 종료 예정(발화+8h): %s\n' "$remaining" \
+    "${target_utc:-?}" "$(_end_of_run 2>/dev/null || echo '?')"
+  printf '  [note] 뚜껑을 닫으면 잠들어 발화를 놓칠 수 있다(대기 구간에 caffeinate 를 걸지 않았다).\n'
+
+  printf '\n  PREFLIGHT: %s/%s OK\n' "$((_pf_total - _pf_failed))" "$_pf_total"
+  [ "$_pf_failed" = "0" ] && return 0 || return 1
+}
+
 # ── selftest ────────────────────────────────────────────────────────────────
 # 오늘 사고를 그대로 재현해 **막히는지**를 본다. 본 저장소의 예약은 건드리지 않고,
 # 임시 디렉터리에서 가짜 예약 프로세스와 진짜 예약 스크립트‌ (임시 OUT·스텁 러너)를 돌린다.
@@ -485,6 +602,54 @@ sleep 300"
   _st_ck "⑦ 거부된 실행은 리포트를 만들지 않는다" "no" "$(test -f "$d/out/soak-28800.json" && echo yes || echo no)"
   kill -TERM "$keep" 2>/dev/null || true
 
+  # ⑧ preflight: 발화 전에 “밤을 태울 준비가 됐는가”를 묻는가(의존성·여유 공간·후보 귀속).
+  d="$tmp/t8"
+  mkdir -p "$d/out/.soak-arm.lock"
+  _fake_sched "$d/schedule_nx10_soak.sh" 'sleep 120'
+  bash "$d/schedule_nx10_soak.sh" > "$d/fake.log" 2>&1 & local fake8=$!
+  sleep 1
+  local fp8 future
+  fp8="$(_tree_fingerprint)"
+  future="$("$(_py)" -c 'import datetime; print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
+  _owner8() { printf 'pid: %s\nexpected_fingerprint: %s\ntarget_utc: %s\nat_local: 22:00\n' "$fake8" "$1" "$future" > "$d/out/.soak-arm.lock/owner"; }
+  _owner8 "$fp8"
+  preflight() {
+    NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
+      NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/schedule_nx10_soak.sh" \
+      NX10_PREFLIGHT_MIN_FREE_MB="${NX10_PREFLIGHT_MIN_FREE_MB:-2048}" bash "$0" preflight "$@"
+  }
+  preflight > "$d/pf-ok.txt" 2>&1
+  _st_ck "⑧ 건강한 예약이면 preflight 0" 0 "$?"
+  _st_ck_has "⑧ 후보 귀속(현재 트리 == HEAD)까지 본다" "$d/pf-ok.txt" "현재 트리 == HEAD 트리"
+
+  # 여유 공간 기준을 크게 주면 실패해야 한다(임계값이 실제로 작동하는지)
+  NX10_PREFLIGHT_MIN_FREE_MB=99999999 preflight > "$d/pf-disk.txt" 2>&1
+  _st_ck "⑧ 여유 공간 미달이면 preflight 1" 1 "$?"
+  _st_ck_has "⑧ 미달 항목을 지목" "$d/pf-disk.txt" "작업디렉터리 여유"
+
+  # 다른 soak 이 돌고 있으면 시작하지 않는다
+  mkdir -p "$d/out/.soak-run.lock"
+  sleep 60 > "$d/keep8.log" 2>&1 & local keep8=$!
+  printf 'pid: %s\n' "$keep8" > "$d/out/.soak-run.lock/owner"
+  preflight > "$d/pf-run.txt" 2>&1
+  _st_ck "⑧ 이미 soak 이 돌면 preflight 1" 1 "$?"
+  _st_ck_has "⑧ 다른 실행을 지목" "$d/pf-run.txt" "다른 soak 실행 없음"
+  kill -TERM "$keep8" 2>/dev/null || true
+  rm -rf "$d/out/.soak-run.lock"
+
+  # 기대 지문이 틀리면 밤을 버리기 전에 잡는다
+  _owner8 deadbeefdeadbeef
+  preflight > "$d/pf-fp.txt" 2>&1
+  _st_ck "⑧ 지문 불일치면 preflight 1" 1 "$?"
+  _st_ck_has "⑧ 지문 불일치를 지목" "$d/pf-fp.txt" "기대 지문 == 현재 트리"
+
+  # 유령 잠금(주인 프로세스가 죽었는데 잠금만 남음)
+  kill -TERM "$fake8" 2>/dev/null || true
+  sleep 1
+  preflight > "$d/pf-ghost.txt" 2>&1
+  _st_ck "⑧ 유령 잠금이면 preflight 1" 1 "$?"
+  _st_ck_has "⑧ 유령 잠금을 지목" "$d/pf-ghost.txt" "잠금 상태=armed"
+
   # ⑤ 죽은 주인의 잠금은 '예약됨'이 아니라 'stale' 로 보인다(상태를 속이지 않는다)
   d="$tmp/t5"
   mkdir -p "$d/out/.soak-arm.lock"
@@ -542,6 +707,7 @@ case "${1:-status}" in
   arm) shift; cmd_arm "$@" ;;
   cancel) shift; cmd_cancel "$@" ;;
   orphans) shift; cmd_orphans "$@" ;;
+  preflight) shift; cmd_preflight "$@" ;;
   selftest) shift; cmd_selftest "$@" ;;
   -h | --help | help) sed -n '2,30p' "$0" ;;
   *)
