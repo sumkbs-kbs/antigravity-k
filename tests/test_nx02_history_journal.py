@@ -657,3 +657,85 @@ def test_api_history_rejects_bad_paging_and_reports_corruption(client: TestClien
     assert corrupt.status_code == 409
     assert corrupt.json()["error"] == "conversation_history_corrupt"
     assert corrupt.json()["journal_line"] == 2
+
+
+# ── NX-10 soak 이 드러낸 회귀: tail() 은 꼬리 창만 읽는다 ────────────────────────
+#
+# 8시간 soak(SC-6)에서 append 1회가 journal 전체(24.4 MB / 70,431줄)를 **3회**
+# 파싱해 처리량이 제곱으로 무너지고(2.45 ops/s) RSS 가 기준 64 MB 를 26배 넘겼다.
+# 계약은 두 가지다: ① tail 판정은 꼬리 창을 넘지 않는다(전체 읽기 금지),
+# ② 어떤 파일 모양에서도 그 판정이 종전의 전체 스캔과 동일하다. 근거와 수치:
+# docs/qa/2026-09-16-followup/nx10/SOAK_8H_FINDINGS.md §3.
+
+
+def _seed_journal(tmp_path: Path, count: int, *, padding: str = "") -> tuple[Path, Path]:
+    storage = tmp_path / "conversations"
+    store = ConversationStore(storage_dir=storage)
+    for i in range(count):
+        _append(store, i, f"turn-{i}{padding}")
+    return storage, _journal_path(storage)
+
+
+def test_journal_tail_reads_only_its_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage, journal_path = _seed_journal(tmp_path, 300, padding="-" + "x" * 200)
+    size = journal_path.stat().st_size
+    assert size > journal_module.TAIL_WINDOW_BYTES, "창 계약을 재려면 journal 이 창보다 커야 한다"
+
+    chunks: list[int] = []
+    original = journal_module.ConversationJournal._last_event_in_window
+
+    def _spy(self: ConversationJournal, chunk: bytes, **kwargs: Any) -> Any:
+        chunks.append(len(chunk))
+        return original(self, chunk, **kwargs)
+
+    def _forbidden(self: ConversationJournal) -> bytes | None:
+        raise AssertionError("tail() 이 journal 전체를 읽었다 — 꼬리 창 계약 위반")
+
+    monkeypatch.setattr(journal_module.ConversationJournal, "_last_event_in_window", _spy)
+    monkeypatch.setattr(journal_module.ConversationJournal, "_read_bytes", _forbidden)
+
+    tail = ConversationJournal(journal_path).tail()
+    assert (tail.exists, tail.seq, tail.revision, tail.truncated_tail) == (True, 300, 300, False)
+    assert chunks and max(chunks) <= journal_module.TAIL_WINDOW_BYTES
+    assert max(chunks) < size
+
+    # 커밋 경로도 같은 계약을 지킨다(커밋 전 tail 판정 + seq 부여).
+    store = ConversationStore(storage_dir=storage)
+    revision = store.get_revision(project_id=PROJECT, conversation_id=CONV)
+    chunks.clear()
+    _append(store, revision, "after the window contract")
+    assert chunks and max(chunks) <= journal_module.TAIL_WINDOW_BYTES
+
+
+def test_journal_tail_window_verdict_equals_full_scan_for_every_shape(tmp_path: Path) -> None:
+    _, journal_path = _seed_journal(tmp_path, 3)
+    good = journal_path.read_bytes().rstrip(b"\n").split(b"\n")
+    assert len(good) == 3
+
+    shapes: list[tuple[bytes, bool]] = [
+        (b"", False),  # 빈 파일
+        (journal_path.read_bytes(), False),  # 정상 3줄
+        (b"\n\n\n", False),  # 빈 줄만
+        (b'{"event_type": "append"', True),  # torn 한 줄만
+        (journal_path.read_bytes() + b'{"event_type": "append", "schema": "agk.conv-', True),  # torn tail
+        (b"\n".join([*good, b"{not json"]) + b"\n", False),  # 마지막 줄 손상
+        (b"\n".join([good[0], b"{not json", good[2]]) + b"\n", False),  # 중간 줄 손상
+    ]
+    for payload, expect_truncated in shapes:
+        journal_path.write_bytes(payload)
+        journal = ConversationJournal(journal_path)
+        tail = journal.tail()
+        assert tail == journal._tail_by_full_scan(), payload[:60]
+        assert tail.truncated_tail is expect_truncated, payload[:60]
+
+    # 창보다 긴 한 줄은 창을 키워야만 결정된다 — 그래도 종전 전체 스캔과 같아야 한다.
+    huge = tmp_path / "huge"
+    huge_store = ConversationStore(storage_dir=huge / "conversations")
+    for i in range(2):
+        _append(huge_store, i, f"turn-{i}")
+    huge_journal = _journal_path(huge / "conversations")
+    _append(huge_store, 2, "y" * (journal_module.TAIL_WINDOW_BYTES * 2))
+    assert huge_journal.stat().st_size > journal_module.TAIL_WINDOW_BYTES
+    journal = ConversationJournal(huge_journal)
+    assert journal.tail() == journal._tail_by_full_scan()
+    assert journal.tail().seq == 3

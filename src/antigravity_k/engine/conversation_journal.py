@@ -43,6 +43,13 @@ DELETION_MARKER_SCHEMA: Final[str] = "agk.conv-deleted.v1"
 
 EVENT_TYPES: Final[tuple[str, ...]] = ("base", "append", "compact", "fork", "delete")
 
+# 꼬리 창 크기. 마지막 커밋 줄 하나를 담기에 충분한 크기로 시작해
+# 줄이 그보다 길면 창을 키우다가, 상한을 넘으면 종전과 동일한 전체 스캔으로
+# 되돌아간다(정확성 우선). 8시간 soak 에서 append 1회가 journal 전체(24 MB)를
+# 3회 파싱해 SC-6 이 RSS 로 실패했다 — nx10/SOAK_8H_FINDINGS.md §3.
+TAIL_WINDOW_BYTES: Final[int] = 64 * 1024
+TAIL_WINDOW_MAX_BYTES: Final[int] = 8 * 1024 * 1024
+
 
 class ConversationJournalError(RuntimeError):
     """Journal could not be read or written (never a silent degradation)."""
@@ -367,7 +374,82 @@ class ConversationJournal:
         return events, truncated
 
     def tail(self) -> JournalTail:
-        """Last committed event state without replaying the whole file."""
+        """Last committed event state without replaying the whole file.
+
+        마지막 커밋 줄은 파일 끝에 있으므로 앞부분을 다시 파싱할 이유가 없다 —
+        꼬리 창(window)만 읽는다. 창 안에서 읽히는 줄을 못 찾으면(줄이 창보다 긴
+        비정상 파일) 창을 키우고, 상한을 넘으면 종전과 **동일한 전체 스캔**으로
+        되돌아간다(정확성 우선).
+        """
+        # 읽는 동안 파일이 줄어들면(다른 프로세스의 truncate) 줄 경계 판단이 틀릴 수 있다
+        # — 짧게 읽힌 경우는 다시 시도하고, 그래도 안 되면 전체 스캔으로 되돌아간다.
+        for _ in range(3):
+            tail, retry = self._tail_from_window()
+            if not retry:
+                return tail if tail is not None else self._tail_by_full_scan()
+        return self._tail_by_full_scan()
+
+    def _tail_from_window(self) -> tuple[JournalTail | None, bool]:
+        """꼬리 창으로 판정한다. ``(결과 또는 None, 다시 시도할까)``."""
+        try:
+            fd = os.open(self.path, os.O_RDONLY)
+        except FileNotFoundError:
+            return JournalTail(False, 0, 0, False, False, False), False
+        except OSError as exc:
+            raise ConversationJournalError(f"Conversation journal could not be read: {self.path}") from exc
+        try:
+            size = os.fstat(fd).st_size
+            if size == 0:
+                return JournalTail(True, 0, 0, False, False, False), False
+            window = min(TAIL_WINDOW_BYTES, size)
+            while True:
+                offset = size - window
+                chunk = os.pread(fd, window, offset)
+                if offset > 0 and len(chunk) < window:
+                    return None, True  # 파일이 줄어들었다 — 크기를 다시 읽는다
+                event, truncated = self._last_event_in_window(chunk, partial_head=offset > 0)
+                if event is not None:
+                    return (
+                        JournalTail(
+                            True,
+                            event.seq,
+                            event.revision,
+                            truncated,
+                            event.event_type == "delete",
+                            event.history_incomplete,
+                        ),
+                        False,
+                    )
+                if window >= size or window >= TAIL_WINDOW_MAX_BYTES:
+                    return None, False  # 창으로 결정할 수 없다 → 전체 스캔 폴백
+                window = min(window * 2, size, TAIL_WINDOW_MAX_BYTES)
+        except OSError as exc:
+            raise ConversationJournalError(f"Conversation journal could not be read: {self.path}") from exc
+        finally:
+            os.close(fd)
+
+    def _last_event_in_window(self, chunk: bytes, *, partial_head: bool) -> tuple[JournalEvent | None, bool]:
+        """``(마지막으로 읽히는 이벤트, torn tail 여부)`` — 이벤트가 None 이면 창을 키운다.
+
+        ``partial_head`` 는 창이 줄 중간에서 시작함을 뜻한다 — 그 첫 조각은 마지막
+        줄이 아니므로 버린다. 읽히는 줄이 하나도 없는 창은 결정적이지 않으므로
+        호출자가 창을 키우게 한다(끝까지 키워도 안 되면 전체 스캔 폴백).
+        """
+        truncated = bool(chunk) and not chunk.endswith(b"\n")
+        body = chunk[: chunk.rfind(b"\n") + 1] if truncated else chunk
+        segments = body.split(b"\n")
+        if partial_head:
+            segments = segments[1:]
+        for line in reversed(segments):
+            if not line.strip():
+                continue
+            event = _parse_lenient_line(line)
+            if event is not None:
+                return event, truncated
+        return None, truncated
+
+    def _tail_by_full_scan(self) -> JournalTail:
+        """종전 전체 스캔 — 창 경로가 판정하지 못한 파일의 폴백(의미 동일)."""
         raw = self._read_bytes()
         if raw is None:
             return JournalTail(False, 0, 0, False, False, False)
@@ -376,16 +458,9 @@ class ConversationJournal:
         for line in good_bytes.split(b"\n"):
             if not line.strip():
                 continue
-            try:
-                data = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                # tail() is a cheap probe; full validation happens in read().
-                continue
-            if isinstance(data, dict):
-                try:
-                    last = JournalEvent.from_dict(data)
-                except ConversationJournalError:
-                    continue
+            event = _parse_lenient_line(line)
+            if event is not None:
+                last = event
         if last is None:
             return JournalTail(True, 0, 0, truncated, False, False)
         return JournalTail(
@@ -400,6 +475,20 @@ class ConversationJournal:
     def events_after(self, seq: int) -> list[JournalEvent]:
         events, _truncated = self.read()
         return [event for event in events if event.seq > seq]
+
+
+def _parse_lenient_line(line: bytes) -> JournalEvent | None:
+    """``tail()`` 전용 관대한 줄 파서 — 못 읽는 줄은 건너뛴다(오류는 ``read()`` 가 낸다)."""
+    try:
+        data = json.loads(line.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        return JournalEvent.from_dict(data)
+    except ConversationJournalError:
+        return None
 
 
 def is_original(message: Mapping[str, Any]) -> bool:
