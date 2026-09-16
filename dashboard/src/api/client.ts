@@ -391,6 +391,17 @@ export async function streamChatCompletion(
           });
         }
       }
+      if (response.status === 400) {
+        // ADR-0005: 첨부 거부는 **이유와 함께** 올라와야 한다 — "Server returned 400"
+        // 만 보여 주면 사용자는 왜 안 갔는지 알 수 없다(그것이 F03 의 형태였다).
+        const failure = await response.json().catch(() => null) as {
+          error?: string;
+          detail?: unknown;
+        } | null;
+        if (failure && typeof failure.detail === 'string' && failure.detail) {
+          throw new Error(failure.detail);
+        }
+      }
       throw new Error(`Server returned ${response.status}`);
     }
 
@@ -718,8 +729,21 @@ export async function deleteSettingsKeys(keys: string[]): Promise<SettingsDelete
 /**
  * Authenticated PIN change (Settings). Uses the stored bearer via requestJson headers.
  * Never persists PIN values to browser storage.
+ *
+ * NX-05: 성공하면 서버가 **모든 세션을 폐기**한다(epoch 증가). 응답의
+ * `reauth_required`가 그 사실을 알리며, 호출자(설정 화면)는 저장 토큰을 지우고
+ * 새 PIN으로 재로그인을 요구해야 한다. 필드가 없는 구버전 서버 응답도 읽는다.
  */
-export async function changeAccessPin(currentPin: string, newPin: string): Promise<{ ok: boolean; detail: string }> {
+export type ChangeAccessPinResult = {
+  ok: boolean;
+  detail: string;
+  /** true면 이 호출의 토큰은 더 이상 유효하지 않다 — 재로그인 필요. */
+  reauthRequired: boolean;
+  /** 폐기 후 서버 세대(관측용). 구버전 서버면 0. */
+  epoch: number;
+};
+
+export async function changeAccessPin(currentPin: string, newPin: string): Promise<ChangeAccessPinResult> {
   const raw = await requestJson('/api/auth/change-pin', '/api/auth/change-pin', {
     method: 'POST',
     body: JSON.stringify({ current_pin: currentPin, new_pin: newPin }),
@@ -732,11 +756,12 @@ export async function changeAccessPin(currentPin: string, newPin: string): Promi
   ) {
     throw new Error('Unexpected change-pin response.');
   }
-  const detail =
-    'detail' in raw && typeof (raw as { detail: unknown }).detail === 'string'
-      ? (raw as { detail: string }).detail
-      : 'PIN updated.';
-  return { ok: (raw as { ok: boolean }).ok, detail };
+  const record = raw as { ok: boolean; detail?: unknown; reauth_required?: unknown; epoch?: unknown };
+  const detail = typeof record.detail === 'string' ? record.detail : 'PIN updated.';
+  // 서버가 이전 버전이라 필드가 없으면 "폐기됨"이 기본이다 — PIN 변경은 세대를 올린다.
+  const reauthRequired = typeof record.reauth_required === 'boolean' ? record.reauth_required : true;
+  const epoch = typeof record.epoch === 'number' && Number.isFinite(record.epoch) ? record.epoch : 0;
+  return { ok: record.ok, detail, reauthRequired, epoch };
 }
 
 

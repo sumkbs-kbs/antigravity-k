@@ -29,6 +29,8 @@ import {
   type SettingsData,
 } from '../api/client';
 import { readBrowserSettings, writeBrowserSettings } from '../utils/browserSettings';
+import { clearAccessCredential } from '../utils/accessPinCredential';
+import { useUiStore } from '../stores/uiStore';
 
 const PROVIDERS = [
   { key: 'OPENROUTER_API_KEY', label: 'OpenRouter', icon: '🌐', hint: 'openrouter.ai/keys' },
@@ -387,10 +389,22 @@ const SettingsPage: React.FC = () => {
     setPinBusy(true);
     try {
       const result = await changeAccessPin(current, next);
-      setPinStatusMsg(`✅ ${result.detail || 'PIN이 변경되었습니다.'}`);
       setCurrentPin('');
       setNewPin('');
       setConfirmPin('');
+      if (result.reauthRequired) {
+        // NX-05: 이 시점부터 이 브라우저의 토큰은 서버 세대와 다르다(전체 폐기).
+        // 토큰을 남겨두면 모든 요청이 401로 반복되므로 즉시 지우고 재로그인을 띄운다.
+        clearAccessCredential();
+        setPinStatusMsg('✅ PIN이 변경되었습니다. 보안을 위해 모든 세션이 종료되었습니다 — 새 PIN으로 다시 로그인하세요.');
+        // NX-09: 모달이 앱 전체를 대체하므로 위 상태 메시지는 사라진다 — 이유를 모달이 들고 간다.
+        useUiStore.getState().setPinModalNotice(
+          '보안을 위해 모든 세션이 종료되었습니다. 새 PIN으로 다시 로그인하세요.',
+        );
+        useUiStore.getState().setPinModalVisible(true);
+        return;
+      }
+      setPinStatusMsg(`✅ ${result.detail || 'PIN이 변경되었습니다.'}`);
     } catch (error) {
       if (isAuthRequiredError(error)) {
         setPinStatusMsg('🔒 PIN 인증이 필요합니다. 잠금을 해제한 뒤 다시 시도하세요.');

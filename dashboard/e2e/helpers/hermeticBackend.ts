@@ -42,6 +42,13 @@ export interface HermeticServer {
   /** 서버 **프로세스 그룹 리더**의 pid — 크래시 슬라이스가 이 그룹째로 신호를 보낸다. */
   pid: number | undefined;
   /**
+   * 서버 프로세스의 stdout/stderr 누적(관측용).
+   *
+   * NX-09: 제품의 WS 가 PIN 변경 폐기에 포함됐는지를 **서버 로그**로 확인해야 했다 —
+   * 브라우저에서 보이는 "소켓이 열려 있다"만으로는 원인을 구분할 수 없다.
+   */
+  output: () => string;
+  /**
    * 이 서버를 멈춘다(기본 `SIGKILL` — 크래시를 재현할 때 정상 종료를 쓰면 다른 질문이 된다).
    *
    * 신호는 **프로세스 그룹 전체**로 간다: 이 하네스는 `uv run … uvicorn` 을 띄우므로 실제 서버는
@@ -241,6 +248,7 @@ export async function startBackendServer(
     stateDirectory,
     hookVaultDir,
     pid: listener.pid,
+    output: () => output,
     kill: (signal: NodeJS.Signals = 'SIGKILL') => signalProcessGroup(listener.pid, signal),
     cleanup: async () => {
       if (previousHookVault === undefined) {

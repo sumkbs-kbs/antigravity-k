@@ -67,6 +67,13 @@ export interface UiState {
 
   // Modals
   pinModalVisible: boolean;
+  /**
+   * NX-09: PIN 모달이 뜬 **이유**(예: PIN 변경으로 전체 세션 폐기).
+   *
+   * 모달은 앱 전체를 대체하므로(설정 화면이 unmount) 다른 화면의 안내 문구는 사라진다 — 사용자는
+   * "갑자기 잠금 화면"만 보고 이유를 알 수 없다. 이유를 모달 자신이 들고 있는다.
+   */
+  pinModalNotice: string;
   commandPaletteVisible: boolean;
   folderBrowserVisible: boolean;
   chatHistoryVisible: boolean;
@@ -86,6 +93,7 @@ export interface UiState {
   setSidebarVisible: (val: boolean) => void;
   setMode: (mode: ExecutionMode) => void;
   setPinModalVisible: (val: boolean) => void;
+  setPinModalNotice: (val: string) => void;
   setCommandPaletteVisible: (val: boolean) => void;
   setFolderBrowserVisible: (val: boolean) => void;
   setChatHistoryVisible: (val: boolean) => void;
@@ -102,6 +110,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   mode: 'interactive',
 
   pinModalVisible: true,
+  pinModalNotice: '',
   commandPaletteVisible: false,
   folderBrowserVisible: false,
   chatHistoryVisible: false,
@@ -134,6 +143,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   setMode: (mode) => set({ mode }),
 
   setPinModalVisible: (val) => set({ pinModalVisible: val }),
+  setPinModalNotice: (val) => set({ pinModalNotice: val }),
   setCommandPaletteVisible: (val) => set({ commandPaletteVisible: val }),
   setFolderBrowserVisible: (val) => set({ folderBrowserVisible: val }),
   setChatHistoryVisible: (val) => set({ chatHistoryVisible: val }),

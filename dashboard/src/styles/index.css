@@ -14869,6 +14869,35 @@ html, body {
   gap: 12px;
 }
 
+/* NX-09-F03: 첨부는 전송 전에 **보여야** 한다(보이지 않으면 붙였다는 사실을 믿을 수 없다). */
+.agk-attachment-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.agk-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(229, 169, 59, 0.35);
+  background: rgba(229, 169, 59, 0.12);
+  color: var(--text-primary, #f0f6fc);
+  font-size: 12px;
+}
+
+.agk-attachment-chip button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
 .agk-input-main-card textarea,
 .agk-input-main-card .codex-textarea {
   color: var(--text-primary, #f0f6fc) !important;

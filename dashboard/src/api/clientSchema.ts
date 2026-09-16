@@ -557,6 +557,11 @@ export const ExecutionContextErrorCodeSchema = z.enum([
   "stale_conversation_revision",
   "conversation_integrity_error",
   "conversation_storage_migration_required",
+  // NX-02: 원본 이력 journal 의 손상(중간) / IO·schema 실패는 다른 의미다.
+  "conversation_history_corrupt",
+  "conversation_history_unavailable",
+  // NX-02 후속: journal byte 한계 초과로 append 를 거절했다(기존 데이터는 보존).
+  "conversation_history_quota_exceeded",
 ]);
 
 export const EXECUTION_CONTEXT_ERROR_HTTP_STATUS = {
@@ -571,6 +576,12 @@ export const EXECUTION_CONTEXT_ERROR_HTTP_STATUS = {
   conversation_integrity_error: 409,
   // CR-01: legacy layout must be migrated before the API serves conversations.
   conversation_storage_migration_required: 503,
+  // NX-02: 원본 journal 의 중간 손상은 조용히 건너뛰지 않고 hard error 로 알린다.
+  conversation_history_corrupt: 409,
+  // NX-02: journal 을 읽을 수 없음(IO/상위 schema) — 재시도 가능한 실패.
+  conversation_history_unavailable: 503,
+  // NX-02 후속: 저장 공간 한계(507) — 조용한 prune 대신 쓰기를 거절한다.
+  conversation_history_quota_exceeded: 507,
 } as const;
 
 export type RequestExecutionContextWire = z.infer<typeof RequestExecutionContextWireSchema>;

@@ -228,6 +228,14 @@ const AppContent: React.FC = () => {
     let chatSlashTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const handlePinRequired = () => {
+      // NX-05: 401은 "이 토큰은 현재 서버 세대가 아니다"라는 뜻이다(PIN 변경으로 전체
+      // 폐기 포함). 거부된 토큰을 sessionStorage에 남기면 이후 모든 요청이 같은 401을
+      // 반복하므로 여기서 지운다 — 모달에서 로그인하면 새 토큰이 저장된다.
+      clearAccessCredential();
+      // NX-09: 이유를 모달이 들고 간다 — 화면이 통째로 교체되므로 다른 곳의 안내는 사라진다.
+      useUiStore.getState().setPinModalNotice(
+        '세션이 만료되었거나 서버 세대가 바뀌었습니다. 다시 로그인하세요.',
+      );
       useUiStore.getState().setPinModalVisible(true);
     };
     window.addEventListener('agk:pin-required', handlePinRequired);

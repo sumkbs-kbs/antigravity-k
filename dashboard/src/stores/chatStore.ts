@@ -103,6 +103,15 @@ export interface ChatState {
 
 const STORAGE_KEY_PREFIX = 'antigravity_chat_';
 
+/**
+ * 서버가 대화 id 없이 들어온 요청에 붙이는 **폴백** id(`project_binding` 계약).
+ *
+ * NX-09: 이것은 정체성이 아니다. 클라이언트가 이 값을 자기 대화 id 로 채택하면 서로 다른
+ * 사용자/창의 첫 대화가 **한 레코드로 합쳐지고**(거기서 삭제하면 남의 이력도 함께 지워진다),
+ * 이력 목록에는 그 대화가 없다(세션 항목이 만들어지지 않았으므로).
+ */
+export const SERVER_FALLBACK_CONVERSATION_ID = 'conv_unspecified';
+
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
@@ -181,6 +190,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addMessage: (msg: ChatMessage) => {
     const { messages, activeSessionId, sessions, activeSession } = get();
     const newMessages = [...messages, msg];
+
+    // NX-09: 세션이 없는 상태에서 첫 메시지가 들어오면 **클라이언트가** 대화 id 를 만든다.
+    // (그러지 않으면 요청에 conversation_id 가 없고, 서버 폴백을 정체성으로 채택한다 —
+    //  첫 대화가 이력 목록에도 없고 다른 창의 첫 대화와 한 레코드로 섞인다.)
+    if (!activeSessionId) {
+      const id = generateId();
+      const title = msg.role === 'user' && msg.content.trim()
+        ? generateChatTitle(msg.content)
+        : '새 대화';
+      const session: ChatSession = {
+        id,
+        title,
+        updatedAt: new Date().toISOString(),
+        messages: newMessages,
+        conversationRevision: 0,
+      };
+      set({
+        activeSessionId: id,
+        activeSession: session,
+        messages: newMessages,
+        sessions: [session, ...sessions],
+      });
+      get().saveToStorage();
+      return;
+    }
 
     let derivedTitle: string | undefined;
     const currentSession = sessions.find(s => s.id === activeSessionId) || activeSession;
@@ -261,11 +295,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const nextMessages = snapshot.messages && snapshot.messages.length > 0
       ? snapshot.messages
       : messages;
+    // NX-09: 서버 폴백 id 는 **정체성이 아니다** — 채택하면 클라이언트 id 가 사라지고
+    // 모든 첫 대화가 한 레코드로 합쳐진다. 응답이 폴백을 돌려주면 현재 id 를 유지한다.
+    const serverId = snapshot.conversation_id === SERVER_FALLBACK_CONVERSATION_ID
+      ? ''
+      : snapshot.conversation_id;
     const updatedSessions = sessions.map(s => {
-      if (s.id !== activeSessionId && s.id !== snapshot.conversation_id) return s;
+      if (s.id !== activeSessionId && s.id !== serverId) return s;
       return {
         ...s,
-        id: snapshot.conversation_id || s.id,
+        id: serverId || s.id,
         messages: nextMessages,
         conversationRevision: revision,
         updatedAt: new Date().toISOString(),
@@ -274,7 +313,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const updatedActive = activeSession
       ? {
           ...activeSession,
-          id: snapshot.conversation_id || activeSession.id,
+          id: serverId || activeSession.id,
           messages: nextMessages,
           conversationRevision: revision,
           updatedAt: new Date().toISOString(),
@@ -283,7 +322,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       messages: nextMessages,
       conversationRevision: revision,
-      activeSessionId: snapshot.conversation_id || activeSessionId,
+      activeSessionId: serverId || activeSessionId,
       sessions: updatedSessions,
       activeSession: updatedActive,
     });

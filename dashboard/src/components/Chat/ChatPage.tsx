@@ -64,6 +64,41 @@ import {
   withProjectIdentitySearchParams,
 } from '../../api/projectIdentity';
 
+/**
+ * NX-09-F03 — 첨부는 **바이트를 함께 보낸다**.
+ *
+ * 예전에는 파일명 표식(`[첨부 파일: …]`)만 입력창에 넣고 바이트는 보내지 않았다. 사용자는
+ * 이미지를 붙였다고 믿지만 모델은 파일명만 봤다 — 화면이 거짓말했다. 계약(이름·MIME·base64)은
+ * 서버 `engine/multimodal.py`(ADR-0005)가 소유하고, 여기서는 **빠른 실패**만 한다(최종 판정은 서버).
+ */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME: readonly string[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+interface PendingAttachment {
+  readonly name: string;
+  readonly mime_type: string;
+  readonly data_base64: string;
+  readonly bytes: number;
+}
+
+/** 파일을 base64 로 읽는다 — 전송 형식은 서버 계약과 같다. */
+function readAttachmentBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('파일을 읽지 못했습니다.'));
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const comma = result.indexOf(',');
+      if (comma < 0) {
+        reject(new Error('파일을 읽지 못했습니다.'));
+        return;
+      }
+      resolve(result.slice(comma + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export const ChatPage: React.FC = () => {
   const {
     messages, isStreaming, selectedModel, isPlanMode, isTddMode, isAdaptiveMode,
@@ -86,6 +121,9 @@ export const ChatPage: React.FC = () => {
 
   /* ─── States ─────────────────────────────────────────────── */
   const [inputText, setInputText] = useState<string>('');
+  // 다음 턴에 실제로 전송될 첨부(바이트 포함). 전송 시점에 비운다.
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
   const [queueCollapsed, setQueueCollapsed] = useState<boolean>(false);
 
@@ -183,6 +221,17 @@ export const ChatPage: React.FC = () => {
     loadLocalModelsRef.current = loadLocalModels;
   }, [isPlanMode, isTddMode, isAdaptiveMode, selectedModel, loadLocalModels]);
 
+  /**
+   * CTX-01: client projection 을 **서버 권위 revision** 에 맞춘다.
+   *
+   * NX-09: 이 함수는 init effect 안에서만 불렸고 그 effect 는 프로젝트 정체성에 의존하지 않았다.
+   * 프로젝트 하이드레이션은 `hydrateProjects()` 의 **비동기** 완료로 들어오므로, 마운트 시점에는
+   * `activeProjectId` 가 아직 null 인 것이 정상이다 — 그러면 이 동기화는 조용히 return 했고
+   * **재시작 뒤 서버 이력이 한 번도 로드되지 않았다**(로컬 캐시가 비어 있으면 빈 대화로 보인다).
+   * 정체성이 도착하는 순간에도 맞추도록 ref 에 담아 별도 effect 에서 부른다.
+   */
+  const syncConversationRef = useRef<() => Promise<void>>(async () => undefined);
+
   /* ─── Init ───────────────────────────────────────────────── */
   useEffect(() => {
     loadFromStorage();
@@ -191,7 +240,6 @@ export const ChatPage: React.FC = () => {
       .then(models => setAvailableModels(models))
       .catch(() => {});
 
-    // CTX-01: refresh/reconnect — align client projection to authoritative revision.
     const syncConversation = async () => {
       const chat = useChatStore.getState();
       const projectId = useProjectStore.getState().activeProjectId;
@@ -221,8 +269,16 @@ export const ChatPage: React.FC = () => {
         addToast(`서버 대화 이력을 확인하지 못했습니다: ${detail}`, 'error');
       }
     };
+    syncConversationRef.current = syncConversation;
     void syncConversation();
   }, [loadFromStorage, loadLocalModels, addToast]);
+
+  // NX-09: 프로젝트 정체성이 (하이드레이션으로) 도착하면 서버 이력과 한 번 맞춘다.
+  // init effect 는 이 값을 의존성으로 갖지 않으므로 여기서 다시 부른다.
+  useEffect(() => {
+    if (!activeProjectId) return;
+    void syncConversationRef.current();
+  }, [activeProjectId]);
 
   const reloadWorkspaceContext = useCallback(() => {
     const store = useProjectStore.getState();
@@ -460,6 +516,19 @@ export const ChatPage: React.FC = () => {
     const requestEpoch = useProjectStore.getState().switchEpoch;
     const requestProjectId = useProjectStore.getState().activeProjectId;
 
+    // NX-09-F03: 첨부는 **이 턴에** 실린다 — 전송을 결정한 순간 비운다(다음 턴으로 새지 않게).
+    const attachments = pendingAttachmentsRef.current;
+    if (attachments.length > 0 && adaptiveMode) {
+      // adaptive 경로는 첨부를 받지 않는다 — 조용히 버리지 않고 명시적으로 거부한다.
+      addToast('첨부는 일반 모드에서만 전송됩니다(Adaptive 모드에서는 지원하지 않음)', 'error');
+      abortRef.current = null;
+      return;
+    }
+    if (attachments.length > 0) {
+      pendingAttachmentsRef.current = [];
+      setPendingAttachments([]);
+    }
+
     firePluginHook('chat:send', { text, model, planMode, tddMode, adaptiveMode });
     useActivityStore.getState().clear();
     useActivityStore.getState().setSessionStarted();
@@ -546,6 +615,10 @@ export const ChatPage: React.FC = () => {
         conversation_id: conversationId ?? undefined,
         conversation_revision: expectedRevision,
         use_conversation_store: true,
+        // ADR-0005: 첨부는 이름·MIME·base64 로 보낸다(서버가 파트로 바꾼다).
+        attachments: attachments.length > 0
+          ? attachments.map(({ name, mime_type, data_base64 }) => ({ name, mime_type, data_base64 }))
+          : undefined,
         stream: true,
         agent_mode: true,
         plan_mode: planMode,
@@ -840,10 +913,44 @@ export const ChatPage: React.FC = () => {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // 같은 파일을 다시 고를 수 있게 입력값을 비운다(값이 남으면 change 가 안 뜬다).
+    e.target.value = '';
     if (!file) return;
-    setInputText(prev => prev ? `${prev}\n[첨부 파일: ${file.name}]` : `[첨부 파일: ${file.name}] `);
-    addToast(`파일 첨부: ${file.name}`, 'info');
+    // 빠른 실패 — 서버가 최종 판정하지만, 왕복 전에 이유를 알려 준다.
+    if (!ALLOWED_IMAGE_MIME.includes(file.type)) {
+      addToast(`지원하지 않는 형식입니다: ${file.type || file.name} (PNG·JPEG·WebP·GIF)`, 'error');
+      return;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      addToast(`첨부가 너무 큽니다: ${(file.size / 1024 / 1024).toFixed(1)}MB (상한 5MB)`, 'error');
+      return;
+    }
+    void readAttachmentBase64(file)
+      .then((data_base64) => {
+        const attachment: PendingAttachment = {
+          name: file.name,
+          mime_type: file.type,
+          data_base64,
+          bytes: file.size,
+        };
+        pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment];
+        setPendingAttachments(pendingAttachmentsRef.current);
+        // 파일명 표식은 **이력 참조용**으로 남긴다(바이트는 별도 채널로 간다).
+        setInputText(prev => prev ? `${prev}\n[첨부 파일: ${file.name}]` : `[첨부 파일: ${file.name}] `);
+        addToast(`파일 첨부: ${file.name} — 모델에 이미지로 전달됩니다`, 'info');
+      })
+      .catch((error: unknown) => {
+        addToast(error instanceof Error ? error.message : '파일을 읽지 못했습니다.', 'error');
+      });
   };
+
+  const removePendingAttachment = useCallback((name: string, bytes: number) => {
+    const next = pendingAttachmentsRef.current.filter(
+      (attachment) => !(attachment.name === name && attachment.bytes === bytes),
+    );
+    pendingAttachmentsRef.current = next;
+    setPendingAttachments(next);
+  }, []);
 
   // Close menus on click outside
   useEffect(() => {
@@ -912,6 +1019,29 @@ export const ChatPage: React.FC = () => {
       )}
 
       <div className="agk-input-main-card">
+        {pendingAttachments.length > 0 && (
+          <div className="agk-attachment-chips" data-testid="chat-attachment-chips">
+            {pendingAttachments.map((attachment) => (
+              <span
+                key={`${attachment.name}:${attachment.bytes}`}
+                className="agk-attachment-chip"
+                data-testid="chat-attachment-chip"
+                data-attachment-name={attachment.name}
+                data-attachment-mime={attachment.mime_type}
+                data-attachment-bytes={attachment.bytes}
+              >
+                📎 {attachment.name} ({(attachment.bytes / 1024).toFixed(0)}KB)
+                <button
+                  type="button"
+                  aria-label={`${attachment.name} 첨부 제거`}
+                  onClick={() => removePendingAttachment(attachment.name, attachment.bytes)}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           id="chat-input"
