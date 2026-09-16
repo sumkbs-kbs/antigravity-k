@@ -49,7 +49,7 @@ PIN 이 설정된 배포에서는 첫 화면이 PIN 입력이다.
   2. 특정 테스트 파일 묶음의 **23건** 통과(게이트와 무관 — 판정 근거가 아니다).
   문맥(후보·지문·범위)이 없는 `23/23` 은 판정 근거로 쓰지 않는다.
 
-## 3. 8시간 soak 경과 — 세 단계를 섞지 않는다
+## 3. 8시간 soak 경과 — 단계를 섞지 않는다
 
 | 단계 | 시각 | 결과 | 상태 |
 |---|---|---|---|
@@ -57,19 +57,31 @@ PIN 이 설정된 배포에서는 첫 화면이 PIN 입력이다.
 | ② 교정 결정 A | 2026-09-15 | ConversationStore soft-max auto-compact 기본 64(`78012f4a`) · **임계값 64MB 는 올리지 않음** | 결정 |
 | ③ 재soak | 2026-09-15 15:07 → ~23:08 KST | `duration_s=28801.318` · append `12,102,886` = revision `12,102,886` · 최종 view 26 (≤ soft max 64) · RSS `65.7 → 114.4`(+48.7) · `errors=0` · `fd_growth=0` · `orphan_worktrees=0` · SC-1~6 `all_pass: true` | **JSON 지표 PASS** |
 | ④ 종료·귀속 | — | 래퍼 로그 마지막 줄 `finished exit:141`(원문 명령 미보존 → stdout 절단 가능성, INCONCLUSIVE) · **재soak 당시 코드 후보·시작/종료 지문 귀속 UNVERIFIED** | **미확정** |
+| ⑤ NX-10 재soak (새 후보 `fd16368c`) | 2026-09-16 21:13 → 09-17 05:13 KST | `duration_s 28800.075`(요청 100.0%) · append `70,430` · view 19 ≤ 64 · `errors 0` · fd 5→5 · `orphan_worktrees 0` · 원본 70,431건 전수 확인 · **`rss_growth_mb 1683.5` ≫ 64 → SC-6 FAIL** · start = end = 기대 지문 = `322b4d3b…` · **exit 1** | **FAIL(원인 측정)** |
 
 요약 JSON 의 SHA256 과 sample 배열 요약(count/min/max/first/last)은
 [soak 요약](qa/2026-09-16-followup/soak-summary.json)에 있고 원본은 수정하지 않았다.
 
-**2026-09-16 갱신 — NX-10 의 새 후보 시험이 실행 중이다.** `soak_control.sh run` 으로 `12:13:12Z`
-(21:13 KST)에 시작했고(오너 지시로 22:00 예약을 기다리지 않았다 — 예약은 먼저 `cancel` 로 **검증 종료**),
-종료 예정은 `20:13Z` = **05:13 KST** 다. 기록은 `nx10/soak-exit.txt`(러너 블록: `start_head` · `start_fingerprint`)
-가 소유하고, 판정은 아침에 `scripts/collect_soak_result.py` 한 줄로 한다(지표 + 실행 + 귀속 3단계).
-**이 시점부터 코드를 건드리면 그 8시간이 무효가 된다** — 회수 판정이 끝나기 전에 `src/`·`tests/`·`scripts/` 를
-만지면 “지금 트리 == 시작 지문”이 깨진다.
+**2026-09-17 회수 — NX-10 의 8시간 soak 은 FAIL 이고, 그 원인이 측정됐다.** `scripts/collect_soak_result.py`
+판정(2026-09-16T22:09:18Z): ① 지표 · ② 실행 두 항목 미충족이며 **둘 다 하나의 원인**이다 — SC-6 의
+`rss_growth_mb 1683.5`(기준 64). 귀속은 성립한다: start = end = 예약 기대값 = 현재 트리 = `322b4d3b…`.
+원인은 `ConversationStore.append()` 1회가 `journal.tail()` 을 **3회** 부르고, 그 `tail()` 이 마지막 줄만
+필요한데 journal **전체를 읽고 모든 줄을 파싱**한다는 것이다(8h 상태 실물: append 814ms 중 810ms).
+객체 누수는 아니다 — 살아 있는 객체 수는 평탄하고 일시 할당 peak 52 MB ([상세](qa/2026-09-16-followup/nx10/SOAK_8H_FINDINGS.md) ·
+[nx10/GATE_LEDGER.md §16](qa/2026-09-16-followup/nx10/GATE_LEDGER.md)). 상세 기록은 `nx10/soak-exit.txt`(러너 블록: `start_head` ·
+`start_fingerprint`) 가 소유한다. **이 판정 뒤에는 코드를 고칠 수 있다** — 회수 기록(판정 JSON)이 이미 쓰였으므로
+“지금 트리 == 시작 지문”이 깨져도 이 FAIL 의 증거는 남는다.
+
+**수정도 끝났다(같은 날)**: `ConversationJournal.tail()` 이 journal 전체 대신 꼬리 창만 읽는다.
+실물 8시간 journal 에서 `append()` 814~830 ms → **0.5~0.8 ms**, 10분 재측정은 ops `269,087`(448.5 ops/s) ·
+journal 94.1 MB · `rss_growth_mb` **32.2** 로 `pass: true`, 기울기 평탄부 0.004 KB/op → 8시간 외삽
+**+48 MB < 64**. 같은 실행에서 NX-04 의 `stream_line_count` 가 처음 돌아 통과했다.
+**거짓으로 보고하지 않기 위해**: ⑤ 는 여전히 FAIL 이다 — 고침은 “원인이 사라졌다”는 뜻이고,
+새 지문에서 게이트 23개와 8시간을 다시 재기 전까지 “이김”이 아니다.
 
 **그래서 "8시간 soak PASS"는 JSON 지표 기준이며, ④ 가 닫히기 전에는 게이트 PASS 로 승격하지 않는다.**
-종료 원문은 복구 불가로 종결하고 NX-10 의 새 후보 시험으로 대체한다(NX-00-F01).
+종료 원문은 복구 불가로 종결하고 NX-10 의 새 후보 시험으로 대체한다(NX-00-F01). ⑤ 는 귀속까지 성립한
+**측정된 FAIL** 이므로 ①~④ 와 성격이 다르다: 원인을 알았고 고칠 곳도 하나다.
 
 ## 4. 열려 있는 기술 TODO (사람 축과 별도로 존재한다)
 

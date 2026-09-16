@@ -18,14 +18,19 @@
   통과했다(§5).
 - 판정은 **NO-GO 로 남긴다**(§9). 이 attempt 는 “출시 준비 완료”가 아니라 “판정 가능한
   상태 + 대장”을 만든 것이다.
+- **8시간 soak 은 실행됐고 FAIL 이다**(§10, 2026-09-16 21:13 KST → 05:13). 지표 미달은 **하나**: SC-6
+  `rss_growth_mb 1683.5`(기준 64) — 원인은 `ConversationJournal.tail()` 이 매 append 3회 호출되면서
+  journal **전체**를 파싱하는 것이다(8h 상태에서 append 814ms 중 810ms). **귀속은 성립**(start = end =
+  기대 = 지금 트리 = `322b4d3b…`)하므로 이 실패는 제품 결함으로 귀속된다.
 
 ## 1.5 마감 절차 (soak 회수 → 커밋 → clean-machine)
 
 **[CLOSURE_RUNBOOK.md](CLOSURE_RUNBOOK.md)** 가 그대로 실행 가능한 순서를 소유한다. 거기서 먼저 봐야 할
 두 가지: ① 커밋해도 `python-tests` 빨간 4건은 초록이 되지 않는다(CR-14 울타리 이동·EX-05 승격 — 둘 다
-타 레인/오너의 일이고, 우리가 커밋하면 HEAD 가 오히려 멀어진다), ② 그럼에도 **커밋은 지문을 옮기지
-않는다**(`worktree_fingerprint` 는 코드 파일 **내용** 해시라 커밋으로 변하지 않는다) — 22:00 soak 의
-기대 지문이 그대로 유효하다.
+타 레인/오너의 일이고, 우리가 커밋하면 HEAD 가 오히려 멀어진다), ② **커밋은 지문을 옮길 수 있다** —
+종전에 “옮기지 않는다”고 적었지만 실측으로 반박했고 `CLOSURE_RUNBOOK` §3.1 을 고쳤다: 파일 내용은 그대로라도
+**인덱스에서 사라지는 항목**(추적 중 삭제된 번들 30개)이 지문 맵에서 빠지면서 `0f345d0c… → 92fcaeb5…` 로 이동했다.
+그래서 순서는 **커밋 → 재측정 → (필요하면) 재장전** 이다.
 
 ## 2. 산출물 (읽는 순서)
 
@@ -220,3 +225,46 @@ screen -dmS nx10gates bash docs/qa/2026-09-16-followup/nx10/run_remaining_gates.
 
 clean-machine 창이 열리고, 타 레인의 실패 4건이 정리되고(오너 판정 + CR-14 후보 재선언),
 8시간 soak 의 판정 기준이 먼저 초록이 되면(§7) 그때 §9 를 GO/NO-GO 로 다시 쓴다. **측정된 green 을 “출시 준비 완료”로 확대 해석하지 않는다.**
+
+## 10. 8시간 soak 회수 결과 (2026-09-17) — FAIL, 원인 측정됨
+
+전문: **[SOAK_8H_FINDINGS.md](SOAK_8H_FINDINGS.md)** · 회수 행: [GATE_LEDGER.md §16](GATE_LEDGER.md) ·
+판정 원문: `soak-recovery-20260916T121312Z.json` · `soak-recovery-latest.json`.
+
+- **실행**: `soak_control.sh run` → `12:13:12Z` → `20:13:16Z`(28,800.075초, 요청 100%) · exit 1 ·
+  리포트 `soak-28800.json` · start = end = 기대 = 지금 트리 = `322b4d3b…`.
+- **초록 6가지(거의 전부 8시간 규모 최초)**: `errors 0` · fd 5→5 · `orphan_worktrees 0` · view 19 ≤ 64 ·
+  append/revision 일치 · 원본 70,431건 전수 확인 · 제약 보존. SC-1~5 도 전부 pass.
+- **빨강 1가지**: SC-6 `rss_growth_mb 1683.5`(66.8 → 1750.2 MB, 기준 64) — 이 하나가 exit 1 과
+  `all_pass False` 를 만든다. 처리량도 같이 무너졌다(2.45 ops/s, 70,430 append / 8시간).
+- **원인(측정)**: `append()` 1회 = `tail()` 3회(`_authoritative_record` 1 + `_commit_event` 2).
+  `tail()` 은 docstring 과 달리 `read_bytes()` → `split(b"\n")` → 모든 줄 `json.loads` +
+  `JournalEvent.from_dict` 를 한다. 실물 24.4 MB journal 에서 `tail()` 265~271 ms · append 814~830 ms
+  중 **810 ms = 99.5%**. 비용이 파일 크기에 비례 → 실행 전체가 제곱 → 평균 0.41초 × 70,430 = 8시간 전부.
+- **누수가 아니다**: 60초 프로브에서 살아 있는 객체 수 평탄(±25) · live object 델타 −292 ·
+  일시 할당 peak 52 MB. 즉 “매 호출의 대량 일시 할당이 남긴 high-water”다.
+- **정정**: NX-04 의 `stream_line_count` 경로는 이번에도 타지 않았다(8h journal 24.4 MB < 임계 32 MiB).
+- **수정 완료(같은 날)**: `ConversationJournal.tail()` 이 꼬리 창(64 KiB)만 읽고, 창으로 판정하지 못하는
+  파일만 종전 전체 스캔으로 되돌아간다. 관대한 파싱·`truncated_tail` 의미는 그대로고, **창 경로와 전체
+  스캔의 판정이 모든 파일 모양에서 같다**는 것을 계약 시험으로 고정했다(torn tail·손상 줄·창보다 긴 줄 포함).
+  실물 8h journal 에서: `tail()` 265~271 ms → **0.04 ms** · `append()` 814~830 ms → **0.5~0.8 ms** ·
+  append 3회 `maxrss` 133 MB → **60.9 MB**. 같은 60초 리허설: 2,978 → **29,180 ops**(journal 은 10배 큼) ·
+  RSS 증가 21.2 → **16.8 MB**.
+- **append 1회의 `tail()` 3회는 남겼다**: 각 호출이 O(꼬리)가 되어 합계 < 1 ms 이고, 프로세스 캐시는
+  stale `seq` 위험을 새로 만든다. 본질은 값이 아니라 **읽는 범위**다.
+- **10분 규모 확인(같은 날)**: ops `269,087`(448.5 ops/s) · journal **94.1 MB** · `rss_growth_mb` **32.2** ·
+  `pass true` · view 26 ≤ 64 · generations 4,639. RSS 기울기는 `0.643 → 0.240 → 0.160 → 0.145 → 0.008 →
+  0.015 → 0.004 → 0.008 → 0.000 → 0.004` KB/op 로 **평탄부 진입** — 그 기울기의 8h 외삽은 **+48 MB < 64**
+  이고, 과거 다른 후보의 8h 실적(+48.7 MB / 1,210만 append)과 일치한다. 즉 수정된 코드는 10분에
+  옛 코드가 8시간에 한 일의 **3.8배**를 했고, 8시간은 종전과 다른 크기(≈1,290만 ops)를 잰다.
+- **NX-04 의 `stream_line_count` 가 처음 실행됐다**: 94.1 MB journal 이 32 MiB 임계를 넘어
+  `replay_deferred=True` · `journal_lines=269,088` · `originals_complete=True`. 8h soak 이 닫지 못한
+  항목이 **임계값을 건드리지 않고** 닫혔다.
+- **회귀 확인**: 전체 스위트 `5 failed, 6640 passed, 10 skipped, 20 xfailed`(10분 31초) — **이 수정의 것 0건**
+  (benchmark latency 1: 내가 `-m "not benchmark"` 없이 돌렸고 단독 실행은 pass · CR-14 울타리 2: 코드
+  스코프 이동의 설계된 빨간색 · NX-07 문서 2: **HEAD 내용으로도 같은 위반** — EX-05 대장 행이 `PASS`
+  한 단어인데 그 실행의 귀속이 UNVERIFIED). 대화 저장소 계약 79건 전부 통과 · 문서 검사기 ALL OK.
+  **교차 레인 항목은 고치지 않고 증거만 올린다** — 그 대장은 CR-14 레인의 문서다.
+- **새 작업 트리 지문 `792a7d5d…`**(soak 시작 때의 `322b4d3b…` 와 다름). 다음 측정은 이 지문에서.
+- **다음(순서 고정)**: ~~① 판정 기록~~ ~~② 수정~~ ~~③ 계약 시험~~ ~~④ 10분 기울기 확인~~ ~~⑤ 회귀 확인~~ (완료)
+  → 커밋 → 게이트 23개 재실행 → 8시간 soak 재실행(preflight 에 **처리량 하한** 추가).

@@ -521,3 +521,52 @@ sha256 으로 식별해 두었다.
   이다. `not_run` 이 0이 된 것은 SCOPE 의 분류 오류를 실행으로 바로잡은 결과다(§2).
 - 지문이 다른 attempt 는 합산하지 않았고, 실패한 attempt(001~003, 006, 012)도 **지우지 않고**
   그대로 남겼다.
+
+## 16. 8시간 soak 회수 판정 — SC-6 RSS FAIL, 원인은 측정됨 (2026-09-16 실행 / 09-17 회수)
+
+**회수 행.** 명령: `PYTHONPATH=src .venv/bin/python scripts/collect_soak_result.py` (2026-09-16T22:09:18Z).
+기록: `soak-recovery-20260916T121312Z.json` · `soak-recovery-latest.json` · `soak-recovery.log`.
+
+| 항목 | 값 |
+|---|---|
+| 실행 | `12:13:12Z` → `20:13:16Z` · `duration_s 28800.075`(요청 28800, 100.0%) · **exit 1** |
+| 귀속 | start = end = 기대 = 지금 트리 = `322b4d3b…` (측정 후 코드 무변경) |
+| 리포트 | `soak-28800.json` (40,524 B) · 작업디렉터리 `/tmp/nx10-soak-work-20260916T121312Z` |
+| SC-1~5 | 전부 pass |
+| SC-6 | `completed_ops 70,430` · append/revision 일치 · view 19 ≤ soft max 64 · `errors 0` · `fd_growth 0` · `orphan_worktrees 0` · 원본 70,431 **전수 확인** · **`rss_growth_mb 1683.5` (기준 64) → FAIL** |
+| 판정 | **FAIL** — 미충족 ① 지표(`all_pass False`) · ② 실행(`exit 1`). 둘 다 같은 원인 하나 |
+
+**원인(측정, 추측 아님).** `ConversationStore.append()` 1회 = `journal.tail()` **3회**, 그리고 `tail()` 은
+마지막 줄만 필요한데 **journal 전체를 읽고 모든 줄을 `json.loads` + `JournalEvent.from_dict`** 한다
+(자기 docstring 은 "without replaying the whole file" — 구현이 반대다). 실물 8h journal(24.4 MB / 70,431줄)에서:
+`tail()` 265~271 ms · append 1회 814~830 ms 중 **`tail()` 누적 810 ms = 99.5%** · 같은 저장소의 `_refresh_latest`(view 캐시)는 0 ms.
+비용이 journal 크기에 비례하므로 실행 전체가 제곱이 되고(`70,430 × 3 × 평균 12.2 MB ≈ 2.6 TB`), 평균 0.41초 × 70,430 = **8시간 벽시계의 전부**다.
+RSS 는 **객체 누수가 아니다**: 60초 프로브에서 살아 있는 객체 수 평탄(±25), 8h append 1회의 일시 할당 peak 52 MB,
+live object 델타 −292 — 매 호출의 대량 일시 할당이 남긴 high-water 다. 상세: [SOAK_8H_FINDINGS.md](./SOAK_8H_FINDINGS.md).
+
+**부수 정정 2건.** ① NX-04 의 `stream_line_count` 경로는 이번에도 타지 않았다 — 8h journal 24.4 MB 가
+`ORIGINALS_REPLAY_MAX_BYTES` 32 MiB **미달**이라 `full_replay` 분기를 탔다(코드 주석의 "8h, 수 GB" 가정이 반증됨).
+② `soak_control.sh preflight` 10항목은 예약·지문·여유공간을 보지만 **처리량 하한**을 보지 않는다 — 시작 5분
+시점에 이미 정상의 1% 였고, 그때 알았다면 8시간을 태우지 않았다(다음 회차에 항목 추가).
+
+**이 행은 어떤 green 도 만들지 않는다.** required 23개 중 `python-tests`(타 레인 4건)는 그대로 red 이고,
+SC-6 도 FAIL 이다. 수정 → 재측정 순서는 문서 §6.
+
+### 16-1. 같은 날 결함 수정 + 측정 (기록)
+
+| 단계 | 결과 |
+|---|---|
+| 수정 | `ConversationJournal.tail()` 이 꼬리 창(64 KiB)만 읽는다. 창으로 판정 못 하는 파일만 종전 전체 스캔 폴백. 관대한 파싱·`truncated_tail` 의미 불변 |
+| 계약 시험 2건 | `tests/test_nx02_history_journal.py` — 창 경계(전체 읽기 금지) · 전체 스캔 동등성(7가지 파일 모양 + 창보다 긴 줄). **수정 전 구현을 주입하면 첫 시험이 실제로 빨개진다**(1 failed) |
+| 실물 8h journal | `tail()` 265~271 ms → **0.04 ms** · `append()` 814~830 ms → **0.5~0.8 ms** · append 3회 `maxrss` 133 → **60.9 MB** |
+| 60초 리허설 | ops 2,978 → **29,180**(journal 10배) · `rss_growth` 21.2 → **16.8 MB** · pass 유지 |
+| 10분 (600초) | ops **269,087**(448.5 ops/s) · journal 94.1 MB · `rss_growth` **32.2 MB** · pass · RSS 기울기 평탄부 **0.004 KB/op** → 8h 외삽 **+48 MB < 64** |
+| 부수 | **NX-04 `stream_line_count` 첫 실행**(94.1 MB > 32 MiB): `journal_lines=269,088` · `terminated=True` · `originals_complete=True` |
+
+| 회귀 확인 | 전체 스위트 `5 failed, 6640 passed, 10 skipped, 20 xfailed`(10분 31초). 5건 중 **이 수정의 것 0건**: ① benchmark latency(기능 게이트는 `-m "not benchmark"` 로 제외 — 단독 실행 2.65s pass) ② CR-14 울타리 2건(코드 스코프 이동 = 설계된 빨간색) ③ NX-07 문서 일관성 2건(**HEAD 내용으로도 같은 위반** — `docs/ga/CR14_EX_EXECUTION_LEDGER.md` 의 EX-05 행이 `PASS` 한 단어인데 그 실행의 귀속은 UNVERIFIED). 대화 저장소 계약 79건 전부 통과 · 문서 검사기 ALL OK(링크 134) |
+
+상세와 한계(무엇을 주장하지 않는가): [SOAK_8H_FINDINGS.md](./SOAK_8H_FINDINGS.md) §5c·§5d·§7.
+이 수정은 지문을 움직인다 — **새 작업 트리 지문 `792a7d5d…`**(시작 지문 `322b4d3b…` 와 다름).
+다음 측정은 이 지문에서 하고, 8시간 soak 재실행은 그 뒤다.
+**교차 레인 항목**: EX-05 대장 행의 두 단계 분리(위 표 ③)는 CR-14 레인/오너의 일이다 — 이 카드가
+그 문서의 문장을 바꾸지 않는다(§6 의 경계와 같다).

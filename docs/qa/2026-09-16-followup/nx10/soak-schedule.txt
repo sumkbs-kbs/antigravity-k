@@ -65,3 +65,10 @@ wait_seconds: 3340
 expected_fingerprint: 322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe
 runner: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/run_nx10_soak.sh
 pid: 86083
+start_check_at: 2026-09-16T12:13:11Z
+start_check_fingerprint: UNVERIFIED
+start_check_head: fd16368c8c5148026563109c9bb7c7ffdb432ab4
+start_check_dirty: true
+aborted: true
+aborted_reason: fingerprint unverifiable (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python 로 계산 실패) — 확인되지 않은 트리에서 8시간을 쓰지 않는다
+aborted_at: 2026-09-16T12:13:11Z
