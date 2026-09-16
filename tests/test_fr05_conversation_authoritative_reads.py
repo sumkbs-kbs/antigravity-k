@@ -8,7 +8,8 @@ workers) and across two OS processes:
 - concurrent expected-0 create+append across processes yields exactly one
   success and the final message count matches the success count
 - append vs compact race: only one CAS wins
-- state survives store restart; deleted files invalidate the cache
+- state survives store restart; a lost view is rebuilt from the journal while a
+  lost journal+view invalidates the cache (NX-02/ADR-DAT-02)
 - corrupt payloads raise ConversationIntegrityError (CR-01) instead of being
   reported as an empty/not-found conversation
 """
@@ -177,14 +178,30 @@ class TestCrossWorkerReads:
         )
 
     def test_deleted_file_invalidates_cache(self, tmp_path: Path) -> None:
+        """NX-02: view 손실은 journal replay 로 복구되고, 삭제는 명시적이어야 한다.
+
+        이전 계약은 view `.json` 이 없으면 곧 삭제였다. ADR-DAT-02 이후 view 는
+        파생물이므로, view 만 사라지면 원본 journal 에서 재생성된다(원문 보존).
+        진짜 삭제는 journal 과 view 를 함께 지우는 명시적 경로여야 한다.
+        """
         storage = _mk_storage(tmp_path, "s")
         _seed(storage)
         reader = _store(storage)
         assert reader.get_revision(project_id="p", conversation_id="conv") == 1
-        path = reader._path_for("p", "conv")
-        path.unlink()
-        assert reader.get_revision(project_id="p", conversation_id="conv") is None
-        assert reader.get(project_id="p", conversation_id="conv") is None
+
+        # (1) view 만 삭제 → journal 에서 재생성(캐시 무효화 + 원문 유지)
+        reader._path_for("p", "conv").unlink()
+        assert reader.get_revision(project_id="p", conversation_id="conv") == 1
+        restored = reader.get(project_id="p", conversation_id="conv")
+        assert restored is not None
+        assert [m.content for m in restored.messages] == ["first turn"]
+
+        # (2) journal 까지 사라진 경우 → 캐시를 무효화하고 없는 대화로 본다
+        lost = _store(storage)
+        lost.journal_path(project_id="p", conversation_id="conv").unlink()
+        lost._path_for("p", "conv").unlink()
+        assert lost.get_revision(project_id="p", conversation_id="conv") is None
+        assert lost.get(project_id="p", conversation_id="conv") is None
 
     def test_corrupt_payload_does_not_reuse_cached_record(self, tmp_path: Path) -> None:
         """CR-01: corrupt bytes are an integrity failure, never an empty conversation.

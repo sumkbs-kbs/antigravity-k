@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol, final, runtime_checkable
 
+from antigravity_k.engine import multimodal
 from antigravity_k.engine.benchmark_harness import TaskOutcome
 from antigravity_k.engine.language_normalizer import normalize_streaming_chunks
 from antigravity_k.engine.task_context_snapshot import save_task_context_snapshot
@@ -206,10 +207,13 @@ class DirectTaskExecution:
 
     @staticmethod
     def _latest_user_text(messages: Sequence[Mapping[str, str]]) -> str:
+        # NX-09-F03: content 가 멀티모달 파트 배열일 수 있다(첨부). 이 값은 작업 생성·
+        # 도구 계약 판정에 **문자열**로 들어가므로 반드시 텍스트로 접는다 — 그대로
+        # 넘기면 state_store 바인딩이 터진다(실측: 첨부 요청이 500 으로 죽었다).
         for message in reversed(messages):
             if message.get("role") == "user":
-                return message.get("content", "")
-        return messages[-1].get("content", "") if messages else ""
+                return multimodal.flatten_content(message.get("content", ""))
+        return multimodal.flatten_content(messages[-1].get("content", "")) if messages else ""
 
     def _create_execution(self, prompt: str, mode: str) -> TaskExecutionContext | None:
         task_runner = self._task_runner

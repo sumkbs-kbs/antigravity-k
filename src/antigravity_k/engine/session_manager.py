@@ -32,6 +32,12 @@ logger = logging.getLogger(__name__)
 # CR-02: 세션 저장 무결성 계약
 SESSION_REVISION_FIELD: Final[str] = "revision"
 SESSION_LOCK_DIR_NAME: Final[str] = ".locks"
+# NX-03: 세션 ID 세대와 삭제 표식(tombstone) 계약.
+# 삭제는 같은 per-session 잠금 안에서 tombstone을 먼저 durable하게 남긴 뒤
+# 가시 데이터를 제거한다. tombstone에는 세션 본문·PIN 등 민감 내용을 넣지 않는다.
+SESSION_GENERATION_FIELD: Final[str] = "generation"
+SESSION_TOMBSTONE_DIR_NAME: Final[str] = ".tombstones"
+SESSION_TOMBSTONE_SCHEMA: Final[str] = "agk.session-tombstone.v1"
 
 
 class SessionPersistenceError(RuntimeError):
@@ -63,6 +69,18 @@ class StaleSessionWriteError(SessionPersistenceError):
 
     error_code: str = "stale_session_write"
     public_detail: str = "Session was modified by another writer; reload before saving"
+
+
+class SessionDeletedError(SessionPersistenceError):
+    """NX-03: 삭제된 세션 ID를 오래된 writer가 다시 만들려 했다.
+
+    삭제는 tombstone(세대 표식)을 durable하게 남긴다. tombstone 세대 이하의
+    스냅샷(또는 파일이 사라진 것을 모르는 writer)은 같은 ID를 다시 만들 수 없다.
+    호출자는 재로드 또는 새 세션 시작으로 안내받아야 한다.
+    """
+
+    error_code: str = "session_deleted"
+    public_detail: str = "Session was deleted; reload or start a new session"
 
 
 def default_session_base_dir() -> str:
@@ -98,6 +116,11 @@ def _replace_file(source: Path, destination: Path) -> None:
     os.replace(source, destination)
 
 
+def _unlink_session_file(path: Path) -> None:
+    """세션 파일 제거 (테스트에서 실패/중단 주입 지점)."""
+    path.unlink()
+
+
 def _fsync_directory(path: Path) -> None:
     """디렉터리 엔트리 내구성 확보. 미지원 플랫폼에서는 조용히 통과한다."""
     if os.name != "posix":
@@ -126,6 +149,72 @@ def _read_session_revision(path: Path) -> int | None:
     if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
         return 0
     return raw
+
+
+def _read_session_payload(path: Path) -> dict[str, object] | None:
+    """세션 JSON 전체를 읽는다(실패/손상은 None)."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return cast(dict[str, object], data)
+
+
+def _session_generation(payload: Mapping[str, object] | None) -> int:
+    """레코드의 세대. 필드가 없는 구형 레코드는 0이다."""
+    if not payload:
+        return 0
+    raw = payload.get(SESSION_GENERATION_FIELD, 0)
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        return 0
+    return raw
+
+
+def _session_tombstone_path(base_dir: str, session_id: str) -> Path:
+    return Path(base_dir) / SESSION_TOMBSTONE_DIR_NAME / f"{_session_lock_name(session_id)}.json"
+
+
+def _read_tombstone(base_dir: str, session_id: str) -> dict[str, object] | None:
+    """삭제 표식을 읽는다. 없거나 손상이면 None(가짜 표식을 만들지 않는다)."""
+    try:
+        data = json.loads(_session_tombstone_path(base_dir, session_id).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return cast(dict[str, object], data)
+
+
+def _tombstone_generation(tombstone: Mapping[str, object] | None) -> int | None:
+    """표식의 세대(표식이 없으면 None)."""
+    if not tombstone:
+        return None
+    raw = tombstone.get(SESSION_GENERATION_FIELD, 0)
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        return 0
+    return raw
+
+
+def _write_session_tombstone(base_dir: str, session_id: str, *, generation: int, revision: int) -> None:
+    """삭제 사실을 durable하게 기록한다(본문 없음). 실패는 그대로 전파한다."""
+    payload: dict[str, object] = {
+        "schema": SESSION_TOMBSTONE_SCHEMA,
+        "session_id": session_id,
+        SESSION_GENERATION_FIELD: max(0, int(generation)),
+        SESSION_REVISION_FIELD: max(0, int(revision)),
+        "deleted_at": time.time(),
+    }
+    _write_session_file_atomically(_session_tombstone_path(base_dir, session_id), payload)
+
+
+def _deleted_residue(base_dir: str, session_id: str, payload: Mapping[str, object] | None) -> bool:
+    """표식 세대 >= 파일 세대이면 삭제가 중단된 잔재다(가시 세션으로 취급하지 않는다)."""
+    generation = _tombstone_generation(_read_tombstone(base_dir, session_id))
+    if generation is None:
+        return False
+    return generation >= _session_generation(payload)
 
 
 def _quarantine_session_file(path: Path) -> Path:
@@ -266,6 +355,8 @@ class SessionManager:
         self._session_id: str | None = None
         # CR-02: 메모리 스냅샷이 근거하는 디스크 revision과 저장 직렬화 락.
         self._base_revision: int = 0
+        # NX-03: 스냅샷이 근거하는 세션 세대(삭제 판정용).
+        self._base_generation: int = 0
         self._save_lock = threading.RLock()
 
     # ─────────── 세션 라이프사이클 ───────────
@@ -302,6 +393,9 @@ class SessionManager:
         # 새 세션 생성 — CR-02: 시간이 아니라 UUID로 유일성을 보장한다.
         self._session_id = _new_session_id(project_hash)
         self._base_revision = 0
+        # NX-03: 신규 세션은 세대 0(첫 저장에서 1로 올라간다). 삭제된 ID의
+        # 묵시적 재사용(부활)은 금지이며, 새 ID는 항상 새 UUID다.
+        self._base_generation = 0
         self._current_session = {
             "id": self._session_id,
             "project_path": os.path.abspath(project_path),
@@ -442,29 +536,20 @@ class SessionManager:
             return 0
         if scope == "all":
             deleted = 0
-            current_path = Path(self.base_dir) / f"{self._session_id}.json"
             if self._current_session:
                 deleted += len(self._current_session.get("messages", []))
                 deleted += len(self._current_session.get("working_memory", {}))
-            for session_path in Path(self.base_dir).glob("*.json"):
-                if session_path != current_path:
-                    try:
-                        with session_path.open(encoding="utf-8") as session_file:
-                            data = cast(object, json.load(session_file))
-                    except (OSError, json.JSONDecodeError):
-                        data = {}
-                    if isinstance(data, dict):
-                        data_dict = cast(dict[str, object], data)
-                        messages = data_dict.get("messages", [])
-                        working_memory = data_dict.get("working_memory", {})
-                        deleted += len(cast(list[object], messages)) if isinstance(messages, list) else 0
-                        deleted += (
-                            len(cast(dict[object, object], working_memory)) if isinstance(working_memory, dict) else 0
-                        )
-                session_path.unlink()
+            current_path = Path(self.base_dir) / f"{self._session_id}.json" if self._session_id else None
+            for session_path in sorted(Path(self.base_dir).glob("*.json")):
+                # NX-03: 삭제는 저장과 같은 per-session 잠금 안에서 tombstone을 먼저
+                # durable하게 남긴 뒤 가시 파일을 제거한다. 표식 기록 실패는 삭제
+                # 성공으로 보고하지 않고 파일도 남긴다.
+                # 현재 세션은 메모리 스냅샷으로 이미 셌으므로 파일 집계는 건너뛴다.
+                deleted += self._delete_session_file(session_path, count=session_path != current_path)
             self._current_session = None
             self._session_id = None
             self._base_revision = 0
+            self._base_generation = 0
             return deleted
 
         if not self._current_session:
@@ -581,15 +666,17 @@ class SessionManager:
         cutoff = time.time() - (max_age_days * 86400)
         current_path = Path(self.base_dir) / f"{self._session_id}.json"
         deleted = 0
-        for session_path in Path(self.base_dir).glob("*.json"):
+        for session_path in sorted(Path(self.base_dir).glob("*.json")):
             if session_path == current_path:
                 continue
             try:
-                if session_path.stat().st_mtime < cutoff:
-                    session_path.unlink()
-                    deleted += 1
+                if session_path.stat().st_mtime >= cutoff:
+                    continue
             except OSError:
                 continue
+            # NX-03: retention도 삭제 경로이므로 같은 잠금·tombstone 규칙을 따른다.
+            _ = self._delete_session_file(session_path)
+            deleted += 1
         return deleted
 
     # ─────────── 메타데이터 추적 ───────────
@@ -615,6 +702,100 @@ class SessionManager:
 
     # ─────────── 세션 조회 ───────────
 
+    # ─────────── NX-03 후속: 삭제 표식(tombstone) 누적 관측과 회수 ───────────
+
+    def tombstone_usage(self) -> dict[str, object]:
+        """삭제 표식 누적 관측 — 개수·바이트·가장 오래된/최신 나이(초).
+
+        표식은 삭제된 ID 당 1개씩 남고 자동 만료가 없다(NX-03). 자동 prune 대신 운영자가
+        이 값으로 회수 시점을 결정한다.
+        """
+        directory = Path(self.base_dir) / SESSION_TOMBSTONE_DIR_NAME
+        files = sorted(path for path in directory.glob("*.json") if path.is_file())
+        now = time.time()
+        total_bytes = 0
+        ages: list[float] = []
+        for path in files:
+            with suppress(OSError):
+                total_bytes += path.stat().st_size
+                ages.append(max(0.0, now - path.stat().st_mtime))
+        return {
+            "directory": str(directory),
+            "count": len(files),
+            "total_bytes": total_bytes,
+            "oldest_age_seconds": max(ages) if ages else None,
+            "newest_age_seconds": min(ages) if ages else None,
+            "automatic_expiry": False,
+        }
+
+    def collect_tombstones(self, *, older_than_seconds: float, dry_run: bool = True) -> dict[str, object]:
+        """운영자가 명시적으로 호출하는 표식 회수(NX-03 후속: GC 정책).
+
+        정책: **임의 TTL 로 자동 만료하지 않는다.** 표식을 지우면 그 세대의 stale writer 가
+        다시 살아날 수 있으므로, 나이 기준은 위험을 감수하는 주체가 정한다 — 이 메서드는
+        `older_than_seconds` 를 **필수**로 받고(>0), 기본은 dry_run 이며, 실제 회수도
+        삭제가 아니라 `<tombstones>/gc/<UTC>/` 로 **이동**만 한다(되돌릴 수 있고 감사 기록이 남는다).
+
+        반환: 옮긴(또는 옮길) 표식 목록과 개수·바이트·아카이브 경로.
+        """
+        if older_than_seconds <= 0:
+            raise ValueError("older_than_seconds must be > 0 (no implicit 'expire everything')")
+        directory = Path(self.base_dir) / SESSION_TOMBSTONE_DIR_NAME
+        now = time.time()
+        candidates: list[tuple[Path, int]] = []
+        for path in sorted(directory.glob("*.json")):
+            if not path.is_file():
+                continue
+            with suppress(OSError):
+                if now - path.stat().st_mtime < older_than_seconds:
+                    continue
+                candidates.append((path, path.stat().st_size))
+
+        report: dict[str, object] = {
+            "dry_run": dry_run,
+            "older_than_seconds": float(older_than_seconds),
+            "candidates": [path.name for path, _ in candidates],
+            "count": len(candidates),
+            "bytes": sum(size for _, size in candidates),
+            "archive_dir": None,
+            "moved": [],
+        }
+        if dry_run or not candidates:
+            return report
+
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        archive = directory / "gc" / stamp
+        archive.mkdir(parents=True, exist_ok=True)
+        moved: list[str] = []
+        for path, _size in candidates:
+            target = archive / path.name
+            try:
+                _ = path.replace(target)
+            except OSError:
+                logger.warning("Could not archive tombstone %s", path, exc_info=True)
+                continue
+            moved.append(path.name)
+        if moved:
+            _write_session_file_atomically(
+                archive / "gc-report.json",
+                {
+                    "schema": "agk.session-tombstone-gc.v1",
+                    "moved": moved,
+                    "older_than_seconds": float(older_than_seconds),
+                    "collected_at": now,
+                    "note": "tombstones were moved (not deleted) — restoring a file re-enables its protection",
+                },
+            )
+        report["archive_dir"] = str(archive)
+        report["moved"] = moved
+        logger.info(
+            "Session tombstone GC: moved %d marker(s) older than %.0fs to %s",
+            len(moved),
+            older_than_seconds,
+            archive,
+        )
+        return report
+
     def list_sessions(self, limit: int = 10) -> list[dict[str, object]]:
         """최근 세션 목록을 반환합니다."""
         sessions: list[dict[str, object]] = []
@@ -627,6 +808,10 @@ class SessionManager:
                     if not isinstance(raw_data, dict):
                         continue
                     data = cast(dict[str, object], raw_data)
+                    # NX-03: 삭제가 중단된 잔재는 목록에 노출하지 않는다.
+                    record_id = str(data.get("id") or fname[: -len(".json")])
+                    if _deleted_residue(self.base_dir, record_id, data):
+                        continue
                     sessions.append(
                         {
                             "id": data.get("id", fname),
@@ -649,9 +834,19 @@ class SessionManager:
         return sessions[:limit]
 
     def load_session(self, session_id: str) -> bool:
-        """특정 세션을 로드합니다."""
+        """특정 세션을 로드합니다.
+
+        NX-03: 삭제 표식이 남은 잔재(삭제 중 중단)는 가시 세션으로 취급하지 않는다.
+        """
         fpath = os.path.join(self.base_dir, f"{session_id}.json")
         if os.path.exists(fpath):
+            payload = _read_session_payload(Path(fpath))
+            record_id = str(payload.get("id") or session_id) if payload else session_id
+            if _deleted_residue(self.base_dir, record_id, payload) or _deleted_residue(
+                self.base_dir, session_id, payload
+            ):
+                logger.warning("Refusing to load deleted session residue: %s", session_id)
+                return False
             self._load_session(fpath)
             return True
         return False
@@ -701,12 +896,59 @@ class SessionManager:
                 fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
+    def _delete_session_file(self, session_path: Path, *, count: bool = True) -> int:
+        """NX-03: per-session 잠금 안에서 tombstone을 먼저 쓰고 파일을 제거한다.
+
+        반환값은 제거한 메시지+working memory 개수다(`count=False`면 0).
+        tombstone 기록이 실패하면 예외를 전파하고 가시 파일을 남긴다
+        (삭제 성공으로 보고하지 않는다).
+        """
+        lock_id = session_path.stem
+        first = _read_session_payload(session_path)
+        known_id = str(first.get("id") or lock_id) if first else lock_id
+        deleted = 0
+        with self._save_lock, self._session_process_lock(known_id):
+            payload = _read_session_payload(session_path)
+            session_id = str(payload.get("id") or lock_id) if payload else lock_id
+            # 파일명 기반 writer와 레코드 id 기반 writer를 모두 막는다.
+            for target_id in sorted({known_id, lock_id, session_id}):
+                existing = _read_tombstone(self.base_dir, target_id)
+                generation = max(
+                    _session_generation(payload),
+                    _tombstone_generation(existing) or 0,
+                )
+                _write_session_tombstone(
+                    self.base_dir,
+                    target_id,
+                    generation=generation,
+                    revision=_read_session_revision(session_path) or 0,
+                )
+            if payload is not None and count:
+                messages = payload.get("messages", [])
+                working_memory = payload.get("working_memory", {})
+                deleted += len(messages) if isinstance(messages, list) else 0
+                deleted += len(working_memory) if isinstance(working_memory, dict) else 0
+            try:
+                _unlink_session_file(session_path)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                # 표식은 남았지만 가시 파일이 남았다(삭제 중단). 삭제 성공으로
+                # 보고하지 않고 전파한다. 같은 표식 때문에 잔재는 가시 세션으로
+                # 취급되지 않으며, 재시도가 이어서 제거한다.
+                raise SessionPersistenceError(f"Session file could not be removed: {session_path}") from exc
+        return deleted
+
     def _save_session(self) -> None:
         """CR-02: 원자 저장 + per-session 프로세스 잠금 + revision CAS.
 
         직렬화 → 고유 임시파일 → flush/fsync → atomic replace → 디렉터리 fsync.
         replace 이전 실패는 마지막 정상 파일을 보존하고, 실패를 그대로 전파한다.
         디스크 revision이 메모리 기준보다 앞서 있으면 stale write를 거부한다.
+
+        NX-03: 같은 잠금 안에서 삭제 표식(tombstone)과 파일 존재를 먼저 확인한다.
+        삭제된 ID는 다시 만들지 않고(``SessionDeletedError``), 삭제 표식 없는
+        파일 소실은 stale writer가 되살리지 않는다(``StaleSessionWriteError``).
         """
         if not self._current_session or not self._session_id:
             return
@@ -714,21 +956,38 @@ class SessionManager:
         session_id = self._session_id
         path = self._session_path(session_id)
         with self._save_lock, self._session_process_lock(session_id):
+            tombstone = _read_tombstone(self.base_dir, session_id)
+            deleted_generation = _tombstone_generation(tombstone)
+            if deleted_generation is not None and self._base_generation <= deleted_generation:
+                raise SessionDeletedError(
+                    f"Session {session_id} was deleted "
+                    f"(deleted generation {deleted_generation}, memory generation {self._base_generation})"
+                )
             disk_revision: int | None = None
+            quarantined_locally = False
             if path.is_file():
                 disk_revision = _read_session_revision(path)
                 if disk_revision is None:
                     # 손상 잔재(예: 과거 truncate-dump 중단)는 삭제하지 않고 격리한다.
                     quarantined = _quarantine_session_file(path)
+                    quarantined_locally = True
                     logger.error("Damaged session file preserved as %s", quarantined)
+            elif not quarantined_locally and (self._base_revision > 0 or self._base_generation > 0):
+                # 한 번 저장했던 세션의 파일이 사라졌다 → 삭제된 세션을 되살리는
+                # stale writer로 판정한다(신규 세션 생성과 구별).
+                raise StaleSessionWriteError(
+                    f"Session {session_id} file is gone; refusing to recreate it from a stale snapshot"
+                )
             if disk_revision is not None and disk_revision != self._base_revision:
                 raise StaleSessionWriteError(
                     f"Session {session_id} was modified by another writer "
                     f"(disk revision {disk_revision}, memory revision {self._base_revision})"
                 )
             next_revision = (disk_revision if disk_revision is not None else 0) + 1
+            next_generation = self._base_generation or 1
             payload = dict(self._current_session)
             payload[SESSION_REVISION_FIELD] = next_revision
+            payload[SESSION_GENERATION_FIELD] = next_generation
             try:
                 _write_session_file_atomically(path, payload)
             except SessionDurabilityUncertainError:
@@ -740,6 +999,7 @@ class SessionManager:
                     _record_revision(self._current_session, observed)
                 raise
             self._base_revision = next_revision
+            self._base_generation = next_generation
             _record_revision(self._current_session, next_revision)
 
     def _load_session(self, fpath: str) -> None:
@@ -760,11 +1020,14 @@ class SessionManager:
                 if isinstance(raw_revision, int) and not isinstance(raw_revision, bool) and raw_revision >= 0
                 else 0
             )
+            # NX-03: 구형 레코드(`generation` 없음)는 0으로 읽는다.
+            self._base_generation = _session_generation(data)
         except Exception:
             logger.exception("Failed to load session")
             self._current_session = None
             self._session_id = None
             self._base_revision = 0
+            self._base_generation = 0
 
     def _find_latest_session(self, project_hash: str) -> str | None:
         """프로젝트 해시로 최근 세션 파일을 찾습니다.
@@ -787,6 +1050,10 @@ class SessionManager:
             if not isinstance(raw, dict):
                 continue
             record = cast(dict[str, object], raw)
+            # NX-03: 삭제가 중단된 잔재는 resume 후보가 아니다(부활 금지).
+            record_id = str(record.get("id") or fname[: -len(".json")])
+            if _deleted_residue(self.base_dir, record_id, record):
+                continue
             stored_hash = record.get("project_hash")
             if isinstance(stored_hash, str) and stored_hash != project_hash:
                 continue

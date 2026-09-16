@@ -117,6 +117,63 @@ class ConversationHistoryResponse(BaseModel):
     token_estimate: int = Field(ge=0, default=0)
 
 
+class ConversationOriginalHistoryResponse(BaseModel):
+    """NX-02: original (pre-compaction) history read surface.
+
+    Deliberately separate from :class:`ConversationHistoryResponse`: the view is
+    what the model gets on the next prompt, the originals are what the user
+    actually typed (recovery / audit / export).
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    conversation_id: str
+    project_id: str
+    offset: int = Field(ge=0, default=0)
+    limit: int | None = Field(default=None, ge=0)
+    total: int = Field(ge=0, default=0)
+    revision: int = Field(ge=CONVERSATION_REVISION_MIN, default=0)
+    journal_seq: int = Field(ge=0, default=0)
+    history_incomplete: bool = False
+    truncated_tail: bool = False
+    messages: tuple[ConversationHistoryMessage, ...] = ()
+
+
+class ConversationHistoryExportResponse(BaseModel):
+    """NX-02: support/backup export of originals plus journal fingerprint."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    schema_id: str = "agk.conv-export.v1"
+    project_id: str
+    conversation_id: str
+    exported_at: float
+    revision: int = Field(ge=CONVERSATION_REVISION_MIN, default=0)
+    journal_seq: int = Field(ge=0, default=0)
+    journal_sha256: str = ""
+    journal_schema: str = ""
+    history_incomplete: bool = False
+    deleted: bool = False
+    message_count: int = Field(ge=0, default=0)
+    messages: tuple[ConversationHistoryMessage, ...] = ()
+
+
+class ConversationDeleteResponse(BaseModel):
+    """NX-02: explicit deletion receipt (never a silent no-op)."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    conversation_id: str
+    project_id: str
+    deleted: bool
+    erased_scope: Literal["journal_and_view", "nothing"]
+    revision: int = Field(ge=CONVERSATION_REVISION_MIN, default=0)
+    note: str = (
+        "Deleted from the local conversation store. Copies outside this store "
+        "(backups, forks, exported files) are not claimed to be erased."
+    )
+
+
 class ConversationConflictPayload(BaseModel):
     """409 body when expected_revision does not match the store."""
 
@@ -136,7 +193,10 @@ __all__ = [
     "ConversationAppendRequest",
     "ConversationCompactRequest",
     "ConversationConflictPayload",
+    "ConversationDeleteResponse",
     "ConversationForkRequest",
+    "ConversationHistoryExportResponse",
+    "ConversationOriginalHistoryResponse",
     "ConversationHistoryMessage",
     "ConversationHistoryResponse",
     "ConversationNewTurn",

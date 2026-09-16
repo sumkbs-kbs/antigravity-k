@@ -40,8 +40,12 @@ def is_loopback_host(host: str) -> bool:
 
 
 def _has_valid_pin_hash(path: Path) -> bool:
+    # NX-05: 저장 형식이 agk.auth.v1 JSON(hash + epoch)으로 넓어졌다. hash 추출은
+    # security.auth_state 가 담당하고(구버전 한 줄도 읽는다), 여기서는 강도만 본다.
+    from antigravity_k.security.auth_state import read_pin_hash
+
+    stored = read_pin_hash(path) or ""
     try:
-        stored = path.read_text(encoding="utf-8").strip()
         algorithm, iterations_text, salt_text, digest_text = stored.split("$", 3)
         iterations = int(iterations_text)
         salt = base64.b64decode(salt_text, validate=True)

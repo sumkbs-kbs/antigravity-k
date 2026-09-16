@@ -24,6 +24,8 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 from starlette.types import Scope
 
+from antigravity_k.api.sse_revocation import SSERevocationMiddleware
+
 _ = load_dotenv()  # .env 로드 — config import 전에 실행되어야 함
 
 from antigravity_k.config import config
@@ -421,6 +423,13 @@ def _metric_path(request: Request) -> str:
     return re.sub(r"/(?:[0-9]+|[0-9a-f]{8,})(?=/|$)", "/:id", request.url.path)
 
 
+# NX-05 잔여 — 이미 열려 있는 SSE 스트림의 폐기. **가장 먼저 등록**해 미들웨어 스택의 안쪽에
+# 둔다(Starlette 은 나중에 추가한 것이 바깥이다): 라우트가 만든 StreamingResponse 를 직접
+# 감싸므로 인증·메트릭 미들웨어가 중간에 끼워 넣는 래핑에 의존하지 않는다.
+# 판정은 이 미들웨어가 스스로 한다(요청의 bearer 를 매 주기 재검증) — 인증 미들웨어 순서와 무관하다.
+app.add_middleware(SSERevocationMiddleware)
+
+
 @app.middleware("http")
 async def verify_access_token(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Authenticate requests to protected paths via bearer token (or legacy PIN).
@@ -587,11 +596,25 @@ from antigravity_k.engine.operational_metrics import compute_readiness  # noqa: 
 def readiness_endpoint() -> Response:
     """Readiness probe — task DB/registry/writable storage/model manager 검사.
 
-    not_ready는 503, ready/degraded는 200을 반환한다. orchestration 플랫폼의
-    readiness probe와 운영 runbook의 진단 입력으로 함께 사용한다.
+    NX-06 판정 계약(deps: `deploy/k8s/deployment.yaml` 와 같은 표를 쓴다):
+
+      ==========  ==================================================  ========
+      status      조건                                                 HTTP
+      ==========  ==================================================  ========
+      ready       required·optional 모두 ready                         200 (수용)
+      degraded    required 전부 ready + optional ≥1 실패                200 (수용)
+      not_ready   required 검사가 하나라도 ready 가 아님                 503 (거부)
+      ==========  ==================================================  ========
+
+    degraded 를 수용하는 이유는 신규 설치의 정상 상태(활성 프로젝트 없음, 모델 미로드)
+    때문이다 — 거부하면 서비스가 영원히 열리지 않는다. required 실패는 degraded 여부와
+    무관하게 503 이며, orchestration 이 EndpointSlice 에서 제외한다.
+
+    인증이 면제된 공개 경로다(probe 는 credential 을 갖지 않는다). 노출 내용은
+    검사 이름·상태·경로 수준의 진단이며 secret 을 담지 않는다.
     """
     report = compute_readiness()
-    status_code = 503 if report["status"] == "not_ready" else 200
+    status_code = 503 if report.get("traffic") == "reject" else 200
     return Response(
         content=json.dumps(report, ensure_ascii=False), status_code=status_code, media_type="application/json"
     )

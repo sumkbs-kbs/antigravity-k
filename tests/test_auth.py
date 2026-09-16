@@ -367,9 +367,15 @@ def test_change_pin_success(auth_client: TestClient):
         assert "pin=" not in detail
 
     # Restore original PIN for sibling tests sharing the module-scoped client.
+    #
+    # NX-05: PIN 변경은 세대(epoch)를 올려 기존 토큰을 모두 폐기하므로, 두 번째
+    # 변경은 **새로 발급한 토큰**으로 호출해야 한다(재로그인 계약). 위 `token` 을
+    # 재사용하면 401 이 정상이다 — 이 사실은 tests/test_nx05_auth_epoch_revocation.py
+    # 가 별도로 고정한다.
+    rotated_token = auth_routes_mod.get_token_service().issue_token(subject="change-pin-test")
     restore = auth_client.post(
         "/api/auth/change-pin",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {rotated_token}"},
         json={"current_pin": temp_pin, "new_pin": original_pin},
     )
     assert restore.status_code == 200, restore.text

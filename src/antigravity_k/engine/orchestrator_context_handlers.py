@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable, Generator, Mapping, Sequence
 from typing import Protocol, TypedDict, cast
 
+from antigravity_k.engine import multimodal
 from antigravity_k.engine.codebase_file_selection import (
     CodebaseMemorySearch,
     CodeTreeSearch,
@@ -97,10 +98,12 @@ def init_handler(ctx: StateContext, orch: object) -> Generator[str, None, None]:
     ctx.user_message = ""
     for msg in reversed(ctx.messages):
         if msg.get("role") == "user":
-            ctx.user_message = msg.get("content", "") or ""
+            # NX-09-F03: content 는 보통 문자열이지만, OpenAI 호환 표면으로 **파트 배열**이
+            # 들어올 수 있다 — 그대로 쓰면 `.strip()`/정규식에서 죽는다.
+            ctx.user_message = multimodal.flatten_content(msg.get("content", "")) or ""
             break
 
-    if not ctx.user_message.strip():
+    if not ctx.user_message.strip():  # noqa: SIO110 - ctx.user_message 는 위에서 문자열로 접었다
         yield "메시지를 입력해주세요."
         ctx.transition_to(AgentState.COMPLETE)
         return
@@ -227,7 +230,9 @@ def context_enrich_handler(ctx: StateContext, orch: object) -> None:
             new_content += rag_context
         if ctx.ephemeral_message:
             new_content += f"\n\n<EPHEMERAL_MESSAGE>\n{ctx.ephemeral_message}\n</EPHEMERAL_MESSAGE>\n"
-        ctx.custom_messages[-1] = {"role": "user", "content": new_content}
+        # NX-09-F03: 메시지를 **새 딕셔너리로 갈아치우면** images/image_mimes 같은 구조화
+        # 필드가 조용히 사라진다(첨부가 여기서 죽었다). 기존 키를 보존하며 내용만 바꾼다.
+        ctx.custom_messages[-1] = {**ctx.custom_messages[-1], "role": "user", "content": new_content}
 
 
 # ─── AUTO_LEARN 핸들러 ────────────────────────────────────────────
@@ -247,6 +252,7 @@ def auto_learn_handler(ctx: StateContext, orch: object) -> Generator[str, None, 
                 if learned:
                     learn_context = learner.format_context(learned)
                     ctx.custom_messages[-1] = {
+                        **ctx.custom_messages[-1],
                         "role": "user",
                         "content": ctx.custom_messages[-1]["content"] + learn_context,
                     }

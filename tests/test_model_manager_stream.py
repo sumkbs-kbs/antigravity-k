@@ -4,6 +4,7 @@ Ollama 네이티브 스트림, OpenAI 호환 SSE, Anthropic 직접 스트림,
 동적 추론 설정 및 스트림 요청 빌더를 네트워크 없이 검증한다.
 """
 
+import base64
 import json
 from collections.abc import Callable, Iterator, Mapping
 from types import SimpleNamespace
@@ -191,8 +192,15 @@ class TestStreamMessagePreparation:
         assert msgs[1]["content"] == "hi"
 
     def test_content_parts_flattened_to_string(self, manager: ModelManager, http_env: None):
+        """파트 배열은 텍스트로 접는다 — 단, **이미지는 접는 대상이 아니다**(NX-09-F03).
+
+        이 시험은 원래 "파트를 전부 텍스트로 납작하게 만든다"를 고정했다. 그 동작이
+        첨부 이미지를 조용히 버리는 자리였으므로(사용자는 붙였다고 믿고 모델은 파일명만
+        봤다) 계약을 바꿨다: 텍스트 파트는 접고, 이미지 파트는 `images` 로 **살린다**.
+        """
         _ = http_env
         loaded = _loaded(manager, "model-a")
+        image_b64 = base64.b64encode(b"fake-image-bytes").decode("ascii")
         msgs = _prepare_messages(
             manager,
             loaded,
@@ -204,14 +212,19 @@ class TestStreamMessagePreparation:
                         "content": [
                             {"type": "text", "text": "part1"},
                             "part2",
-                            {"type": "image", "url": "skip"},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/png;base64,{image_b64}"},
+                            },
                         ],
                     }
                 ]
             },
         )
 
-        assert str(msgs[0]["content"]).startswith("part1 part2")
+        assert str(msgs[0]["content"]) == "part1 part2"
+        assert msgs[0]["images"] == [image_b64]
+        assert msgs[0]["image_mimes"] == ["image/png"]
 
     def test_attribution_not_injected_into_prompt(self, manager: ModelManager, http_env: None):
         """attribution 지문은 다시 파싱되지 않는 프롬프트 오염이다 — 주입 금지."""

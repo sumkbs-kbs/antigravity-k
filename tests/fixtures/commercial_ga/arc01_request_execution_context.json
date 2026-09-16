@@ -54,7 +54,10 @@
     "project_root_invalid": 403,
     "stale_conversation_revision": 409,
     "conversation_integrity_error": 409,
-    "conversation_storage_migration_required": 503
+    "conversation_storage_migration_required": 503,
+    "conversation_history_corrupt": 409,
+    "conversation_history_unavailable": 503,
+    "conversation_history_quota_exceeded": 507
   },
   "stale_conflict_example": {
     "ok": false,

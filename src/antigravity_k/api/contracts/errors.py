@@ -20,6 +20,13 @@ CONTEXT_ERROR_HTTP_STATUS: Final[dict[str, int]] = {
     "stale_conversation_revision": 409,
     "conversation_integrity_error": 409,
     "conversation_storage_migration_required": 503,
+    # NX-02: journal(원본 이력) 손상/미가용은 view 와 분리해 보고한다.
+    "conversation_history_corrupt": 409,
+    "conversation_history_unavailable": 503,
+    # NX-02 후속(ADR-DAT-02 Context 8): journal 이 정한 byte 한계를 넘어 **쓰기를 거절**한다.
+    # 507 은 "데이터가 틀렸다"가 아니라 "저장 공간 한계"라 409/503 과 구분한다. 기존 데이터는
+    # 지우지 않는다(운영자가 관측·회수하는 문제) — 조용한 prune 금지.
+    "conversation_history_quota_exceeded": 507,
 }
 
 
@@ -85,6 +92,38 @@ class ConversationIntegrityError(ExecutionContextError):
     detail: str = "Stored conversation data does not match the requested identity"
 
 
+class ConversationHistoryCorruptError(ExecutionContextError):
+    """NX-02: committed journal region is unreadable (never silently skipped).
+
+    Reported with the line number and byte offset instead of falling back to a
+    "no original history" answer, so operators can quarantine and repair.
+    """
+
+    status_code: int = 409
+    error_code: str = "conversation_history_corrupt"
+    detail: str = "Stored conversation history (journal) is corrupt"
+
+
+class ConversationHistoryUnavailableError(ExecutionContextError):
+    """NX-02: journal cannot be used by this build (IO failure / newer schema)."""
+
+    status_code: int = 503
+    error_code: str = "conversation_history_unavailable"
+    detail: str = "Conversation history (journal) is not readable by this build"
+
+
+class ConversationHistoryQuotaExceededError(ExecutionContextError):
+    """NX-02 후속(ADR-DAT-02 Context 8): 정한 byte 한계를 넘어 append 를 거절했다.
+
+    이 오류는 **데이터 손실이 없다**는 뜻이다 — 기존 journal/view 는 그대로 남고 새 쓰기만
+    거절된다. 한계를 늘리거나(환경변수) 운영자가 저장소 사용량을 회수하면 다시 쓸 수 있다.
+    """
+
+    status_code: int = 507
+    error_code: str = "conversation_history_quota_exceeded"
+    detail: str = "Conversation history (journal) has reached its configured byte cap"
+
+
 class ConversationStorageMigrationRequiredError(ExecutionContextError):
     """CR-01: legacy (pre-v2) conversation files must be migrated first.
 
@@ -107,6 +146,9 @@ _ERROR_BY_CODE: Final[dict[str, type[ExecutionContextError]]] = {
     "stale_conversation_revision": StaleConversationRevisionError,
     "conversation_integrity_error": ConversationIntegrityError,
     "conversation_storage_migration_required": ConversationStorageMigrationRequiredError,
+    "conversation_history_corrupt": ConversationHistoryCorruptError,
+    "conversation_history_unavailable": ConversationHistoryUnavailableError,
+    "conversation_history_quota_exceeded": ConversationHistoryQuotaExceededError,
 }
 
 
@@ -123,6 +165,8 @@ def execution_context_error_from_code(
 
 __all__ = [
     "CONTEXT_ERROR_HTTP_STATUS",
+    "ConversationHistoryCorruptError",
+    "ConversationHistoryUnavailableError",
     "ConversationIntegrityError",
     "ConversationNotFoundError",
     "ConversationStorageMigrationRequiredError",

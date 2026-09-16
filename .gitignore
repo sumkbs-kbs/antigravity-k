@@ -181,3 +181,4 @@ data/projects.json
 # `tests/test_cr14_runtime_state_scope_contract.py`).
 src/data/projects.json
 src/data/projects.json.lock
+data/auth_hash.bak*

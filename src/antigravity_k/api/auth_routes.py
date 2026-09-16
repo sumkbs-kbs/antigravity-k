@@ -22,10 +22,7 @@ PIN length notes
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import os
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, ParamSpec, Protocol, TypeVar
@@ -38,6 +35,11 @@ from slowapi.util import get_remote_address
 
 from antigravity_k.config import config
 from antigravity_k.engine.auth import TokenService, hash_pin, verify_pin
+from antigravity_k.security.auth_state import (
+    bump_epoch_atomic,
+    current_epoch,
+    read_auth_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +90,12 @@ def init_auth_state() -> None:
 
     Idempotent: safe to call multiple times. On first call it:
       1. Creates the :class:`TokenService` using the configured secret path.
-      2. Loads an existing PIN hash from ``pin_hash_file`` if present.
+      2. Loads an existing auth state (PIN hash + NX-05 epoch) from
+         ``pin_hash_file`` if present — 구버전 한 줄 hash 파일도 읽는다.
       3. Otherwise hashes the configured plaintext ``access_pin`` and persists
-         it, so future logins verify against the hash.
+         it (epoch 1) so future logins verify against the hash.
+
+    NX-05: epoch 공급자는 파일을 **매 검증 때** 다시 읽는다(프로세스별 캐시 금지).
     """
     global _token_service, _pin_hash
 
@@ -100,6 +105,7 @@ def init_auth_state() -> None:
     _token_service = TokenService(
         secret_path=config.security.token_secret_file,
         token_ttl_hours=config.security.token_ttl_hours,
+        epoch_provider=get_current_auth_epoch,
     )
 
     # SEC-01: 공유 AuthPolicy를 현재 config 바인딩으로 (재)초기화 —
@@ -109,31 +115,33 @@ def init_auth_state() -> None:
     _ = init_shared_auth_policy(config.security.pin_hash_file)
 
     hash_path = Path(config.security.pin_hash_file)
-    if hash_path.exists():
+    state = read_auth_state(hash_path)
+    if state is None and hash_path.exists():
+        logger.warning("Could not read auth state from %s", hash_path)
+    if state is not None:
+        _pin_hash = state.pin_hash
         try:
-            _pin_hash = hash_path.read_text(encoding="utf-8").strip() or None
+            hash_path.chmod(0o600)
         except OSError:
-            logger.warning("Could not read PIN hash from %s", hash_path)
-            _pin_hash = None
-        if _pin_hash is not None:
-            try:
-                hash_path.chmod(0o600)
-            except OSError:
-                logger.warning("Could not restrict PIN hash permissions on %s", hash_path)
+            logger.warning("Could not restrict PIN hash permissions on %s", hash_path)
 
     if _pin_hash is None and config.security.access_pin:
-        # Bootstrap: hash the plaintext PIN and persist it.
+        # Bootstrap: hash the plaintext PIN and persist hash + epoch together.
         _pin_hash = hash_pin(config.security.access_pin)
         try:
-            hash_path.parent.mkdir(parents=True, exist_ok=True)
-            _ = hash_path.write_text(_pin_hash, encoding="utf-8")
-            try:
-                hash_path.chmod(0o600)
-            except OSError:
-                pass
-            logger.info("Bootstrapped PIN hash at %s", hash_path)
+            written = bump_epoch_atomic(hash_path, pin_hash=_pin_hash)
+            logger.info("Bootstrapped PIN hash at %s (epoch=%s)", hash_path, written.epoch)
         except OSError:
             logger.warning("Could not persist PIN hash to %s", hash_path)
+
+
+def get_current_auth_epoch() -> int:
+    """현재 auth epoch — 매 호출 파일에서 다시 읽는다(캐시 금지).
+
+    이 함수가 :class:`TokenService` 의 세대 공급자다. 다른 프로세스가 PIN 을
+    바꾸면 이 프로세스의 다음 토큰 검증이 즉시 이전 세대를 거부한다.
+    """
+    return current_epoch(config.security.pin_hash_file)
 
 
 def get_token_service() -> TokenService:
@@ -145,45 +153,43 @@ def get_token_service() -> TokenService:
 
 
 def get_current_pin_hash() -> str | None:
-    """Return the active PIN hash (or None if auth is disabled)."""
+    """Return the active PIN hash (or None if auth is disabled).
+
+    NX-05: 파일이 진실의 원본이다 — 매 호출 다시 읽는다(캐시 금지). 프로세스에
+    hash 를 캐시하면 다른 프로세스가 PIN 을 바꾼 뒤에도 이 프로세스가 **구 PIN
+    로그인을 계속 받아준다**(새 세대 토큰을 발급해 주므로 폐기가 무력해진다).
+    저장 파일이 아예 없는 경우에만 시작 시 bootstrap 한 메모리 값을 쓴다.
+    """
     if _token_service is None:
         init_auth_state()
+    state = read_auth_state(config.security.pin_hash_file)
+    if state is not None:
+        # 파일이 있으면 그 값이 정답이다(pin_hash=null 이면 인증 비활성).
+        return state.pin_hash
     return _pin_hash
 
 
 def set_current_pin_hash(new_hash: str) -> None:
-    """Update the in-memory PIN hash used by login verification.
+    """Update the in-memory PIN hash used when no state file exists.
 
     Callers that persist a new hash must also write ``pin_hash_file``; this
-    setter only refreshes process memory so subsequent logins use the new hash
-    without requiring a restart.
+    setter only refreshes the fallback value used when the file is absent.
     """
     global _pin_hash
     _pin_hash = new_hash
 
 
 def _persist_pin_hash_atomic(new_hash: str) -> Path:
-    """Write ``new_hash`` to ``pin_hash_file`` atomically with mode 0600."""
+    """Write PIN hash + next epoch as one atomic document (0600).
+
+    NX-05: hash 와 세대는 같은 파일에 함께 교체된다 — 어느 쪽만 먼저 바뀌는 중간
+    상태를 남기지 않는다(읽는 쪽은 항상 (이전 hash, 이전 epoch) 또는 (새 hash,
+    새 epoch) 중 하나만 본다). 세대 계산과 교체는 파일 잠금으로 직렬화되므로
+    동시 변경에서도 **성공 1건 = 새 세대 1개**다.
+    """
     hash_path = Path(config.security.pin_hash_file)
-    hash_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_path = tempfile.mkstemp(
-        prefix=".auth_hash.",
-        suffix=".tmp",
-        dir=str(hash_path.parent),
-    )
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            _ = handle.write(new_hash)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, hash_path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(temp_path)
-        raise
-    with contextlib.suppress(OSError):
-        os.chmod(hash_path, 0o600)
+    state = bump_epoch_atomic(hash_path, pin_hash=new_hash)
+    logger.info("Persisted PIN hash at %s (epoch=%s)", hash_path, state.epoch)
     return hash_path
 
 
@@ -231,10 +237,18 @@ class ChangePinRequest(BaseModel):
 
 
 class ChangePinResponse(BaseModel):
-    """Successful PIN change response."""
+    """Successful PIN change response.
+
+    NX-05: PIN 변경은 이 버전부터 **세션을 모두 폐기**한다. 응답은 클라이언트가
+    재로그인해야 함을 명시적으로 알린다(`reauth_required`). 새 세대(epoch)는
+    관측용으로 함께 반환하며, 클라이언트는 이를 저장하지 않아도 된다.
+    """
 
     ok: bool = True
-    detail: str = "PIN updated."
+    detail: str = "PIN updated. All sessions were revoked; sign in again."
+    reauth_required: bool = True
+    epoch: int = 0
+    sessions_revoked: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -351,8 +365,9 @@ def change_pin(request: Request, body: ChangePinRequest) -> ChangePinResponse:
         )
 
     new_hash = hash_pin(body.new_pin)
+    # NX-05: 저장 실패에서는 기존 상태(이전 hash + 이전 epoch)가 그대로 유지된다.
     try:
-        _ = _persist_pin_hash_atomic(new_hash)
+        persisted = bump_epoch_atomic(config.security.pin_hash_file, pin_hash=new_hash)
     except OSError as exc:
         logger.warning("Could not persist new PIN hash: %s", exc)
         record_auth_event("pin_change_failed", remote, "persist failed")
@@ -362,9 +377,33 @@ def change_pin(request: Request, body: ChangePinRequest) -> ChangePinResponse:
         ) from exc
 
     set_current_pin_hash(new_hash)
-    record_auth_event("pin_change_success", remote, "pin updated")
-    logger.info("Access PIN changed by subject=%s from %s", subject, remote)
-    return ChangePinResponse()
+
+    # NX-05: 이전 세대 토큰·ticket 은 위 저장 지점에서 이미 무효가 됐다. 이미 열려
+    # 있는 인증 WS 연결은 다음 요청을 기다리지 않고 즉시 닫는다(카드: ≤5초).
+    revoked_ws = _revoke_authorized_ws_connections()
+
+    record_auth_event("pin_change_success", remote, "pin updated; sessions revoked")
+    logger.info(
+        "Access PIN changed by subject=%s from %s (epoch=%s, ws_closed=%s)",
+        subject,
+        remote,
+        persisted.epoch,
+        revoked_ws,
+    )
+    return ChangePinResponse(epoch=persisted.epoch, sessions_revoked=revoked_ws)
+
+
+def _revoke_authorized_ws_connections() -> int:
+    """인증된 WS 연결을 같은 세대 기준으로 즉시 닫는다(실패해도 응답은 유지)."""
+    try:
+        # NX-10: 폐기 헬퍼는 leaf 모듈이 소유한다. `session_state` 는 이 모듈(`auth_routes`)을
+        # 임포트하므로 여기서 session_state 를 임포트하면 순환한다(게이트: reportImportCycles).
+        from antigravity_k.security.ws_registry import close_authorized_ws_blocking
+
+        return close_authorized_ws_blocking(code=4401, reason="Session revoked: PIN changed")
+    except Exception as exc:  # noqa: BLE001 — 폐기 실패가 PIN 변경 성공을 가리면 안 된다
+        logger.warning("Could not close authorized WS connections: %s", exc)
+        return 0
 
 
 @router.post("/token", response_model=TokenResponse)
@@ -506,8 +545,12 @@ def auth_status() -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def _extract_bearer(request: Request) -> str | None:
-    """Pull the bearer token from the Authorization header."""
+def extract_bearer_token(request: Request) -> str | None:
+    """Pull the bearer token from the Authorization header.
+
+    공개 이름(NX-05 잔여): 열린 SSE 스트림을 폐기하려면 `api/sse_revocation.py` 가 같은
+    추출 규칙을 써야 한다. 규칙을 복제하면 한쪽만 바뀌어 판정이 갈라진다.
+    """
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         return None
@@ -515,6 +558,10 @@ def _extract_bearer(request: Request) -> str | None:
     if len(parts) != 2 or parts[0].lower() != "bearer":
         return None
     return parts[1].strip() or None
+
+
+# 구 이름 별칭 — 기존 호출자/시험이 그대로 동작한다.
+_extract_bearer = extract_bearer_token
 
 
 def _mark_authenticated(request: Request, subject: str) -> None:

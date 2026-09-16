@@ -9,7 +9,7 @@ task terminal conflict, provider failure를 관측한다."
      OBS-01이 요구하는 6개 운영 이벤트 계열을 추가한다. 모든 계열은
      ``outcome`` label 1개만 사용해 cardinally 폭발을 막는다:
        - ``ssak_context_compactions_total{outcome}``     success|degraded|halted|error
-       - ``ssak_auth_events_total{outcome}``             success|failed|lockout
+       - ``ssak_auth_events_total{outcome}``             success|failed|lockout|stream_revoked
        - ``ssak_registry_writes_total{outcome}``         success|save_error|lock_timeout
        - ``ssak_vault_commits_total{outcome}``           success|commit_error
        - ``ssak_task_transition_conflicts_total{outcome}`` conflict|rejected
@@ -35,8 +35,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from importlib import import_module
-from typing import Literal
+from typing import Literal, cast
 
 from prometheus_client import Counter
 
@@ -69,7 +70,9 @@ _PROVIDER_FAILURES = "ssak_provider_failures_total"
 
 # outcome label 값 도메인 — 문서화된 계약 (docs/09_OPERATION_GUIDE.md §OBS-01)
 CompactionOutcome = Literal["success", "degraded", "halted", "error"]
-AuthOutcome = Literal["success", "failed", "lockout"]
+# `stream_revoked`(NX-05 잔여): 인증 세대가 바뀌어 **이미 열려 있던 SSE 스트림**을 닫은 1건.
+# "폐기가 실제로 스트림을 끊었는가"를 수치로 확인할 수 있게 한다(로그만으로는 사후 집계가 안 된다).
+AuthOutcome = Literal["success", "failed", "lockout", "stream_revoked"]
 RegistryOutcome = Literal["success", "save_error", "lock_timeout"]
 VaultOutcome = Literal["success", "commit_error"]
 TaskConflictOutcome = Literal["conflict", "rejected"]
@@ -220,23 +223,32 @@ def _check_registry() -> tuple[ReadinessStatus, str]:
 
 
 def _check_writable_storage() -> tuple[ReadinessStatus, str]:
-    """활성 프로젝트 루트(또는 데이터 디렉터리)에 실제 쓰기가 가능한지 확인."""
+    """활성 프로젝트 루트(또는 데이터 디렉터리)에 실제 쓰기가 가능한지 확인.
+
+    NX-06: 설정된 프로젝트 루트가 **없는 경로**면 조용히 `data/` 로 갈아타지 않는다 —
+    그 fallback 은 마운트되지 않은 볼륨을 "ready" 로 보고해 트래픽을 받게 만든다
+    (endpoint 제외가 일어나지 않는 false ready). 프로젝트 루트가 아예 구성되지
+    않은 상태(신규 설치)에서만 데이터 디렉터리를 본다.
+    """
     import tempfile
     from pathlib import Path
 
-    root: Path | None = None
+    configured_root: Path | None = None
     try:
         bound = import_module("antigravity_k.api.project_binding").get_request_project_root()
         if bound:
-            root = Path(bound)
+            configured_root = Path(bound)
         else:
             active = import_module("antigravity_k.engine.project_registry").get_project_registry().get_active_project()
             if active and active.path:
-                root = Path(active.path).expanduser()
-    except Exception:  # noqa: BLE001 — registry 실패 시 데이터 디렉터리로 fallback
-        root = None
-    if root is None or not root.exists():
-        root = Path("data")
+                configured_root = Path(active.path).expanduser()
+    except Exception as exc:  # noqa: BLE001 — registry 실패 자체는 별도 검사가 보고한다
+        return "degraded", f"storage: project root unknown ({type(exc).__name__})"
+
+    if configured_root is not None and not configured_root.exists():
+        return "degraded", f"storage: configured project root missing ({configured_root})"
+
+    root = configured_root if configured_root is not None else Path("data")
     probe_dir = root if root.is_dir() else root.parent
     try:
         with tempfile.NamedTemporaryFile(prefix="agk-readiness-", dir=probe_dir, suffix=".tmp") as fh:
@@ -261,33 +273,72 @@ def _check_model_manager() -> tuple[ReadinessStatus, str]:
         return "not_ready", f"model_manager: {type(exc).__name__}"
 
 
+# NX-06: 검사별로 의존성 종류(kind)를 코드에 명시한다. 정책이 문서에만 있으면 새 검사를
+# 추가할 때 판정이 조용히 바뀐다.
+#
+#   required — 이 의존성이 없으면 요청을 받아도 의미 있는 응답을 낼 수 없다. 실패는
+#              not_ready → 503 → orchestration 이 EndpointSlice 에서 제외한다.
+#   optional — 없으면 일부 기능이 줄어들 뿐이다. not_ready 결과도 degraded 로
+#              내려서 트래픽을 계속 받는다(선택 의존성은 ready 상태를 막을 수 없다).
+#
+# 그리고 각 검사는 자기 실패모드를 스스로 판정한다 — 예를 들어 registry 는 "활성 프로젝트
+# 없음"(신규 설치의 정상 상태)을 degraded 로, 크래시를 not_ready 로 보고한다. 종류만으로
+# 상태를 계산하지 않는 이유가 이것이다.
+ReadinessKind = Literal["required", "optional"]
+
+_READINESS_CHECKS: tuple[tuple[str, ReadinessKind], ...] = (
+    ("task_db", "required"),  # 작업 원장을 읽을 수 없으면 task API 가 의미를 잃는다
+    ("registry", "required"),  # 프로젝트 해석이 불가하면 프로젝트 범위 요청이 전부 실패한다
+    ("writable_storage", "required"),  # 세션·산출물을 저장할 수 없으면 요청을 받으면 안 된다
+    ("model_manager", "optional"),  # 모델은 lazy 로드이고 cloud provider 경로도 있다
+)
+
+
+def _readiness_check(name: str) -> Callable[[], tuple[ReadinessStatus, str]]:
+    """검사 함수를 **호출 시점에** 모듈 전역에서 찾는다.
+
+    함수 객체를 테이블에 미리 담으면 `monkeypatch.setattr(om, "_check_task_db", …)`
+    같은 실패 주입이 조용히 무시된다(OBS-01 회귀 시험이 쓰는 계약).
+    """
+    return cast("Callable[[], tuple[ReadinessStatus, str]]", globals()[f"_check_{name}"])
+
+
 def compute_readiness() -> dict[str, object]:
     """필수 dependency readiness를 집계한다.
 
-    반환: {status, checks: [{name, status, detail}], checked_at}
+    반환: {status, checks: [{name, status, detail, required}], traffic, checked_at}
       - ready     — 전 검사 ready
       - degraded  — not_ready 0건, degraded ≥1
       - not_ready — not_ready ≥1 (트래픽 수용 불가)
+      - traffic   — "accept"(200 유지) | "reject"(503 → endpoint 제외)
+
+    degraded 는 required 검사가 모두 ready 일 때만 200 으로 수용한다 — 신규 설치처럼
+    선택 의존성이 아직 준비되지 않은 정상 상태를 트래픽 거부로 처리하면 서비스가
+    영원히 열리지 않는다. required 검사가 실패하면 degraded 여부와 무관하게 거부한다.
     """
-    checks: list[dict[str, str]] = []
-    for name, fn in (
-        ("task_db", _check_task_db),
-        ("registry", _check_registry),
-        ("writable_storage", _check_writable_storage),
-        ("model_manager", _check_model_manager),
-    ):
+    checks: list[dict[str, object]] = []
+    for name, kind in _READINESS_CHECKS:
         try:
-            status, detail = fn()
+            status, detail = _readiness_check(name)()
         except Exception as exc:  # noqa: BLE001 — 개별 검사 크래시도 보고한다
             status, detail = "not_ready", f"{name}: {type(exc).__name__}"
-        checks.append({"name": name, "status": status, "detail": detail})
+        # 선택 의존성은 ready 를 막을 수 없다 — not_ready 도 degraded 로 내린다.
+        if kind == "optional" and status == "not_ready":
+            status, detail = "degraded", f"{detail} (optional dependency)"
+        checks.append({"name": name, "status": status, "detail": detail, "kind": kind})
 
-    not_ready = sum(1 for c in checks if c["status"] == "not_ready")
-    degraded = sum(1 for c in checks if c["status"] == "degraded")
-    overall: ReadinessStatus = "not_ready" if not_ready else ("degraded" if degraded else "ready")
+    not_ready = [c for c in checks if c["status"] == "not_ready"]
+    degraded = [c for c in checks if c["status"] == "degraded"]
+    if not_ready:
+        overall: ReadinessStatus = "not_ready"
+    elif degraded:
+        overall = "degraded"
+    else:
+        overall = "ready"
     return {
         "status": overall,
         "checks": checks,
+        "traffic": "reject" if overall == "not_ready" else "accept",
         "checked_at": time.time(),
     }
 

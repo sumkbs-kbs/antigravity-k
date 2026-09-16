@@ -147,12 +147,17 @@ async def session_persistence_exception_handler(request: Request, exc: Exception
 
     저장 실패를 200 성공으로 감추지 않는다. 내부 경로/스택은 응답에 넣지 않는다.
     """
-    from antigravity_k.engine.session_manager import SessionPersistenceError, StaleSessionWriteError
+    from antigravity_k.engine.session_manager import (
+        SessionDeletedError,
+        SessionPersistenceError,
+        StaleSessionWriteError,
+    )
 
     if not isinstance(exc, SessionPersistenceError):  # pragma: no cover - 방어적 분기
         return await global_exception_handler(request, exc)
     cid = _get_correlation_id()
-    status_code = 409 if isinstance(exc, StaleSessionWriteError) else 503
+    # NX-03: 삭제된 세션 ID에 대한 저장 시도도 409다(클라이언트는 재로드/새 세션).
+    status_code = 409 if isinstance(exc, (StaleSessionWriteError, SessionDeletedError)) else 503
     error_code = exc.error_code
     detail = exc.public_detail
     logger.warning(

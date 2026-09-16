@@ -20,6 +20,10 @@ def _lan_ipv4() -> list[str]:
         hostname = socket.gethostname()
         for info in socket.getaddrinfo(hostname, None, family=socket.AF_INET):
             ip = info[4][0]
+            # NX-10: typeshed 는 `info[4][0]` 을 `str | int` 로 넓힌다(IPv6 scope-id 형태).
+            # 이 목록은 문자열 IPv4 만 담으므로 비문자열은 건너뛴다 — 동작은 그대로다.
+            if not isinstance(ip, str):
+                continue
             if ip and not ip.startswith("127.") and ip not in found:
                 found.append(ip)
     except OSError:

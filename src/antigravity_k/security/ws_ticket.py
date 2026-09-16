@@ -24,10 +24,13 @@ from __future__ import annotations
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from importlib import import_module
 from typing import Final, Protocol
 
 import jwt
+
+from antigravity_k.engine.auth import EPOCH_CLAIM
 
 __all__ = [
     "WSTicketError",
@@ -63,13 +66,25 @@ class WSTicketService:
         token_service: TokenSecret,
         *,
         ttl_sec: float = 30.0,
+        epoch_provider: Callable[[], int] | None = None,
     ) -> None:
-        """token_service의 secret을 재사용하는 ticket 서비스를 만든다."""
+        """token_service의 secret을 재사용하는 ticket 서비스를 만든다.
+
+        NX-05: ``epoch_provider`` 가 주어지면 ticket 은 발급 세대를 claim 으로 갖고,
+        소비 시 현재 세대와 비교한다 — PIN 변경 뒤 남아 있는 ticket 은 30초 TTL 을
+        기다리지 않고 즉시 무효가 된다.
+        """
         self._secret = token_service.secret
         self._ttl_sec = max(1.0, float(ttl_sec))
         self._lock = threading.Lock()
         # jti -> 만료시각(monotonic 기준 + grace). 1회성 판정용.
         self._used: dict[str, float] = {}
+        self._epoch_provider = epoch_provider
+
+    def _current_epoch(self) -> int | None:
+        if self._epoch_provider is None:
+            return None
+        return int(self._epoch_provider())
 
     @property
     def ttl_sec(self) -> float:
@@ -86,6 +101,9 @@ class WSTicketService:
             "jti": secrets.token_urlsafe(16),
             "typ": _TICKET_TYPE,
         }
+        epoch = self._current_epoch()
+        if epoch is not None:
+            payload[EPOCH_CLAIM] = epoch
         return jwt.encode(payload, self._secret, algorithm="HS256")
 
     def consume(self, ticket: str) -> str | None:
@@ -106,6 +124,13 @@ class WSTicketService:
             return None
         if claims.get("typ") != _TICKET_TYPE:
             return None
+
+        # NX-05: 발급 세대가 현재 세대와 다르면 폐기된 ticket 이다.
+        expected = self._current_epoch()
+        if expected is not None:
+            ticket_epoch = claims.get(EPOCH_CLAIM)
+            if not isinstance(ticket_epoch, int) or isinstance(ticket_epoch, bool) or ticket_epoch != expected:
+                return None
 
         jti = claims.get("jti")
         subject = claims.get("sub")
@@ -138,13 +163,15 @@ _service: WSTicketService | None = None
 
 
 def get_ws_ticket_service(token_service: TokenSecret | None = None) -> WSTicketService:
-    """공유 ticket 서비스 싱글톤. 최초 호출에 token_service가 필요하다."""
+    """공유 ticket 서비스 싱글톤. 최초 호출에 token_service가 필요하다.
+
+    NX-05: token service 가 세대 공급자를 가지면 ticket 도 같은 세대에 묶인다.
+    """
     global _service
     if _service is None:
-        if token_service is None:
-            _service = WSTicketService(import_module("antigravity_k.api.auth_routes").get_token_service())
-        else:
-            _service = WSTicketService(token_service)
+        resolved = token_service or import_module("antigravity_k.api.auth_routes").get_token_service()
+        epoch_provider = getattr(resolved, "epoch_provider", None)
+        _service = WSTicketService(resolved, epoch_provider=epoch_provider)
     return _service
 
 

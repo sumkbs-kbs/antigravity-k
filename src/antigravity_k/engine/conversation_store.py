@@ -33,10 +33,13 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, Literal, Mapping
+from typing import Any, Final, Literal, Mapping, cast
 
 from antigravity_k.api.contracts.conversation import ConversationSnapshot
 from antigravity_k.api.contracts.errors import (
+    ConversationHistoryCorruptError,
+    ConversationHistoryQuotaExceededError,
+    ConversationHistoryUnavailableError,
     ConversationIntegrityError,
     ConversationNotFoundError,
     ConversationStorageMigrationRequiredError,
@@ -44,6 +47,31 @@ from antigravity_k.api.contracts.errors import (
     StaleConversationRevisionError,
 )
 from antigravity_k.engine.context_summary import summarize_messages
+from antigravity_k.engine.conversation_journal import (
+    JOURNAL_SCHEMA_VERSION,
+    JOURNAL_SUFFIX,
+    ConversationJournal,
+    ConversationJournalCorruptError,
+    ConversationJournalError,
+    ConversationJournalSchemaMismatchError,
+    JournalEvent,
+    base_event_from_view,
+    read_deletion_marker,
+    replay,
+    write_deletion_marker,
+)
+from antigravity_k.engine.conversation_retention import (
+    JournalRetentionPolicy,
+    format_mb,
+    resolve_policy,
+)
+from antigravity_k.engine.summary_memory import (
+    CARRIED_SUMMARY_MAX_CHARS,
+    SummaryMemory,
+    carryover_prose,
+    record_generation,
+    update_from_messages,
+)
 from antigravity_k.engine.tokenizer import TokenEstimator
 
 logger = logging.getLogger("antigravity_k.engine.conversation_store")
@@ -54,7 +82,12 @@ _DEFAULT_RETAIN_TAIL: Final[int] = 6
 # EX-05 / Decision A: bound in-memory (and on-disk rewritten) history so long
 # chats cannot grow RSS without bound. 0 disables auto-compact.
 _DEFAULT_SOFT_MAX_MESSAGES: Final[int] = 64
+# NX-02 retention: `store_usage()` 가 돌려주는 "가장 큰 journal" 목록 크기(관측/회수 단서).
+_USAGE_TOP_N: Final[int] = 10
 _SUMMARY_MESSAGE_ID: Final[str] = "msg_summary"
+# NX-02: materialized-view export schema (original history export contract).
+HISTORY_EXPORT_SCHEMA: Final[str] = "agk.conv-export.v1"
+VIEW_SCHEMA_VERSION: Final[str] = "agk.conv-view.v1"
 
 
 def _soft_max_messages() -> int:
@@ -139,6 +172,13 @@ class ConversationRecord:
     forked_from: str | None = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    # NX-01: structured constraints carried across compaction generations.
+    # Records written before NX-01 simply have no ``memory`` key.
+    memory: SummaryMemory = field(default_factory=SummaryMemory)
+    # NX-02: journal sequence this view was materialized from, and whether the
+    # originals for this conversation are known to be incomplete.
+    journal_seq: int = 0
+    history_incomplete: bool = False
 
     def snapshot(self) -> ConversationSnapshot:
         retained = self.retained_message_ids or tuple(m.id for m in self.messages)
@@ -172,6 +212,10 @@ class ConversationRecord:
             "forked_from": self.forked_from,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "memory": self.memory.to_dict(),
+            "journal_seq": self.journal_seq,
+            "history_incomplete": self.history_incomplete,
+            "view_schema": VIEW_SCHEMA_VERSION,
         }
 
     @classmethod
@@ -189,7 +233,17 @@ class ConversationRecord:
             forked_from=data.get("forked_from") if isinstance(data.get("forked_from"), str) else None,
             created_at=float(data.get("created_at") or time.time()),
             updated_at=float(data.get("updated_at") or time.time()),
+            memory=SummaryMemory.from_dict(data.get("memory") if isinstance(data.get("memory"), Mapping) else None),
+            journal_seq=int(data.get("journal_seq") or 0),
+            history_incomplete=bool(data.get("history_incomplete")),
         )
+
+
+def _coerce_role(value: Any) -> MessageRole:
+    role = str(value or "user")
+    if role not in ("user", "assistant", "system", "tool"):
+        return "user"
+    return cast(MessageRole, role)
 
 
 def _new_message_id() -> str:
@@ -220,10 +274,17 @@ class ConversationStore:
         # 단일 프로세스 스레드 경쟁은 기존 threading.RLock으로 충분하다.
         self._flock_path = self._storage_dir / ".cas.lock"
         self._flock_fd: int | None = None
+        # NX-02: 같은 스레드가 중첩 호출(예: export → history_state)을 하면
+        # 별도 fd 로 flock 을 다시 잡을 때 자기 자신과 교착한다. 보유 스레드를
+        # 기억해 재진입은 그대로 통과시키고, 해제는 최외곽에서만 한다.
+        self._flock_owner: int | None = None
+        self._flock_depth = 0
         # CR-01: legacy layout detection is memoised per process; the operator
         # runs the migration with the service stopped.
         self._layout_checked = False
         self._legacy_paths: tuple[Path, ...] = ()
+        # NX-02 retention: soft cap 경고를 대화당 한 번만 남기기 위한 기억.
+        self._soft_cap_warned: set[tuple[str, str]] = set()
 
     # ── CR-01 identity / migration state ────────────────────────────────
 
@@ -299,17 +360,65 @@ class ConversationStore:
 
     @contextmanager
     def _cross_process_lock(self) -> Generator[None, None, None]:
-        """프로세스 간 CAS 원자성을 위한 flock (스레드 락은 self._lock이 담당)."""
+        """프로세스 간 CAS 원자성을 위한 flock (스레드 락은 self._lock이 담당).
+
+        NX-02: 같은 스레드의 재진입은 이미 보유한 flock 을 그대로 사용한다
+        (flock 은 open-file-description 단위라 같은 프로세스에서 다시 잡으면
+        자기 자신과 교착한다).
+        """
         import fcntl
 
+        thread_id = threading.get_ident()
+        if self._flock_depth > 0 and self._flock_owner == thread_id:
+            self._flock_depth += 1
+            try:
+                yield
+            finally:
+                self._flock_depth -= 1
+            return
         self._flock_path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(str(self._flock_path), os.O_CREAT | os.O_RDWR, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        self._flock_owner = thread_id
+        self._flock_depth = 1
+        self._flock_fd = fd
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
             yield
         finally:
+            self._flock_depth = 0
+            self._flock_owner = None
+            self._flock_fd = None
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
+
+    @contextmanager
+    def _journal_errors(self) -> Generator[None, None, None]:
+        """NX-02: journal 실패를 타입이 지정된 API 오류로 변환한다.
+
+        원본 이력 손상을 \"원문 없음\"으로 낮추지 않는다(ADR-DAT-02). 손상은
+        줄 번호/오프셋과 함께 409, IO 실패·상위 schema 는 503으로 보고한다.
+        """
+        try:
+            yield
+        except ConversationJournalSchemaMismatchError as exc:
+            raise ConversationHistoryUnavailableError(
+                detail="Conversation journal was written by a newer schema this build cannot read",
+                context={"reason": "schema_mismatch", "journal_schema": JOURNAL_SCHEMA_VERSION},
+            ) from exc
+        except ConversationJournalCorruptError as exc:
+            raise ConversationHistoryCorruptError(
+                detail="Committed conversation history is corrupt (line/offset reported)",
+                context={
+                    "reason": exc.reason,
+                    "journal_line": exc.line_no,
+                    "journal_offset": exc.offset,
+                },
+            ) from exc
+        except ConversationJournalError as exc:
+            raise ConversationHistoryUnavailableError(
+                detail="Conversation journal could not be read or written",
+                context={"reason": type(exc).__name__},
+            ) from exc
 
     def _refresh_latest(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
         """FR-05/RP-05: 캐시를 디스크 진실 원천과 동기화한 뒤 반환한다.
@@ -320,14 +429,447 @@ class ConversationStore:
 
         CR-01: 손상된 JSON이나 다른 식별자의 레코드는 조용히 None/빈 대화로
         낮추지 않고 ``ConversationIntegrityError``로 전파한다.
+
+        NX-02: view 는 journal 의 파생물이다. view 가 없으면 journal 로 재생성하고,
+        journal 이 view 보다 나중에 쓰였으면(view 지연/미커밋 tail) 재생성한다.
         """
         key = (project_id, conversation_id)
         disk_record = self._read_record(project_id, conversation_id)
+        journal = self._journal(project_id, conversation_id)
         if disk_record is None:
+            rebuilt = self._materialize_from_journal(project_id, conversation_id)
+            if rebuilt is not None:
+                self._records[key] = rebuilt
+                self._persist(rebuilt)
+                logger.warning(
+                    "Conversation view was missing and rebuilt from the journal (%s/%s, seq=%s)",
+                    project_id,
+                    conversation_id,
+                    rebuilt.journal_seq,
+                )
+                return rebuilt
             self._records.pop(key, None)
             return None
+        if journal.exists():
+            self._ensure_journal_base(disk_record)
+            journal = self._journal(project_id, conversation_id)
+            if self._journal_is_newer(journal, self._path_for(project_id, conversation_id)):
+                disk_record = self._reconcile_view_with_journal(project_id, conversation_id, disk_record)
         self._records[key] = disk_record
         return disk_record
+
+    # ── NX-02: journal (originals) ──────────────────────────────────────
+
+    def journal_path(self, *, project_id: str, conversation_id: str) -> Path:
+        """Append-only original-history journal path for one conversation."""
+        return self._path_for(project_id, conversation_id).with_suffix(JOURNAL_SUFFIX)
+
+    def _journal(self, project_id: str, conversation_id: str) -> ConversationJournal:
+        return ConversationJournal(self.journal_path(project_id=project_id, conversation_id=conversation_id))
+
+    def deletion_marker(self, *, project_id: str, conversation_id: str) -> dict[str, Any] | None:
+        """Deletion marker for this id (``None`` when the id was never deleted)."""
+        return read_deletion_marker(self._path_for(project_id, conversation_id))
+
+    @staticmethod
+    def _journal_is_newer(journal: ConversationJournal, view_path: Path) -> bool:
+        """Cheap stat-only probe: was the journal written after the view?"""
+        try:
+            return journal.path.stat().st_mtime_ns > view_path.stat().st_mtime_ns
+        except OSError:
+            return True
+
+    def _materialize_from_journal(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
+        """Rebuild the bounded view from committed journal events (deterministic)."""
+        journal = self._journal(project_id, conversation_id)
+        if not journal.exists():
+            return None
+        with self._journal_errors():
+            if journal.tail().truncated_tail:
+                journal.rewrite_without_truncated_tail()
+            events, _truncated = journal.read()
+        if not events:
+            return None
+        state = replay(events)
+        if state.deleted:
+            return None
+        messages = [
+            ConversationMessage(
+                id=str(message.get("id") or _new_message_id()),
+                role=_coerce_role(message.get("role")),
+                content=str(message.get("content") or ""),
+                created_at=float(message.get("created_at") or time.time()),
+                provenance=str(message.get("provenance") or "append"),
+            )
+            for message in state.messages
+        ]
+        return ConversationRecord(
+            conversation_id=conversation_id,
+            project_id=project_id,
+            revision=state.revision,
+            messages=messages,
+            summary=state.summary,
+            retained_message_ids=tuple(message.id for message in messages),
+            memory=SummaryMemory.from_dict(state.memory),
+            journal_seq=state.seq,
+            history_incomplete=state.history_incomplete,
+        )
+
+    def _reconcile_view_with_journal(
+        self, project_id: str, conversation_id: str, record: ConversationRecord
+    ) -> ConversationRecord:
+        """Journal 이 앞서면(또는 view 가 미커밋 tail 을 포함하면) 재생성한다."""
+        journal = self._journal(project_id, conversation_id)
+        if journal.tail().truncated_tail:
+            journal.rewrite_without_truncated_tail()
+        rebuilt = self._materialize_from_journal(project_id, conversation_id)
+        if rebuilt is None or rebuilt.journal_seq == record.journal_seq:
+            return record
+        logger.warning(
+            "Conversation view rebuilt from journal (%s/%s): view_seq=%s journal_seq=%s",
+            project_id,
+            conversation_id,
+            record.journal_seq,
+            rebuilt.journal_seq,
+        )
+        self._persist(rebuilt)
+        return rebuilt
+
+    def _ensure_journal_base(self, record: ConversationRecord) -> None:
+        """NX-02 migration: snapshot an existing view into a fresh journal (once).
+
+        Idempotent: the journal is only created when it does not exist yet. The
+        base event carries the current view, so replay reproduces it exactly;
+        originals are marked incomplete when the view already carries a summary.
+        """
+        journal = self._journal(record.project_id, record.conversation_id)
+        if journal.exists():
+            return
+        event = base_event_from_view(record.to_dict())
+        with self._journal_errors():
+            committed = journal.append(event)
+        record.journal_seq = committed.seq
+        record.history_incomplete = record.history_incomplete or bool(event["history_incomplete"])
+        self._persist(record)
+
+    def backfill_journal(
+        self,
+        *,
+        project_id: str,
+        conversation_id: str,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """NX-02 migration: create a journal base event from an existing view once.
+
+        Idempotent (a journal that already exists is left untouched) and it never
+        invents originals: a view that already carries a summary is recorded as
+        ``history_incomplete`` so the missing originals stay visible.
+        """
+        with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
+            journal = self._journal(project_id, conversation_id)
+            journal_path = self.journal_path(project_id=project_id, conversation_id=conversation_id)
+            if journal.exists():
+                return {
+                    "action": "already_present",
+                    "journal_path": str(journal_path),
+                    "journal_seq": journal.tail().seq,
+                    "history_incomplete": journal.tail().history_incomplete,
+                }
+            record = self._read_record(project_id, conversation_id)
+            if record is None:
+                return {
+                    "action": "no_record",
+                    "journal_path": str(journal_path),
+                    "journal_seq": 0,
+                    "history_incomplete": False,
+                }
+            incomplete = bool(record.summary) or any(message.provenance == "summary" for message in record.messages)
+            planned = {
+                "action": "would_create" if dry_run else "created",
+                "journal_path": str(journal_path),
+                "message_count": len(record.messages),
+                "history_incomplete": incomplete,
+            }
+            if dry_run:
+                return planned
+            self._ensure_journal_base(record)
+            return {**planned, "journal_path": str(journal_path), "journal_seq": record.journal_seq}
+
+    def _authoritative_record(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
+        """Record for a mutation: revision/seq follow the committed journal."""
+        record = self._refresh_latest(project_id, conversation_id)
+        journal = self._journal(project_id, conversation_id)
+        if not journal.exists():
+            return record
+        tail = journal.tail()
+        if tail.truncated_tail:
+            journal.rewrite_without_truncated_tail()
+            tail = journal.tail()
+        if tail.deleted:
+            return None
+        if record is None or record.journal_seq != tail.seq:
+            rebuilt = self._materialize_from_journal(project_id, conversation_id)
+            if rebuilt is not None:
+                return rebuilt
+        return record
+
+    def _assert_journal_capacity(self, record: ConversationRecord, journal: ConversationJournal) -> None:
+        """ADR-DAT-02 Context 8: 정한 byte 한계를 넘으면 **쓰기를 거절**한다(지우지 않는다).
+
+        조용한 prune 은 ADR 이 금지한다 — 자동 삭제를 넣으면 "원본을 보존한다"는 NX-02 계약
+        자체가 깨진다. 대신 한계에 닫으면 507 로 알리고 기존 데이터는 그대로 둔다.
+        """
+        policy = resolve_policy()
+        if policy.soft_cap_bytes <= 0 and not policy.enforced:
+            return
+        size = journal.size_bytes()
+        if size <= 0:
+            return
+        verdict = policy.verdict(size)
+        if verdict == "ok":
+            return
+        if verdict == "soft_exceeded":
+            self._warn_soft_cap(record, size, policy)
+            return
+        raise ConversationHistoryQuotaExceededError(
+            detail=(
+                "Conversation history (journal) reached its hard cap — append refused; existing history is preserved"
+            ),
+            context={
+                "project_id": record.project_id,
+                "conversation_id": record.conversation_id,
+                "journal_bytes": size,
+                "soft_cap_bytes": policy.soft_cap_bytes,
+                "hard_cap_bytes": policy.hard_cap_bytes,
+                "remedy": (
+                    "raise AGK_CONVERSATION_JOURNAL_HARD_CAP_MB, or reclaim storage "
+                    "(store_usage() reports the largest journals); nothing was deleted"
+                ),
+            },
+        )
+
+    def _warn_soft_cap(self, record: ConversationRecord, size: int, policy: JournalRetentionPolicy) -> None:
+        """soft cap 경고 — 대화당 한 번만 남긴다(턴마다 같은 줄을 쓰면 로그가 쓸모없어진다)."""
+        key = (record.project_id, record.conversation_id)
+        with self._lock:
+            if key in self._soft_cap_warned:
+                return
+            self._soft_cap_warned.add(key)
+        logger.warning(
+            "Conversation journal above soft cap: project=%s conversation=%s size=%s soft_cap=%s "
+            "hard_cap=%s (writes continue; no automatic pruning — see ADR-DAT-02 Context 8)",
+            record.project_id,
+            record.conversation_id,
+            format_mb(size),
+            format_mb(policy.soft_cap_bytes),
+            format_mb(policy.hard_cap_bytes),
+        )
+
+    def store_usage(self) -> dict[str, Any]:
+        """저장소 전체 사용량 관측(NX-02 retention) — 요청 시에만 실행한다.
+
+        매 append 마다 전체를 스캔하면 O(대화 수) 가 쓰기 경로에 붙는다. 한계 집행은 대화
+        하나당 journal 크기로 하고(쓰기 경로), 저장소 전체 사용량은 운영자가 이 메서드로 본다
+        (한계 초과 대화를 찾아 회수하는 것이 목적).
+        """
+        policy = resolve_policy()
+        total_bytes = 0
+        journals: list[tuple[int, str]] = []
+        for path in sorted(self._storage_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                size = path.stat().st_size
+            except OSError:  # pragma: no cover - 스캔 중 사라진 파일은 사용량에서 빠진다
+                continue
+            total_bytes += size
+            if path.name.endswith(JOURNAL_SUFFIX):
+                journals.append((size, path.relative_to(self._storage_dir).as_posix()))
+        journals.sort(key=lambda entry: (-entry[0], entry[1]))
+        over_hard = [entry for entry in journals if policy.verdict(entry[0]) == "hard_exceeded"]
+        over_soft = [entry for entry in journals if policy.verdict(entry[0]) in {"soft_exceeded", "hard_exceeded"}]
+        return {
+            "storage_dir": str(self._storage_dir),
+            "total_bytes": total_bytes,
+            "journal_count": len(journals),
+            "largest_journals": [{"path": relative, "bytes": size} for size, relative in journals[:_USAGE_TOP_N]],
+            "journals_over_soft_cap": len(over_soft),
+            "journals_over_hard_cap": len(over_hard),
+            "policy": policy.to_dict(),
+        }
+
+    def _commit_event(self, record: ConversationRecord, payload: dict[str, Any]) -> JournalEvent:
+        """Commit one logical mutation to the journal, then refresh the view.
+
+        The journal line + fsync is the commit point. If the view write fails the
+        event stays committed (the view is rebuilt from the journal later), and
+        the failure is propagated to the caller.
+        """
+        journal = self._journal(record.project_id, record.conversation_id)
+        self._assert_journal_capacity(record, journal)
+        with self._journal_errors():
+            if journal.tail().truncated_tail:
+                journal.rewrite_without_truncated_tail()
+            event = journal.append(
+                {**payload, "project_id": record.project_id, "conversation_id": record.conversation_id}
+            )
+        record.journal_seq = event.seq
+        record.history_incomplete = record.history_incomplete or event.history_incomplete
+        self._persist(record)
+        return event
+
+    def _assert_id_reusable(self, project_id: str, conversation_id: str) -> None:
+        """NX-02: a deleted id is never recreated implicitly."""
+        if self.deletion_marker(project_id=project_id, conversation_id=conversation_id) is not None:
+            raise ConversationNotFoundError(
+                detail="Conversation was deleted and its id is not reused",
+                context={"project_id": project_id, "conversation_id": conversation_id, "reason": "deleted"},
+            )
+
+    def original_history(
+        self,
+        *,
+        project_id: str,
+        conversation_id: str,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Original (pre-compaction) history from the journal.
+
+        This is the recovery/export read surface; the prompt view lives in
+        ``get()``/``snapshot()``. Deleted conversations return an empty list.
+        """
+        with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
+            journal = self._journal(project_id, conversation_id)
+            if not journal.exists():
+                return []
+            with self._journal_errors():
+                if journal.tail().truncated_tail:
+                    journal.rewrite_without_truncated_tail()
+                events, _truncated = journal.read()
+            state = replay(events)
+            if state.deleted:
+                return []
+            originals = [dict(message) for message in state.originals]
+            start = max(0, int(offset))
+            sliced = originals[start:] if limit is None else originals[start : start + max(0, int(limit))]
+            return sliced
+
+    def history_state(self, *, project_id: str, conversation_id: str) -> dict[str, Any]:
+        """Observable state of originals vs view (diagnostics/UX, no mutation)."""
+        with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
+            view_path = self._path_for(project_id, conversation_id)
+            journal = self._journal(project_id, conversation_id)
+            marker = read_deletion_marker(view_path)
+            view_exists = view_path.is_file()
+            if not journal.exists() and not view_exists:
+                return {
+                    "exists": False,
+                    "deleted": marker is not None,
+                    "content_erased": bool(marker is not None) and not view_exists and not journal.exists(),
+                    "journal_seq": 0,
+                    "revision": 0,
+                    "original_message_count": 0,
+                    "view_message_count": 0,
+                    "history_incomplete": False,
+                    "truncated_tail": False,
+                }
+            with self._journal_errors():
+                events, truncated = journal.read() if journal.exists() else ([], False)
+            state = replay(events)
+            record = self._read_record(project_id, conversation_id)
+            return {
+                "exists": True,
+                "deleted": state.deleted or marker is not None,
+                "content_erased": state.deleted or (marker is not None and not journal.exists() and not view_exists),
+                "journal_seq": state.seq,
+                "revision": state.revision if events else (record.revision if record else 0),
+                "original_message_count": len(state.originals),
+                "view_message_count": len(record.messages) if record else len(state.messages),
+                "history_incomplete": state.history_incomplete,
+                "truncated_tail": truncated,
+            }
+
+    def export_original_history(self, *, project_id: str, conversation_id: str) -> dict[str, Any]:
+        """Export payload for support/backup tooling (originals + provenance)."""
+        with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
+            self._refresh_latest(project_id, conversation_id)
+            journal = self._journal(project_id, conversation_id)
+            state = self.history_state(project_id=project_id, conversation_id=conversation_id)
+            messages = self.original_history(project_id=project_id, conversation_id=conversation_id)
+            return {
+                "schema": HISTORY_EXPORT_SCHEMA,
+                "project_id": project_id,
+                "conversation_id": conversation_id,
+                "exported_at": time.time(),
+                "revision": state["revision"],
+                "journal_seq": state["journal_seq"],
+                "journal_sha256": journal.fingerprint(),
+                "journal_schema": JOURNAL_SCHEMA_VERSION,
+                "history_incomplete": state["history_incomplete"],
+                "deleted": state["deleted"],
+                "message_count": len(messages),
+                "messages": messages,
+            }
+
+    def delete_conversation(
+        self,
+        *,
+        project_id: str,
+        conversation_id: str,
+        expected_revision: int | None = None,
+    ) -> bool:
+        """NX-02: delete originals and the view together.
+
+        Order (all under the store locks): commit a ``delete`` event, write a
+        durable deletion marker, then remove the journal and the view bytes.
+        A crash before the removal leaves the deletion visible to readers.
+        """
+        with self._lock, self._cross_process_lock():
+            self._assert_storage_ready()
+            view_path = self._path_for(project_id, conversation_id)
+            journal = self._journal(project_id, conversation_id)
+            record = self._authoritative_record(project_id, conversation_id)
+            if record is None and not journal.exists() and not view_path.is_file():
+                return False
+            if record is not None and expected_revision is not None and record.revision != expected_revision:
+                raise StaleConversationRevisionError(
+                    detail="Conversation revision does not match the authoritative store",
+                    context={
+                        "project_id": project_id,
+                        "conversation_id": conversation_id,
+                        "expected_revision": expected_revision,
+                        "current_revision": record.revision,
+                    },
+                )
+            revision = (record.revision if record is not None else 0) + 1
+            with self._journal_errors():
+                event = journal.append(
+                    {
+                        "event_type": "delete",
+                        "project_id": project_id,
+                        "conversation_id": conversation_id,
+                        "revision": revision,
+                    }
+                )
+            write_deletion_marker(
+                view_path,
+                project_id=project_id,
+                conversation_id=conversation_id,
+                seq=event.seq,
+                revision=revision,
+            )
+            for stale_path in (journal.path, view_path):
+                try:
+                    stale_path.unlink()
+                except FileNotFoundError:
+                    pass
+            self._records.pop((project_id, conversation_id), None)
+            return True
 
     def _read_record(self, project_id: str, conversation_id: str) -> ConversationRecord | None:
         """Read one record and verify its embedded identity against the request.
@@ -482,6 +1024,40 @@ class ConversationStore:
                 )
             return record.snapshot()
 
+    def _build_compaction_summary(
+        self,
+        record: ConversationRecord,
+        old: list[ConversationMessage],
+        summarize_fn=None,
+    ) -> str:
+        """Fold ``old`` into the structured memory and render the new summary.
+
+        NX-01: the previous store summary is carried forward explicitly (its
+        prose), and the constraints it introduced are preserved as structured
+        items with stable ids, status and source message id. Caller must hold
+        the locks; revision is already advanced for the triggering mutation.
+        """
+        update_from_messages(
+            record.memory,
+            [{"id": m.id, "role": m.role, "content": m.content} for m in old],
+            revision=record.revision,
+        )
+        previous = carryover_prose("\n".join(m.content for m in old if m.provenance == "summary"))
+        if previous:
+            record.memory.carried_summary = previous[:CARRIED_SUMMARY_MAX_CHARS]
+        record_generation(
+            record.memory,
+            revision=record.revision,
+            message_count=len(old),
+            source_ids=[m.id for m in old],
+        )
+        return summarize_messages(
+            [{"id": m.id, "role": m.role, "content": m.content} for m in old],
+            summarize_fn,
+            memory=record.memory,
+            carryover=record.memory.carried_summary,
+        )
+
     def _inline_compact_messages(
         self,
         record: ConversationRecord,
@@ -501,8 +1077,7 @@ class ConversationStore:
             return
         old = messages[:-retain_tail] if retain_tail else messages
         retained = messages[-retain_tail:] if retain_tail else []
-        old_as_dicts = [{"role": m.role, "content": m.content} for m in old]
-        summary_text = summarize_messages(old_as_dicts, summarize_fn)
+        summary_text = self._build_compaction_summary(record, old, summarize_fn)
         if not summary_text:
             summary_text = f"[대화 요약 — {len(old)}개 메시지 압축]"
         summary_msg = ConversationMessage(
@@ -549,8 +1124,9 @@ class ConversationStore:
         # 인한 침묵 덮어쓰기 방지).
         with self._lock, self._cross_process_lock():
             self._assert_storage_ready()
-            record = self._refresh_latest(project_id, conversation_id)
+            record = self._authoritative_record(project_id, conversation_id)
             if record is None:
+                self._assert_id_reusable(project_id, conversation_id)
                 if not create_if_missing or expected_revision != 0:
                     if expected_revision != 0:
                         raise StaleConversationRevisionError(
@@ -597,11 +1173,13 @@ class ConversationStore:
             )
             record.messages.append(msg)
             record.revision = expected_revision + 1
+            compacted = False
             soft_max = _soft_max_messages()
             if soft_max > 0 and len(record.messages) > soft_max:
                 # Decision A (EX-05): bound RSS for long conversations without an
                 # extra client-visible revision bump beyond this append.
                 self._inline_compact_messages(record, retain_tail=_DEFAULT_RETAIN_TAIL)
+                compacted = True
                 try:
                     from antigravity_k.engine.operational_metrics import record_compaction
 
@@ -611,7 +1189,38 @@ class ConversationStore:
             else:
                 record.retained_message_ids = tuple(m.id for m in record.messages)
             record.updated_at = time.time()
-            self._persist(record)
+            if compacted:
+                # NX-02: one logical append = one journal event = one revision.
+                # The compact event carries both the new turn (originals) and the
+                # bounded view state, so replay stays lossless and deterministic.
+                self._commit_event(
+                    record,
+                    {
+                        "event_type": "compact",
+                        "revision": record.revision,
+                        "message_id": msg.id,
+                        "role": msg.role,
+                        "content": msg.content,
+                        "created_at": msg.created_at,
+                        "provenance": msg.provenance,
+                        "summary": record.summary or "",
+                        "retained_message_ids": list(record.retained_message_ids),
+                        "memory": record.memory.to_dict(),
+                    },
+                )
+            else:
+                self._commit_event(
+                    record,
+                    {
+                        "event_type": "append",
+                        "revision": record.revision,
+                        "message_id": msg.id,
+                        "role": msg.role,
+                        "content": msg.content,
+                        "created_at": msg.created_at,
+                        "provenance": msg.provenance,
+                    },
+                )
             return record.snapshot()
 
     def compact(
@@ -639,7 +1248,7 @@ class ConversationStore:
 
         with self._lock, self._cross_process_lock():
             self._assert_storage_ready()
-            record = self._refresh_latest(project_id, conversation_id)
+            record = self._authoritative_record(project_id, conversation_id)
             if record is None:
                 raise ConversationNotFoundError(
                     detail=f"Conversation not found: {conversation_id}",
@@ -667,14 +1276,23 @@ class ConversationStore:
                 record.revision = expected_revision + 1
                 record.retained_message_ids = tuple(m.id for m in record.messages)
                 record.updated_at = time.time()
-                self._persist(record)
+                self._commit_event(
+                    record,
+                    {
+                        "event_type": "compact",
+                        "revision": record.revision,
+                        "message_id": "",
+                        "summary": record.summary or "",
+                        "retained_message_ids": list(record.retained_message_ids),
+                        "memory": record.memory.to_dict(),
+                    },
+                )
                 record_compaction("success")
                 return record.snapshot()
 
             old = messages[:-retain_tail] if retain_tail else messages
             retained = messages[-retain_tail:] if retain_tail else []
-            old_as_dicts = [{"role": m.role, "content": m.content} for m in old]
-            summary_text = summarize_messages(old_as_dicts, summarize_fn)
+            summary_text = self._build_compaction_summary(record, old, summarize_fn)
             if not summary_text:
                 summary_text = f"[대화 요약 — {len(old)}개 메시지 압축]"
 
@@ -691,7 +1309,17 @@ class ConversationStore:
             record.retained_message_ids = tuple(m.id for m in new_messages)
             record.revision = expected_revision + 1
             record.updated_at = time.time()
-            self._persist(record)
+            self._commit_event(
+                record,
+                {
+                    "event_type": "compact",
+                    "revision": record.revision,
+                    "message_id": "",
+                    "summary": record.summary or "",
+                    "retained_message_ids": list(record.retained_message_ids),
+                    "memory": record.memory.to_dict(),
+                },
+            )
             record_compaction("success")
             return record.snapshot()
 
@@ -736,17 +1364,34 @@ class ConversationStore:
                         role=m.role,
                         content=m.content,
                         created_at=time.time(),
-                        provenance="fork",
+                        # NX-01: keep store-summary provenance so a compacted
+                        # fork still carries its previous summary forward.
+                        provenance="summary" if m.provenance == "summary" else "fork",
                     )
                     for m in source.messages
                 ],
                 summary=source.summary,
                 retained_message_ids=(),
                 forked_from=source_conversation_id,
+                memory=deepcopy(source.memory),
             )
             forked.retained_message_ids = tuple(m.id for m in forked.messages)
+            # NX-02: a fork starts a new id; its originals begin at the fork point.
+            # Originals of the *source* stay in the source journal.
+            source_bounded = bool(source.summary) or source.history_incomplete
+            forked.history_incomplete = bool(source_bounded)
             self._records[(project_id, new_id)] = forked
-            self._persist(forked)
+            self._commit_event(
+                forked,
+                {
+                    "event_type": "fork",
+                    "revision": 0,
+                    "messages": [m.to_dict() for m in forked.messages],
+                    "summary": forked.summary or "",
+                    "memory": forked.memory.to_dict(),
+                    "history_incomplete": bool(source_bounded),
+                },
+            )
             return forked.snapshot()
 
     def assemble_history_for_request(
@@ -857,10 +1502,16 @@ def reset_conversation_store_for_tests(store: ConversationStore | None = None) -
 
 
 __all__ = [
+    "ConversationJournalCorruptError",
+    "ConversationJournalError",
     "ConversationMessage",
     "ConversationRecord",
     "ConversationStore",
+    "HISTORY_EXPORT_SCHEMA",
+    "JOURNAL_SCHEMA_VERSION",
+    "JOURNAL_SUFFIX",
     "MIGRATION_MARKER_NAME",
+    "VIEW_SCHEMA_VERSION",
     "conversation_identity_digest",
     "conversation_storage_relative_path",
     "get_conversation_store",

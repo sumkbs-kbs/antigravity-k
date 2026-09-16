@@ -231,12 +231,27 @@ app = FastAPI(
 
 
 _forwarder_auth_required = True
-_forwarder_pin_hash: str | None = None
 _FORWARDER_PUBLIC_PATHS = frozenset({"/", "/v1/health", "/docs", "/openapi.json"})
 
 
+def _load_forwarder_pin_hash() -> str | None:
+    """현재 저장 PIN hash — 매 판정 시 파일에서 다시 읽는다(캐시 금지).
+
+    NX-05: 프로세스에 hash 를 캐시하면 다른 프로세스(또는 같은 API)가 PIN 을
+    바꿔도 forwarder 가 이전 PIN 을 계속 받아준다. 읽기 비용은 뒤따르는
+    PBKDF2 검증에 비하면 무시할 수 있다.
+    """
+    from antigravity_k.security.auth_state import read_pin_hash
+
+    pin_hash_file = Path(os.environ.get("AGK_SEC_PIN_HASH_FILE", "data/auth_hash"))
+    try:
+        return read_pin_hash(pin_hash_file)
+    except OSError:  # pragma: no cover - read_pin_hash 가 내부에서 OSError 를 삼킨다
+        return None
+
+
 def validate_forwarder_startup(host: str) -> None:
-    global _forwarder_auth_required, _forwarder_pin_hash
+    global _forwarder_auth_required
     from antigravity_k.api.startup_security import validate_startup_security
     from antigravity_k.engine.auth import hash_pin
 
@@ -254,43 +269,41 @@ def validate_forwarder_startup(host: str) -> None:
         "::1",
     }
     if _forwarder_auth_required:
-        try:
-            _forwarder_pin_hash = pin_hash_file.read_text(encoding="utf-8").strip() or None
-        except OSError:
-            _forwarder_pin_hash = None
-        if _forwarder_pin_hash is None:
+        # NX-05: 저장 형식이 agk.auth.v1 JSON(hash + epoch)이다. 원문을 그대로
+        # hash 로 쓰면 JSON blob 을 PIN hash 로 검증해 모든 로그인이 실패한다.
+        from antigravity_k.security.auth_state import bump_epoch_atomic, read_pin_hash
+
+        if read_pin_hash(pin_hash_file) is None:
             access_pin = os.environ.get("AGK_SEC_ACCESS_PIN", "").strip()
             if access_pin:
-                _forwarder_pin_hash = hash_pin(access_pin)
                 try:
-                    pin_hash_file.parent.mkdir(parents=True, exist_ok=True)
-                    pin_hash_file.write_text(_forwarder_pin_hash, encoding="utf-8")
-                    pin_hash_file.chmod(0o600)
+                    # hash 와 세대를 함께 원자 교체한다(사본 파일을 남기지 않는다).
+                    _ = bump_epoch_atomic(pin_hash_file, pin_hash=hash_pin(access_pin))
                 except OSError:
                     pass
-    else:
-        _forwarder_pin_hash = None
 
 
 def _forwarder_request_authenticated(request: Request) -> bool:
     if not _forwarder_auth_required:
         return True
     pin = request.headers.get("X-Access-Pin") or request.cookies.get("ag_access_pin")
-    if not pin or not _forwarder_pin_hash:
+    stored = _load_forwarder_pin_hash()
+    if not pin or not stored:
         return False
     from antigravity_k.engine.auth import verify_pin
 
-    return verify_pin(pin, _forwarder_pin_hash)
+    return verify_pin(pin, stored)
 
 
 def _forwarder_pin_authenticated(pin: str | None) -> bool:
     if not _forwarder_auth_required:
         return True
-    if not pin or not _forwarder_pin_hash:
+    stored = _load_forwarder_pin_hash()
+    if not pin or not stored:
         return False
     from antigravity_k.engine.auth import verify_pin
 
-    return verify_pin(pin, _forwarder_pin_hash)
+    return verify_pin(pin, stored)
 
 
 @app.middleware("http")

@@ -161,6 +161,7 @@ def pre_route_handler(ctx: StateContext, orch: object) -> Generator[str, None, N
             unc_context = orchestrator.ctx.uncertainty_estimator.format_prompt_injection(uncertainty)
             if unc_context:
                 ctx.custom_messages[-1] = {
+                    **ctx.custom_messages[-1],
                     "role": "user",
                     "content": ctx.custom_messages[-1]["content"] + unc_context,
                 }
@@ -175,6 +176,7 @@ def pre_route_handler(ctx: StateContext, orch: object) -> Generator[str, None, N
         user_context = orchestrator.ctx.user_model.build_context(preferences)
         if user_context:
             ctx.custom_messages[-1] = {
+                **ctx.custom_messages[-1],
                 "role": "user",
                 "content": ctx.custom_messages[-1]["content"] + user_context,
             }

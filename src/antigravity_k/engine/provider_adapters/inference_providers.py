@@ -13,6 +13,11 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, ContextManager, Protocol, TypeAlias, cast, override, runtime_checkable
 
 from antigravity_k.engine.context_budget import context_budget_for_context_length
+
+# NX-10: `from antigravity_k.engine import multimodal` 는 **패키지 루트**를 요구해
+# `engine/__init__ → model_manager → inference_providers` 와 순환한다(게이트:
+# reportImportCycles). leaf 모듈에서 이름을 직접 가져온다.
+from antigravity_k.engine.multimodal import adapter_messages
 from antigravity_k.tools.egress_policy import safe_urlopen
 
 if TYPE_CHECKING:
@@ -240,7 +245,13 @@ class AnthropicProvider(BaseInferenceProvider):
 
         client = anthropic.Anthropic(api_key=api_key)
         system_prompt = cast(str, kwargs.get("system_prompt", ""))
-        raw_messages = cast(list[Message], kwargs.get("raw_messages", [{"role": "user", "content": prompt}]))
+        # NX-09-F03: Anthropic 은 이미지를 `source.base64` 블록으로 받는다.
+        raw_messages = adapter_messages(
+            surface="anthropic",
+            prompt=prompt,
+            raw_messages=kwargs.get("raw_messages"),
+            images=kwargs.get("images"),
+        )
         model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
             loaded.profile,
             raw_messages,
@@ -367,14 +378,14 @@ class OpenRouterProvider(BaseInferenceProvider):
             return
 
         url = f"{base_url}/chat/completions"
-        if "raw_messages" in kwargs:
-            sys_msg = cast(str, kwargs.get("system_prompt", ""))
-            raw_messages = cast(list[Message], kwargs["raw_messages"])
-            api_msgs: list[Message] = (
-                [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages if sys_msg else raw_messages
-            )
-        else:
-            api_msgs = [{"role": "user", "content": prompt}]
+        # NX-09-F03: 첨부까지 포함해 표면별로 변환한다(여기서 각자 풀어 쓰면 이미지가 샌다).
+        api_msgs: list[Message] = adapter_messages(
+            surface="openai",
+            prompt=prompt,
+            raw_messages=kwargs.get("raw_messages"),
+            system_prompt=cast(str, kwargs.get("system_prompt", "")),
+            images=kwargs.get("images"),
+        )
 
         model_name, temperature, thinking_config, _ = self._apply_dynamic_inference_config(
             loaded.profile,
@@ -580,15 +591,14 @@ class OllamaProvider(BaseInferenceProvider):
         if tools_schema and isinstance(tools_schema, list):
             data["tools"] = tools_schema
 
-        if "raw_messages" in kwargs:
-            sys_msg = cast(str, kwargs.get("system_prompt", ""))
-            raw_messages = cast(list[Message], kwargs["raw_messages"])
-            if sys_msg:
-                api_msgs: list[Message] = [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages
-            else:
-                api_msgs = list(raw_messages)
-        else:
-            api_msgs = [{"role": "user", "content": prompt}]
+        # NX-09-F03: 이 표면은 OpenAI 호환 `/chat/completions` — 파트로 변환해 보낸다.
+        api_msgs: list[Message] = adapter_messages(
+            surface="openai",
+            prompt=prompt,
+            raw_messages=kwargs.get("raw_messages"),
+            system_prompt=cast(str, kwargs.get("system_prompt", "")),
+            images=kwargs.get("images"),
+        )
 
         api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
         data["messages"] = api_msgs
@@ -639,15 +649,14 @@ class OllamaProvider(BaseInferenceProvider):
 
         native_base = re.sub(r"/v\d+$", "", base_url.rstrip("/"))
         url = f"{native_base}/api/chat"
-        if "raw_messages" in kwargs:
-            sys_msg = cast(str, kwargs.get("system_prompt", ""))
-            raw_messages = cast(list[Message], kwargs["raw_messages"])
-            if sys_msg:
-                api_msgs: list[Message] = [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages
-            else:
-                api_msgs = list(raw_messages)
-        else:
-            api_msgs = [{"role": "user", "content": prompt}]
+        # NX-09-F03: Ollama 네이티브는 `content`(텍스트) + `images`(base64) 로 받는다.
+        api_msgs: list[Message] = adapter_messages(
+            surface="ollama",
+            prompt=prompt,
+            raw_messages=kwargs.get("raw_messages"),
+            system_prompt=cast(str, kwargs.get("system_prompt", "")),
+            images=kwargs.get("images"),
+        )
         # thinking이 명시적으로 켜진 경우 /no_think 주입을 건너뛴다(충돌 방지)
         think_enabled = bool(kwargs.get("think", False))
         if not think_enabled:
@@ -781,33 +790,15 @@ class OllamaProvider(BaseInferenceProvider):
         native_base = re.sub(r"/v\d+$", "", base_url)
         url = f"{native_base}/api/chat"
 
-        if "raw_messages" in kwargs:
-            sys_msg = cast(str, kwargs.get("system_prompt", ""))
-            raw_messages = cast(list[Message], kwargs["raw_messages"])
-            if sys_msg:
-                api_msgs: list[Message] = [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages
-            else:
-                api_msgs = raw_messages
-        else:
-            if isinstance(prompt, list):
-                api_msgs = prompt
-            else:
-                api_msgs = [{"role": "user", "content": prompt}]
-
-        normalized_msgs: list[Message] = []
-        for msg in api_msgs:
-            content = msg.get("content", "")
-            if isinstance(content, list):
-                str_content: list[str] = []
-                for part in cast(list[object], content):
-                    part_map = _as_json_map(part)
-                    if isinstance(part, dict) and part_map.get("type") == "text":
-                        str_content.append(cast(str, part_map.get("text", "")))
-                    elif isinstance(part, str):
-                        str_content.append(part)
-                content = " ".join(str_content)
-            normalized_msgs.append({**msg, "content": content})
-        api_msgs = normalized_msgs
+        # NX-09-F03: 예전에는 여기서 파트를 텍스트로 납작하게 만들어 **이미지를 버렸다**
+        # ("Normalize: ensure content is a string"). 이제 표면별 변환은 multimodal 이 소유한다.
+        api_msgs = adapter_messages(
+            surface="ollama",
+            prompt=prompt,
+            raw_messages=kwargs.get("raw_messages"),
+            system_prompt=cast(str, kwargs.get("system_prompt", "")),
+            images=kwargs.get("images"),
+        )
 
         model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
             loaded.profile,
@@ -994,17 +985,14 @@ class NimProvider(BaseInferenceProvider):
 
         url = f"{base_url}/chat/completions"
 
-        if "raw_messages" in kwargs:
-            sys_msg = cast(str, kwargs.get("system_prompt", ""))
-            raw_messages = cast(list[Message], kwargs["raw_messages"])
-            api_msgs: list[Message] = (
-                [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages if sys_msg else raw_messages
-            )
-        else:
-            if isinstance(prompt, list):
-                api_msgs = prompt
-            else:
-                api_msgs = [{"role": "user", "content": prompt}]
+        # NX-09-F03: 첨부까지 포함한 표면별 변환은 multimodal 이 단독 소유한다.
+        api_msgs: list[Message] = adapter_messages(
+            surface="openai",
+            prompt=prompt,
+            raw_messages=kwargs.get("raw_messages"),
+            system_prompt=cast(str, kwargs.get("system_prompt", "")),
+            images=kwargs.get("images"),
+        )
 
         # 메시지 정규화 (string content 보장)
         normalized: list[Message] = []

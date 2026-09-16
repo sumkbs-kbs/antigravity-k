@@ -28,6 +28,16 @@ from .long_context_policy import LongContextExecutionPlan, build_long_context_pl
 from .memory_policy import MemoryPolicy
 from .model_registry import ModelProfile, ModelRegistry
 from .model_router import AllModelsUnavailableError, ModelCombo, ModelRouter, RouteStrategy
+
+# NX-10: `from . import multimodal` 는 패키지 루트(`engine/__init__`)를 요구해
+# `engine/__init__ → model_manager` 순환을 만든다. leaf 모듈에서 이름을 직접 가져온다.
+from .multimodal import (
+    normalize_message,
+    prompt_message,
+    to_anthropic_messages,
+    to_ollama_messages,
+    to_openai_messages,
+)
 from .provider_adapters.inference_providers import BaseInferenceProvider
 from .provider_capabilities import LocalProviderCapabilityProbe, ProviderCapability
 from .usage_tracker import UsageTracker
@@ -1362,11 +1372,14 @@ class ModelManager:
                 api_msgs.insert(0, {"role": "system", "content": sys_msg})
             data["messages"] = api_msgs
         else:
-            data["messages"] = [{"role": "user", "content": prompt}]
+            # NX-09-F03: 프롬프트 문자열 경로에서도 첨부를 싣는다.
+            data["messages"] = [prompt_message(prompt, kwargs.get("images"))]
         data["messages"] = self._suppress_model_thinking(
             loaded.profile.name,
             _as_messages(data["messages"]),
         )
+        # 이 표면은 OpenAI 호환 `/chat/completions` 다 — 첨부는 파트로 나간다.
+        data["messages"] = to_openai_messages(_as_messages(data["messages"]))
 
         headers = {
             "Content-Type": "application/json",
@@ -1535,11 +1548,11 @@ class ModelManager:
         Extracted from _do_anthropic_stream for testability.
         """
         # Format messages for Anthropic (only user/assistant roles).
-        anthropic_msgs: list[Message] = [
-            {"role": msg["role"], "content": msg["content"]}
-            for msg in raw_messages
-            if msg["role"] in ("user", "assistant")
-        ]
+        # NX-09-F03: Anthropic 은 source.base64 이미지 블록을 쓴다 — 파트를 그대로
+        # 넘기면 API 가 거절한다(조용히 버리지 않고 형식만 맞춰 준다).
+        anthropic_msgs: list[Message] = to_anthropic_messages(
+            [dict(msg) for msg in raw_messages if msg.get("role") in ("user", "assistant")]
+        )
 
         # Intelligent Context Cache: Anthropic allows max 4 cache_control blocks.
         cache_blocks: list[Message] = []
@@ -1600,23 +1613,16 @@ class ModelManager:
             if sys_msg:
                 api_msgs.insert(0, {"role": "system", "content": sys_msg})
         else:
-            api_msgs = [{"role": "user", "content": prompt}]
+            # NX-09-F03: 에이전트 경로는 프롬프트 **문자열**로 온다 — 첨부는 프롬프트를
+            # 건드리지 않고 `images` 로 붙인다(예전에는 이 자리에 이미지가 있을 수 없다고
+            # 가정해 조용히 버려졌다).
+            api_msgs = [prompt_message(prompt, kwargs.get("images"))]
 
-        # Normalize: ensure content is a string (flatten list-of-parts).
-        normalized: list[Message] = []
-        for msg in api_msgs:
-            content = msg.get("content", "")
-            if isinstance(content, list):
-                parts: list[str] = []
-                for part in cast(list[object], content):
-                    if isinstance(part, dict):
-                        part_map = cast(dict[str, object], part)
-                        if part_map.get("type") == "text":
-                            parts.append(str(part_map.get("text", "")))
-                    elif isinstance(part, str):
-                        parts.append(part)
-                content = " ".join(parts)
-            normalized.append({**msg, "content": content})
+        # NX-09-F03: content 는 **항상 문자열**로 접고, 이미지는 message-level `images` 로
+        # 끌어올린다. 예전에는 여기서 파트를 텍스트로 납작하게 만든 뒤 이미지를 버렸고,
+        # (사용자는 붙였다고 믿고 모델은 파일명만 봤다) 반대로 파트를 그대로 두면
+        # content 를 문자열로 가정하는 하위 코드가 전부 깨진다.
+        normalized: list[Message] = [normalize_message(dict(msg)) for msg in api_msgs]
 
         normalized = self._suppress_model_thinking(loaded.profile.name, normalized)
         _, _, _, attribution = self._apply_dynamic_inference_config(loaded.profile, normalized, kwargs)
@@ -1652,7 +1658,8 @@ class ModelManager:
                 "stream": True,
                 "temperature": temperature,
                 "max_tokens": kwargs.get("max_tokens", 4096),
-                "messages": api_msgs,
+                # OpenAI 호환 표면 — 멀티모달 파트를 그대로 보낸다.
+                "messages": to_openai_messages(api_msgs),
             }
         else:
             native_base = self._ollama_native_base(config.model.api_base)
@@ -1668,7 +1675,8 @@ class ModelManager:
                     "temperature": temperature,
                     "repeat_penalty": 1.3,
                 },
-                "messages": api_msgs,
+                # Ollama 네이티브 표면 — 텍스트 + images(base64) 로 변환한다.
+                "messages": to_ollama_messages(api_msgs),
             }
 
         req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers)

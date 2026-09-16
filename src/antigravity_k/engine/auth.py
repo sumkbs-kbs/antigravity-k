@@ -25,6 +25,7 @@ import hmac
 import logging
 import secrets
 import threading
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -47,6 +48,9 @@ DEFAULT_TOKEN_TTL_HOURS = 12
 # JWT configuration.
 _JWT_ALGORITHM = "HS256"
 _JWT_ISSUER = "antigravity-k"
+
+# NX-05: PIN 변경 시 폐기되는 세션 세대 claim 이름.
+EPOCH_CLAIM = "epoch"
 
 # File permissions for the persisted signing secret (owner read/write only).
 _SECRET_FILE_MODE = 0o600
@@ -134,6 +138,7 @@ class TokenService:
         secret_path: str | Path | None = None,
         *,
         token_ttl_hours: int = DEFAULT_TOKEN_TTL_HOURS,
+        epoch_provider: Callable[[], int] | None = None,
     ):
         """Initialize the token service, loading or creating the signing secret.
 
@@ -142,11 +147,17 @@ class TokenService:
                 file exists its content is loaded; otherwise a new secret is
                 generated and (best-effort) written there.
             token_ttl_hours: Token lifetime in hours.
+            epoch_provider: NX-05 세션 세대 공급자. 주어지면 발급 시 ``epoch``
+                claim 을 넣고 검증 시 현재 값과 비교한다. **캐시하지 않는다** —
+                다른 프로세스가 PIN 을 바꾸면 이 프로세스도 즉시 이전 토큰을
+                거부해야 한다. 이 인자가 없으면 암호 계층 단위 시험용으로
+                세대 검사 없이 동작한다(제품 배선은 항상 공급자를 넘긴다).
 
         """
         self._ttl: timedelta = timedelta(hours=token_ttl_hours)
         self._lock: threading.Lock = threading.Lock()
         self._secret: str = self._load_or_create_secret(secret_path)
+        self._epoch_provider = epoch_provider
 
     @staticmethod
     def _load_or_create_secret(secret_path: str | Path | None) -> str:
@@ -194,6 +205,17 @@ class TokenService:
         """Token lifetime in seconds."""
         return int(self._ttl.total_seconds())
 
+    @property
+    def epoch_provider(self) -> Callable[[], int] | None:
+        """세션 세대 공급자(WS ticket 등 같은 세대를 공유하는 표면이 사용)."""
+        return self._epoch_provider
+
+    def current_epoch(self) -> int | None:
+        """현재 세대(공급자가 없으면 ``None``). 매 호출 재평가한다."""
+        if self._epoch_provider is None:
+            return None
+        return int(self._epoch_provider())
+
     def issue_token(self, subject: str, *, extra_claims: dict[str, object] | None = None) -> str:
         """Issue a signed JWT for ``subject``.
 
@@ -212,6 +234,9 @@ class TokenService:
             "exp": now + self._ttl,
             "iss": _JWT_ISSUER,
         }
+        epoch = self.current_epoch()
+        if epoch is not None:
+            payload[EPOCH_CLAIM] = epoch
         if extra_claims:
             payload.update(extra_claims)
         with self._lock:
@@ -237,10 +262,23 @@ class TokenService:
                     issuer=_JWT_ISSUER,
                     options={"require": ["exp", "iat", "sub"]},
                 )
-            return claims
         except jwt.PyJWTError as e:
             logger.debug("Token verification failed: %s", e)
             return None
+
+        # NX-05: 세션 세대 검사. 서명/만료가 유효해도 이전 세대 토큰은 거부한다.
+        expected = self.current_epoch()
+        if expected is None:
+            return claims  # 암호 계층 단위 시험용(세대 미배선)
+        token_epoch = claims.get(EPOCH_CLAIM)
+        if not isinstance(token_epoch, int) or isinstance(token_epoch, bool):
+            # 구버전 토큰(epoch claim 없음) — 재로그인 필요.
+            logger.info("Rejected legacy token without %s claim", EPOCH_CLAIM)
+            return None
+        if token_epoch != expected:
+            logger.info("Rejected token from revoked session epoch %s (current %s)", token_epoch, expected)
+            return None
+        return claims
 
 
 def extract_bearer_token(authorization_header: str | None) -> str | None:

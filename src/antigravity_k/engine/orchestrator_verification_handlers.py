@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable, Generator
 from typing import Protocol, cast
 
+from antigravity_k.engine import multimodal
 from antigravity_k.engine.orchestrator_handler_config import OrchestratorConfigLike, cov_settings
 from antigravity_k.engine.state_graph import AgentState, StateContext
 
@@ -86,11 +87,12 @@ def cov_verify_handler(ctx: StateContext, orch: object) -> Generator[str, None, 
             evaluate_citations,
         )
 
+        # NX-09-F03: content 가 파트 배열일 수 있다(첨부) — join 전에 반드시 텍스트로 접는다.
         evidence_context = "\n".join(
             [
                 ctx.rag_context,
-                *(message.get("content", "") for message in ctx.messages),
-                *(message.get("content", "") for message in ctx.custom_messages),
+                *(multimodal.flatten_content(message.get("content", "")) for message in ctx.messages),
+                *(multimodal.flatten_content(message.get("content", "")) for message in ctx.custom_messages),
             ],
         )
         citation_sources = citation_sources_from_context(evidence_context)

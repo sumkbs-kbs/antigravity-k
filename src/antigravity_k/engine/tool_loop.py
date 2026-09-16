@@ -24,6 +24,9 @@ from antigravity_k.engine.error_classifier import classify_api_error
 from antigravity_k.engine.language_normalizer import normalize_foreign_technical_terms
 from antigravity_k.engine.llm_task_decomposer import is_complex_task
 from antigravity_k.engine.long_context_policy import LongContextExecutionPlan, LongContextPlanner
+
+# NX-10: 패키지 루트 임포트는 `engine/__init__` 순환을 만든다 — leaf 모듈에서 이름을 직접 가져온다.
+from antigravity_k.engine.multimodal import collect_images
 from antigravity_k.engine.quality_gate import QualityGrade, QualityScore
 from antigravity_k.engine.task_context_snapshot import (
     ContextSnapshotStoreError,
@@ -1592,6 +1595,15 @@ class ToolLoopEngine:
                 "target": delegate_model,
                 "task_type": task_type,
             }
+            # NX-09-F03: 이 경로의 모델 입력은 **프롬프트 문자열**이라 프롬프트 예산·압축이
+            # 문자열을 전제로 동작한다. 첨부 이미지는 그 계산에 끼어들지 않고 별도 채널로
+            # 실린다(manager 가 표면별로 붙인다). 이 턴의 메시지에 있던 이미지만 보낸다.
+            _turn_images = collect_images(messages)
+            if _turn_images:
+                _images_payload: list[dict[str, ToolArgumentValue]] = [
+                    {"mime_type": mime, "data_base64": data} for mime, data in _turn_images
+                ]
+                stream_kwargs["images"] = _images_payload
             if "qwen3" in self._model_family_for_sampling(delegate_model):
                 stream_kwargs.update({"temperature": 0.2, "repeat_penalty": 1.1, "min_p": 0.0})
             if sampling_overrides:

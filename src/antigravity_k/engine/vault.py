@@ -6,10 +6,11 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 import threading
 from collections.abc import Generator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Literal, cast, final, overload, override
 
@@ -17,6 +18,9 @@ import yaml
 from filelock import SoftFileLock
 
 # RAG Imports
+# NX-10: 원자적 저장은 leaf 모듈이 소유한다(vault ↔ vault_privacy 순환 임포트 제거).
+# `write_text_atomically` 는 여기로 다시 바인딩되어 기존 호출자/테스트 이름이 유지된다.
+from antigravity_k.engine.atomic_write import write_text_atomically
 from antigravity_k.engine.chunker import MarkdownChunker
 from antigravity_k.engine.event_bus import global_event_bus
 from antigravity_k.engine.vault_git import VaultCommitError, commit_output, vault_stage_transaction
@@ -63,9 +67,13 @@ def _error_text(value: object) -> str:
 
 
 # YAML frontmatter delimiter: a line that is exactly "---" (optionally with
-# trailing whitespace). Used to split frontmatter from body precisely, instead
-# of the previous naive str.split("---\n", 2) which mis-split horizontal rules.
-_FRONTMATTER_DELIMITER = re.compile(r"^---[ \t]*$", re.MULTILINE)
+# trailing whitespace and an optional CR — the file may use CRLF endings).
+# Used to split frontmatter from body precisely, instead of the previous naive
+# str.split("---\n", 2) which mis-split horizontal rules.
+#
+# NX-08-F02: `\r?` 를 붙이기 전에는 `---\r\n` 이 **구분자로 인식되지 않아** CRLF 파일의
+# frontmatter 가 통째로 본문으로 취급됐다(metadata 소실).
+_FRONTMATTER_DELIMITER = re.compile(r"^---[ \t]*\r?$", re.MULTILINE)
 
 
 @final
@@ -411,6 +419,10 @@ class VaultEngine:
                 snapshot_paths = {
                     entry.decode("utf-8", errors="replace") for entry in tree_res.stdout.split(b"\x00") if entry
                 }
+                # NX-08-D1: git 은 실행 비트만 추적하므로 복구가 파일 권한을 바꿔 버린다
+                # (0600 note 가 0644 로 돌아오는 것을 실측). 복구는 **내용만** 되돌리고
+                # 권한은 현재 값을 유지한다 — 운영자가 좁혀 둔 권한을 복구가 넓히지 않는다.
+                original_modes = self._scope_modes(normalized_scope)
 
                 restored: list[str] = []
                 removed: list[str] = []
@@ -462,6 +474,13 @@ class VaultEngine:
                             capture_output=True,
                             text=True,
                         )
+                for rel_path in restored:
+                    mode = original_modes.get(rel_path)
+                    if mode is None:
+                        continue
+                    with suppress(OSError):
+                        os.chmod(self.vault_path / rel_path, mode)
+
                 if restored or removed:
                     logger.info(
                         "Scoped restore to %s: restored=%d removed=%d scope=%d",
@@ -478,6 +497,16 @@ class VaultEngine:
                     _error_text(cast(object, e.stderr)),
                 )
         return False
+
+    def _scope_modes(self, scope: Sequence[str]) -> dict[str, int]:
+        """복구 전 파일 권한을 기록한다(없는 파일은 기록하지 않는다)."""
+        modes: dict[str, int] = {}
+        for rel_path in scope:
+            try:
+                modes[rel_path] = stat.S_IMODE((self.vault_path / rel_path).stat().st_mode)
+            except OSError:
+                continue
+        return modes
 
     def _is_safe_restore_target(self) -> bool:
         """Return True if the vault path is safe for a destructive reset/clean.
@@ -540,9 +569,10 @@ class VaultEngine:
         # for the trailing newline of the opening "---" line.
         yaml_start = content.index("\n", open_end) + 1
         frontmatter_str = content[yaml_start:closing]
-        # Body starts after the closing delimiter line.
-        body_start = content.index("\n", closing + 3) + 1
-        body_content = content[body_start:]
+        # Body starts after the closing delimiter line. NX-08-F03: 닫는 구분자가 파일 끝이라
+        # 뒤에 개행이 없을 수 있다 — 예전 코드는 여기서 `ValueError: substring not found` 로 죽었다.
+        closing_newline = content.find("\n", closing + 3)
+        body_content = "" if closing_newline == -1 else content[closing_newline + 1 :]
 
         try:
             parsed = cast(object, yaml.safe_load(frontmatter_str))
@@ -621,12 +651,9 @@ class VaultEngine:
 
             formatted_content = self.format_markdown(metadata, content)
 
-            # Write + fsync so a concurrent reader (or git staging in another
-            # commit) never observes a partial buffer.
-            with open(file_path, "w", encoding="utf-8") as f:
-                _ = f.write(formatted_content)
-                f.flush()
-                os.fsync(f.fileno())
+            # NX-08-F01: 자르고 쓰지 않는다. 임시 파일 → fsync → 원자적 교체.
+            # (예전 `open(..., "w")` 는 fsync 실패나 프로세스 종료 시 이전 내용을 지웠다.)
+            write_text_atomically(file_path, formatted_content)
 
             message = commit_message or f"Update note: {relative_path}"
             self._auto_commit(str(relative_path), message)

@@ -379,6 +379,7 @@ async def session_save():
     409, 원자 저장이 실패했으면 503으로 실패를 명시한다.
     """
     from antigravity_k.engine.session_manager import (
+        SessionDeletedError,
         SessionPersistenceError,
         StaleSessionWriteError,
     )
@@ -386,8 +387,9 @@ async def session_save():
     sm = _get_session_manager()
     try:
         sm.save()
-    except StaleSessionWriteError as exc:
+    except (StaleSessionWriteError, SessionDeletedError) as exc:
         # 내부 경로/스택은 응답에 넣지 않는다(public_detail만 노출).
+        # NX-03: 삭제된 세션은 409 session_deleted — 재로드 또는 새 세션 안내.
         raise HTTPException(status_code=409, detail=exc.public_detail) from exc
     except SessionPersistenceError as exc:
         raise HTTPException(status_code=503, detail=exc.public_detail) from exc

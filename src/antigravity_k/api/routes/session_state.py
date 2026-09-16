@@ -10,10 +10,35 @@ from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
 
+# ── NX-05: 인증된 WebSocket 연결 레지스트리 ────────────────────────────────
+# NX-10: 구현은 leaf 모듈 `antigravity_k.security.ws_registry` 로 내렸다. 이 모듈은
+# `auth_routes`(토큰 검증)를 임포트하므로, 레지스트리가 여기 있으면 PIN 변경 라우트가
+# 폐기 함수를 부르기 위한 `auth_routes → session_state` 임포트가 **순환**이 된다.
+# 기존 호출자/테스트를 깨지 않기 위해 이름은 여기서 다시 내보낸다(재바인딩).
+from antigravity_k.security.ws_registry import (
+    aclose_authorized_ws,
+    authorized_ws_count,
+    close_authorized_ws_blocking,
+    register_authorized_ws,
+    reset_authorized_ws_registry,
+)
+
 if TYPE_CHECKING:
     from antigravity_k.engine.agent_runtime import OrchestratorPort
 
 logger = logging.getLogger("antigravity_k.api.session_state")
+
+__all__ = [
+    "ActiveAgentSession",
+    "aclose_authorized_ws",
+    "authorized_ws_count",
+    "close_authorized_ws_blocking",
+    "close_unauthorized_ws",
+    "get_active_session",
+    "register_authorized_ws",
+    "reset_active_session",
+    "reset_authorized_ws_registry",
+]
 
 
 class ActiveAgentSession:
@@ -124,6 +149,9 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
         return False
     if token_verified and token_subject is not None:
         websocket.state.auth_subject = token_subject
+        # NX-05: 인증된 연결을 등록 — PIN 변경 시 이 연결을 즉시 닫는다.
+        # (익명 open_loopback 연결은 폐기할 credential 이 없어 등록하지 않는다.)
+        register_authorized_ws(websocket)
         return False
 
     # SEC-02/SEC-03: WS는 subprotocol bearer 또는 단기 ticket만 수용한다 —

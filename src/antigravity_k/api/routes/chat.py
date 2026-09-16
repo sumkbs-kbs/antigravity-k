@@ -558,9 +558,31 @@ async def chat_completions(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    # NX-09-F03/ADR-0005: 첨부는 **거부도 이유와 함께** 해야 한다. 예전에는 화면이
+    # 이미지 바이트를 아예 보내지 않아 모델이 파일명만 봤다(조용한 대체).
+    from antigravity_k.engine import multimodal
+
+    try:
+        attachments = multimodal.parse_attachments(body.get("attachments"))
+    except multimodal.AttachmentError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": exc.code, "detail": exc.detail},
+        ) from exc
+
     # Phase 35: tools 분기는 오케스트레이터를 우회하지만, WS-01 binding은
     # generate side effect 전에 반드시 선행한다 (tools early-return 포함).
     has_tools = body.get("tools") is not None
+    if has_tools and attachments:
+        # tools passthrough 는 메시지를 그대로 provider 로 넘긴다 — 첨부를 조용히
+        # 버리느니 명시적으로 거부한다(거짓 성공 금지).
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "attachments_with_tools_unsupported",
+                "detail": "tools 경로에서는 첨부를 지원하지 않는다",
+            },
+        )
     if has_tools:
         target_model = _string_value(body.get("model"))
         if not target_model:
@@ -596,6 +618,17 @@ async def chat_completions(
 
     guarded_messages = PromptInjectionGuard().augment_user_input(cast(list[dict[str, str]], messages))
     messages = _messages_value(guarded_messages)
+
+    # NX-09-F03/ADR-0005: 첨부 바이트를 **이번 턴의 모델 입력**에 실는다. 인젝션 가드
+    # 뒤에 붙인다 — 가드는 텍스트만 보고(base64 를 스캔하게 하지 않는다). 저장소에는
+    # 파일명 표식만 남으므로(위 `_extract_new_turn`) 이력은 부풀지 않는다.
+    if attachments:
+        messages = _messages_value(multimodal.attach_to_latest_user_turn(messages, attachments))
+        request.state.attachments = multimodal.summarize(attachments)
+        logger.info(
+            "chat attachments attached: %s",
+            multimodal.summarize(attachments),
+        )
 
     from antigravity_k.api import dependencies as api_dependencies
     from antigravity_k.engine.session_manager import SessionManager, SessionPersistenceError

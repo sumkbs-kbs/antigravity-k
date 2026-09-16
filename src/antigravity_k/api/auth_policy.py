@@ -35,12 +35,17 @@ _MIN_HASH_MARKER = "pbkdf2_sha256$"
 
 
 def _hash_file_has_valid_hash(path: Path) -> bool:
-    """저장 hash 파일이 유효한 credential을 담고 있는지 (형식만 검사)."""
-    try:
-        stored = path.read_text(encoding="utf-8").strip()
-    except OSError:
+    """저장 hash 파일이 유효한 credential을 담고 있는지 (형식만 검사).
+
+    NX-05: 저장 형식이 ``agk.auth.v1`` JSON(hash + epoch)으로 넓어졌으므로,
+    구버전 한 줄 hash 와 새 형식을 같은 판정으로 처리한다.
+    """
+    from antigravity_k.security.auth_state import read_pin_hash
+
+    stored = read_pin_hash(path)
+    if stored is None:
         return False
-    if not stored or not stored.startswith(_MIN_HASH_MARKER):
+    if stored.strip() and not stored.startswith(_MIN_HASH_MARKER):
         return False
     try:
         _algorithm, iterations_text, salt_text, digest_text = stored.split("$", 3)
@@ -115,11 +120,16 @@ class AuthPolicy:
         """config.security 값에 바인딩되는 policy를 만든다 (매 평가 시 파일 재판독)."""
 
         def read_hash() -> str | None:
+            # NX-05: 저장 형식이 agk.auth.v1 JSON(hash + epoch)으로 넓어졌다.
+            # 파일 원문을 그대로 돌려주면 (a) JSON blob 이 hash 처럼 보이고
+            # (b) pin_hash 가 null 인 상태(credential 제거)도 "protected" 로 오판된다.
             path = Path(pin_hash_file)
             if not _hash_file_has_valid_hash(path):
                 return None
+            from antigravity_k.security.auth_state import read_pin_hash
+
             try:
-                return path.read_text(encoding="utf-8").strip() or None
+                return read_pin_hash(path)
             except OSError:
                 return None
 
