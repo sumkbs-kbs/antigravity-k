@@ -37,7 +37,7 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 | EX-02 | 모델/라이선스/개인정보·지원 승인 | **PARTIAL** | [CR14_EX02_APPROVAL_RECORD.md](./CR14_EX02_APPROVAL_RECORD.md) — PRODUCT_SELF_APPROVAL(범위 문구) 완료; `BLOCKED_EXTERNAL` legal 미해제 · Experimental→Supported 없음 · GA GO 아님 |
 | EX-03 | 이전 출시 artifact | **DONE** | **NOT_AVAILABLE** — 태그 0 · gh release 401 · dist는 현재 후보만 · `ex03_summary.md` |
 | EX-04 | 지원 OS sandbox 실측 | **DONE** | macOS 26.6.2 arm64 · seatbelt/`sandbox-exec` · pytest 46 passed · `ex04_summary.md` (행렬 미승격) |
-| EX-05 | 8h soak | **IN_PROGRESS** (resoake after Decision A; prior run **FAIL**) | SC-1..SC-5 PASS · **SC-6 FAIL** (`all_pass: false`) · RSS ~66.8→1721.8 MB · **rss_growth_mb=1654.9** vs **rss_leak_mb=64** · duration_s=28800.051 · errors=0 · fd_growth=0 · orphan_worktrees=0 · ops≈150554 · JSON `…/soak/val02_soak_28800.json` · ended ~2026-09-15 14:47 KST |
+| EX-05 | 8h soak | **PASS** (resoake Decision A) | prior FAIL retained · resoake `run28800e` · `all_pass: true` · SC-1..6 PASS · SC-6 rss_growth_mb=**48.7** (<64) · messages_bounded · duration≈28801s · JSON `…/val02_soak_28800_resoake.json` (~2026-09-15 23:08 KST) · watch routine deleted |
 | EX-06 | 범위 축소 여부 | **DONE** | 축소 없음 (`EX-06-NO-SHRINK-2026-09-15`) |
 
 ## 진행 노트
@@ -84,6 +84,17 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 - Investigation: `docs/ga/notes/EX05_SC6_RSS_INVESTIGATION_2026-09-15.md`. Desktop packaging paused (D-09). Soak watch routine paused.
 - 2026-09-15: Decision **A** — ConversationStore soft-max auto-compact (default 64). SC-6 equality updated to bounded messages. Threshold 64MB unchanged. Short probe pending/recorded separately. CR-14 GO 아님.
 
+## EX-05 재soak 결과 (2026-09-15 15:07 → ~23:08 KST) — **JSON PASS / 귀속 UNVERIFIED**
+
+- 3단계를 **섞지 않는다**: ① 1차 run 은 **FAIL**(RSS 1654.9 ≫ 64), ② Decision A, ③ 재soak 은 **JSON 지표 PASS**, ④ 종료·귀속은 **미확정**.
+- 재soak JSON: `duration_s=28801.318` · `completed_ops=12102886` · `conversation_ops=12102886` · `conversation_revision=12102886` · `conversation_message_count=26`(soft max 64) · `errors=0` · `fd_growth=0` · `orphan_worktrees=0` · `rss_growth_mb=48.7` · SC-1~6 `pass:true` · `all_pass:true`.
+- 경로: `.omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_soak_28800_resoake.json`(원본 수정 없음). SHA256과 sample 배열 요약은 `docs/qa/2026-09-16-followup/soak-summary.json`.
+- **이 결과로 EX-05 를 DONE 으로 올리지 않는다.** ④ 가 남아 있다:
+  - 래퍼 로그 마지막 줄이 `finished exit:141` 이고 **원문 명령이 보존되지 않아** INCONCLUSIVE 다(SIGPIPE 로 **설명**할 수는 있지만 입증된 원인으로 기록하지 않는다). JSON PASS 를 FAIL 로 바꾸지도, 정상 exit0 을 추정하지도 않는다.
+  - **재soak 이 어느 커밋 후보의 트리에서 돌았는지** 시작/종료 지문으로 귀속되지 않았다(`run_sha_binding: UNVERIFIED`). 지문 없는 초록은 판정 근거가 아니다.
+  - 종료 원문 복구는 불가로 종결하고 **NX-10 의 새 후보 시험**으로 대체한다(`nx00/handoff.md` §2 · NX-00-F01).
+- CR-14 는 여전히 **NO-GO** 이고, 현재 작업 트리 상태는 이 JSON 의 지표를 주장할 수 없다.
+
 ## EX-05 resoake start (2026-09-15 15:07 KST)
 
 - After Decision A (`78012f4a` soft-max auto-compact). Prior 8h result remains FAIL (RSS 1654.9).
@@ -93,3 +104,14 @@ VAL-02 계승 (`scripts/val02_staging.py`):
 - pids: shell `72699` + `val02_staging` (see pid_resoake.txt); first nohup attempt died — relaunched durable
 - Watch routine **resumed** (`ex-05-8h-soak`).
 - CR-14 still **NO-GO** until resoake PASS + other EX gates.
+- 2026-09-16: resoake 종료 — **JSON PASS**, 단 종료141·후보 귀속은 미확정(위 "EX-05 재soak 결과" 참조). EX-05 는 DONE 아님. 현재 상태 요약: `docs/20_CURRENT_STATUS.md` §3.
+
+## EX-05 resoake result (2026-09-15 ~23:08 KST) — **PASS**
+
+- Decision A soft-max tip `78012f4a`. workdir `…/soak/workdir/run28800e`.
+- `all_pass: true`. SC-1..SC-6 all `pass: true`.
+- SC-6: `rss_growth_mb=48.7` (threshold 64), RSS ~65.7→114.4 MB, `conversation_messages_bounded=true`, `actual_duration_s≈28801`, errors=0, fd_growth=0.
+- Evidence: `.omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_soak_28800_resoake.json`
+- Prior 8h FAIL (RSS 1654.9 on unbounded history) remains in history; this PASS is the Decision A re-measure.
+- Soak watch routine deleted after completion.
+- **CR-14 still NO-GO** — other EX gates (EX-01/02 PARTIAL, etc.) and human C14-08 still apply. Do not claim GO from EX-05 alone.

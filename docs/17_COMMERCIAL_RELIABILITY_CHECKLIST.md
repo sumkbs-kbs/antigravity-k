@@ -9,9 +9,13 @@ tags: [checklist, execution, agent-handoff, commercial-reliability]
 
 # 상용 신뢰성 개선 실행 체크리스트
 
+> **이 문서는 CR 이력이다.** CR 카드 상태의 단일 원본이고, GA 판정·지원 범위·포트·soak 경과의 현재 상태는 [현재 상태 요약](20_CURRENT_STATUS.md)(2026-09-16)이 소유한다.
+
 [개발 계획](16_COMMERCIAL_RELIABILITY_DEVELOPMENT_PLAN.md) · [검토 기준](qa/2026-09-11-commercial-review/BASELINE.md)
 
-**현재: CR-14 attempt-040 **REVIEW** — 후보 `b6003205`/`02349a8d…` · **23/23** · EX 실행(2026-09-15): 01 로컬 PASS·OpenRouter 401 · 03 NOT_AVAILABLE · 04 macOS seatbelt 46passed · 05 soak IN_PROGRESS · 02 PARTIAL · 06 DONE · C14-08 NO-GO · **GA 승인 없음**.**REVIEW** — C33-6 CLOSED · 코드 후보 **커밋** `b6003205365606407cadfd6cbb1c813110beef0f` (지문 `02349a8d…`) · required **23/23 PASS** · 출시 책임자 **강병석** 근거 있는 **NO-GO** 기록([C14-08 판정서](ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md)) · **GA 승인 없음** · 독립성 겸직 미충족 · EX-01~06 미실행 · owner=마뱀 · D-71/APPROVE 손대지 않음.**
+**현재: CR-14 attempt-040 **REVIEW** — 후보 `b6003205`/`02349a8d…` · **23/23** · EX 실행(2026-09-15): 01 로컬 PASS·OpenRouter 401 · 03 NOT_AVAILABLE · 04 macOS seatbelt 46passed · 05 soak 재soak **JSON PASS**·종료/귀속 미확정(DONE 아님) · 02 PARTIAL · 06 DONE · C14-08 NO-GO · **GA 승인 없음**.**REVIEW** — C33-6 CLOSED · 코드 후보 **커밋** `b6003205365606407cadfd6cbb1c813110beef0f` (지문 `02349a8d…`) · required **23/23 PASS** · 출시 책임자 **강병석** 근거 있는 **NO-GO** 기록([C14-08 판정서](ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md)) · **GA 승인 없음** · 독립성 겸직 미충족 · EX-01·EX-02 PARTIAL · EX-03/04/06 DONE · owner=마뱀 · D-71/APPROVE 손대지 않음.**
+
+이 후보 이후의 신뢰성(NX) 변경은 아직 **커밋되지 않았다** — CR-14 후보 지문 밖이며, 신뢰성 카드 상태는 `docs/19_RELIABILITY_AND_CONNECTOME_CHECKLIST.md`, 현재 상태는 [현재 상태 요약](20_CURRENT_STATUS.md) §2/§4 를 본다.
 최근 갱신: 2026-09-14 (**C14-08 출시 책임자 NO-GO 기록** — [판정서](ga/CR14_C14_08_RELEASE_OWNER_VERDICT.md). 후보·지문 불변. DONE/GO 아님.)
 최근 갱신: 2026-09-14 (**C14-08/EX 담당 배정** — 전부 **강병석**. 배정 ≠ 검토 완료 ≠ GO. 제3자 독립성 미충족. 후보·지문 불변.)
 최근 갱신: 2026-09-14 (**CR-14 attempt-039 REVIEW** — EXTERNAL_HUB hermetic 폐쇄. 후보 `bbb308f8` · 지문 `0b1a156f…` · **23/23** · leftover 0 · ambient hub-seed 2 passed · NO-GO.)
