@@ -53,8 +53,9 @@ def _hms(seconds: float) -> str:
     return f"{seconds // 3600:d}시간 {(seconds % 3600) // 60:02d}분"
 
 
-def sample_to_row(sample: soak_watch.Sample, soak_started: float) -> dict[str, object]:
+def sample_to_row(sample: soak_watch.Sample, soak_started: float, workdir: object = None) -> dict[str, object]:
     return {
+        "workdir": None if workdir is None else str(workdir),
         "at": round(sample.at, 1),
         "elapsed_s": round(max(0.0, sample.at - soak_started), 1),
         "pid": sample.pid,
@@ -64,6 +65,36 @@ def sample_to_row(sample: soak_watch.Sample, soak_started: float) -> dict[str, o
         "journal_mb": None if sample.journal_bytes is None else round(sample.journal_bytes / 1048576, 1),
         "last_write_age_s": sample.last_write_age_s,
     }
+
+
+def split_rows_by_pid(
+    rows: list[dict[str, object]], pid: int | None
+) -> tuple[list[dict[str, object]], dict[object, list[dict[str, object]]]]:
+    """(이번 실행의 표본, 다른 실행의 표본들).
+
+    왜 pid 로 가르는가: 새 실행이 시작되면 journal 은 **0 에서 자라므로**, 이전 실행의 꼬리를 같은 선에
+    이어 그리면 화면이 “journal 이 861.8 MiB → 1.4 MiB 로 줄었다” 처럼 **사실이 아닌 급강하**를 보여 준다
+    (2026-09-17 4차 시작 직후 실측 — 그대로 두면 다음 사람이 “보존이 돌았나?” 를 먼저 의심하게 된다).
+    그래서 표본 묶음은 **실행(pid) 단위**다. pid 를 모르면(실행 없음) 가르지 않는다 — 빈손으로 단정하지 않는다.
+    """
+    if pid is None:
+        return list(rows), {}
+    mine: list[dict[str, object]] = []
+    others: dict[object, list[dict[str, object]]] = {}
+    for row in rows:
+        if row.get("pid") == pid:
+            mine.append(row)
+        else:
+            others.setdefault(row.get("pid"), []).append(row)
+    return mine, others
+
+
+def _seed_state(watch: soak_watch.Watch, rows: list[dict[str, object]]) -> None:
+    """RSS 기준선을 **그 실행의 첫 표본**에 고정한다(감시를 재시작해도 “실행 시작 이후”가 0 으로 안 돌아간다)."""
+    watch.rss_series = [(float(row["at"]), float(row["rss_mb"])) for row in rows if row.get("rss_mb") is not None]  # type: ignore[arg-type]
+    if watch.rss_series:
+        watch.baseline_rss_mb = watch.rss_series[0][1]
+        watch.baseline_at = watch.rss_series[0][0]
 
 
 def _polyline(values: list[float | None], *, width: int, height: int, pad: int = 8) -> tuple[str, float, float]:
@@ -247,23 +278,33 @@ def run_loop(args: argparse.Namespace) -> int:
                 rows.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
-    # RSS 기준선을 **실행 첫 표본**에 고정한다 — 감시를 재시작해도 “실행 시작 이후 얼마나 자랐나”가
-    # 0 으로 돌아가지 않게(실측: 재시작 직후 +0.0 MB 로 보였다).
-    baseline = next((row for row in rows if row.get("rss_mb") is not None), None)
-    if baseline is not None:
-        watch.baseline_rss_mb = float(baseline["rss_mb"])  # type: ignore[arg-type]
-        watch.baseline_at = float(baseline["at"])  # type: ignore[arg-type]
-    watch.rss_series = [(float(row["at"]), float(row["rss_mb"])) for row in rows if row.get("rss_mb") is not None]  # type: ignore[arg-type]
     code = soak_watch.OK
     sample_budget = 1 if args.once else args.samples
     index = 0
+    seen_run = False
     while True:
         if index:
             time.sleep(watch.interval)
         sample = watch.take(args.pid)
         watch.samples.append(sample)
+        if not seen_run:
+            seen_run = True
+            rows, others = split_rows_by_pid(rows, sample.pid)
+            for old_pid, stale in others.items():
+                archive = history.with_name(f"{history.stem}-pid{old_pid}{history.suffix}")
+                archive.write_text(
+                    "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in stale), encoding="utf-8"
+                )
+                print(
+                    f"  이전 실행(pid {old_pid})의 표본 {len(stale)}개를 {archive.name} 으로 옮겼다 — 같은 추세선에 잇지 않는다"
+                )
+            _seed_state(watch, rows)
+            if rows:
+                history.write_text(
+                    "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8"
+                )
         code, lines = watch.verdict()
-        rows.append(sample_to_row(sample, watch.soak_started))
+        rows.append(sample_to_row(sample, watch.soak_started, watch.workdir))
         if sample.rss_mb is not None:
             watch.rss_series.append((sample.at, sample.rss_mb))
         with history.open("a", encoding="utf-8") as handle:
@@ -359,6 +400,30 @@ def run_selftest() -> int:
             [],
             {"workdir": "/tmp/fixture", "hard_cap_mib": 8192, "rss_limit_mb": 64},
         ),
+    )
+
+    # ── 실행 정체성(pid)으로 표본을 가르는가 — 이빨 포함 ─────────────────────────────────
+    mixed = [dict(row, pid=pid) for pid, row in ((11, r) for r in rows_series(9.0, count=2))]
+    mixed += [dict(row, pid=22) for row in rows_series(9.0, count=3)]
+    mine, others = split_rows_by_pid(mixed, 22)
+    check("이번 실행(pid 22) 표본만 남는다", len(mine) == 3 and all(r["pid"] == 22 for r in mine))
+    check("이전 실행(pid 11) 표본은 따로 모인다", sorted(others) == [11] and len(others[11]) == 2)
+    check(
+        "가르면서 표본을 잃지 않는다",
+        len(mine) + sum(len(v) for v in others.values()) == len(mixed),
+        "나눈 합이 원본과 다르다",
+    )
+    check("pid 를 모르면 가르지 않는다(빈손으로 단정 금지)", split_rows_by_pid(mixed, None) == (mixed, {}))
+    # 이 관측이 이 규칙의 이유다: 이전 실행(861.8 MiB)과 새 실행(1.4 MiB)을 섞어 그리면 화면에
+    # 존재하지 않는 **급강하**가 생긴다(실제 4차 시작 직후에 보인 것). 갈라 두면 사라진다.
+    hot = [dict(row, pid=11, journal_mb=861.8) for row in rows_series(9.0, count=3)]
+    cold = [dict(row, pid=22, journal_mb=1.4) for row in rows_series(0.0, count=3)]
+    mixed_html = render_html(hot + cold, soak_watch.OK, [], {"workdir": "/tmp/fixture"})
+    split_html = render_html(split_rows_by_pid(hot + cold, 22)[0], soak_watch.OK, [], {"workdir": "/tmp/fixture"})
+    check(
+        "섞인 이력은 급강하로 그려지고, 가른 이력은 그렇지 않다",
+        "861.8 MiB" in mixed_html and "861.8 MiB" not in split_html,
+        "급강하 재현/제거가 확인되지 않았다",
     )
 
     print(f"자기시험: {'ALL OK' if not failures else '실패 ' + str(failures)}")
