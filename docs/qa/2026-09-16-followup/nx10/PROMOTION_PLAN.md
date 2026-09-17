@@ -31,6 +31,8 @@
 | --- | --- | --- | --- |
 | `nx01/restore_rehearsal.py` | `tests/test_restore_rehearsal_contract.py`(+ 필요하면 `scripts/`) | restore 절차 판정부(왕복·최신 변경 손실 방지·멱등·삭제 거절) | 제품에 import/restore API 가 없어 **안전성이 절차에만** 있다. 지금은 `docs/` 라 어느 게이트도 이 판정식을 지키지 않는다 — 규칙이 낡으면 아무도 모른다(§2 의 구멍과 같다) |
 | `nx01/restore-rehearsal-output.txt` | `tests/` 승격 뒤에는 raw artifact 로 `docs/` 에 남긴다 | 판정 근거(경계 4 + 이빨 1) | 러너·판정기 승격 때와 같다 |
+| `nx03/rollback_rehearsal.py` | `tests/test_rollback_generation_contract.py` | 구버전 판을 그림자 트리로 돌려 되돌림 창의 노출과 **복귀 뒤 거절**을 재는 리허설 | NX-03 의 유일한 남은 항목이던 “실리허설 미실시”를 닫은 증거다. 삭제·도구와 가장 가까운 계약인데 지금은 `docs/` 라 안 지켜진다 |
+| `nx03/rollback-rehearsal-output.txt` | raw artifact 로 `docs/` 유지 | 판정 근거(경계 3) | 위와 같다 |
 
 승격 시 함께 닫을 것: ① 위 표의 1b 항목 ② `NX03-RESTORE-MARKER` 수리안(`original_history`/
 `export_original_history` 가 `read_deletion_marker` 도 확인 — [nx01/restore-rehearsal.md](../nx01/restore-rehearsal.md) §2).

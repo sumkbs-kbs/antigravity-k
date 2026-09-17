@@ -188,7 +188,7 @@ NX-00의 종료 귀속을 복구할 수 없으면 INCONCLUSIVE 근거와 NX-10�
 - [x] delete 실패를 성공 응답하지 않음 — 표식 기록/제거 실패 모두 전파, 파일 보존.
 - [x] scope별 memory와 session 경계 유지 — working/session/project/global 시험.
 - [x] API/UI에 stale/deleted 의미 전달 — 409 `session_deleted` + `public_detail`(내부 정보 미노출).
-- [ ] tombstone 미지원 구버전 rollback 위험 통제 — 절차 문서화만 완료(자동 회귀 금지), 실리허실 미실시.
+- [x] tombstone 미지원 구버전 rollback 위험 통제 — 절차 문서화(자동 회귀 금지) + **2026-09-17 실측 리허설 완료**(exit 0, 경계 3개): 구버전 판(`d929da01^`)을 그림자 트리로 돌려 ① 구버전끼리는 삭제 뒤 낡은 저장이 **되살아난다**(표식 0개) ② **현재가 삭제한 뒤에도 구버전은 그 세션을 다시 쓴다**(표식은 살아남음) ③ 그러나 **전진하면 현재 코드가 거절한다** — 되살아난 본문은 읽기 표면에 안 나오고(`marker_visible false`) 삭제된 id 는 이어받지 않고 **새 id** 로 시작한다. 즉 종전 문구(“되돌리면 폐기 토큰이 살아난다”)보다 정확히: 위험은 **되돌림 창 안에서의 노출**이고 창이 닫히면 국소화된다 — 자동 회귀 금지 규칙은 유지, 근거만 정정. 근거 [nx03/rollback-rehearsal-output.txt](qa/2026-09-16-followup/nx03/rollback-rehearsal-output.txt) · `rollback_rehearsal.py` · [nx03/handoff.md §5b](qa/2026-09-16-followup/nx03/handoff.md).
 - [x] retention 삭제 경로도 같은 표식 규칙 적용(카드 범위 밖 추가 경로, 회귀 시험 포함).
 
 ### NX-04 — 테스트 계약 (2026-09-16 작업분: nx04/handoff.md)
@@ -215,7 +215,7 @@ NX-00의 종료 귀속을 복구할 수 없으면 INCONCLUSIVE 근거와 NX-10�
 - [~] 8h 규모 `stream_line_count` 경로 실측 — 20초 리허설은 full_replay 경로만 확인했다. **2026-09-17 정정: 경로가 처음 실행됐고 통과했다** — 꼬리 창 수정 뒤 10분 하네스 실행의 journal 94.1 MB 가 임계 32 MiB 를 넘어 `conversation_originals_verification=stream_line_count` · `replay_deferred=True` · `journal_lines=269,088` · `terminated=True` · `originals_complete=True`([SOAK_8H_FINDINGS §5·§6](qa/2026-09-16-followup/nx10/SOAK_8H_FINDINGS.md) · [nx04/handoff.md](qa/2026-09-16-followup/nx04/handoff.md)). 남은 미검증은 **시간 규모**뿐이라 지금 도는 8시간 soak(종료 예정 18:19 KST)의 리포트가 닫는다 — 그 전까지 “8h 규모 검증됨”이라고 쓰지 않는다.
 - [ ] 독립 검토자 지정·판정(ACCEPT/REVISE) — 미실시.
 - [x] 금지 사항 준수 확인 — assertion 삭제·하한 0 완화·cap 무한 고정·무관 fail 수치 합산 없음(nx04/handoff.md §3).
-- [ ] 최종 메시지 수 assertion 삭제로 PASS를 만들지 않음.
+- [x] 최종 메시지 수 assertion 삭제로 PASS를 만들지 않음 — **2026-09-17 실물 확인**: 옛 단언 `final_count >= appended` 는 지워진 게 아니라 **더 강한 쪼개진 단언으로 대체**됐다(`tests/test_val02_conversation_multiprocess.py` — `revision == 성공 수` · `view_count <= PRODUCT_CAP 64` · **`view_count < 성공 수`**(“압축이 실제로 view 를 줄였어야 한다”) · `original_history` 로 본 원본 수). 하한 0 완화·cap 무한 고정도 없다(cap0 은 CAS 단독 관측용 **별도 두 번째 구성**이고 제품 기본 cap64 는 독립 시험이 검증). 파일 재실행 **14 passed**(2.27s, `-p no:randomly`).
 
 ### NX-05 — 인증 (2026-09-16 작업분: nx05/handoff.md)
 
@@ -235,7 +235,7 @@ NX-00의 종료 귀속을 복구할 수 없으면 INCONCLUSIVE 근거와 NX-10�
 - [x] 활성WS 폐기 지연 실측, 재연결/티켓/refresh/SSE 검증 — 실제 TestClient WS 가 4401 로 닫힘(≤5초 상한 시험 포함), ticket 재사용 거부, 폐기된 bearer 재연결 401. **SSE 는 미연결 상태의 재연결 401 까지만 확인**(handoff 미검증 (2)).
 - [x] 현재 UI 토큰 제거 및 재로그인 동선 확인 — `SettingsPage` 가 세션 폐기 응답에서 토큰 삭제 + PIN 모달, `agk:pin-required` 경로도 토큰 삭제(vitest 4건).
 - [x] 실제 PIN·JWT·provider secret 증거에서 제거 — 산출물에 credential 없음(응답 키/상태코드만 기록), provider key 는 범위 밖.
-- [~] rollback으로 폐기 토큰이 살아나지 않음 — 이전 버전으로 되돌리면 폐기 토큰이 다시 살아나므로 **금지 절차**로 문서화했다(자동 회귀 금지). **2026-09-17 실측 추가**(NX-01 restore 리허설이 같은 계열을 건드렸다): 삭제 후 삭제 전 journal 바이트를 되돌리면 `deleted` 플래그는 표식 덕에 **true 유지**되지만 **원문 읽기 표면(`original_history`)이 다시 원문을 반환**한다(관측 3건) — 표식은 상태 플래그에만 적용되고 읽기 표면은 journal 의 `delete` 이벤트만 본다. 운영 절차는 이 상태를 **거절**로 막고(위 NX-01 행), 제품 쪽 강제는 [nx01/restore-rehearsal.md §2](qa/2026-09-16-followup/nx01/restore-rehearsal.md) 의 수리안으로 동결 해제 뒤 별도 카드다.
+- [~] rollback으로 폐기 토큰이 살아나지 않음 — 이전 버전으로 되돌리면 폐기 토큰이 다시 살아나므로 **금지 절차**로 문서화했다(자동 회귀 금지). **2026-09-17 실측 추가**(NX-01 restore 리허설이 같은 계열을 건드렸다): 삭제 후 삭제 전 journal 바이트를 되돌리면 `deleted` 플래그는 표식 덕에 **true 유지**되지만 **원문 읽기 표면(`original_history`)이 다시 원문을 반환**한다(관측 3건) — 표식은 상태 플래그에만 적용되고 읽기 표면은 journal 의 `delete` 이벤트만 본다. 운영 절차는 이 상태를 **거절**로 막고(위 NX-01 행), 제품 쪽 강제는 [nx01/restore-rehearsal.md §2](qa/2026-09-16-followup/nx01/restore-rehearsal.md) 의 수리안으로 동결 해제 뒤 별도 카드다. **같은 날 롤백 리허설도 실시**(NX-03 §5b): 구버전 판은 되돌림 창 안에서 삭제된 세션을 다시 쓰지만, **현재 버전으로 복귀하면 표식 세대가 이겨** 되살아난 본문은 읽기 표면에 나오지 않고 삭제된 id 도 새 id 로 대체된다 — 자동 회귀 금지 규칙은 유지하고 근거만 “영구 살아남” → **“창 안에서의 노출”** 로 정정했다.
 - [x] SSE 실연결 폐기 — **구현·실서버 관측 완료**(2026-09-16, NX-10 동결 배치). `SSERevocationMiddleware` 가 `text/event-stream` 본문을 감싸 주기(기본 1초)로 세대를 재검증하고, 폐기 시 `event: session.revoked` 를 보낸 뒤 스트림을 끝낸다. before/after(같은 트리에서 가드만 제거): 세대 변경 뒤 흘러간 프레임 **9→1**, 폐기 프레임 **없음→1.112초**, EOF **아니오→예**. 근거 [nx05/sse-live-revocation.md](qa/2026-09-16-followup/nx05/sse-live-revocation.md) + `before-sse.json`/`after-sse.json`/`repro_sse_live_revocation.py`, 계약 `tests/test_nx05_sse_live_revocation.py`(10 passed). 남은 것: 브라우저 UI 동선, 클라우드 provider 버퍼링 하 관측.
 - [ ] 독립 검토자 지정·판정(ACCEPT/REVISE) — 미실시.
 

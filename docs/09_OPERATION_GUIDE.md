@@ -288,6 +288,15 @@ PIN 변경은 인증 세대를 올려 이전 세대의 자격 증명을 무효�
 남을 수 있으므로 즉시 차단이 필요하면 프로세스/네트워크 수준에서 끊는다.
 **rollback 주의:** 이전 버전 바이너리는 폐기된 토큰을 다시 살릴 수 있다 — 세대 도입 이전 버전으로의
 자동 회귀는 금지하고, 회귀 시에는 PIN 재설정을 함께 한다(NX-05).
+**삭제된 세션도 같다(2026-09-17 실측, NX-03 rollback 리허설):** 구버전 판(`d929da01^`)을 그림자 트리로
+돌려 재본 결과 ① 구버전은 삭제 표식을 모르므로 **되돌림 창 안에서 삭제된 세션을 다시 쓴다**(표식은 살아남음)
+② 그러나 **현재 버전으로 복귀하면 표식 세대가 이겨** 되살아난 본문은 읽기 표면에 나오지 않고(`marker_visible false`)
+삭제된 id 도 이어받지 않고 **새 id** 로 시작한다. 즉 위험은 **창이 열려 있는 동안의 노출**이고 창이 닫히면 국소화된다 —
+자동 회귀 금지는 그대로 유지(창이 열린 시간은 되돌릴 수 없다). 근거 `nx03/rollback_rehearsal.py` ·
+[rollback-rehearsal-output.txt](qa/2026-09-16-followup/nx03/rollback-rehearsal-output.txt).
+**같은 날 두 번째 발견:** 삭제 표식은 상태 플래그에만 적용되고 **원문 읽기 표면은 journal 의 `delete` 이벤트만 본다** —
+삭제 전 journal 바이트를 되돌리면 `deleted=true` 인데도 원문이 다시 읽힌다(위 복구 표의 “삭제 표식 있으면 거절” 이 그 통제다 —
+[nx01/restore-rehearsal.md](qa/2026-09-16-followup/nx01/restore-rehearsal.md) §2).
 
 ### 부하·soak 관측 기준 (VAL-02 / SC-1~6)
 
@@ -323,7 +332,7 @@ PIN 변경은 인증 세대를 올려 이전 세대의 자격 증명을 무효�
 | 샌드박스 사용 불가 | [CR-12 런북](ga/CR12_SANDBOX_UNAVAILABLE_RUNBOOK.md) | 문서화됨 |
 | 대화 저장소 layout 이전(레거시) | [CR-01 런북](ga/CR01_CONVERSATION_STORAGE_MIGRATION_RUNBOOK.md) — 서비스 정지 상태에서 수행. 순서: `--dry-run` → `--apply --backup-dir <빈 경로>` → `--verify-only` (**백업 디렉터리가 비어 있지 않으면 exit 3 으로 거절** — 케이스별로 새 경로를 쓸 것) | **실데이터 사본 리허설 완료**(2026-09-16): 3개 대화 백필(`journal_backfilled: 3`) → `verified`(실패 0), 원본 해시 무변경 |
 | 백업 → 복구(restore) | 제품에는 **import/restore API 가 없다** — export(`GET /v1/conversations/{id}/export`, `journal_sha256` 포함)로 기준을 뜨고 **journal 파일만** 임시/대상 경로로 복사한다. 순서: ① export 로 기준(`revision`·`journal_sha256`·`messages`)을 뜬다 ② 대상의 `history_state` 와 지문을 잰다 ③ **삭제 표식 있으면 거절 · 지문 동일하면 무동작 · 대상이 더 새로우면 거절 · revision 같은데 지문 다르면 거절** · 그 외에만 진행 ④ 복구 뒤 id·순서·본문·revision·지문을 다시 잰다 | **임시 경로 리허설 완료**(2026-09-17, exit 0): ① 왕복(지문 동일·revision·원문 5건 동일·view 재구성) ② **최신 변경 손실 방지** — 대상이 더 새로우면 거절(그 사이 append 3건 생존) ③ 멱등(같은 바이트는 무동작) ④ 삭제된 대상은 거절. 이빨 확인: 가드를 끄면 revision 8→5 로 되돌아가며 원문 3건이 사라진다. 근거 [nx01/restore-rehearsal.md](qa/2026-09-16-followup/nx01/restore-rehearsal.md) · `restore_rehearsal.py`. **실저장소 실시는 운영 결정**이며, 남은 발견 1건(`NX03-RESTORE-MARKER`: 표식이 원문 읽기 표면을 막지 못함 — 그래서 위 ③이 거절로 막는다)은 동결 해제 뒤 수리 대상이다 |
-| 업그레이드/롤백 | 위 관리자 runbook | **미실시**(NX-03 tombstone 호환·NX-05 세대 규칙 때문에 자동 회귀 금지), desktop 경로는 NX-11 `PAUSED` |
+| 업그레이드/롤백 | 위 관리자 runbook | **미실시**(NX-03 tombstone 호환·NX-05 세대 규칙 때문에 자동 회귀 금지), desktop 경로는 NX-11 `PAUSED`. **2026-09-17 롤백 리허설로 금지 근거의 경계를 실측**(아래 rollback 주의 — 구버전은 창 안에서 삭제된 세션을 다시 쓰지만, 복귀하면 표식이 이겨 국소화된다) |
 
 ### 운영자가 기대하면 안 되는 것 (미결정·미구현)
 

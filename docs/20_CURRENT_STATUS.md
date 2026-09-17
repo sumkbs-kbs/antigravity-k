@@ -113,6 +113,7 @@ journal 94.1 MB · `rss_growth_mb` **32.2** 로 `pass: true`, 기울기 평탄�
 
 - NX-00: 종료·귀속 INCONCLUSIVE (지표 재확인은 DONE) · **NX-00-F01** harness started/finished + exit 보존 결정
 - NX-01·NX-02·NX-03·NX-04·NX-05·NX-06·NX-08: 구현·시험 green **REVIEW** — 독립 검토자 미지정, NX-02 는 ADR 승인자 미지정
+- **NX-03 rollback 리허설 완료**(2026-09-17, 동결 중 `docs/` 만 수정): 구버전 판(`d929da01^`)을 그림자 트리로 돌려 ① 구버전끼리는 삭제 뒤 낡은 저장이 **되살아난다**(표식 0개) ② **현재가 삭제한 뒤에도 구버전은 그 세션을 다시 쓴다**(표식은 살아남음) ③ **복귀하면 현재 코드가 거절한다** — 되살아난 본문은 읽기 표면에 안 나오고 삭제된 id 도 새 id 로 대체된다([nx03/handoff.md §5b](qa/2026-09-16-followup/nx03/handoff.md)). 자동 회귀 금지는 유지하되 근거를 “되돌리면 영구히 살아낸다” → **“위험은 되돌림 창 안에서의 노출”** 로 정정했다.
 - **NX-02-F01**: 세션 저장소가 prompt view 로 오염되는 경로 수정 여부 결정
 - **NX-01 restore 리허설 완료**(2026-09-17, 동결 중 `docs/` 만 수정): 제품에 import/restore API 가 없어 복구는 **파일 수준**이고 안전성은 절차가 책임진다 — 절차용 판정부를 만들고 4개 경계를 임시 저장소에서 실측(왕복·**최신 변경 손실 방지**(대상이 더 새로우면 거절)·멱등·삭제 거절, exit 0). 이빨 확인: 가드를 끄면 revision 8→5 로 되돌아가며 원문 3건이 사라진다([restore-rehearsal.md](qa/2026-09-16-followup/nx01/restore-rehearsal.md)). **남긴 발견 `NX03-RESTORE-MARKER`**: 삭제 표식은 상태 플래그에만 적용되고 원문 읽기 표면은 journal 의 `delete` 이벤트만 보므로, 삭제 전 바이트를 되돌리면 `deleted=true` 인데도 원문이 다시 읽힌다 — 동결 중이라 코드는 안 고치고 절차가 거절한다(수리안·승격 예정은 같은 문서 §2·§3).
 - NX-06: 정적 REVIEW / **런타임 BLOCKED**(cluster 없음 — Pod readiness·EndpointSlice 미관측) · `degraded→200` 정책 승인 필요
