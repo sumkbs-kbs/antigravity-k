@@ -27,12 +27,25 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import sys
 import tempfile
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+
+def _repo_root() -> Path:
+    """저장소 루트를 **위로 걸어 올라가며** 찾는다 — 승격(`docs/` → `scripts/`)으로 깊이가 바뀌어도 산다."""
+    override = os.environ.get("AGK_REPO_ROOT")
+    if override:
+        return Path(override).resolve()
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "pyproject.toml").is_file() and (candidate / "src" / "antigravity_k").is_dir():
+            return candidate
+    raise SystemExit("저장소 루트를 찾지 못했다 — AGK_REPO_ROOT 로 지정한다")
+
+
+REPO_ROOT = _repo_root()
 if str(REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "src"))
 

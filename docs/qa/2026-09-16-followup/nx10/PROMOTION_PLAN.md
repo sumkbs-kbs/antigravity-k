@@ -25,6 +25,27 @@
 `docs/` 의 원본은 **이동(mv)** 이다 — 사본을 남기면 시험이 `scripts/` 를 먼저 찾으므로 낡은 사본이
 가려지고, "고쳤는데 안 고쳐진" 상태가 조용히 생긴다. 원본 보존은 이 표의 해시와 `promotion-applied.txt` 가 맡는다.
 
+### 1c. **2차 배치 — 준비 완료, 본실행은 동결 해제 뒤** (2026-09-17, 미러 리허설 ALL PASS)
+
+이동표·게이트·리허설·본실행이 `docs/qa/2026-09-16-followup/nx10/promote2/` 에 있다(1차 배치의
+`promote/` 와 같은 구조: `paths2.sh` 공유 이동표 + `gates2.sh` 공유 게이트 + 리허설/본실행 분리).
+
+| 스테이징(지금 `docs/`) | 승격 위치 | 역할 | sha256(앞 12, 리허설 실측) |
+| --- | --- | --- | --- |
+| `nx01/restore_rehearsal.py` | `scripts/restore_rehearsal.py` | restore 절차 판정부 리허설(왕복·손실 방지·멱등·삭제 거절) | `0a46008bba1b` |
+| `nx03/rollback_rehearsal.py` | `scripts/rollback_rehearsal.py` | 구버전 판을 그림자 트리로 돌려 되돌림 창의 노출과 복귀 뒤 거절을 잰다 | `8fa81ca66140` |
+| `nx10/promote2/test_restore_rehearsal_contract.py` | `tests/test_restore_rehearsal_contract.py` | 판정부 5결정 + 4경계 + 미수리 결함 기록 + 위생 | `b48b24a51c21` |
+| `nx10/promote2/test_rollback_rehearsal_contract.py` | `tests/test_rollback_rehearsal_contract.py` | 고정 판이 표식 이전인가 + 3국면 + id 재사용 금지 + 위생 | `0f0448b4f3d4` |
+
+**미러 리허설이 증명한 것**(`promote2/dry-run2-output.txt`, ALL PASS · 본 트리 쓰기 0건):
+이동 전 스테이징 초록 → 이동(바이트 동일) → **승격 위치에서 14 passed** → 도구 직접 실행 초록 →
+ruff check·format 초록 → **도구를 치우면 그 시험이 실패한다**(이빨) → 스테이징 잔존 0건.
+
+**실행**: `bash docs/qa/2026-09-16-followup/nx10/promote2/apply_promotion2.sh`
+— 이 스크립트는 **도는 soak 을 발견하면 거절**한다(`scripts/`·`tests/` 는 지문 대상이므로 8시간이 무효가 된다).
+리허설 기록이 ALL PASS 가 아니어도 거절하고, 실패하면 이동을 **자동으로 되돌린다**(백업은 `/tmp`).
+실행 뒤에는 반드시 **필수 게이트 재측정 → soak 재장전**(§3 의 순서 규칙)이다.
+
 ### 1b. 다음 승격 후보 (동결 해제 뒤 — 2026-09-17 추가)
 
 | 스테이징(지금 `docs/` 안) | 승격 위치(안) | 역할 | 왜 승격해야 하는가 |

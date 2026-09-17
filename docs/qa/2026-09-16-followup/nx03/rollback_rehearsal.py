@@ -30,12 +30,25 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
+import subprocess  # noqa: F401  (구버전 판을 꺼내고 그림자 트리를 실행한다)
 import sys
 import tempfile
+import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+
+def _repo_root() -> Path:
+    """저장소 루트를 **위로 걸어 올라가며** 찾는다 — 승격(`docs/` → `scripts/`)으로 깊이가 바뀌어도 산다."""
+    override = os.environ.get("AGK_REPO_ROOT")
+    if override:
+        return Path(override).resolve()
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "pyproject.toml").is_file() and (candidate / "src" / "antigravity_k").is_dir():
+            return candidate
+    raise SystemExit("저장소 루트를 찾지 못했다 — AGK_REPO_ROOT 로 지정한다")
+
+
+REPO_ROOT = _repo_root()
 OLD_REV = "d929da01^"
 OLD_SESSION_MANAGER = "src/antigravity_k/engine/session_manager.py"
 MARKER = "ROLLBACK-REHEARSAL-MARKER"
@@ -49,6 +62,7 @@ from antigravity_k.engine.session_manager import SessionManager
 base = os.environ["NX03_BASE"]
 workspace = os.environ["NX03_WS"]
 signal = Path(os.environ["NX03_SIGNAL"])
+ready = Path(os.environ["NX03_READY"])
 mode = sys.argv[1]
 marker = os.environ["NX03_MARKER"]
 out = {"mode": mode}
@@ -80,6 +94,10 @@ elif mode == "stale_save":
     b = SessionManager(base_dir=base)
     sid = b.start_session(project_path=workspace, resume=True)
     out["loaded_id"] = sid
+    # **적재 완료를 부모에게 알린다**: 이 신호가 없으면 부모의 `delete` 가 먼저 끝나
+    # “이어받을 세션이 없어 새로 만드는” 경로를 타고, 리허설이 다른 것을 재게 된다
+    # (실측: 3회 중 1회, `loaded_id != created_id` 로 실패 — 승격 계약 시험이 잡았다).
+    ready.write_text("loaded", encoding="utf-8")
     deadline = time.time() + 60
     while not signal.exists() and time.time() < deadline:
         time.sleep(0.2)
@@ -117,7 +135,9 @@ def _emit(label: str, **fields: object) -> None:
     print(json.dumps({"boundary": label, **fields}, ensure_ascii=False, sort_keys=True), flush=True)
 
 
-def _run(tree_src: Path, mode: str, *, base: Path, workspace: Path, signal: Path, wait: bool = False) -> dict:
+def _run(
+    tree_src: Path, mode: str, *, base: Path, workspace: Path, signal: Path, ready: Path, wait: bool = False
+) -> dict:
     env = {
         **os.environ,
         "PYTHONPATH": str(tree_src),
@@ -125,6 +145,7 @@ def _run(tree_src: Path, mode: str, *, base: Path, workspace: Path, signal: Path
         "NX03_BASE": str(base),
         "NX03_WS": str(workspace),
         "NX03_SIGNAL": str(signal),
+        "NX03_READY": str(ready),
         "NX03_MARKER": MARKER,
     }
     proc = subprocess.Popen(
@@ -140,6 +161,18 @@ def _run(tree_src: Path, mode: str, *, base: Path, workspace: Path, signal: Path
             raise RuntimeError(f"{mode} 실패(exit {proc.returncode}): {stderr.strip()[-400:]}")
         return json.loads(stdout.strip().splitlines()[-1])
     return {"_process": proc}
+
+
+def _wait_loaded(ready: Path, proc: subprocess.Popen, *, timeout: float = 60.0) -> None:
+    """자식이 세션을 메모리에 올렸다는 신호를 기다린다 — 이 순서가 R1/R2 의 전제다."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if ready.exists():
+            return
+        if proc.poll() is not None:
+            raise RuntimeError(f"낡은 인스턴스가 적재 전에 종료했다(exit {proc.returncode})")
+        time.sleep(0.05)
+    raise RuntimeError("낡은 인스턴스의 적재 신호를 기다리다 시간 초과(60s)")
 
 
 def main() -> int:
@@ -171,10 +204,14 @@ def main() -> int:
         # ── R1: 구버전끼리 — 삭제 뒤 낡은 인스턴스가 저장하면 되살아나는가 ─────────
         base1 = root / "r1" / "sessions"
         base1.mkdir(parents=True)
-        created = _run(old_src, "create", base=base1, workspace=workspace, signal=root / "r1.signal")
+        created = _run(
+            old_src, "create", base=base1, workspace=workspace, signal=root / "r1.signal", ready=root / "r1.ready"
+        )
         signal1 = root / "r1.signal"
-        stale = _run(old_src, "stale_save", base=base1, workspace=workspace, signal=signal1, wait=True)
-        deleted = _run(old_src, "delete", base=base1, workspace=workspace, signal=signal1)
+        ready1 = root / "r1.ready"
+        stale = _run(old_src, "stale_save", base=base1, workspace=workspace, signal=signal1, ready=ready1, wait=True)
+        _wait_loaded(ready1, stale["_process"])  # ← 적재 뒤에 삭제한다(순서가 뒤집히면 새 세션을 만든다)
+        deleted = _run(old_src, "delete", base=base1, workspace=workspace, signal=signal1, ready=ready1)
         signal1.write_text("go", encoding="utf-8")
         proc = stale["_process"]
         stdout, _stderr = proc.communicate(timeout=120)
@@ -199,10 +236,14 @@ def main() -> int:
         # ── R2/R3: 현재 바이너리가 삭제 → 구버전이 되살림 → 현재가 다시 읽음 ──────
         base2 = root / "r2" / "sessions"
         base2.mkdir(parents=True)
-        created2 = _run(current_src, "create", base=base2, workspace=workspace, signal=root / "r2.signal")
+        created2 = _run(
+            current_src, "create", base=base2, workspace=workspace, signal=root / "r2.signal", ready=root / "r2.ready"
+        )
         signal2 = root / "r2.signal"
-        stale2 = _run(old_src, "stale_save", base=base2, workspace=workspace, signal=signal2, wait=True)
-        deleted2 = _run(current_src, "delete", base=base2, workspace=workspace, signal=signal2)
+        ready2 = root / "r2.ready"
+        stale2 = _run(old_src, "stale_save", base=base2, workspace=workspace, signal=signal2, ready=ready2, wait=True)
+        _wait_loaded(ready2, stale2["_process"])
+        deleted2 = _run(current_src, "delete", base=base2, workspace=workspace, signal=signal2, ready=ready2)
         check(
             "r2_current_delete_writes_tombstone",
             bool(deleted2.get("tombstones")) and bool(deleted2.get("file_gone")),
@@ -221,7 +262,7 @@ def main() -> int:
                 "note": "구버전은 표식을 모르므로 되돌림 창에서는 삭제된 본문을 다시 쓴다",
             },
         )
-        read_back = _run(current_src, "read", base=base2, workspace=workspace, signal=signal2)
+        read_back = _run(current_src, "read", base=base2, workspace=workspace, signal=signal2, ready=ready2)
         check(
             "r3_roll_forward_refuses_revived_content",
             bool(read_back.get("marker_visible")) is False,

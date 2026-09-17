@@ -1,0 +1,53 @@
+
+=== 0. 동결 무해성 — 본 트리는 읽기만 한다 (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai) ===
+  미러: /tmp/nx10-promote2-dryrun-20260917T020329Z
+  본 트리 실행 중 soak: 56261
+  본 트리 지문 대상 경로 쓰기: 0건(아래 이동은 전부 미러에서 수행)
+
+=== 1. 미러 만들기 (객체 공유 클론 + 작업 트리 복사) ===
+  [OK  ] 클론 완료(alternates — 2.6 GB .git 을 복사하지 않는다)
+  [OK  ] 복사: docs/qa/2026-09-16-followup/nx01/restore_rehearsal.py
+  [OK  ] 복사: docs/qa/2026-09-16-followup/nx01/restore-rehearsal-output.txt
+  [OK  ] 복사: docs/qa/2026-09-16-followup/nx03/rollback_rehearsal.py
+  [OK  ] 복사: docs/qa/2026-09-16-followup/nx03/rollback-rehearsal-output.txt
+  [OK  ] 복사: docs/qa/2026-09-16-followup/nx10/promote2
+  [OK  ] 인터프리터 연결(.venv 심볼릭)
+
+=== 2. 이동 전 — 스테이징에서 초록인가(A) ===
+  [OK  ] tests/ 에 아직 없다(이동 뒤에만 초록이어야 한다)
+..............                                                           [100%]
+14 passed in 8.10s
+  [OK  ] 스테이징 위치에서 초록(도구를 스테이징에서 찾는다)
+
+=== 3. 이동(미러에서) ===
+  [OK  ] docs/qa/2026-09-16-followup/nx01/restore_rehearsal.py → scripts/restore_rehearsal.py (sha256 0a46008bba1b 동일)
+  [OK  ] docs/qa/2026-09-16-followup/nx03/rollback_rehearsal.py → scripts/rollback_rehearsal.py (sha256 f695df1ee8ab 동일)
+  [OK  ] docs/qa/2026-09-16-followup/nx10/promote2/test_restore_rehearsal_contract.py → tests/test_restore_rehearsal_contract.py (sha256 554d648d1950 동일)
+  [OK  ] docs/qa/2026-09-16-followup/nx10/promote2/test_rollback_rehearsal_contract.py → tests/test_rollback_rehearsal_contract.py (sha256 98628c86ec9a 동일)
+
+=== 4. 이동 뒤 게이트(B·C·D) ===
+
+=== A. 승격 위치 계약 시험 ===
+..............                                                           [100%]
+14 passed in 7.97s
+  [OK  ] 계약 시험 초록(승격 위치에서 탐색됨)
+
+=== B. 도구 직접 실행 ===
+  [OK  ] scripts/restore_rehearsal.py exit 0
+  [OK  ] scripts/rollback_rehearsal.py exit 0
+
+=== C. 정적 게이트 ===
+  [OK  ] ruff check 통과
+  [OK  ] ruff format --check 통과
+
+=== D. 이빨 — tests/test_restore_rehearsal_contract.py 는 scripts/restore_rehearsal.py 없이 실패해야 한다 ===
+  [OK  ] 도구 없으면 실패한다(exit 1) — 조용한 스킵이 아니다
+
+=== D. 이빨 — tests/test_rollback_rehearsal_contract.py 는 scripts/rollback_rehearsal.py 없이 실패해야 한다 ===
+  [OK  ] 도구 없으면 실패한다(exit 1) — 조용한 스킵이 아니다
+
+=== 5. 스테이징 잔존 확인(E) ===
+  [OK  ] 스테이징 사본 0건(원본은 이동이다)
+
+=== 6. 결과 ===
+리허설 결과: ALL PASS — 본실행 준비 완료(지문에 닿는 변경은 아직 없다)
