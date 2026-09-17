@@ -1049,3 +1049,14 @@ T=60 s → 0.0073 %)지만, **배경에서 부르면 쓰는 쪽이 멈춘다** �
 
 같은 부류가 2차 배치에서도 났었다(`restore_rehearsal.py`·`rollback_rehearsal.py` 타입 12건) — 그때는
 고치기만 하고 검사를 안 옮겼고, 그래서 3차에서 다시 났다. **재발 방지는 고침이 아니라 검사를 옮기는 일이다.**
+
+### 28-6. 지금 무인으로 도는 것
+
+| 화면 | 무엇 | 어디를 보면 아는가 |
+|---|---|---|
+| `nx10batchchain` | `SC6`(적용·커밋 `87a61db4` 완료) → `PERF` → `FLUSH` → `FLUSH2` 각각 적용·커밋·게이트 23개 → **새 8시간 soak 재장전** | `batchchain/batchchain.log` · `batchchain/batchchain-record.md` · `gate-report-batch-*.json` |
+| `nx10watch` | (재장전 뒤 자동 부착) 라이브 추세 화면 | `docs/qa/2026-09-16-followup/nx10/soak-watch-live.html` |
+
+재장전은 이번에도 `scripts/soak_control.sh run`(즉시 실행)으로 시작하고, 그 실행이 **자기 기대 지문을 스스로
+적는다** — 8시간 뒤 회수가 §37 의 거짓 FAIL 을 반복하지 않는다. 필수 23개의 새 지문 결과는 **22 passed ·
+1 failed · 0 not_run**(실패는 기존 5건뿐 · `clean-machine-runtime`·`basedpyright` passed).

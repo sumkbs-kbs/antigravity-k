@@ -1974,3 +1974,30 @@ aborted: true            # 2026-09-16T12:13:11Z — fingerprint unverifiable
 
 즉 “soak 끝나면 `FLUSH`·`FLUSH2` 를 걸어 달라”는 요청을 문자 그대로 받으면 **exit 6 으로 멈춘다** — 그래서
 체인의 순서는 취향이 아니라 **코드가 강제하는 제약**이다(전부 쓰기 0건으로 확인).
+
+### 38-9. 배치 체인을 걸었다 — 실제 진행(무인)
+
+`21:52:47Z` 에 `screen nx10batchchain` 으로 **`run_batch_chain.sh --wait --rearm`** 을 걸었다. ②관문은
+전부 통과했다(회수 판정 **PASS** · 시작=종료 `b6a74304…` · 3차 산출물 존재 · `gate-report-promote3.json` 존재 ·
+코드 경로 깨끗). 그리고 첫 배치가 예상대로 돌았다:
+
+| 단계 | 실측 |
+|---|---|
+| `SC6` 적용 | 동결 가드 통과 · 사전 이미지 `83da9a48…` 일치 → 적용 `ecd826ce…` · 신설 `tests/test_sc6_criterion_contract.py` · 검증(계약 시험 **9 passed** · 기존 val02 시험 통과 · ruff) → 롤백 불필요 |
+| `SC6` 커밋 | `87a61db4` — 코드 경로 깨끗 확인 |
+| `SC6` 게이트 | `21:52:53Z` 시작(23개 · 약 20분) |
+
+남은 순서: `PERF` → `FLUSH` → `FLUSH2`(각각 적용·커밋·게이트 23개) → **새 8시간 soak 재장전**(`scripts/soak_control.sh
+preflight` → `run` → 감시 화면 재부착 → `harvest --detach` 예약). 예상: 네 배치 ≈ 1.5시간, 재장전 뒤 8시간.
+
+**보는 곳**: `batchchain/batchchain.log` · `batchchain/batchchain-record.md` · `gate-report-batch-sc6.json` ·
+`gate-report-batch-perf.json` · `gate-report-batch-flush.json` · `gate-report-batch-flush2.json` ·
+`screen -ls`(화면 `nx10batchchain`·`nx10watch`) · `bash scripts/soak_control.sh status`.
+**멈춘다면**: `batchchain/batchchain-record.md` 의 마지막 `## 중단` 블록이 단계·사유·되돌림을 말한다(배치는
+실패 시 스스로 롤백하고, 체인은 쓰기 0건으로 멈춘다). **취소**: `screen -S nx10batchchain -X quit`.
+
+앞선 필수 23개(새 지문 `df512a17…`)의 결과도 함께 남긴다: **22 passed · 1 failed · 0 not_run**,
+실패는 `python-tests` 하나이고 원인은 **기존 5건**(CR-14 fence 3 · NX-07 doc 2 — `promote2c`/`promote2d` 와
+시험 단위 동일, 통과 수 6640 → **6662**) · `clean-machine-runtime` **passed**(43.9s) ·
+`python-basedpyright` **passed**(12.4s — §38-7 의 수리 뒤) · 판정 원문 `gate_verify-promote3.txt`
+(`required_red: required gates failed: python-tests`).
