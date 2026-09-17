@@ -124,26 +124,59 @@ def seconds_between(start: str, end: str) -> float | None:
 
 
 _EXPECTED_FP_RE = re.compile(r"^expected_fingerprint:\s*(\S+)$", re.M)
+# 예약 블록의 머리 — 통제 도구(`soak_control.sh`)가 예약을 걸 때마다 이 줄로 새 블록을 시작한다.
+_SCHEDULE_BLOCK_RE = re.compile(r"^#\s*NX-10 soak 예약 기록", re.M)
+# 중단 표시 — 이 블록은 **한 틱도 돌지 않았다**는 뜻이다(`start_check_fingerprint: UNVERIFIED` 와 함께 쓰인다).
+_ABORTED_RE = re.compile(r"^aborted:\s*(?:true|yes|1)\s*$", re.I | re.M)
 
 
 def _schedule_text() -> str:
     return SCHEDULE.read_text(encoding="utf-8") if SCHEDULE.is_file() else ""
 
 
-def latest_expected_fingerprint(text: str) -> str:
-    """예약 기록(`soak-schedule.txt`)에서 **마지막** 기대 지문.
+def schedule_blocks(text: str) -> list[str]:
+    """예약 이력을 블록으로 나눈다 — 헤더가 하나도 없으면 전체를 한 블록으로 본다.
 
-    왜 “마지막”인가 — 2026-09-16 에 실측한 결함이다. 이 파일은 예약할 때마다 블록을 **덧붙인다**
-    (재장전·취소 기록도 쌓인다). 종전 구현은 `re.search`(= 첫 매치)여서, 재장전이 한 번이라도 있으면
-    판정기가 **철 지난 예약의 지문**을 기대값으로 잡았다. 그날 파일의 첫 값은 `157311cf…`(08:20Z),
-    현재 예약은 `92fcaeb5…`(11:39Z) 였으므로, 고치지 않았다면 밤새 정상으로 끝난 8시간 실행이
-    ③(기대 == 시작)에서 **거짓 FAIL** 로 판정됐을 것이다. 그것이 바로 이 카드가 반복해서 겪은
-    “지표는 PASS 인데 판정 근거가 없다” 상태를 사람 손으로 다시 만드는 일이다.
+    헤더 0건 = 단일 블록으로 두는 이유: 계약 시험이 쓰는 합성 입력은 헤더 없이 기대 지문만 적는다.
+    그 입력에서도 종전 동작(“마지막 매치”)이 그대로 나와야 회귀가 아니다.
+    """
+    starts = [m.start() for m in _SCHEDULE_BLOCK_RE.finditer(text)]
+    if not starts:
+        return [text] if text.strip() else []
+    bounds = [*starts, len(text)]
+    return [text[bounds[i] : bounds[i + 1]] for i in range(len(starts))]
+
+
+def is_aborted_block(block: str) -> bool:
+    """중단된 예약인가 — 중단은 “그 트리에서 아무것도 재지 않았다”와 같은 말이다."""
+    return _ABORTED_RE.search(block) is not None
+
+
+def latest_expected_fingerprint(text: str) -> str:
+    """예약 기록에서 **살아 있는 마지막** 기대 지문(중단된 블록은 기대값이 아니다).
+
+    이 함수는 두 번 틀렸고, 두 번 다 “지표는 PASS 인데 판정 근거가 없는” 상태를 만들었다:
+
+    ① **첫 매치**(2026-09-16) — 이 파일은 예약할 때마다 블록을 **덧붙인다**(재장전·취소 기록도 쌓인다).
+       `re.search` 는 첫 값을 잡았고, 그날 첫 값은 `157311cf…`(08:20Z) · 현재 예약은
+       `92fcaeb5…`(11:39Z) 였다 → 밤새 정상으로 끝난 실행이 거짓 FAIL 이 될 뻔했다(고침: 마지막).
+    ② **중단된 예약**(2026-09-17) — 마지막 두 블록이 `aborted: true`(예약 시점에 지문을 못 재
+       `start_check_fingerprint: UNVERIFIED`)였다. 그 예약들은 한 틱도 돌지 않았는데, 지표 all_pass ·
+       러너 exit 0 · 벽시계 28804s · 시작==종료==현재 트리(`b6a74304…`)로 끝난 8시간 실행이
+       그 지문(`322b4d3b…`)과 달라 **거짓 FAIL** 로 판정됐다(고침: 중단 블록은 건너뛴다).
+
+    살아 있는 예약이 하나도 없으면 `UNVERIFIED` 를 돌려준다 — 그때는 `resolve_expected()` 가 러너가
+    스스로 기록한 시작 지문으로 내려가되 **출처를 밝힌다**(조용히 통과시키지 않는다).
 
     `previous_expected_fingerprint:` 같은 다른 키는 줄 시작 앵커(`^`) 때문에 걸리지 않는다.
     """
-    matches = _EXPECTED_FP_RE.findall(text)
-    return matches[-1] if matches else "UNVERIFIED"
+    for block in reversed(schedule_blocks(text)):
+        if is_aborted_block(block):
+            continue
+        matches = _EXPECTED_FP_RE.findall(block)
+        if matches:
+            return matches[-1]
+    return "UNVERIFIED"
 
 
 def reservation_count(text: str | None = None) -> int:
@@ -155,6 +188,29 @@ def expected_fingerprint(override: str | None = None) -> str:
     if override:
         return override
     return latest_expected_fingerprint(_schedule_text())
+
+
+def resolve_expected(override: str | None, block: dict[str, str] | None = None) -> tuple[str, str]:
+    """기대 지문과 **그 출처**(사람이 읽는 한 줄)를 함께 돌려준다.
+
+    왜 출처를 함께 남기는가: 이 카드가 반복해서 물린 지점이 “판정 근거가 무엇이었는가”다. 근거가
+    예약 기록인지 · 사람이 지정한 것인지 · 러너의 자기 기록인지가 출력과 JSON 에 남지 않으면,
+    같은 값을 두고 “PASS 가 어디서 왔는지”를 나중에 아무도 재구성할 수 없다.
+
+    즉시 실행(`soak_control.sh run`)은 예약 블록을 **남기지 않는다** — 그때 살아 있는 예약이 없다고
+    FAIL 로 몰면 정상 실행이 매번 거짓 FAIL 이 되고(2026-09-17 실측), 아무 근거 없이 PASS 로 두면
+    “기대 == 시작” 검사가 조용히 사라진다. 그래서 러너가 스스로 기록한 시작 지문을 쓰고,
+    그 사실을 출처 문장으로 밝힌다.
+    """
+    if override:
+        return override, "사람이 지정(--expected-fingerprint)"
+    live = latest_expected_fingerprint(_schedule_text())
+    if live != "UNVERIFIED":
+        return live, f"soak-schedule.txt 살아 있는 예약 {reservation_count()}건 중 마지막(중단 블록 제외)"
+    runner_fp = str((block or {}).get("start_fingerprint") or "")
+    if runner_fp:
+        return runner_fp, "예약 기록 없음(즉시 실행) → 러너가 기록한 시작 지문"
+    return "UNVERIFIED", "근거 없음(살아 있는 예약도 러너 기록도 없다)"
 
 
 def _interpreter() -> str:
@@ -195,6 +251,7 @@ def judge(
     expected_fp: str,
     now_fp: str,
     seconds: int,
+    expected_source: str = "예약 기록",
 ) -> tuple[str, list[Check]]:
     checks: list[Check] = []
 
@@ -236,7 +293,9 @@ def judge(
     )
     checks.append(
         Check(
-            "③ 기대 지문 == 시작 지문", expected_fp != "UNVERIFIED" and expected_fp == start_fp, f"{expected_fp[:16]}…"
+            "③ 기대 지문 == 시작 지문",
+            expected_fp != "UNVERIFIED" and expected_fp == start_fp,
+            f"{expected_fp[:16]}… (출처: {expected_source})",
         )
     )
     checks.append(
@@ -329,6 +388,19 @@ def selftest() -> int:
             "previous_expected_fingerprint: " + "d" * 64 + "\n",
             "UNVERIFIED",
         ),
+        (
+            "중단된 마지막 예약은 건너뛰고 그 앞의 살아 있는 예약을 쓴다",
+            "# NX-10 soak 예약 기록\n"
+            f"expected_fingerprint: {'4' * 64}\n"
+            "# NX-10 soak 예약 기록\n"
+            f"expected_fingerprint: {'5' * 64}\naborted: true\n",
+            "4" * 64,
+        ),
+        (
+            "살아 있는 예약이 하나도 없으면 UNVERIFIED(중단뿐인 이력)",
+            f"# NX-10 soak 예약 기록\nexpected_fingerprint: {'6' * 64}\naborted: true\n",
+            "UNVERIFIED",
+        ),
     )
     for label, text, want in schedule_cases:
         total += 1
@@ -372,9 +444,16 @@ def main() -> int:
         time.sleep(30)
 
     data, _ = show_report(report_path)
-    expected = expected_fingerprint(args.expected_fingerprint)
+    expected, expected_source = resolve_expected(args.expected_fingerprint, block)
     now_fp = fingerprint_now()
-    verdict, checks = judge(block=block, report=data, expected_fp=expected, now_fp=now_fp, seconds=args.seconds)
+    verdict, checks = judge(
+        block=block,
+        report=data,
+        expected_fp=expected,
+        now_fp=now_fp,
+        seconds=args.seconds,
+        expected_source=expected_source,
+    )
 
     print(f"=== NX-10 soak 회수 판정 ({now()}) ===")
     print(f"  러너: 시작 {block.get('start_time')} → 종료 {block.get('end_time')} · exit {block.get('exit')}")
@@ -382,13 +461,7 @@ def main() -> int:
         f"  지문: start={str(block.get('start_fingerprint'))[:16]}… end={str(block.get('end_fingerprint'))[:16]}… "
         f"기대={expected[:16]}… 지금={now_fp[:16]}…"
     )
-    if args.expected_fingerprint:
-        print("  기대 지문 출처: --expected-fingerprint (사람이 지정)")
-    else:
-        print(
-            f"  기대 지문 출처: soak-schedule.txt 예약 이력 {reservation_count()}건 중 **마지막**"
-            " (재장전 뒤에는 첫 값이 아니다 — 2026-09-16 실측 결함)"
-        )
+    print(f"  기대 지문 출처: {expected_source}")
     if data:
         print(f"  리포트: {report_path.name} · generated_at {data.get('generated_at')} · workdir {data.get('workdir')}")
         print(f"    thresholds: {json.dumps(data.get('thresholds', {}), ensure_ascii=False)}")
@@ -427,6 +500,8 @@ def main() -> int:
             "collected_at": now(),
             "verdict": verdict,
             "judged_run_start": block.get("start_time"),
+            "expected_fingerprint": expected,
+            "expected_source": expected_source,
             "runner": block,
             "checks": [{"label": c.label, "ok": c.ok, "detail": c.detail} for c in checks],
             "report_file": report_path.name,

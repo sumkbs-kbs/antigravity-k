@@ -127,6 +127,70 @@ def test_schedule_reader_uses_the_latest_reservation(monkeypatch: pytest.MonkeyP
     assert MODULE.latest_expected_fingerprint("") == "UNVERIFIED"
 
 
+def test_aborted_reservation_is_never_the_reference(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """중단된 예약은 “그 트리에서 아무것도 재지 않았다” — 기대값으로 쓰면 정상 실행이 거짓 FAIL 이 된다.
+
+    실측(2026-09-17): 예약 이력의 **마지막 두 블록**이 `aborted: true`(예약 시점에 지문을 못 재
+    `start_check_fingerprint: UNVERIFIED`)였다. 그 예약들은 한 틱도 돌지 않았는데, 지표 all_pass ·
+    러너 exit 0 · 벽시계 28804s · 시작==종료==현재 트리(`b6a74304…`)로 끝난 8시간 실행이
+    그 지문(`322b4d3b…`)과 달라 FAIL 로 판정됐다 — 승격 체인이 그 FAIL 로 멈췄다.
+    """
+    schedule = tmp_path / "soak-schedule.txt"
+    schedule.write_text(
+        "# NX-10 soak 예약 기록\n"
+        f"expected_fingerprint: {'4' * 64}\n"
+        "# NX-10 soak 예약 기록\n"
+        f"expected_fingerprint: {'5' * 64}\n"
+        "start_check_fingerprint: UNVERIFIED\n"
+        "aborted: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(MODULE, "SCHEDULE", schedule)
+    assert MODULE.latest_expected_fingerprint(schedule.read_text(encoding="utf-8")) == "4" * 64
+    assert MODULE.expected_fingerprint() == "4" * 64, "중단된 예약의 지문을 기대값으로 썼다"
+    # 중단뿐인 이력은 “기대값 없음” 이다 — 없는 근거를 만들어 내지 않는다.
+    only_aborted = "# NX-10 soak 예약 기록\n" + f"expected_fingerprint: {'6' * 64}\naborted: true\n"
+    assert MODULE.latest_expected_fingerprint(only_aborted) == "UNVERIFIED"
+    assert MODULE.schedule_blocks(only_aborted) == [only_aborted]
+
+
+def test_no_live_reservation_falls_back_to_the_runner_record_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """즉시 실행(`run`)은 예약 블록을 남기지 않는다 — 그때 근거는 러너의 자기 기록뿐이고, 그 사실을 밝힌다.
+
+    조용히 통과시키면 “기대 == 시작” 검사가 사라지고, 그렇다고 FAIL 로 몰면 정상 실행이 매번 거짓 FAIL 이
+    된다. 그래서 러너가 기록한 시작 지문을 쓰고 **출처를 문장으로** 남긴다.
+    """
+    schedule = tmp_path / "soak-schedule.txt"
+    schedule.write_text(
+        "# NX-10 soak 예약 기록\n" + f"expected_fingerprint: {'6' * 64}\naborted: true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(MODULE, "SCHEDULE", schedule)
+    runner = {"start_fingerprint": "7" * 64}
+    expected, source = MODULE.resolve_expected(None, runner)
+    assert expected == "7" * 64
+    assert "러너" in source and "예약" in source, source
+    # 러너 기록조차 없으면 근거 없음 — 조용히 PASS 로 새지 않는다.
+    assert MODULE.resolve_expected(None, {})[0] == "UNVERIFIED"
+    # 사람이 지정하면 그것이 최우선이고, 그 사실도 출처에 남는다.
+    assert MODULE.resolve_expected("8" * 64, runner)[1].startswith("사람이 지정")
+
+
+def test_verdict_prints_where_the_reference_came_from() -> None:
+    """판정 ③ 줄에 출처가 붙는다 — PASS 를 읽는 사람이 “이 값이 어디서 왔는가”를 되물어야 하지 않게."""
+    _, checks = JUDGE(
+        block={**_BASE_BLOCK},
+        report=_GOOD_REPORT,
+        expected_fp=_FP,
+        now_fp=_FP,
+        seconds=28800,
+        expected_source="예약 기록 없음(즉시 실행) → 러너가 기록한 시작 지문",
+    )
+    detail = next(c.detail for c in checks if c.label.startswith("③ 기대 지문"))
+    assert "러너" in detail, detail
+
+
 def test_every_failure_reason_is_named() -> None:
     """실패했는데 미충족 항목이 비어 있으면 그 판정은 쓸모가 없다(원인 없는 FAIL)."""
     _, checks = JUDGE(
