@@ -32,6 +32,19 @@ for i in range(100):
 print("done", tag)
 """
 
+# 빈 저장소에서 **동시에** 생성을 시작하는 자식들(2026-09-17 SC-3 경합의 축소 재현).
+# 시작 시각을 인자로 받아 모든 자식이 같은 순간에 `ProjectRegistry(...)` 로 들어가게 한다.
+_CONSTRUCT_CHILD = """
+import sys, time
+from antigravity_k.engine.project_registry import ProjectRegistry
+
+storage, start_at = sys.argv[1], float(sys.argv[2])
+while time.time() < start_at:
+    time.sleep(0.001)
+registry = ProjectRegistry(storage_path=storage)
+print("ok", len(registry.list_projects()))
+"""
+
 
 def _spawn_writer(storage: Path, tag: str) -> None:
     from tests._cli_subprocess import python_invocation
@@ -58,6 +71,78 @@ class TestMultiProcessDurability:
         beta = [n for n in names if n.startswith("beta-")]
         assert len(alpha) == 100, f"alpha 손실: {len(alpha)}/100"
         assert len(beta) == 100, f"beta 손실: {len(beta)}/100 (last-writer-wins 잃어버림)"
+
+
+class TestConcurrentCreation:
+    """빈 저장소를 여러 프로세스가 **동시에** 열 때 잃지 않는다 (2026-09-17 SC-3 실측 결함).
+
+    종전 구현은 최초 생성 경로만 공유 lock 밖이었고, 백업 회전의 임시 파일 이름이
+    고정(`projects.json.bak.tmp`)이었다 → 둘 다 같은 이름으로 쓰고 한 쪽이 먼저 옮기면
+    다른 쪽이 `RegistrySaveError: … .bak.tmp -> .bak` 로 죽었다. 하네스 worker 가 그대로
+    죽었고 부모는 결과 큐에서 무한 대기했다(그래서 실행 전체가 결과 0으로 멈췄다).
+    """
+
+    def test_creation_on_empty_store_takes_the_shared_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """최초 생성이 공유 lock 아래에서 저장되는가 — 이게 이 결함의 뿌리다."""
+        from antigravity_k.engine import project_registry as pr
+
+        acquired: list[str] = []
+        real_lock = pr._RegistryFileLock
+
+        class _SpyLock:
+            def __init__(self, path: Path) -> None:
+                self._inner = real_lock(path)
+
+            def __enter__(self) -> object:
+                acquired.append(str(self._inner))
+                return self._inner.__enter__()
+
+            def __exit__(self, *exc: object) -> object:
+                return self._inner.__exit__(*exc)
+
+        monkeypatch.setattr(pr, "_RegistryFileLock", _SpyLock)
+        registry = ProjectRegistry(storage_path=tmp_path / "projects.json")
+
+        assert registry.list_projects(), "기본 프로젝트가 없다"
+        assert acquired, "최초 생성이 공유 lock 없이 저장됐다 — 동시 시작에서 서로의 파일을 깨뜨린다"
+
+    def test_backup_temp_path_is_process_unique(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        storage = tmp_path / "projects.json"
+        registry = ProjectRegistry(storage_path=storage)
+        monkeypatch.setattr(os, "getpid", lambda: 11111)
+        first = registry._backup_tmp_path()
+        monkeypatch.setattr(os, "getpid", lambda: 22222)
+        second = registry._backup_tmp_path()
+
+        assert first != second, "백업 임시 파일 이름이 고정이면 동시 writer 가 서로의 파일을 옮겨 죽는다"
+        assert first.name != storage.name + ".bak.tmp"
+
+    def test_concurrent_creation_on_empty_store_does_not_raise(self, tmp_path: Path) -> None:
+        """5개 프로세스가 같은 순간에 빈 저장소에서 생성을 시작해도 아무도 죽지 않아야 한다."""
+        import time
+
+        from tests._cli_subprocess import python_invocation
+
+        storage = tmp_path / "projects.json"
+        start_at = time.time() + 1.5
+        procs = [
+            subprocess.Popen(  # noqa: S603 — 시험 전용 자식 프로세스
+                [*python_invocation(project=True), "-c", _CONSTRUCT_CHILD, str(storage), str(start_at)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(5)
+        ]
+        outcomes = [(p.wait(timeout=120), *p.communicate()) for p in procs]
+        failures = [stderr[-400:] for code, _out, stderr in outcomes if code != 0]
+        assert not failures, f"동시 생성에서 죽은 프로세스: {failures}"
+
+        final = ProjectRegistry(storage_path=storage)
+        assert final.list_projects(), "동시 생성 뒤 저장소가 비었다"
+        assert json.loads(storage.read_text(encoding="utf-8")), "저장소가 유효한 JSON 이 아니다"
 
 
 class TestTypedSaveFailures:

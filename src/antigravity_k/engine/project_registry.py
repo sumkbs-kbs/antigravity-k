@@ -133,9 +133,29 @@ class ProjectRegistry:
 
     def _load(self) -> None:
         if not self.storage_path.exists():
-            self._ensure_default_project()
+            # 최초 생성 경로도 **공유 lock 아래에서** 수행한다.
+            #
+            # 왜인가 (2026-09-17, SC-3 5-worker 경합 실측): 종전에는 이 경로만 lock 밖이었고,
+            # 백업 회전의 임시 파일 이름이 고정("projects.json.bak.tmp")이었다. 여러 프로세스가
+            # **같은 빈 저장소**에서 동시에 시작하면 둘 다 그 이름으로 쓰고, 한 쪽이 먼저
+            # `os.replace` 로 옮긴 뒤 다른 쪽이 자기 이름을 찾지 못해
+            # `RegistrySaveError: … projects.json.bak.tmp -> projects.json.bak` 로 **죽었다**
+            # (하네스 worker 가 그대로 죽고, 부모는 결과 큐를 기다리다 멈췄다).
+            # 같은 종류의 결함이 대화 저장소에서는 이미 고쳐졌다(결정론적 `<conv>.tmp` 이름이
+            # 동시 writer 를 깨뜨린 F1) — registry 의 백업 회전에 같은 규칙이 남아 있었다.
+            with self._locked():
+                if self.storage_path.exists():
+                    # 경합에서 진 쪽: 이긴 프로세스가 쓴 파일을 읽는다(재귀하지 않는다 —
+                    # 같은 lock 을 다시 잡으면 flock 은 같은 프로세스라도 막힌다).
+                    self._load_existing()
+                else:
+                    self._ensure_default_project()
             return
 
+        self._load_existing()
+
+    def _load_existing(self) -> None:
+        """저장소가 이미 있을 때의 로드(손상 시 backup 복구 포함)."""
         try:
             raw = self._read_json(self.storage_path)
         except (json.JSONDecodeError, UnicodeDecodeError, OSError):
@@ -204,6 +224,16 @@ class ProjectRegistry:
     def _backup_path(self) -> Path:
         return self.storage_path.with_name(self.storage_path.name + ".bak")
 
+    def _backup_tmp_path(self) -> Path:
+        """백업 회전용 임시 파일 경로 — **프로세스별 고유 이름**(primary tmp 와 같은 규칙).
+
+        고정 이름이면 두 writer 가 같은 파일을 쓰고, 한 쪽이 먼저 `os.replace` 로 옮긴 뒤
+        다른 쪽이 `FileNotFoundError` 로 죽는다(2026-09-17 SC-3 경합 실측 — 임시 파일이 아니라
+        **예외**가 관측된 이유다). lock 이 지켜지면 동시 진입이 없지만, 그 보장이 깨지는 경로가
+        하나라도 있으면 여기서 죽므로 이름을 고유하게 두는 편이 싸다.
+        """
+        return self._backup_path.with_name(f".{self._backup_path.name}.tmp-{os.getpid()}")
+
     def _save_locked(self) -> None:
         """lock 보유 전제. temp+fsync+atomic replace로 저장, 실패는 typed error."""
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,7 +252,7 @@ class ProjectRegistry:
                     os.close(dir_fd)
             # backup 회전: 이전 primary(정상 상태 가정)를 bak으로
             if self.storage_path.exists():
-                backup_tmp = self._backup_path.with_suffix(".bak.tmp")
+                backup_tmp = self._backup_tmp_path()
                 backup_tmp.write_bytes(self.storage_path.read_bytes())
                 os.replace(backup_tmp, self._backup_path)
             os.replace(tmp, self.storage_path)  # atomic

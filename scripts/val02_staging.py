@@ -23,6 +23,7 @@ import argparse
 import json
 import multiprocessing as mp
 import os
+import queue as queue_module
 import signal
 import statistics
 import subprocess
@@ -41,6 +42,13 @@ P99_THRESHOLD_MS = 1000.0
 ERROR_RATE_THRESHOLD = 0.0  # 완료기준: error rate threshold 안 — 비율 0 (CAS loser는 정상 흐름)
 FD_LEAK_THRESHOLD = 5
 CONVERSATION_SOFT_MAX_MESSAGES = 64  # align with ConversationStore default (Decision A)
+# worker 결과 대기 상한(초). 왜 필요한가 (2026-09-17 실측): `q.get()` 에 타임아웃이 없어서
+# SC-3 의 worker 가 `RegistrySaveError` 로 죽자 부모가 **영원히** 기다렸고, 8시간 soak 이
+# 아무 산출물 없이 멈춰 있었다(러너는 종료 시에만 리포트를 쓴다 — 결과 0). worker 가 죽는 것과
+# 실행 전체가 멈추는 것은 **다른 사건**이다: 이제 타임아웃은 그 실행의 오류로 세고 계속 간다
+# ("돌렸는데 틀렸다" 가 "돌다가 아무것도 안 남겼다" 보다 낫다). `AGK_VAL02_WORKER_TIMEOUT_S` 로 조정.
+WORKER_RESULT_TIMEOUT_S = float(os.environ.get("AGK_VAL02_WORKER_TIMEOUT_S", "120"))
+
 RSS_LEAK_THRESHOLD_MB = 64.0
 SOAK_DEFAULT_SECONDS = 60  # 정식 gate는 8h(28800) — --soak-seconds로 상향
 # NX-04: 원본 이력 전수 replay 는 이 크기까지만 수행한다(8h soak 은 연기 보고).
@@ -204,7 +212,11 @@ def scenario_task_cas(workdir: Path, workers: int = 8, tasks_per_owner: int = 4)
     start = time.perf_counter()
     for p in procs:
         p.start()
-    results = [q.get() for _ in procs]
+    results, worker_timeouts = _collect_worker_results(
+        q,
+        procs,
+        fallback={"owner": None, "wins": 0, "conflicts": 0, "errors": 1, "leak": 0},
+    )
     for p in procs:
         p.join(timeout=60)
 
@@ -229,6 +241,7 @@ def scenario_task_cas(workdir: Path, workers: int = 8, tasks_per_owner: int = 4)
         "terminal_contradictions": contradictions,
         "cross_owner_leak": leak,
         "unexpected_errors": errors,
+        "worker_timeouts": worker_timeouts,
         "elapsed_s": round(elapsed, 2),
         "pass": contradictions == 0 and leak == 0 and errors == 0 and total_wins == len(task_ids),
     }
@@ -294,6 +307,28 @@ def _sc2_worker(
     )
 
 
+def _collect_worker_results(
+    result_q: Any, procs: list[Any], *, fallback: dict[str, Any]
+) -> tuple[list[dict[str, Any]], int]:
+    """worker 결과를 **제한 시간 안에** 걷는다(타임아웃은 오류 1건으로 세고 계속한다).
+
+    반환: (결과 목록, 타임아웃 수). 타임아웃된 worker 에는 `fallback`(오류 1건을 포함해야 한다)
+    을 넣고, 그 프로세스가 살아서 큐를 물고 있는 경우를 대비해 `terminate` 까지 간다 — 그러지
+    않으면 다음 시나리오가 그 프로세스의 자원을 뺏어 측정이 오염된다.
+    """
+    results: list[dict[str, Any]] = []
+    timeouts = 0
+    for p in procs:
+        try:
+            results.append(result_q.get(timeout=WORKER_RESULT_TIMEOUT_S))
+        except queue_module.Empty:
+            timeouts += 1
+            p.terminate()
+            p.join(timeout=10)
+            results.append(dict(fallback))
+    return results, timeouts
+
+
 def scenario_conversation_cas(
     workdir: Path,
     workers: int = 6,
@@ -320,7 +355,18 @@ def scenario_conversation_cas(
     ]
     for p in procs:
         p.start()
-    results = [q.get() for _ in procs]
+    results, worker_timeouts = _collect_worker_results(
+        q,
+        procs,
+        fallback={
+            "success_ids": [],
+            "rejected_ids": [],
+            "appended": 0,
+            "stale": 0,
+            "attempts": 0,
+            "errors": 1,
+        },
+    )
     join_timeout = 120
     alive = []
     for p in procs:
@@ -354,6 +400,7 @@ def scenario_conversation_cas(
         "stale_rejected": sum(r["stale"] for r in results),
         "attempts": sum(r["attempts"] for r in results),
         "unexpected_errors": errors,
+        "worker_timeouts": worker_timeouts,
         "originals": len(original_ids),
         "lost_originals": lost_originals,
         "missing_original_ids": missing_ids[:10],
@@ -411,7 +458,7 @@ def scenario_registry_concurrent(workdir: Path, workers: int = 5, per_worker: in
         procs.append(mp.Process(target=_sc3_worker, args=(storage_path, roots, q)))
     for p in procs:
         p.start()
-    results = [q.get() for _ in procs]
+    results, worker_timeouts = _collect_worker_results(q, procs, fallback={"registered": 0, "errors": 1})
     for p in procs:
         p.join(timeout=120)
 
@@ -427,6 +474,7 @@ def scenario_registry_concurrent(workdir: Path, workers: int = 5, per_worker: in
         "registered": len(listed),
         "missing": max(0, missing),
         "errors": sum(r["errors"] for r in results),
+        "worker_timeouts": worker_timeouts,
         "lock_file_present": lock_file.exists(),
         "pass": missing <= 0 and sum(r["errors"] for r in results) == 0,
     }
