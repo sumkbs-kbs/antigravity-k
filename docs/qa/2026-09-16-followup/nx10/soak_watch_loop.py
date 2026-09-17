@@ -38,8 +38,10 @@ if str(HERE) not in sys.path:
 
 import soak_watch  # noqa: E402  (같은 디렉터리의 표본기 — 판정 규칙을 복제하지 않는다)
 
-DEFAULT_HISTORY = HERE / "soak-watch-history.jsonl"
-DEFAULT_HTML = HERE / "soak-watch-live.html"
+# 파생물(이력·화면)은 **카드 레인의 디렉터리**에 둔다 — 도구가 `scripts/` 로 승격돼도 증거는 한 곳에
+# 모이고, 그 디렉터리의 `.gitignore` 가 이 파생물을 제외한다(도구 위치와 증거 위치는 다를 수 있다).
+DEFAULT_HISTORY = soak_watch.NX10_OUT / "soak-watch-history.jsonl"
+DEFAULT_HTML = soak_watch.NX10_OUT / "soak-watch-live.html"
 BADGE = {
     soak_watch.OK: ("정상", "#1a7f37", "#e6f4ea"),
     soak_watch.WARN: ("경고", "#9a6700", "#fff8e1"),

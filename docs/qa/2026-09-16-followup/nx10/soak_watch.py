@@ -11,7 +11,8 @@
 
     PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
         docs/qa/2026-09-16-followup/nx10/soak_watch.py            # 끝날 때까지 감시
-    … soak_watch.py --once                                        # 지금 한 표본
+    … scripts/soak_watch.py                                       # 승격 뒤 같은 도구(경로만 다르다)
+    … soak_watch.py --once                                        # 지금 한 번 판정(1초 간격 두 표본)
     … soak_watch.py --samples 3 --interval 30                     # 30초 간격 3표본
     … soak_watch.py --selftest                                    # 픽스처로 문이 실제로 걸리는지
 
@@ -39,7 +40,22 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+
+def _repo_root() -> Path:
+    """저장소 루트를 **위로 걸어 올라가며** 찾는다 — 승격(`docs/` → `scripts/`)으로 깊이가 바뀌어도 산다.
+
+    `parents[4]` 를 쓰면 지금 깊이에서만 맞는다(승격 리허설이 그 함정을 실제로 밟은 선례가 있다).
+    """
+    override = os.environ.get("AGK_REPO_ROOT")
+    if override:
+        return Path(override).resolve()
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "pyproject.toml").is_file() and (candidate / "src" / "antigravity_k").is_dir():
+            return candidate
+    raise SystemExit("저장소 루트를 찾지 못했다 — AGK_REPO_ROOT 로 지정한다")
+
+
+REPO_ROOT = _repo_root()
 NX10_OUT = REPO_ROOT / "docs" / "qa" / "2026-09-16-followup" / "nx10"
 # 상시 감시(`soak_watch_loop.py`)가 쌓는 표본일 — 기준선을 찾을 때 이 파일을 읽는다(같은 사실을 두 곳에 두지 않는다).
 DEFAULT_HISTORY = NX10_OUT / "soak-watch-history.jsonl"

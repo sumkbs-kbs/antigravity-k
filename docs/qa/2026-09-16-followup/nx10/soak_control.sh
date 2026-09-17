@@ -11,7 +11,7 @@
 #   ② 그래서 "취소 = 프로세스가 실제로 죽었음을 확인하는 일" 로 정의하고, 예약은 **단일**만
 #      허용한다(잠금은 `mkdir` 원자성으로 잡는다). 이 도구가 그 두 가지를 강제한다.
 #
-# 사용:
+# 사용(승격 뒤에는 `bash scripts/soak_control.sh …` — 증거는 계속 `$OUT` 에 쓴다):
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh status
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh arm            # 기본 22:00, 지문은 **지금 트리**에서 계산
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh arm --at 23:30 --fp <지문>
@@ -43,7 +43,21 @@
 
 set -u
 
-REPO="${NX10_REPO:-/Users/mr.k/program/coding/ssak_comp/Ssak-Ai}"
+# 저장소 루트를 **스크립트 위치에서** 찾는다 — 승격(`docs/` → `scripts/`)으로 깊이가 바뀌어도 산다.
+# (하드코딩된 절대 경로를 기본값으로 두면 남의 클론에서 조용히 엉뚱한 저장소를 조작한다.)
+_nx10_repo_root() {
+  local dir
+  dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -f "$dir/pyproject.toml" && -d "$dir/src/antigravity_k" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+REPO="${NX10_REPO:-$(_nx10_repo_root || printf '%s' /Users/mr.k/program/coding/ssak_comp/Ssak-Ai)}"
 OUT="${NX10_OUT:-$REPO/docs/qa/2026-09-16-followup/nx10}"
 SCHEDULER="${NX10_SCHEDULER:-$OUT/schedule_nx10_soak.sh}"
 RUNNER="${NX10_RUNNER:-$OUT/run_nx10_soak.sh}"
@@ -684,8 +698,16 @@ cmd_preflight() {
     "기대=${fp_expected:0:12}… 현재=${fp_now:0:12}…"
   fi
   # 이 항등식이 “soak 이 재는 것이 커밋된 후보”라는 뜻이다(아니면 결과를 후보에 귀속할 수 없다).
-  _pf_check "현재 트리 == HEAD 트리(커밋된 후보)" "$([ "$fp_commit" != "UNVERIFIED" ] && [ "$fp_now" = "$fp_commit" ] && echo 1 || echo 0)" \
-    "HEAD=${fp_commit:0:12}…"
+  # `NX10_PF_SKIP_ATTRIBUTION=1` 은 ** 이 항목만** 생략한다 — 승격 리허설처럼 “작업 트리가 일부러
+  # 더러운” 환경에서 자기시험을 돌리기 위한 문이다(2026-09-17 3차 승격 리허설이 실제로 이것을 막혔다:
+  # 미러는 이동을 재현하므로 커밋된 후보와 다를 수밖에 없고, 자기시험의 두 단언이 그 때문에 빨개졌다).
+  # 생략된 사실을 점검 목록에 **드러낸다** — 조용한 구멍으로 만들지 않는다.
+  if [ "${NX10_PF_SKIP_ATTRIBUTION:-0}" = "1" ]; then
+    _pf_check "후보 귀속(생략됨)" 1 "NX10_PF_SKIP_ATTRIBUTION=1 — 작업 트리가 일부러 더러울 때만 쓴다"
+  else
+    _pf_check "현재 트리 == HEAD 트리(커밋된 후보)" "$([ "$fp_commit" != "UNVERIFIED" ] && [ "$fp_now" = "$fp_commit" ] && echo 1 || echo 0)" \
+      "HEAD=${fp_commit:0:12}…"
+  fi
 
   # ③ 발화가 미래인가(지나간 예약을 붙잡고 앉아 있지 않은가)
   remaining="$(_remaining 2>/dev/null || echo 0)"
@@ -1035,6 +1057,17 @@ sleep 300"
   kill -TERM "$keep" 2>/dev/null || true
 
   # ⑧ preflight: 발화 전에 “밤을 태울 준비가 됐는가”를 묻는가(의존성·여유 공간·후보 귀속).
+  #
+  #    **더러운 트리 규칙**: 승격 리허설은 커밋되지 않은 파일을 작업 트리에 두는 것이 정의다. 그 상태에서는
+  #    “현재 트리 == HEAD 트리” 가 **설계상** 거짓이라, “건강하면 preflight 0” 을 묻는 픽스처가 전부 1 을 받는다
+  #    (실측 2026-09-17: 미러 리허설에서 ⑧ 2건 + ⑩ 1건이 빨개졌다). 도구가 틀린 게 아니라 **시험이 자기
+  #    환경을 가정**한 것이므로, 트리가 HEAD 와 다르면 그 항목만 생략하고 **생략했다고 문장으로 밝힌다**.
+  #    깨끗한 트리(실제 운영·실제 soak)에서는 종전대로 그 검사를 수행한다 — 이빨은 그때 문다.
+  local attr_skip=0
+  if [ "$(_tree_fingerprint)" != "$(_commit_fingerprint)" ]; then
+    attr_skip=1
+    printf '자기시험 환경: 작업 트리 ≠ HEAD — 후보 귀속 검사를 생략한다(리허설은 일부러 더럽다)\n'
+  fi
   d="$tmp/t8"
   mkdir -p "$d/out/.soak-arm.lock"
   _fake_sched "$d/schedule_nx10_soak.sh" 'sleep 120'
@@ -1052,11 +1085,18 @@ sleep 300"
       NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/schedule_nx10_soak.sh" \
       NX10_SOAK_PROC_PATTERN="${NX10_SOAK_PROC_PATTERN:-$d/no-such-soak-harness-$$}" \
       NX10_PREFLIGHT_MIN_FREE_MB="${NX10_PREFLIGHT_MIN_FREE_MB:-2048}" \
+      NX10_PF_SKIP_ATTRIBUTION="$attr_skip" \
       NX10_PREFLIGHT_SKIP_THROUGHPUT="${NX10_PREFLIGHT_SKIP_THROUGHPUT:-1}" bash "$0" preflight "$@"
   }
   preflight > "$d/pf-ok.txt" 2>&1
   _st_ck "⑧ 건강한 예약이면 preflight 0" 0 "$?"
-  _st_ck_has "⑧ 후보 귀속(현재 트리 == HEAD)까지 본다" "$d/pf-ok.txt" "현재 트리 == HEAD 트리"
+  #    귀속 검사 자체는 **깨끗한 트리에서만** 물을 수 있다: 더러운 트리에서는 항목이 빠지고 대신 “생략했다”는
+  #    문장이 남으므로, 두 경우 모두 **무엇을 했는지가 출력에 드러나는지**를 본다(조용한 생략 금지).
+  if [ "$attr_skip" = "1" ]; then
+    _st_ck_has "⑧ (전제) 후보 귀속 생략을 문장으로 밝힌다" "$d/pf-ok.txt" "후보 귀속(생략됨)"
+  else
+    _st_ck_has "⑧ 후보 귀속(현재 트리 == HEAD)까지 본다" "$d/pf-ok.txt" "현재 트리 == HEAD 트리"
+  fi
 
   # 여유 공간 기준을 크게 주면 실패해야 한다(임계값이 실제로 작동하는지)
   NX10_PREFLIGHT_MIN_FREE_MB=99999999 preflight > "$d/pf-disk.txt" 2>&1
@@ -1111,6 +1151,7 @@ sleep 300"
   NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
     NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
+    NX10_PF_SKIP_ATTRIBUTION="$attr_skip" \
     NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=1 \
     bash "$0" preflight > "$d/pf-thr-ok.txt" 2>&1
   _st_ck "⑧ 처리량 하한을 넘으면 preflight 0" 0 "$?"
@@ -1152,11 +1193,17 @@ sleep 300"
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
     NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
     NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=1 \
+    NX10_PF_SKIP_ATTRIBUTION="$attr_skip" \
     AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=8192 \
     bash "$0" preflight > "$d/pf-cap-ok.txt" 2>&1
   _st_ck "⑧ 넉넉한 캡이면 preflight 0" 0 "$?"
   _st_ck_has "⑧ 투영·캡·프루브 길이를 숫자로 보여준다" "$d/pf-cap-ok.txt" "8시간 외삽"
   _st_ck_has "⑧ 캡 값을 문장으로 남긴다" "$d/pf-cap-ok.txt" "cap 8192 MiB"
+  #    생략은 **밝히고** 생략한다(⑨ 와 같은 이유): 승격 리허설처럼 작업 트리가 일부러 더러운 곳에서도
+  #    "캡 때문에 초록인가"를 물을 수 있어야 한다 — 조용히 건너뛰면 이 카드가 이빨로 쓰는 문장이 가짜다.
+  if [ "$attr_skip" = "1" ]; then
+    _st_ck_has "⑧ (전제) 캡 픽스처도 귀속 생략을 밝힌다" "$d/pf-cap-ok.txt" "후보 귀속(생략됨)"
+  fi
 
   # ⑨ `run`(예약을 기다리지 않고 지금 시작) — **거부** 쪽을 고정한다. 해피 패스는 8시간 soak 을 실제로
   #     띄우므로 시험에서 돌리지 않는다(그 자체가 운영 기록이다 — 오늘 밤 실제 시작이 그 증거다).
@@ -1170,7 +1217,9 @@ sleep 300"
   _st_ck "⑨ preflight 실패면 run 거부(exit 2)" 2 "$?"
   _st_ck_has "⑨ 거부 사유를 문장으로 남긴다" "$d/run-fail.txt" "이 상태로 8시간을 시작하지 않는다"
 
-  #     예약이 이미 걸려 있으면 두 개가 뜨지 않게 거부한다
+  #     예약이 이미 걸려 있으면 두 개가 뜨지 않게 거부한다. 이 시험이 보는 것은 **거부 사유가 예약인지**
+  #     이므로, 앞선 preflight 가 다른 이유로 먼저 거부해 버리면 시험이 무의미해진다 — 그래서 후보 귀속을
+  #     명시적으로 생략해 **예약 문이 실제로 닫히는지**만 남긴다(승격 리허설의 더러운 트리에서도 같은 의미).
   d="$tmp/t9b"
   mkdir -p "$d/out"
   _fake_sched "$d/schedule_nx10_soak.sh" 'sleep 60'
@@ -1180,6 +1229,7 @@ sleep 300"
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/schedule_nx10_soak.sh" \
     NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
     NX10_PREFLIGHT_SKIP_THROUGHPUT=1 \
+    NX10_PF_SKIP_ATTRIBUTION="$attr_skip" \
     bash "$0" run > "$d/run-armed.txt" 2>&1
   _st_ck "⑨ 예약이 걸려 있으면 run 거부(exit 2)" 2 "$?"
   _st_ck_has "⑨ 예약을 지목" "$d/run-armed.txt" "예약이 이미 걸려 있다"
