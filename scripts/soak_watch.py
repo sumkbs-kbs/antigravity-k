@@ -452,6 +452,9 @@ class Watch:
                     # — 즉 시작 계단은 **기준에 포함**되고, 이 도구의 증가는 하네스 값과 같은 것을 잔다.
                     remaining_s = max(0.0, self.duration - elapsed)
                     budget_left = self.rss_limit_mb - growth
+                    # `allowed_rate` 는 아래 신호 계산에서도 읽으므로 **미리 선언**한다 — 예산 줄이 나오지
+                    # 않는 실행(남은 시간 0 등)에서 나중 비교가 미바인딩을 읽지 않게 한다(정적 게이트가 잡았다).
+                    allowed_rate: float | None = None
                     if remaining_s > 0 and budget_left > 0:
                         allowed_rate = budget_left / (remaining_s / 60.0)
                         recent_rate = self._rss_recent_rate()
@@ -473,7 +476,7 @@ class Watch:
                     if projected_growth > self.rss_limit_mb:
                         signals.append(f"누적 평균 외삼 +{projected_growth:.0f} MB > 기준 {self.rss_limit_mb:.0f} MB")
                     recent_now = self._rss_recent_rate()
-                    if remaining_s > 0 and budget_left > 0 and recent_now is not None and recent_now > allowed_rate:
+                    if allowed_rate is not None and recent_now is not None and recent_now > allowed_rate:
                         signals.append(
                             f"최근 실측 +{recent_now:.3f} MB/분 > 허용 +{allowed_rate:.3f} MB/분"
                             f"(증가 +{growth:.1f} / 기준 {self.rss_limit_mb:.0f} MB · 남은 {_hms(remaining_s)})"

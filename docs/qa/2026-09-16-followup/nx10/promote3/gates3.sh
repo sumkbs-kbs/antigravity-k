@@ -4,7 +4,9 @@
 # 무엇을 보는가:
 #   A. 승격 위치에서 두 계약 시험이 초록이다(시험이 승격 위치를 먼저 탐색하므로 도구를 찾는다)
 #   B. 세 도구를 **직접** 돌려도 초록이다(시험을 거치지 않는 경로도 산다) + 셸 문법 검사
-#   C. 정적 게이트(ruff check · ruff format --check)를 통과한다 — `scripts/`·`tests/` 는 게이트가 지킨다
+#   C. 정적 게이트(ruff check · ruff format --check · **basedpyright**)를 통과한다 — `scripts/`·`tests/` 는
+#      게이트가 지킨다. basedpyright 는 **필수 게이트와 같은 명령**으로 돌린다: 승격은 파일을 검사 대상
+#      안으로 옮기므로, 승격 게이트가 그 검사를 안 하면 빨강이 승격 뒤에야 나온다(2026-09-18 실측).
 #   D. **이빨**: 도구 파일을 치우면 그 계약 시험이 **실패**한다(초록이 조용한 스킵이 아니다)
 #      — D 는 리허설에서 미러로 수행하고 본실행에서는 하지 않는다(본 트리에서 파일을 치웠다 되돌리는
 #        일은 위험 대비 이득이 없다. 리허설이 그 성질을 이미 증명한다).
@@ -110,6 +112,18 @@ run_promoted_gates3() {
     ok "ruff format --check 통과"
   else
     bad "ruff format --check 실패"
+  fi
+  # **basedpyright 도 본다**(2026-09-18 추가). 승격은 파일을 `scripts/` 로 옮기고, 필수 게이트
+  # `python-basedpyright` 는 `src/ scripts/` 를 검사한다 — 즉 **승격되는 순간 그 파일이 검사 대상이 된다**.
+  # 이 검사가 없던 동안 3차 배치는 초록으로 통과했고, 승격 뒤 필수 23개에서 `28 errors` 로 빨개졌다
+  # (원인: `docs/` 에 있던 동안 아무도 안 본 미준비 타입). 승격 게이트는 **필수 게이트와 같은 명령**으로
+  # 미리 재야 한다 — 그래야 빨강이 승격 **전에** 나온다.
+  local bp=(uv run --isolated --frozen --extra dev --extra rag --extra documents basedpyright)
+  command -v uv >/dev/null 2>&1 || bp=("$py" -m basedpyright)
+  if (cd "$root" && "${bp[@]}" scripts/soak_watch.py scripts/soak_watch_loop.py --level error >/dev/null 2>&1); then
+    ok "basedpyright 통과(필수 게이트가 검사할 대상 — 승격 전에 미리 잰다)"
+  else
+    bad "basedpyright 실패 — 승격하면 필수 게이트가 이 파일들에서 빨개진다"
   fi
 
   if [[ "$with_teeth" == "yes" ]]; then

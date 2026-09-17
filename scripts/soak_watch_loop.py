@@ -23,6 +23,8 @@ exit: 0 정상 종료(실행이 끝남/표본 소진) · 2 경고가 있었음 �
 * **그림도 시험한다**: `--selftest` 가 픽스처 3종(정상·경고·멈춤)으로 배지·색·문구가 실제로 바뀌는지 본다.
 """
 
+# 이 파일은 패키지가 아니라 **스크립트**로 실행된다 — 같은 디렉터리의 `soak_watch` 를 이름으로 부른다.
+# pyright: reportImplicitRelativeImport=false
 from __future__ import annotations
 
 import argparse
@@ -31,12 +33,16 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import soak_watch  # noqa: E402  (같은 디렉터리의 표본기 — 판정 규칙을 복제하지 않는다)
+# 같은 디렉터리의 표본기다(판정 규칙을 복제하지 않는다): `scripts/` 는 패키지가 아니고 이 파일은
+# 스크립트로 실행되므로 위 `sys.path` 삽입이 정당한 경로다 — 파일 맨 위의 `reportImplicitRelativeImport=false`
+# 가 그 사실을 밝힌다(승격 뒤 정적 게이트가 이 줄을 잡았다, 2026-09-18).
+import soak_watch  # noqa: E402
 
 # 파생물(이력·화면)은 **카드 레인의 디렉터리**에 둔다 — 도구가 `scripts/` 로 승격돼도 증거는 한 곳에
 # 모이고, 그 디렉터리의 `.gitignore` 가 이 파생물을 제외한다(도구 위치와 증거 위치는 다를 수 있다).
@@ -55,7 +61,7 @@ def _hms(seconds: float) -> str:
     return f"{seconds // 3600:d}시간 {(seconds % 3600) // 60:02d}분"
 
 
-def sample_to_row(sample: soak_watch.Sample, soak_started: float, workdir: object = None) -> dict[str, object]:
+def sample_to_row(sample: soak_watch.Sample, soak_started: float, workdir: object | None = None) -> dict[str, Any]:
     return {
         "workdir": None if workdir is None else str(workdir),
         "at": round(sample.at, 1),
@@ -70,8 +76,8 @@ def sample_to_row(sample: soak_watch.Sample, soak_started: float, workdir: objec
 
 
 def split_rows_by_pid(
-    rows: list[dict[str, object]], pid: int | None
-) -> tuple[list[dict[str, object]], dict[object, list[dict[str, object]]]]:
+    rows: list[dict[str, Any]], pid: int | None
+) -> tuple[list[dict[str, Any]], dict[Any, list[dict[str, Any]]]]:
     """(이번 실행의 표본, 다른 실행의 표본들).
 
     왜 pid 로 가르는가: 새 실행이 시작되면 journal 은 **0 에서 자라므로**, 이전 실행의 꼬리를 같은 선에
@@ -81,8 +87,8 @@ def split_rows_by_pid(
     """
     if pid is None:
         return list(rows), {}
-    mine: list[dict[str, object]] = []
-    others: dict[object, list[dict[str, object]]] = {}
+    mine: list[dict[str, Any]] = []
+    others: dict[Any, list[dict[str, Any]]] = {}
     for row in rows:
         if row.get("pid") == pid:
             mine.append(row)
@@ -91,9 +97,9 @@ def split_rows_by_pid(
     return mine, others
 
 
-def _seed_state(watch: soak_watch.Watch, rows: list[dict[str, object]]) -> None:
+def _seed_state(watch: soak_watch.Watch, rows: list[dict[str, Any]]) -> None:
     """RSS 기준선을 **그 실행의 첫 표본**에 고정한다(감시를 재시작해도 “실행 시작 이후”가 0 으로 안 돌아간다)."""
-    watch.rss_series = [(float(row["at"]), float(row["rss_mb"])) for row in rows if row.get("rss_mb") is not None]  # type: ignore[arg-type]
+    watch.rss_series = [(float(row["at"]), float(row["rss_mb"])) for row in rows if row.get("rss_mb") is not None]
     if watch.rss_series:
         watch.baseline_rss_mb = watch.rss_series[0][1]
         watch.baseline_at = watch.rss_series[0][0]
@@ -135,7 +141,7 @@ def _chart(title: str, values: list[float | None], *, unit: str, color: str) -> 
       </figure>"""
 
 
-def _derive_meta(meta: dict[str, object], lines: list[str]) -> dict[str, object]:
+def _derive_meta(meta: dict[str, Any], lines: list[str]) -> dict[str, Any]:
     """판정 줄에서 화면에 올릴 값을 뽑는다 — 루프와 자기시험이 **같은 경로**를 쓰게 한다."""
     derived = dict(meta)
     derived.setdefault("warning_text", "")
@@ -150,23 +156,23 @@ def _derive_meta(meta: dict[str, object], lines: list[str]) -> dict[str, object]
     return derived
 
 
-def render_html(rows: list[dict[str, object]], code: int, lines: list[str], meta: dict[str, object]) -> str:
+def render_html(rows: list[dict[str, Any]], code: int, lines: list[str], meta: dict[str, Any]) -> str:
     meta = _derive_meta(meta, lines)
     label, fg, bg = BADGE.get(code, ("알 수 없음", "#57606a", "#eef1f4"))
-    journal = [row.get("journal_mb") for row in rows]  # type: ignore[list-item]
-    rss = [row.get("rss_mb") for row in rows]  # type: ignore[list-item]
+    journal: list[float | None] = [row.get("journal_mb") for row in rows]
+    rss: list[float | None] = [row.get("rss_mb") for row in rows]
     ops: list[float | None] = []
     for index, row in enumerate(rows):
         if index == 0:
             continue
         previous = rows[index - 1]
         delta = (row.get("journal_mb") or 0) - (previous.get("journal_mb") or 0)
-        span = max(1.0, float(row["at"]) - float(previous["at"]))  # type: ignore[arg-type]
+        span = max(1.0, float(row["at"]) - float(previous["at"]))
         ops.append(delta * 1048576 / soak_watch.B_PER_EVENT / span)
     latest = rows[-1] if rows else {}
 
-    def _cell(value: object, digits: int) -> str:
-        return "" if value is None else f"{float(value):.{digits}f}"  # type: ignore[arg-type]
+    def _cell(value: Any, digits: int) -> str:
+        return "" if value is None else f"{float(value):.{digits}f}"
 
     def _bar(title: str, used: float | None, limit: float | None, unit: str, warn_color: str = "#b42318") -> str:
         """기준 대비 사용률 — 선그래프가 못 보여 주는 “기준까지 얼마나 남았나”를 보여 준다."""
@@ -183,10 +189,10 @@ def render_html(rows: list[dict[str, object]], code: int, lines: list[str], meta
             "</div>"
         )
 
-    cap_used = None if not latest.get("journal_mb") else float(latest["journal_mb"])  # type: ignore[arg-type]
+    cap_used = None if not latest.get("journal_mb") else float(latest["journal_mb"])
     rss_growth = None
     if len(rows) >= 2 and rows[0].get("rss_mb") is not None and latest.get("rss_mb") is not None:
-        rss_growth = float(latest["rss_mb"]) - float(rows[0]["rss_mb"])  # type: ignore[arg-type]
+        rss_growth = float(latest["rss_mb"]) - float(rows[0]["rss_mb"])
     bars = _bar("journal 사용량 vs 보존 cap", cap_used, float(meta.get("hard_cap_mib") or 0), "MiB") + _bar(
         "RSS 증가 vs SC-6 기준", rss_growth, float(meta.get("rss_limit_mb") or 0), "MB"
     )
@@ -253,9 +259,9 @@ def render_html(rows: list[dict[str, object]], code: int, lines: list[str], meta
 
 
 def _write_view(
-    rows: list[dict[str, object]], code: int, lines: list[str], watch: soak_watch.Watch, html_path: Path
+    rows: list[dict[str, Any]], code: int, lines: list[str], watch: soak_watch.Watch, html_path: Path
 ) -> None:
-    meta: dict[str, object] = {
+    meta: dict[str, Any] = {
         "workdir": str(watch.workdir),
         "duration": watch.duration,
         "min_ops_per_sec": watch.min_ops_per_sec,
@@ -273,7 +279,7 @@ def run_loop(args: argparse.Namespace) -> int:
         return soak_watch.NO_RUN
     history = Path(args.history)
     html_path = Path(args.out_html)
-    rows: list[dict[str, object]] = []
+    rows: list[dict[str, Any]] = []
     if history.is_file():
         for line in history.read_text(encoding="utf-8").splitlines():
             try:
@@ -357,7 +363,7 @@ def run_selftest() -> int:
         if not condition:
             failures.append(name)
 
-    def rows_series(step_mb: float, count: int = 4, rss_step: float = 1.0) -> list[dict[str, object]]:
+    def rows_series(step_mb: float, count: int = 4, rss_step: float = 1.0) -> list[dict[str, Any]]:
         base = time.time() - count * 60
         return [
             {
