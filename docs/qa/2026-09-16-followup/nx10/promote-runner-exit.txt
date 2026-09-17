@@ -52,3 +52,21 @@ promote-gates exit:1 end:2026-09-17T00:50:17Z report:gate-report-sc3fix001.json
 # fingerprint after: 5c90b63761159253b10662711b29d1f8cd7a4357174ec3ce952f150d5f6ddff9
 ga_gate_verify exit:1
 runner done:2026-09-17T00:50:18Z
+--- promote-gates attempt 2026-09-17T02:24:52Z ---
+# HEAD: bde261dc962a4d009af6f3d14c3b401f15b44603
+# why: 2차 승격 배치(리허설 2종 승격) 뒤 새 지문 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: 50b82dd1d7a7ff052502cf5fe8a2210e9478f66e87f355192f1e3848a3ed9c8c
+promote-gates exit:1 end:2026-09-17T02:43:53Z report:gate-report-promote2b.json
+# fingerprint after: 50b82dd1d7a7ff052502cf5fe8a2210e9478f66e87f355192f1e3848a3ed9c8c
+ga_gate_verify exit:1
+runner done:2026-09-17T02:43:53Z
+--- promote-gates attempt 2026-09-17T02:50:33Z ---
+# HEAD: 5c979c0f5adaa41371219092d2df5ebcb4ab337d
+# why: 2차 승격 + basedpyright 가 드러낸 타입 오류 수정(5c979c0f) 뒤 새 지문 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: b6a74304dbd21148e83e7e4f4920068568a73e8166bce86c30828ea0890da5c8
+promote-gates exit:1 end:2026-09-17T03:07:03Z report:gate-report-promote2c.json
+# fingerprint after: b6a74304dbd21148e83e7e4f4920068568a73e8166bce86c30828ea0890da5c8
+ga_gate_verify exit:1
+runner done:2026-09-17T03:07:03Z

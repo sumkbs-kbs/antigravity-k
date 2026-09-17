@@ -748,3 +748,64 @@ SC-3 이 그 코드를 직접 재므로 **고치되 기록을 남긴다**(동작
 **지문 불변 확인**: 이 편집들은 `docs/` 안에만 있으므로 3차 실행의 시작 지문 `5c90b637…` 이 그대로 유효하다
 (`docs/` 는 정적 게이트 지문 제외 구역 — `scripts/ga_gate.py` 의 `FINGERPRINT_EXCLUDED_PREFIXES`).
 **판정은 변하지 않는다**: required red 1(`python-tests`, 타 레인) · CR-14 후보 재선언 없음 · owner 허용 없음.
+
+## 22. 오너 지시로 **승격을 즉시 실행** — 새 지문에서 재측정, 4차 soak 시작 (2026-09-17)
+
+오너 지시: “무인 대기를 취소하고 지금 2차 승격을 실행한 뒤, 필수 게이트를 재측정하고 8시간 soak 을 새로
+걸어줘”. §21 이 `docs/` 만 고치며 **준비만** 해 둔 상태였으므로 §5b 의 순서 규칙을 그대로 밟았다:
+**중단 → 승격 → 커밋 → 재측정 → 재장전**.
+
+### 22-1. 도는 실행과 무인 대기를 먼저 내렸다(그리고 생존까지 확인)
+
+| 무엇 | 방법 | 확인 |
+|---|---|---|
+| 3차 8시간 soak(경과 1h 04m 32s) | `kill -TERM <harness pid 56261>` | 러너가 정상 종료 경로로 `exit: 143` 을 기록 · **시작 = 종료 지문 = `5c90b637…`**(트리를 안 흔들었다) · 실행 잠금(`.soak-run.lock`)을 **스스로 해제**(실측: 잠금 없음) |
+| 승격 무인 대기(`screen nx10promote`) | `screen -S … -X quit` + **프로세스 생존 확인** | `pgrep` 빈 결과 — `-X quit` 은 취소가 아니므로(§3e) 종료까지 봤다 |
+| 회수 감시(`nx10harvest`) · 감시 루프(`nx10watch`) | 같음 | 회수할 실행이 사라졌으므로 남기면 12시간을 헛되이 기다린다 |
+
+대가는 **1시간(8시간의 13%)** — 게이트를 새 지문에서 다시 재는 값에 비하면 싸다. 이 실행은 **판정 대상이 아니다**
+(8시간 미충족 · 러너는 종료 시에만 리포트를 쓰므로 부분 산출물이 없다). 중단 시점 감시 표본은 남긴다:
+journal **861.8 MiB** · RSS 108 MB · 추정 **681 ops/s** · 종료 시 cap 추정 6,482 / 8,192 MiB.
+
+### 22-2. 승격 본실행 (2026-09-17T02:24Z, `promote2/apply_promotion2.sh`)
+
+이동 4건(도구 2 → `scripts/`, 계약 시험 2 → `tests/`) 전부 **sha256 동일**(백업 `/tmp/nx10-promote2-backup-20260917T022400Z`),
+승격 위치에서 **14 passed**(`promote2/promoted-contract-tests.txt` — 수집 노드가 `tests/`), 도구 직접 실행 초록 ·
+ruff check·format 초록. 커밋 **`bde261dc`** · 기록 `promote2/promotion2-applied.txt`.
+
+### 22-3. 재측정 — **승격이 숨은 타입 오류 12건을 드러냈다** (attempt `promote2b`)
+
+| 항목 | 값 |
+|---|---|
+| 결과 | **21 passed · 2 failed · 0 not_run**(지문 시작 = 종료 = `50b82dd1…`, 커밋 `bde261dc`) |
+| 새 실패 | **`python-basedpyright` 가 새로 빨개졌다** — 승격 **전**에는 이 두 파일이 `docs/` 안이라 정적 게이트가 **보지 않았다**. 커밋된 후보로 들어오자 타입 오류 **12건**이 드러났다(`scripts/restore_rehearsal.py` · `scripts/rollback_rehearsal.py`: `dict[str, object]` 언패킹 · `Any` 누수 · 시그니처) |
+| 나머지 실패 | `python-tests` — 같은 5건(CR-14 울타리 3 · NX-07 문서 2) |
+
+이것이 “승격하면 게이트가 지킨다”의 실제 값이다 — 승격은 파일을 옮기는 일이 아니라 **검사 대상으로 편입**시키는 일이고,
+그 편입이 곧 **첫 검사**다. 수정 **`5c979c0f`**(타입 12건 + 테스트 파일의 `Any` 최소화) 뒤 같은 날 재측정했다.
+
+### 22-4. 새 지문에서의 재측정 (attempt `promote2c` · `promote2d`)
+
+| attempt | 언제 | 지문 | 결과 | 남은 실패 |
+|---|---|---|---|---|
+| `promote2c` | 02:50:33Z → 03:07:03Z | 시작 = 종료 = **`b6a74304…`** = HEAD(`5c979c0f`) | **22 passed · 1 failed · 0 not_run** · `clean-machine-runtime` passed | `python-tests`(같은 5건) — `python-basedpyright` **초록** |
+| `promote2d` | 03:08:57Z → 03:19:22Z | 시작 = 종료 = `b6a74304…`(문서 링크 수정은 `docs/` 전용이라 불변) | `python-tests` **단독** 재측정: **5 failed · 6640 passed**(618.94s) | 위와 **시험 단위 동일**(울타리 3 · NX-07 2) → **새 실패 0건** |
+
+**승격이 깬 문서 링크 1건**도 여기서 닫았다: `tests/test_local_relative_links_resolve` 가 승격 뒤 빨개졌다 —
+옮겨진 파일을 옛 경로로 가리키는 참조 3곳(`docs/09` 복구·rollback 절 · `docs/19` NX-01/NX-03 항목 ·
+`nx01/handoff.md` · `nx01/restore-rehearsal.md` · `nx03/handoff.md`). 고친 뒤 위 `promote2d` 를 돌렸다.
+**통과 수 증가분이 승격의 증거다**: 6626(`sc3fix001`) → **6640**(`promote2d`) = **+14** = 승격한 계약 시험 14건.
+
+### 22-5. 4차 soak 시작 — 이 지문이 지금의 후보 트리다
+
+| 항목 | 값 |
+|---|---|
+| 시작 / 종료 예정 | `2026-09-17T03:25:56Z` → `11:25:56Z` = **20:25 KST** |
+| 지문 | `b6a74304…` = **현재 트리 = HEAD 트리**(`5c979c0f`) — 3차 중단 뒤 편집은 `docs/` 뿐이다 |
+| preflight | **7/7 OK** — 처리량 474 ops/s(하한 133) · 쓰기량 투영 < cap 8,192 MiB · 현재 트리 == HEAD |
+| 경과(36분 시점 실측) | 판정 **정상** · journal **504.2 MiB** · 추정 **703 ops/s** · 종료 시 cap 추정 **6,696 MiB < 8,192 MiB** |
+| 감시 | `screen nx10watch`(라이브 화면 `soak-watch-live.html`) · `screen nx10harvest`(회수 대기) 재부착 |
+
+**판정은 변하지 않는다**: required red 1(`python-tests` — 타 레인) · **CR-14 후보 재선언 없음** · owner 허용 기록 없음.
+이번에도 “22 passed”를 GO 로 확대 해석하지 않는다 — 울타리 3건은 **선언 후보 뒤에 코드 스코프 커밋이 있으면
+설계상 빨간색**이고, 승격 커밋 2건(`bde261dc`·`5c979c0f`)이 그 뒤에 더해졌으므로 재선언 없이는 초록이 될 수 없다.

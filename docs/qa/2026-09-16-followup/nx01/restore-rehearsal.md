@@ -3,14 +3,17 @@ title: NX-01 restore 리허설 · 운영자 복구 절차 — 증거
 created: 2026-09-17
 state: DONE(리허설) / 미해결 발견 1건(NX03-RESTORE-MARKER)은 동결 해제 뒤
 owner: Buffy(NX-10 창, 동결 중 — `docs/` 만 수정해 지문 불변)
-evidence: restore_rehearsal.py · restore-rehearsal-output.txt
+evidence: `scripts/restore_rehearsal.py` (2026-09-17 승격 — 종전 `nx01/`) · restore-rehearsal-output.txt
 tags: [nx-01, nx-03, restore, backup, retention, evidence]
 ---
 
 # restore 를 임시 경로에서 돌린 결과 — 그리고 복구 절차가 지켜야 하는 것
 
 체크리스트의 미완 항목(“restore를 임시 경로에서 실행하고 최신 변경 손실 방지”)을 닫는다.
-실행: `PYTHONDONTWRITEBYTECODE=1 .venv/bin/python docs/qa/2026-09-16-followup/nx01/restore_rehearsal.py`
+실행: `PYTHONDONTWRITEBYTECODE=1 .venv/bin/python scripts/restore_rehearsal.py`
+(2026-09-17 승격으로 `scripts/` 로 이동했다 — 종전 경로 `docs/qa/2026-09-16-followup/nx01/restore_rehearsal.py` 는 없다.
+승격 뒤 게이트가 이 도구를 지킨다: 계약 시험 `tests/test_restore_rehearsal_contract.py`·`tests/test_rollback_rehearsal_contract.py`
+가 승격 위치를 먼저 보고, `basedpyright` 가 처음으로 이 파일을 검사해 타입 오류 12건을 드러냈다(수정 `5c979c0f`).)
 → **경계 4개 전부 통과(exit 0)**. 원본 출력: [restore-rehearsal-output.txt](restore-rehearsal-output.txt).
 임시 저장소만 사용했고 실사용 store·vault 는 열지 않았다.
 

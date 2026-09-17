@@ -311,3 +311,65 @@ start_fingerprint: 5c90b63761159253b10662711b29d1f8cd7a4357174ec3ce952f150d5f6dd
 #   (하루 전 같은 지점에서 RegistrySaveError 로 worker 가 죽고 부모가 영원히 대기했다).
 # 회수: `bash docs/qa/2026-09-16-followup/nx10/soak_control.sh harvest --detach`
 #   (무응답 상한 1800초 — 살아 있어도 30분간 아무것도 안 쓰면 exit 6 으로 알려 준다).
+exit: 143
+end_time: 2026-09-17T02:24:15Z
+end_head: 2894d8253eb3e6da2c4341105ff8d87c65455280
+end_dirty: true
+end_fingerprint: 5c90b63761159253b10662711b29d1f8cd7a4357174ec3ce952f150d5f6ddff9
+
+# ── 운영자 기록: 3차 실행도 **의도적으로 중단**했다 (러너 출력이 아니라 사람이 남긴 줄) ──
+# recorded_at: 2026-09-17T02:30:00Z
+# 무엇을: 실행 1시간 4분 32초 시점(`01:19:43Z` → `02:24:15Z`)에 SIGTERM 으로 중단했다. 러너가 `exit: 143` 을
+#   기록했고 **시작 지문 = 종료 지문 = `5c90b637…`** 이다 — 중단이 트리를 흔들지 않았다는 뜻이다.
+# 왜: 오너 지시 — “무인 대기를 취소하고 지금 2차 승격을 실행한 뒤, 필수 게이트를 재측정하고 8시간 soak 을
+#   새로 걸어라”. 승격은 `scripts/`·`tests/` 를 옮겨 **지문을 바꾸므로** 도는 실행과 공존할 수 없다
+#   (CLOSURE_RUNBOOK §5b 의 순서 규칙: 측정 → 지문 확인 → 재장전 → 그 뒤에는 `docs/` 만).
+#   대가는 이 1시간(8시간의 13%)이다 — 게이트를 새 지문에서 다시 재는 값에 비하면 싸다.
+# 중단 방법: `kill -TERM <harness pid 56261>` → 러너가 정상 종료 경로로 `exit 143` 을 기록하고 실행 잠금
+#   (`.soak-run.lock`)을 스스로 해제했다(실측 확인: 잠금 없음).
+# 함께 내린 것: 승격 대기(`screen nx10promote`) · 회수 감시(`nx10harvest`) · 감시 루프(`nx10watch`).
+#   회수할 실행이 사라졌으므로 남겨 두면 12시간을 헛되이 기다린다. `screen -X quit` 은 취소가 아니므로
+#   (도구 docstring ①) 전부 **프로세스 생존까지 확인**해 `pgrep` 이 빈 결과를 내는 것을 봤다.
+# 이 실행은 **판정 대상이 아니다**: 8시간을 채우지 못했고 러너는 **종료 시에만** 리포트를 쓴다
+#   (`soak-28800.json` 부분 산출물 없음). 마지막 감시 표본은 남겨 둔다(실행 1h03m49s · journal **861.8 MiB** ·
+#   RSS 108 MB · 추정 **681 ops/s** · 종료 시 cap 추정 6,482 MiB / 8,192) — 새 실행의 기준선이 아니라
+#   “그때 기계가 어디까지 갔는가”의 기록이다.
+# 다음: 승격 커밋(`bde261dc`) + 필수 게이트 재측정(attempt `promote2b`) 뒤 **새 지문으로 재장전**한다.
+# 작업디렉터리: /tmp/nx10-soak-work-20260917T011943Z (삭제하지 않음 — 중단 시점 상태 보존)
+# NX-10 SC-1~6 soak 러너 기록
+generated_at: 2026-09-17T03:25:56Z
+soak_seconds: 28800
+report: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json
+workdir: /tmp/nx10-soak-work-20260917T032556Z
+command: AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=8192 PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 28800 --workdir /tmp/nx10-soak-work-20260917T032556Z
+retention_caps: soft=64MiB hard=8192MiB (soft 는 기본 유지 — 경고 관측을 남긴다)
+start_time: 2026-09-17T03:25:56Z
+start_head: 5c979c0f5adaa41371219092d2df5ebcb4ab337d
+start_dirty: true
+start_fingerprint: b6a74304dbd21148e83e7e4f4920068568a73e8166bce86c30828ea0890da5c8
+
+# ── 운영자 기록: 4차 실행 시작 — 오너 지시로 승격을 먼저 끝낸 뒤에 세운 실행 (final) ──
+# recorded_at: 2026-09-17T03:40:00Z
+# 무엇을: 오너 지시(“무인 대기를 취소하고 지금 2차 승격을 실행한 뒤, 필수 게이트를 재측정하고 8시간 soak 을
+#   새로 걸어줘”)에 따라 ① 대기 중이던 승격(`screen nx10promote`)·회수 감시(`nx10harvest`)·감시 루프
+#   (`nx10watch`)를 `screen -X quit` + **프로세스 생존 확인**까지 해서 내렸다(`-X quit` 은 취소가 아니다)
+#   ② 3차 soak 을 `02:24:15Z`(경과 1h 04m 32s)에 `SIGTERM` 으로 중단 — 러너가 `exit: 143` · `end_fingerprint`
+#   = 시작값 `5c90b637…` 을 기록해 트리를 안 흔들었음이 남았고 실행 잠금도 스스로 풀렸다(실측)
+#   ③ 승격 본실행(`promote2/apply_promotion2.sh`: 이동 4건 sha256 동일 · 승격 위치 14 passed) → 커밋 `bde261dc`
+#   ④ 새 지문 재측정 → ⑤ 이 실행. 상세는 GATE_LEDGER §22 · handoff §12 · PROMOTION_PLAN §1c.
+# 왜 중단하고 승격을 먼저 했나: 승격은 `scripts/`·`tests/` 를 옮겨 **지문을 바꾼다** → 도는 실행과 공존할 수
+#   없다(CLOSURE_RUNBOOK §5b 순서 규칙: 측정 → 지문 확인 → 재장전 → 그 뒤에는 `docs/` 만). 대가는 3차의
+#   1시간(8시간의 13%)이다 — 게이트를 새 지문에서 다시 재는 값에 비하면 싸다.
+# 이 배치에서 가장 중요한 관측(기록해 둔다): 승격의 첫 재측정(`promote2b`)이 `python-basedpyright` 를 **새로
+#   빨갛게** 만들었다(21 passed · 2 failed). 회귀가 아니라 **편입 효과**다 — 승격 전에는 그 두 파일이 `docs/`
+#   안이라 정적 게이트가 보지 않았고, 커밋된 후보로 들어오자 타입 오류 **12건**이 드러났다. 수정 `5c979c0f` 뒤
+#   `promote2c` 에서 **22 passed · 1 failed · 0 not_run**(basedpyright 초록)이고, 통과 수 6626 → **6640**(+14)이
+#   승격한 계약 시험의 몫이다(`promote2d` — 실패 5건은 `promote004`/`sc3fix001` 과 시험 단위 동일).
+# 지문: 시작 = `b6a74304…` = 현재 트리 = HEAD 트리(`5c979c0f`) → 이 8시간은 그 커밋의 것이다.
+#   3차 중단 뒤 편집은 `docs/` 뿐이다 — 이 파일(`soak-exit.txt`) 자체가 그 중 하나다.
+# preflight: **7/7 OK** — 처리량 474 ops/s(하한 133) · 쓰기량 투영 < cap 8,192 MiB · 현재 트리 == HEAD ·
+#   인터프리터·러너 자산 · 여유 공간 · 중복 실행 없음.
+# 종료 예정: 2026-09-17T11:25:56Z = **20:25 KST** · 작업디렉터리 /tmp/nx10-soak-work-20260917T032556Z.
+# 확인(36분 시점): 판정 **정상** · journal 504.2 MiB · 추정 703 ops/s · 종료 시 cap 추정 6,696 / 8,192 MiB.
+# 회수: `bash docs/qa/2026-09-16-followup/nx10/soak_control.sh harvest` (감시 화면 `nx10watch` 는 라이브 화면).
+# 판정은 여전히 NO-GO: required red 1(`python-tests`, 타 레인) · CR-14 후보 재선언 없음 · owner 허용 기록 없음.

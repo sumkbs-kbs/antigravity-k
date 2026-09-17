@@ -30,7 +30,13 @@
 이동표·게이트·리허설·본실행이 `docs/qa/2026-09-16-followup/nx10/promote2/` 에 있다(1차 배치의
 `promote/` 와 같은 구조: `paths2.sh` 공유 이동표 + `gates2.sh` 공유 게이트 + 리허설/본실행 분리).
 
-| 스테이징(지금 `docs/`) | 승격 위치 | 역할 | sha256(앞 12, 리허설 실측) |
+**적용 완료 — 2026-09-17T02:24Z**(오너 지시: 무인 대기를 취소하고 즉시 승격). 승격 **전** 기록: 무인 대기
+(`screen nx10promote`)를 취소 → 3차 soak 을 `SIGTERM` 으로 중단(`exit: 143`, 시작=종료 지문 `5c90b637…`) →
+본실행. 이동 4건 전부 **sha256 동일**(백업 `/tmp/nx10-promote2-backup-20260917T022400Z`), 승격 위치에서
+**14 passed**(`promoted-contract-tests.txt`) · 도구 직접 실행 초록 · ruff check·format 초록. 커밋 `bde261dc`.
+(게이트는 커밋 **뒤에** 쟀다 — 결과는 §1d.) 기록: `promote2/promotion2-applied.txt` · `apply2-output.txt`.
+
+| 스테이징(이제 **없다** — 이동됨) | 승격 위치 | 역할 | sha256(앞 12, 리허설 실측) |
 | --- | --- | --- | --- |
 | `nx01/restore_rehearsal.py` | `scripts/restore_rehearsal.py` | restore 절차 판정부 리허설(왕복·손실 방지·멱등·삭제 거절) | `0a46008bba1b` |
 | `nx03/rollback_rehearsal.py` | `scripts/rollback_rehearsal.py` | 구버전 판을 그림자 트리로 돌려 되돌림 창의 노출과 복귀 뒤 거절을 잰다 | `f695df1ee8ab` |
@@ -54,18 +60,41 @@ ruff check·format 초록 → **도구를 치우면 그 시험이 실패한다**
 둘 다 고친 뒤 다시 돌려 **14 passed** 를 받았다. 음성 대조군도 확인했다: 승격 **전**에는 같은 명령이
 `exit 4` 이고 노드 검사가 red 다(그래서 이 확인은 승격 뒤에만 초록이 된다 — 빈 껍데기가 아니다).
 
-**실행(한 줄, 권장)**: `bash docs/qa/2026-09-16-followup/nx10/promote2/post_harvest_sequence.sh --wait`
-— **현재 이 한 줄이 `screen nx10promote` 로 걸려 있다**(종료 18:19 KST 를 기다리는 중, 로그 `promote2/post-harvest-sequence.log`).
-무인 실행이라 두 가드를 더 넣고 샌드박스 4경로로 확인했다: **판정 FAIL 이면 승격을 멈추고**(트리 무변경 ·
-`NX10_PROMOTE_ON_FAIL=1` 로만 강행) · 떠 있는 감시의 **방금 쓰인** 판정 원문을 먼저 집는다(동시 판정은 자물쇠 경합으로
-순서를 끊고, 낡은 원문은 오늘 것으로 안 본다).
+**다음에 같은 일을 무인으로 하려면(한 줄)**: `bash …/promote2/post_harvest_sequence.sh --wait`
 — ① 종료 대기 → ② 회수 판정 → ③ 승격 → ④ **새 지문에서 필수 게이트 재측정**(약 16분, screen) → ⑤ 기록·재장전
 을 묶은 것이다(승격을 먼저 하면 8시간이 무효이므로 순서를 사람이 기억하지 않아도 되게 묶었다).
+무인 실행이라 두 가드를 넣고 샌드박스 4경로로 확인했다: **판정 FAIL 이면 승격을 멈추고**(트리 무변경 ·
+`NX10_PROMOTE_ON_FAIL=1` 로만 강행) · 떠 있는 감시의 **방금 쓰인** 판정 원문을 먼저 집는다(동시 판정은 자물쇠 경합으로
+순서를 끊고, 낡은 원문은 오늘 것으로 안 본다).
 `--plan` 은 무엇을 할지만 보여 주고(부작용 0), 승격만 하고 싶으면 `--skip-gates`.
-**승격 단독**: `bash docs/qa/2026-09-16-followup/nx10/promote2/apply_promotion2.sh`
+**승격 단독(이번에 쓴 경로)**: `bash docs/qa/2026-09-16-followup/nx10/promote2/apply_promotion2.sh`
 — 이 스크립트는 **도는 soak 을 발견하면 거절**한다(`scripts/`·`tests/` 는 지문 대상이므로 8시간이 무효가 된다).
 리허설 기록이 ALL PASS 가 아니어도 거절하고, 실패하면 이동을 **자동으로 되돌린다**(백업은 `/tmp`).
 실행 뒤에는 반드시 **필수 게이트 재측정 → soak 재장전**(§3 의 순서 규칙)이다.
+
+### 1d. **2차 배치 승격 뒤 재측정** — 승격이 숨은 타입 오류를 드러냈다 (2026-09-17, attempt `promote2b`/`2c`/`2d`)
+
+| attempt | 지문 | 결과 | 이 attempt 가 한 일 |
+|---|---|---|---|
+| `promote2b` | 시작 = 종료 = `50b82dd1…`(커밋 `bde261dc`) | **21 passed · 2 failed · 0 not_run** | 승격 직후 첫 재측정. **새 실패 1개**: `python-basedpyright` 가 새로 빨개졌다 |
+| `promote2c` | 시작 = 종료 = `b6a74304…`(커밋 `5c979c0f`) | **22 passed · 1 failed · 0 not_run** | 타입 12건을 고친 뒤 재측정 — basedpyright **초록** · `clean-machine-runtime` passed |
+| `promote2d` | 시작 = 종료 = `b6a74304…` | `python-tests` 단독: **5 failed · 6640 passed**(618.94s) | 승격이 깬 문서 링크 1건을 `docs/` 만 고쳐 닫고 단독 재측정 |
+
+**`promote2b` 의 새 실패는 회귀가 아니라 이 승격의 정의다**: 승격 **전**에는 두 도구가 `docs/` 안이라
+`python-basedpyright` 가 **보지 않았다**. 커밋된 후보로 들어온 순간 타입 오류 **12건**이 드러났다
+(`scripts/restore_rehearsal.py` · `scripts/rollback_rehearsal.py` — `dict[str, object]` 언패킹 · `Any` 누수 · 시그니처).
+즉 **승격 = 파일 이동 + 검사 대상 편입**이고, 편입이 곧 첫 검사다. 수정은 `5c979c0f`(같은 커밋에서 테스트 파일의
+`Any` 도 줄였다 — 그대로 두면 그쪽에서 11건이 난다).
+
+**승격이 깬 문서 링크 1건**: `tests/test_local_relative_links_resolve` 가 옮겨진 파일을 옛 경로로 가리키는 참조
+3곳을 잡아냈다(`docs/09_OPERATION_GUIDE.md` · `docs/19` NX-01/NX-03 항목 · `nx01/handoff.md` ·
+`nx01/restore-rehearsal.md` · `nx03/handoff.md`). 이 참조 갱신은 §9 가 “소유자가 없다”고 적어 둔 항목이고,
+예상대로 **게이트가 먼저 실패해서** 알려 줬다(사람이 기억하지 않아도 됐다). 고친 편집은 `docs/` 뿐이라 지문은
+`b6a74304…` 그대로다.
+
+**이 지문이 지금의 후보 트리다**: `b6a74304…` = 현재 트리 = HEAD 트리(`5c979c0f`) 에서 4차 8시간 soak 이
+돌고 있고(`03:25:56Z` → `11:25:56Z` = 20:25 KST · preflight 7/7), 판정은 여전히 NO-GO 다(required red 1 = 타 레인 ·
+CR-14 재선언 없음 · owner 허용 없음). 통과 수 **6626 → 6640(+14)** 이 승격한 계약 시험의 몫이다.
 
 ### 1b. 다음 승격 후보 (동결 해제 뒤 — 2026-09-17 추가)
 

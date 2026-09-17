@@ -14,6 +14,8 @@
   (커밋 `7d8c25b5`·`099cfc8b` 뒤 지문 `98855031…` = HEAD 에서 23개 전수 — **22 passed · 1 failed · 0 not_run**.
   이 리포트도 1MiB 를 넘으므로 정책대로 커밋하지 않는다 — 값은 [GATE_LEDGER.md](./GATE_LEDGER.md) §17 이 소유한다.)
 
+- `docs/qa/2026-09-16-followup/nx10/gate-report-promote2b.json` — 1,318,584 B — sha256 `f2521acaa36e32d229e5c971bbd21610d4b480d164de698bdcb4e10cbbf6cc44`
+- `docs/qa/2026-09-16-followup/nx10/gate-report-promote2c.json` — 1,247,722 B — sha256 `04a5eb814a40d00baa0e036621877caaaa54c4cab546f5c5108eaf7888e20f27`
 - `docs/qa/2026-09-16-followup/nx10/gate-report-promote001.json` — 1,299,969 B — sha256 `9cc9a85bb475400387caf84e98b25b44e575e5c92005de51d66dfc853d7d9df0`
 - `docs/qa/2026-09-16-followup/nx10/gate-report-freeze002.json` — 1,290,610 B — sha256 `c0f1090384d5199490d771f20d0fcc9b046a32671cd4644c661b7146a2b3a578`
 - `docs/qa/2026-09-16-followup/nx10/gate-report-sc3fix001.json` — 1,309,851 B — sha256 `e9b75c79db4c43229e13393f844eb5c09b7e438ed953289b80fc9e804a32bf27`
@@ -30,5 +32,8 @@
 - `promote004` — **커밋된 후보 `1bd95e7d`(회수 판정기 수정), 23개 중 22 passed · 1 failed · 0 not_run**(실패는 타 레인 `python-tests` 5건)
 - `tailfix001` — **커밋된 후보 `099cfc8b`(꼬리 창 수정), 23개 중 22 passed · 1 failed · 0 not_run** — 실패 목록이 `promote004` 와 **시험 단위로 동일**(새 실패 0건), `clean-machine-runtime` passed 43.0s
 - `sc3fix001` — **커밋된 후보 `c522b256`(SC-3 경합 + 하네스 무한 대기 수정), 23개 중 22 passed · 1 failed · 0 not_run**, 시작 = 종료 = `5c90b637…` — 실패 목록은 여전히 `promote004` 와 시험 단위 동일(새 실패 0건), 통과 수 **6621 → 6626**(+5 = 새 계약 시험)
+- `promote2b` — **커밋된 후보 `bde261dc`(2차 승격), 23개 중 21 passed · 2 failed · 0 not_run**, 시작 = 종료 = `50b82dd1…` — **승격이 처음으로 검사한 두 도구에서 타입 오류 12건**(`python-basedpyright` 신규 red). 회귀가 아니라 편입 효과다([PROMOTION_PLAN §1d](./PROMOTION_PLAN.md))
+- `promote2c` — **커밋된 후보 `5c979c0f`(타입 수정), 23개 중 22 passed · 1 failed · 0 not_run**, 시작 = 종료 = `b6a74304…` — basedpyright **초록**, `clean-machine-runtime` passed, 남은 실패는 `python-tests` 하나
+- `promote2d` — **697 KB 라 정책대로 커밋했다**(1MiB 미만): 같은 지문 `b6a74304…` 에서 `python-tests` **단독** 재측정 — 5 failed · 6640 passed(618.94s) · 실패 5건은 위와 시험 단위 동일 · sha256 `2049da4b4cc50cfaa2af6f514c95911b3d38e72cb9aa67ad833abe759da6caf4`
 
 작은 동반 증거(`gate_verify-*.txt`)는 커밋되어 있다.

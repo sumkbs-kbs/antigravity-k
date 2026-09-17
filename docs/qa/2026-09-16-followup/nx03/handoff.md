@@ -150,7 +150,7 @@ Next owner / exact next action: 독립 검토자는 nx03/repro_nx03_session_dele
 되살아난 본문이 읽기 표면에 나오지 **않고**, 삭제된 id 도 재사용되지 않는다. 그러므로 자동 회귀 금지
 규칙은 그대로 두되, 근거는 “영구 오염”이 아니라 **“창이 열려 있는 동안의 노출”** 이다.
 
-근거: [rollback_rehearsal.py](rollback_rehearsal.py) · [rollback-rehearsal-output.txt](rollback-rehearsal-output.txt)
+근거: [rollback_rehearsal.py](../../../../scripts/rollback_rehearsal.py) (2026-09-17 승격 — `scripts/` 로 이동) · [rollback-rehearsal-output.txt](rollback-rehearsal-output.txt)
 (경계 3개 · 실패 0 · exit 0). 승격은 동결 해제 뒤(NX-01 리허설과 같이 `tests/` 로).
 
 ## 6. 남은 의혹 (NX-08 로 이관)

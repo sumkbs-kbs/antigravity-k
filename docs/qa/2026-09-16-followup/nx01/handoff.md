@@ -124,7 +124,7 @@ Next owner / exact next action: 독립 검토자는 nx01/repro_nx01_compaction.p
 책임진다. 임시 저장소만 써서 4개 경계를 실측(exit 0): **왕복**(지문 동일·revision 5=5·원문 5건 동일·view 재구성) ·
 **최신 변경 손실 방지**(대상이 더 새로우면 거절 — 그 사이 append 3건 생존) · **멱등**(같은 바이트는 `noop`) ·
 **삭제 부활 금지**(표식 있으면 거절 + `deleted` 유지). 이빨도 확인: 가드를 끄면 revision 8→5 로 되돌아가며
-3건이 사라진다. 근거 [restore-rehearsal.md](restore-rehearsal.md) · `restore_rehearsal.py` ·
+3건이 사라진다. 근거 [restore-rehearsal.md](restore-rehearsal.md) · `scripts/restore_rehearsal.py`(2026-09-17 승격) ·
 `restore-rehearsal-output.txt`. **발견 1건**(`NX03-RESTORE-MARKER`: 표식이 원문 읽기 표면을 막지 못함)은
 동결 때문에 고치지 않고 nx03/handoff §6-5 로 이관했다 — 승격은 동결 해제 뒤 `tests/` 로.
 
