@@ -16,6 +16,7 @@
 
 - `docs/qa/2026-09-16-followup/nx10/gate-report-promote001.json` — 1,299,969 B — sha256 `9cc9a85bb475400387caf84e98b25b44e575e5c92005de51d66dfc853d7d9df0`
 - `docs/qa/2026-09-16-followup/nx10/gate-report-freeze002.json` — 1,290,610 B — sha256 `c0f1090384d5199490d771f20d0fcc9b046a32671cd4644c661b7146a2b3a578`
+- `docs/qa/2026-09-16-followup/nx10/gate-report-sc3fix001.json` — 1,309,851 B — sha256 `e9b75c79db4c43229e13393f844eb5c09b7e438ed953289b80fc9e804a32bf27`
 - `docs/qa/2026-09-16-followup/nx10/gate-report-full001.json` — 1,287,374 B — sha256 `1f95e7f2d776737c043cd9de1c2dd73cb8844a257ff233490e65f302a9900347`
 - `docs/qa/2026-09-16-followup/nx10/gate-report-promote003.json` — 1,244,246 B — sha256 `9209519ec48727686a8775c5cde3e8fd827d9ebe7f92cbf39b72429d97025d86`
 - `docs/qa/2026-09-16-followup/nx10/gate-report-promote002.json` — 1,236,044 B — sha256 `97d181c2e57ef224d172c46ad7753b6ea4f89474edeea3b2acc9ac63f13970bd`
@@ -28,5 +29,6 @@
 - `promote003` — **커밋된 후보 `89dd383b`, 23개 중 22 passed · 1 failed · 0 not_run**
 - `promote004` — **커밋된 후보 `1bd95e7d`(회수 판정기 수정), 23개 중 22 passed · 1 failed · 0 not_run**(실패는 타 레인 `python-tests` 5건)
 - `tailfix001` — **커밋된 후보 `099cfc8b`(꼬리 창 수정), 23개 중 22 passed · 1 failed · 0 not_run** — 실패 목록이 `promote004` 와 **시험 단위로 동일**(새 실패 0건), `clean-machine-runtime` passed 43.0s
+- `sc3fix001` — **커밋된 후보 `c522b256`(SC-3 경합 + 하네스 무한 대기 수정), 23개 중 22 passed · 1 failed · 0 not_run**, 시작 = 종료 = `5c90b637…` — 실패 목록은 여전히 `promote004` 와 시험 단위 동일(새 실패 0건), 통과 수 **6621 → 6626**(+5 = 새 계약 시험)
 
 작은 동반 증거(`gate_verify-*.txt`)는 커밋되어 있다.

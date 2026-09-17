@@ -43,3 +43,12 @@ promote-gates exit:1 end:2026-09-16T23:12:20Z report:gate-report-tailfix001.json
 # fingerprint after: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639bafcf4
 ga_gate_verify exit:1
 runner done:2026-09-16T23:12:20Z
+--- promote-gates attempt 2026-09-17T00:31:15Z ---
+# HEAD: c522b256cc7f345c657f45b4fe3231a752bde774
+# why: SC-3 동시 생성 결함(최초 생성이 lock 밖 + 고정 백업 tmp 이름)과 하네스 무한 대기(q.get 타임아웃 추가)를 고친 뒤 커밋 c522b256 에서 필수 23개를 재측정한다.
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: 5c90b63761159253b10662711b29d1f8cd7a4357174ec3ce952f150d5f6ddff9
+promote-gates exit:1 end:2026-09-17T00:50:17Z report:gate-report-sc3fix001.json
+# fingerprint after: 5c90b63761159253b10662711b29d1f8cd7a4357174ec3ce952f150d5f6ddff9
+ga_gate_verify exit:1
+runner done:2026-09-17T00:50:18Z
