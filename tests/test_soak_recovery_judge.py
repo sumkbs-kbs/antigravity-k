@@ -177,6 +177,29 @@ def test_no_live_reservation_falls_back_to_the_runner_record_and_says_so(
     assert MODULE.resolve_expected("8" * 64, runner)[1].startswith("사람이 지정")
 
 
+def test_a_stale_live_reservation_loses_to_the_runs_own_record(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """즉시 실행(`run`)은 예약 블록을 남기지 않았다 — 그래서 판정기가 **철 지난 살아 있는 예약**을 집었다.
+
+    중단된 예약만 건너뛰는 것으로는 부족하다는 실측(2026-09-17): 이력에는 중단되지 않은 예약이 남아 있고
+    그 지문은 다른 트리의 것이다. 처방은 쌍으로 성립한다 — ① `run` 이 **자기 기대값을 스스로 적고**,
+    ② 판정기는 마지막 **살아 있는** 블록을 근거로 쓴다(그래서 새 블록이 낡은 예약을 덮는다).
+    """
+    schedule = tmp_path / "soak-schedule.txt"
+    schedule.write_text(
+        "# NX-10 soak 예약 기록 (오너 지정 시각 실행)\n"
+        "scheduled_at: 2026-09-16T10:47:15Z\n"
+        f"expected_fingerprint: {'9' * 64}\n"
+        "pid: 74617\n"
+        "# NX-10 soak 예약 기록 (즉시 실행 — 예약 없이 시작)\n"
+        "recorded_at: 2026-09-17T03:25:56Z\n"
+        "mode: run (immediate)\n"
+        f"expected_fingerprint: {'5' * 64}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(MODULE, "SCHEDULE", schedule)
+    assert MODULE.expected_fingerprint() == "5" * 64, "낡은 살아 있는 예약이 즉시 실행의 기록을 덮었다"
+
+
 def test_verdict_prints_where_the_reference_came_from() -> None:
     """판정 ③ 줄에 출처가 붙는다 — PASS 를 읽는 사람이 “이 값이 어디서 왔는가”를 되물어야 하지 않게."""
     _, checks = JUDGE(

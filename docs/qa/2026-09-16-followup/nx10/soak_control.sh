@@ -125,9 +125,34 @@ _block_complete() { # 러너가 종료 시에만 쓰는 필드가 다 있는가
     printf '%s' "$b" | grep -q '^end_fingerprint: '
 }
 
+# 패턴에 걸린 프로세스가 **하네스인가** — `comm` 이 파이썬이어야 한다.
+#
+# 왜 필요한가(실측 2026-09-17): `pgrep -f val02_staging.py` 는 **패턴 문자열을 argv 에 담은 다른 프로세스**도
+# 잡는다. 운영자의 진단 명령(`bash -c "… pgrep -f val02_staging.py …"`)이 그렇게 잡혔고, ① 감시 계열에
+# 표본 5개가 섞여 “터졌다/내려갔다” 는 없는 그림을 만들었고 ② 도구 쪽에서는 “도는 soak” 오탐 위험이 생겼다.
+# 하네스는 `.venv/bin/python scripts/val02_staging.py …` 로 돌므로 인터프리터 여부로 가른다.
+_is_harness_pid() {
+  local comm
+  comm="$(ps -o comm= -p "$1" 2>/dev/null | tr -d ' ')"
+  [ -n "$comm" ] || return 1
+  comm="$(basename "$comm" | tr 'A-Z' 'a-z')"
+  case "$comm" in
+    *python*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# 패턴에 걸린 것 중 **하네스만** — 예약( 스케줄러·래퍼 스크립트)은 여기가 아니라 잠금 주인 경로로 찾는다.
+_soak_candidates() {
+  local pid pattern="${1:-$SOAK_PROC_PATTERN}"
+  for pid in $(pgrep -f -- "$pattern" 2>/dev/null | grep -v -x -e "$$" -e "${PPID:-0}" || true); do
+    _is_harness_pid "$pid" && printf '%s\n' "$pid"
+  done
+}
+
 _soak_pids() { # 지금 실제로 soak 이 돌고 있는가 — 하네스 프로세스 · 실행 잠금 주인 · 아직 기다리는 예약
   local p
-  pgrep -f -- "$SOAK_PROC_PATTERN" 2>/dev/null | grep -v -x -e "$$" -e "${PPID:-0}" || true
+  _soak_candidates "$SOAK_PROC_PATTERN"
   p="$(sed -n 's/^pid: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
   if [ -n "$p" ] && _alive "$p"; then printf '%s\n' "$p"; fi
   p="$(_lock_owner_pid 2>/dev/null || true)"
@@ -515,6 +540,36 @@ cmd_cancel() {
   [ "$failed" = "0" ] && return 0 || return 3
 }
 
+_record_run_expectation() { # $1=pid  $2=지문(빈 값이면 계산)  $3=기록 대상(기본 $SCHEDULE · 시험용)
+  # 이 실행이 **무엇을 재려 하는지**를 예약 이력에 남긴다 — 판정기의 기대 지문이 여기서 온다.
+  #
+  # 왜 필요한가(2026-09-17 실측): 예약(`arm`)은 블록을 남기지만 **즉시 실행(`run`)은 아무것도 남기지
+  # 않았다**. 그래서 판정기는 “마지막 예약”을 기대값으로 집었고, 그 마지막은 ① 중단된 예약(한 틱도 안 돎)
+  # 이거나 ② **철 지난 다른 트리의 예약**이었다. 4차 실행(지표 all_pass · exit 0 · 8h00m04s ·
+  # 시작==종료==현재 트리)이 그 지문과 달라 FAIL 로 판정됐다 — 없던 근거를 만들어 낸 것이 아니라
+  # **있던 낡은 근거를 집은** 것이다. 이 실행의 기대값은 이 실행이 적는다.
+  local pid="$1" fp="${2:-}" target="${3:-$SCHEDULE}"
+  [ -n "$fp" ] || fp="$(_tree_fingerprint)"
+  {
+    echo ""
+    echo "# NX-10 soak 예약 기록 (즉시 실행 — 예약 없이 시작)"
+    echo "recorded_at: $(_utc)"
+    echo "mode: run (immediate)"
+    echo "runner: $RUNNER"
+    echo "pid: $pid"
+    if [ "$fp" != "UNVERIFIED" ]; then
+      echo "expected_fingerprint: $fp"
+      echo "expected_fingerprint_source: 시작 시점 트리(즉시 실행 — 예약 블록이 없다)"
+    else
+      # 계산 실패를 “그냥 진행” 으로 넘기지 않는다: 기대값을 **주장하지 않고** 판정기가 러너 기록으로
+      # 내려가게 둔다(그때는 출처가 문장으로 남는다).
+      echo "expected_fingerprint: UNVERIFIED"
+      echo "expected_fingerprint_source: 계산 실패 — 기대값을 주장하지 않는다(판정기는 러너 기록으로 내려간다)"
+    fi
+  } >> "$target"
+}
+
+
 _record_cancel() {
   {
     echo ""
@@ -738,7 +793,7 @@ cmd_preflight() {
   # ⑦ 이미 돌고 있는 soak 이 없는가 — **기계 전체**를 본다(다른 디렉터리에서 시작됐어도 두 개가 동시에
   #    돌면 서로의 처리량·RSS 측정을 오염시킨다). 이름은 $SOAK_PROC_PATTERN 으로 통제한다.
   local running
-  running="$(pgrep -f "$SOAK_PROC_PATTERN" 2>/dev/null | grep -v -x -e "$$" -e "${PPID:-0}" || true)"
+  running="$(_soak_candidates "$SOAK_PROC_PATTERN" | tr '\n' ' ')"
   if [ -n "$running" ]; then
     _pf_check "다른 soak 실행 없음" 0 "$SOAK_PROC_PATTERN pid=$running"
   else
@@ -813,6 +868,8 @@ cmd_run() {
   printf '  확인: tail -3 %s · tail -f %s\n' "$EXIT_TXT" "$OUT/soak-run.log"
   printf '%s run: 즉시 시작(pid %s, caffeinate=%s)\n' "$(_utc)" "$rpid" \
     "$([ "${NX10_NO_CAFFEINATE:-0}" = "1" ] && echo no || echo yes)" >> "$SCHED_LOG"
+  # 이 실행의 기대 지문을 기록한다 — 판정기가 낡은 예약 대신 **이 블록**을 근거로 쓴다.
+  _record_run_expectation "$rpid" ""
   return 0
 }
 
@@ -1134,17 +1191,44 @@ sleep 300"
   #      픽스처가 “스케줄러 자산 없음” 으로 빨개졌다(실측: 51/52 의 유일한 실패가 그것이었다).
   local df="$tmp/t8f"
   mkdir -p "$df/out"
-  printf '#!/usr/bin/env bash\nsleep 120\n' > "$df/pretend-soak.sh"
-  bash "$df/pretend-soak.sh" > "$df/pretend.log" 2>&1 & local pre8=$!
+  # 픽스처는 **파이썬**이어야 한다: 도구는 `comm` 이 파이썬인 것만 하네스로 센다(셸 래퍼 오탐 차단).
+  # 토큰을 argv 에 실어 이 시험만 가리키게 한다.
+  local foreign_token="nx10-foreign-soak-$$"
+  "$(_py)" -c "import time; time.sleep(120)" "$foreign_token" > "$df/pretend.log" 2>&1 & local pre8=$!
   sleep 1
   NX10_OUT="$df/out" NX10_REPO="$REPO" NX10_SCHED_PATTERN="$df/no.sh" \
-    NX10_SOAK_PROC_PATTERN="$df/pretend-soak.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_SOAK_PROC_PATTERN="$foreign_token" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_PF_SKIP_ATTRIBUTION="$attr_skip" \
     NX10_PREFLIGHT_SKIP_THROUGHPUT=1 \
     bash "$0" preflight > "$df/pf-foreign.txt" 2>&1
   _st_ck "⑧ 다른 soak 이 돌면 preflight 1" 1 "$?"
-  _st_ck_has "⑧ 도는 프로세스를 pid 로 지목한다" "$df/pf-foreign.txt" "pretend-soak.sh pid="
+  _st_ck_has "⑧ 도는 프로세스를 pid 로 지목한다" "$df/pf-foreign.txt" "$foreign_token pid="
   kill -TERM "$pre8" 2>/dev/null || true
   wait "$pre8" 2>/dev/null || true
+
+  # ⑧b 이빨 — 패턴에 걸린 **셸**은 soak 이 아니다(실측 2026-09-17: 진단 명령이 soak 으로 잡혔다).
+  #     이 픽스처가 없으면 인터프리터 필터가 조용히 사라져도 시험이 초록으로 남는다.
+  #     ※ 귀속 문을 여기에도 반드시 붙인다: 이 자리는 preflight 가 **exit 0 을 내야** 하는 유일한 직접 호출이라,
+  #       문을 빼면 **더러운 트리(승격 미러가 정확히 그렇다)에서만** 빨개진다 — 2026-09-17 리허설 `attempt6`
+  #       이 그렇게 멈췄다(청정한 본 트리에서는 초록이었다). 시험은 “본 트리에서만 통과하는” 단언을 갖지 않는다.
+  local shell_token="nx10-shell-decoy-$$"
+  _fake_sched "$df/schedule_nx10_soak.sh" 'sleep 5'
+  bash -c "sleep 120 # $shell_token" > "$df/shell.log" 2>&1 & local sh8=$!
+  sleep 1
+  NX10_OUT="$df/out" NX10_REPO="$REPO" NX10_SCHED_PATTERN="$df/no.sh" \
+    NX10_SCHEDULER="$df/schedule_nx10_soak.sh" NX10_RUNNER="$RUNNER" \
+    NX10_SOAK_PROC_PATTERN="$shell_token" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_PF_SKIP_ATTRIBUTION="$attr_skip" \
+    NX10_PREFLIGHT_SKIP_THROUGHPUT=1 \
+    AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=8192 \
+    bash "$0" preflight > "$df/pf-shell.txt" 2>&1
+  _st_ck "⑧ (이빨) 셸이 패턴에 걸러도 preflight 0" 0 "$?"
+  _st_ck_has "⑧ (이빨) 그 사실을 숫자로 밝힌다" "$df/pf-shell.txt" "$shell_token 0건"
+  if [ "$attr_skip" = "1" ]; then
+    _st_ck_has "⑧b (전제) 후보 귀속 생략을 문장으로 밝힌다" "$df/pf-shell.txt" "후보 귀속(생략됨)"
+  fi
+  kill -TERM "$sh8" 2>/dev/null || true
+  wait "$sh8" 2>/dev/null || true
 
   # ⑧ 처리량 하한 — 5초 프루브로 문 하나만 본다(예약 점검은 빼고, 60초는 시험을 느리게 만든다).
   #     넉넉한 하한은 통과하고, 터무니없이 높은 하한은 **실패해야** 한다(문이 실제로 작동하는가).
@@ -1329,8 +1413,9 @@ PY
     } > "$d/out/soak-exit.txt"
   }
 
-  _fake_sched "$d/fake-soak.sh" 'sleep 8'
-  bash "$d/fake-soak.sh" > "$d/fake.log" 2>&1 & local fake11=$!
+  # 가짜 soak 은 **파이썬**이어야 한다 — 도구는 `comm` 이 파이썬인 것만 하네스로 센다(셸 래퍼 오탐 차단).
+  hpat="nx10-harvest-decoy-$$"
+  "$(_py)" -c "import time; time.sleep(8)" "$hpat" > "$d/fake.log" 2>&1 & local fake11=$!
   sleep 1
   hrun --no-wait > "$d/h-nowait.txt" 2>&1
   _st_ck "⑪ 도는 soak 이 있으면 --no-wait 는 거부(exit 4)" 4 "$?"
@@ -1359,9 +1444,8 @@ PY
   _st_ck_has "⑪ 그 사유를 문장으로 남긴다" "$d/h-incomplete.txt" "완성되지 않았다"
 
   # 기다리는 경로: 아직 도는 soak 이 끝나야 판정한다(초 단위 폴링으로 빠르게 확인).
-  hpat="$d/short-soak.sh"
-  _fake_sched "$d/short-soak.sh" 'sleep 6'
-  bash "$d/short-soak.sh" > "$d/short.log" 2>&1 & local short11=$!
+  hpat="nx10-short-decoy-$$"
+  "$(_py)" -c "import time; time.sleep(6)" "$hpat" > "$d/short.log" 2>&1 & local short11=$!
   sleep 1
   _completed_block
   hrun --poll 1 --timeout 30 > "$d/h-wait.txt" 2>&1
@@ -1377,15 +1461,16 @@ PY
   mkdir -p "$d/out/work"
   # 작업디렉터리를 **과거로** 만들어 둔다(멈춘 실행은 마지막 쓰기가 오래 전이다).
   touch -t 202001010000 "$d/out/work" 2>/dev/null || true
-  _fake_sched "$d/hung-soak.sh" 'sleep 60'
-  bash "$d/hung-soak.sh" > "$d/fake.log" 2>&1 & local hung12=$!
+  # 가짜 soak 은 **파이썬**이어야 한다(도구가 comm 으로 하네스를 가린다 — 위 _is_harness_pid 참조).
+  local hung_token="nx10-hung-soak-$$"
+  "$(_py)" -c "import time; time.sleep(60)" "$hung_token" > "$d/fake.log" 2>&1 & local hung12=$!
   sleep 1
   {
     printf 'generated_at: 2026-01-01T00:00:00Z\nworkdir: %s\n' "$d/out/work"
     printf 'start_time: 2026-01-01T00:00:00Z\nstart_fingerprint: aaaa\n'
   } > "$d/out/soak-exit.txt"
   JUDGE_RAN="$d/judge-ran.txt" NX10_OUT="$d/out" NX10_JUDGE="$d/judge.py" \
-    NX10_SOAK_PROC_PATTERN="$d/hung-soak.sh" NX10_HARVEST_MAX_STALL=2 NX10_HARVEST_POLL=1 \
+    NX10_SOAK_PROC_PATTERN="$hung_token" NX10_HARVEST_MAX_STALL=2 NX10_HARVEST_POLL=1 \
     NX10_HARVEST_TIMEOUT=60 \
     bash "$0" harvest > "$d/h-stall.txt" 2>&1
   _st_ck "⑫ 무응답(살아 있지만 안 쓴다)이면 harvest 가 중단(exit 6)" 6 "$?"
@@ -1395,16 +1480,44 @@ PY
     "$(test -f "$d/out/soak-harvest-*.txt" 2>/dev/null && echo yes || echo no)"
 
   #    그리고 쓰기가 살아 있으면(정상 실행) 그 문에 걸리지 않고 계속 기다린다.
-  _fake_sched "$d/alive-soak.sh" 'for i in $(seq 1 20); do mkdir -p "$1"; date > "$1/tick"; sleep 1; done'
-  bash "$d/alive-soak.sh" "$d/out/work/alive" > "$d/alive.log" 2>&1 & local alive12=$!
+  local alive_token="nx10-alive-soak-$$"
+  "$(_py)" -c 'import pathlib, time, sys
+p = pathlib.Path(sys.argv[2])
+p.mkdir(parents=True, exist_ok=True)
+for i in range(20):
+    (p / "tick").write_text(str(i))
+    time.sleep(1)' "$alive_token" "$d/out/work/alive" > "$d/alive.log" 2>&1 & local alive12=$!
   sleep 1
   JUDGE_RAN="$d/judge-ran.txt" NX10_OUT="$d/out" NX10_JUDGE="$d/judge.py" \
-    NX10_SOAK_PROC_PATTERN="$d/alive-soak.sh" NX10_HARVEST_MAX_STALL=3 NX10_HARVEST_POLL=1 \
+    NX10_SOAK_PROC_PATTERN="$alive_token" NX10_HARVEST_MAX_STALL=3 NX10_HARVEST_POLL=1 \
     NX10_HARVEST_TIMEOUT=6 \
     bash "$0" harvest > "$d/h-alive.txt" 2>&1
   _st_ck "⑫ 쓰기가 살아 있으면 무응답으로 몰지 않는다(exit 5 = 대기 초과)" 5 "$?"
   kill -TERM "$alive12" "$hung12" 2>/dev/null || true
   wait "$alive12" "$hung12" 2>/dev/null || true
+
+  # ⑬ 즉시 실행이 **무엇을 재려 하는지**를 스스로 적는가 — 판정기의 기대 지문이 여기서 온다.
+  #    2026-09-17: 이 기록이 없어서 4차 실행(지표 all_pass · exit 0 · 8h00m04s · 시작==종료==현재 트리)이
+  #    예약 이력의 **마지막 낡은 지문**과 비교됐다. 판정기가 “마지막 살아 있는 블록”을 쓰므로,
+  #    이 실행의 블록이 마지막에 적히는 것이 이 처방의 핵심이다.
+  local t13 st13 st13b stale13 run13 last13
+  d="$tmp/t13"
+  mkdir -p "$d/out"
+  st13="$d/out/soak-schedule.txt"
+  st13b="$d/out/schedule-unverified.txt"
+  stale13="$(printf '9%.0s' $(seq 1 64))"
+  run13="$(_tree_fingerprint)"
+  printf '# NX-10 soak 예약 기록\nscheduled_at: 2026-01-01T00:00:00Z\nexpected_fingerprint: %s\n' \
+    "$stale13" > "$st13"
+  _record_run_expectation 12345 "$run13" "$st13"
+  _st_ck "⑬ 즉시 실행의 기대 지문 기록이 성공(exit 0)" 0 "$?"
+  _st_ck_has "⑬ 기록이 즉시 실행임을 밝힌다" "$st13" "mode: run (immediate)"
+  _st_ck "⑬ 중단 표시를 달지 않는다(살아 있는 기록)" "0" "$(grep -c '^aborted: true' "$st13")"
+  last13="$(grep '^expected_fingerprint: ' "$st13" | tail -1 | sed 's/^expected_fingerprint: //')"
+  _st_ck "⑬ 마지막 기대값이 이 실행의 것(낡은 예약을 덮는다)" "$run13" "$last13"
+  # 계산 실패는 “주장하지 않는다” 로 남는다 — 없던 근거를 만들지 않는다.
+  _record_run_expectation 999 "UNVERIFIED" "$st13b"
+  _st_ck_has "⑬ 지문 계산 실패는 주장하지 않고 남긴다" "$st13b" "기대값을 주장하지 않는다"
 
   # 청소: 임시 디렉터리의 가짜 프로세스가 남지 않게 한다.
   pkill -f -- "$tmp" 2>/dev/null || true

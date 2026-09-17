@@ -3,17 +3,18 @@
 왜 승격하는가: 이 스크립트는 프로세스를 **죽이고**(`cancel`) 예약을 **걸고**(`arm`) 8시간 실행을
 **띄운다**(`run`). `docs/` 안에 있는 동안에는 어떤 게이트도 그 판단을 보지 않았다 — 실제로 오늘
 “취소했다고 기록한 예약 3건이 살아 있었다”를 사람이 `pgrep` 으로 발견했고, 그 뒤 이 도구의 자기시험
-(75~76개 검사)이 그 부류를 잡도록 만들어졌다. 이 파일은 그 자기시험이 **게이트 안에서 매번 돌게** 한다.
+(77~79개 검사)이 그 부류를 잡도록 만들어졌다. 이 파일은 그 자기시험이 **게이트 안에서 매번 돌게** 한다.
 
 이 시험이 고정하는 것:
 
   1. 스크립트가 문법적으로 살아 있다(`bash -n`) — 스크립트가 깨지면 예약·회수가 통째로 멈춘다.
-  2. **자기시험 75/75**(깨끗한 트리) — 수명주기(arm/cancel/orphans/preflight/run/harvest)를 임시 루트에서 돈다.
+  2. **자기시험 77/77**(깨끗한 트리) — 수명주기(arm/cancel/orphans/preflight/run/harvest)를 임시 루트에서 돈다.
      진짜 soak 이 도는 동안에도 통과해야 의미가 있으므로, 시험 환경의 하네스 이름을 도구가 통제한다.
      커밋되지 않은 파일이 있는 **더러운 트리**(승격 리허설·편집 중)에서는 “현재 트리 == HEAD”(후보 귀속)가
      설계상 거짓이므로, 자기시험이 그 항목만 생략하고 **생략했다고 문장으로 밝힌다** — 그 문장을 확인하는
-     검사가 하나 늘어 76/76 이 된다. 생략은 조용하지 않고, 깨끗한 트리에서는 종전대로 검사한다.
-     (2026-09-17 리허설이 이 전제를 잡아냈다 — `GATE_LEDGER` §23. 그래서 수는 75 또는 76 이고 하한은 60 이다.)
+     검사가 하나 늘어 79/79 가 된다. 생략은 조용하지 않고, 깨끗한 트리에서는 종전대로 검사한다.
+     (2026-09-17 리허설이 이 전제를 잡아냈다 — `GATE_LEDGER` §23 · §25-7. 그래서 수는 77 또는 79 이고 하한은 60 이다.
+     수가 올라간 이유: 셸 오탐 이빨(⑧b) 2건 + 더러운 트리 전용 생략 확인 1건.)
   3. 잘못된 부속 명령은 **거부**된다(exit 2, 사용법 출력) — 오타가 조용히 다른 일을 하지 않는다.
   4. 예약이 없을 때 `status` 는 거짓 초록을 내지 않는다(exit 1 · `ATTENTION`).
   5. `harvest --no-wait` 는 **도는 실행을 판정하지 않는다**(exit 4) — 러너는 종료 시에만 `end_*`·`exit`
@@ -115,6 +116,21 @@ def test_selftest_covers_the_lifecycle():
     assert total >= MIN_SELFTEST_CHECKS, f"검사가 {total}개뿐이다(하한 {MIN_SELFTEST_CHECKS})"
     assert passed == total, f"{passed}/{total} — 실패가 있다:\n{result.stdout[-1500:]}"
     assert "[FAIL]" not in result.stdout, "실패 표시가 있는데 요약은 통과라고 말한다"
+
+
+def test_an_immediate_run_records_what_it_means_to_measure():
+    """즉시 실행은 예약 블록을 남기지 않았다 → 판정기가 **낡은 예약**을 기대값으로 집었다(2026-09-17 실측).
+
+    그 실행은 지표 all_pass · 러너 exit 0 · 8h00m04s · 시작==종료==현재 트리였는데도 FAIL 로 판정됐다.
+    처방은 “이 실행의 기대값을 이 실행이 적는다”이므로, `cmd_run` 이 그 기록을 부르는지 본다(배선 이빨).
+    기록 자체의 동작은 자기시험 ⑬ 이 임시 루트에서 실제로 돌린다.
+    """
+    text = _control_path().read_text(encoding="utf-8")
+    run_body = text.split("cmd_run() {", 1)[1].split("\n}", 1)[0]
+    assert "_record_run_expectation" in run_body, "즉시 실행이 기대 지문을 기록하지 않는다"
+    helper = text.split("_record_run_expectation() {", 1)[1].split("\n}", 1)[0]
+    assert "expected_fingerprint:" in helper, "기록에 기대 지문이 없다 — 판정기가 쓸 값이 없다"
+    assert "aborted" not in helper, "살아 있는 실행의 기록에 중단 표시가 섞이면 판정기가 그 블록을 건너뛴다"
 
 
 def test_unknown_subcommand_is_rejected():

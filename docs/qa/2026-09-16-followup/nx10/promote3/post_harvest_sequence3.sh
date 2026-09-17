@@ -110,7 +110,8 @@ if [ "$PLAN" -eq 1 ]; then
   step "계획(부작용 0)"
   cat <<'TXT'
   ① 실행 종료를 기다린다(도는 soak 이 있으면 --wait 필요)
-  ② 회수 판정 — 떠 있는 회수 감시(`screen nx10harvest`)가 남긴 **방금 쓰인** 원문을 먼저 집고, 없으면 직접 harvest 한다
+  ② 회수 판정 — 이미 내려진 판정 중 **이 실행에 대한 것**(러너 종료 뒤 수집 · 실행 트리에서 판정)을
+     먼저 집고, 없으면 직접 harvest 한다
      → 문장을 긁지 않고 `soak-recovery-latest.json` 의 `verdict`·`runner.exit`·시작/종료 지문을 읽는다
      → PASS 가 아니거나 지문이 갈렸으면 **여기서 멈춘다**(트리 무변경)
   ③ 감시 도구 정리(감시 루프·회수 대기) — 프로세스 0건까지 확인
@@ -150,15 +151,44 @@ step "2. 회수 판정"
 settle="${NX10_JUDGE_SETTLE:-900}"
 # 판정의 **기계 판독 가능한 원문**은 `soak-recovery-latest.json` 이다(판정기가 `verdict`·`runner`·
 # 체크 목록을 남기고, 계약 시험이 그 필드를 지킨다). 문장을 긁는 대신 이 파일을 읽는다.
-# 떠 있는 감시가 먼저 쓰므로 **방금 쓰인**(mtime ≥ 시작 시각) 두 산출물을 기다린다 — 낡은 판정을
-# 오늘 것으로 착각하지 않기 위해서다(오늘 판정기의 기대 지문 결함이 그 부류였다).
+#
+# 받아들이는 조건은 “이 **실행**에 대한 판정인가”이지 “이 체인이 시작된 뒤에 쓰였는가”가 아니다.
+# 종전 규칙(mtime ≥ 체인 시작)은 이미 내려진 정당한 판정을 **낡은 것으로 오해**해 스스로 다시
+# 판정하게 만들었고, 그 재판정은 이 체인이 지키려는 지문 조건(측정 후 코드 무변경)을 **자기 손으로**
+# 깨뜨렸다 — 재판정 시점에는 이미 커밋/문서가 움직였을 수 있기 때문이다(2026-09-17 실측).
+# 그래서 조건 셋을 본다: ① 러너 종료시각 뒤에 수집됐다 ② 그 판정이 **실행 트리에서** 내려졌다
+# (`worktree_fingerprint_now == runner.start_fingerprint`) ③ 원문 txt 와 JSON 의 짝이 맞다.
+# 못 받으면 종전과 같이 직접 harvest 한다(닫힌 방향으로 실패한다).
 recovery="$NX10/soak-recovery-latest.json"
+verdict_is_about_the_run() {
+  [ -f "$recovery" ] || return 1
+  "$PY" - "$recovery" <<'PYX'
+import json, sys
+try:
+    doc = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(1)
+run = doc.get("runner") or {}
+end = run.get("end_time")
+collected = doc.get("collected_at")
+if not isinstance(end, str) or not isinstance(collected, str):
+    sys.exit(1)
+# ① 종료 뒤에 수집(같은 ISO8601 Z 형식이므로 문자열 비교가 시각 비교다)
+if collected < end:
+    sys.exit(1)
+# ② 실행 트리에서 내려진 판정만 받는다 — 판정 뒤에 코드가 움직였으면 그 green 은 후보의 것이 아니다
+if str(doc.get("worktree_fingerprint_now") or "") != str(run.get("start_fingerprint") or ""):
+    sys.exit(1)
+sys.exit(0)
+PYX
+}
 latest=""
 waited=0
 while [ "$waited" -lt "$settle" ]; do
   latest="$(ls -t "$NX10"/soak-harvest-*.txt 2>/dev/null | head -1 || true)"
-  if [ -n "$latest" ] && [ "$(mtime_of "$latest")" -ge "$started_epoch" ] \
-    && [ -f "$recovery" ] && [ "$(mtime_of "$recovery")" -ge "$started_epoch" ]; then
+  # ③ 원문 txt 와 JSON 의 짝 — 새 txt 에 낡은 JSON 을 붙이지 않는다(2분 슬랙: 판정기가 연달아 쓴다).
+  if [ -n "$latest" ] && verdict_is_about_the_run \
+    && [ "$(mtime_of "$latest")" -ge "$(( $(mtime_of "$recovery") - 120 ))" ]; then
     break
   fi
   latest=""
@@ -167,7 +197,15 @@ while [ "$waited" -lt "$settle" ]; do
 done
 judge_rc=0
 if [ -n "$latest" ]; then
-  ok "떠 있던 감시가 판정을 남겼다(대기 ${waited}s): $(basename "$latest")"
+  ok "이 실행에 대한 판정이 이미 있다(대기 ${waited}s): $(basename "$latest")"
+  basis="$("$PY" - "$recovery" <<'PYB'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+r = d.get("runner") or {}
+print(f"수집 {d.get('collected_at')} ≥ 종료 {r.get('end_time')} · 판정 지문 == 실행 지문 {str(r.get('start_fingerprint'))[:16]}…")
+PYB
+)"
+  note "받아들인 근거: $basis"
 else
   note "판정 원문이 아직 없다 — harvest 를 직접 돌린다"
   bash "$NX10/soak_control.sh" harvest --timeout 900 || judge_rc=$?
