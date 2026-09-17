@@ -35,6 +35,22 @@ record_hash() {
 }
 real_record_hash="$(record_hash)"
 
+# 게이트 러너가 도는 중이면 R3/R4 의 “코드 경로 무변경” 바이트 비교는 **무효**다 — 그 러너가 추적 산출물을
+# 다시 쓰기 때문이다(`dashboard-build`·`sbom-generate`; 지문은 안 움직여도 바이트는 다시 쓰인다).
+# 실측(2026-09-18): 게이트가 도는 중에 돌린 리허설이 그 두 줄만 거짓으로 빨개졌다. 조용히 넘기지 않고 SKIP 이라 적는다.
+GATES_LIVE=0
+if pgrep -f "[r]un_promote_gates.sh" >/dev/null 2>&1; then
+  GATES_LIVE=1
+  printf '[NOTE] 게이트 러너가 도는 중 — R3/R4 의 바이트 비교는 지금 무효라 SKIP 한다(끝나면 다시 돌릴 것)\n'
+fi
+check_code_unchanged() {
+  if [ "$GATES_LIVE" -eq 1 ]; then
+    printf '  [SKIP] %s(게이트 러너 실행 중 — 바이트 비교 무효)\n' "$1"
+    return
+  fi
+  [ "$hashes_before" = "$(code_hashes)" ] && pass "$1" || fail "$1"
+}
+
 echo "=== 미러 준비 ($MIRROR) ==="
 mkdir -p "$MIRROR/nx10"
 cp -R "$NX10/batchchain" "$MIRROR/nx10/batchchain"
@@ -71,7 +87,7 @@ out="$(cd "$REPO" && NX10_SOAK_PROC_PATTERN='nx10-chain-rehearsal-actor' NX10_CH
 rc=$?
 [ "$rc" -eq 1 ] && pass "거부 exit 1" || fail "거부 exit $rc(기대 1)"
 printf '%s' "$out" | grep -q "앞 단계가 아직 돌고 있다" && pass "사유를 말한다" || fail "사유 문장이 없다"
-[ "$hashes_before" = "$(code_hashes)" ] && pass "코드 경로 무변경(쓰기 0건)" || fail "코드가 바뀌었다"
+check_code_unchanged "코드 경로 무변경(쓰기 0건)"
 
 echo
 echo "=== R3: --wait + 상한 초과 → 멈추고 기록 ==="
@@ -84,7 +100,7 @@ rc=$?
 printf '%s' "$out" | grep -q "시간 초과" && pass "시간 초과를 말한다" || fail "시간 초과 문장이 없다"
 kill "$dummy" "$dummy2" 2>/dev/null || true
 wait "$dummy" "$dummy2" 2>/dev/null || true
-[ "$hashes_before" = "$(code_hashes)" ] && pass "코드 경로 무변경(쓰기 0건)" || fail "코드가 바뀌었다"
+check_code_unchanged "코드 경로 무변경(쓰기 0건)"
 
 echo
 echo "=== R4: 쓰기 전 관문 — 앞 단계 결과가 없으면 아무것도 적용하지 않는다 ==="
@@ -95,8 +111,7 @@ out="$(cd "$REPO" && NX10_SOAK_PROC_PATTERN='nx10-chain-none' NX10_CHAIN_PROC_PA
 rc=$?
 [ "$rc" -eq 1 ] && pass "관문에서 멈춤 exit 1" || fail "exit $rc(기대 1)"
 printf '%s' "$out" | grep -q "회수 판정 JSON 이 없다" && pass "관문 사유를 말한다" || fail "관문 사유가 없다"
-[ "$hashes_before" = "$(code_hashes)" ] && pass "**본 트리 코드 무변경**(쓰기 전 관문이 실제로 막았다)" \
-  || fail "본 트리 코드가 바뀌었다"
+check_code_unchanged "**본 트리 코드 무변경**(쓰기 전 관문이 실제로 막았다)"
 grep -q "중단" "$MIRROR/nx10/batchchain/batchchain-record.md" 2>/dev/null \
   && pass "중단 기록이 **미러**에 남았다(본 운영 기록은 깨끗하다)" || fail "미러에 중단 기록이 없다"
 # 이빨: 해시 비교가 변화를 **실제로** 감지하는가(한 바이트만 다른 사본으로 확인한다 — 본 파일은 안 건드린다).
@@ -107,6 +122,54 @@ printf 'probe' >"$probe"
 rm -f "$probe"
 [ "$real_record_hash" = "$(record_hash)" ] && pass "본 운영 기록 무변화(리허설은 기록을 건드리지 않았다)" \
   || fail "본 기록이 오염됐다(미러 리허설인데 본 기록에 썼다)"
+
+echo
+echo "=== R6: 이어받기 가드 — 건너뛴 단계는 커밋으로만 인정한다 ==="
+# 2026-09-18 실측: 4-PERF 커밋에서 체인이 멈췄고, 그 뒤 이 체인을 처음부터 다시 돌릴 수 없었다
+# (SC6 의 사전 이미지는 지나갔고 트리는 PERF 바이트 → 다시 돌리면 exit 8). 그래서 `NX10_CHAIN_FROM` 을
+# 넣었고, 여기서 **배포된 함수 본문을 그대로 추출해** 두 가지를 겨눈다: ① 어느 단계를 건너뛰는가
+# ② 건너뛰는 단계의 **커밋이 이력에 없으면 멈추는가**(“이미 됐다”는 가정 금지).
+FUNCS="$MIRROR/chain-funcs.sh"
+{
+  sed -n '/^subject_of() {/,/^}/p' "$CHAIN"
+  sed -n '/^should_run() {/,/^}/p' "$CHAIN"
+  sed -n '/^require_commit() {/,/^}/p' "$CHAIN"
+} >"$FUNCS"
+for fn in subject_of should_run require_commit; do
+  grep -q "^$fn() {" "$FUNCS" || fail "$fn 본문을 추출하지 못했다(가드 이름이 바뀌었나)"
+done
+[ "$(wc -l <"$FUNCS")" -ge 20 ] && pass "배포된 함수 본문 추출($(wc -l <"$FUNCS")행)" || fail "추출본이 너무 짧다"
+guard_case() { # $1=FROM $2=배치 $3=커밋 있나(yes|no)
+  bash -c '
+    set -uo pipefail
+    FROM="$1"; NAME="$2"; LOG_HAS="$3"
+    _stop() { printf "STOP:%s\n" "$2"; exit 9; }
+    ok() { :; }
+    # 실제 명령과 **같은 형식**을 흡내낸다(`%h%x09%s`) — 형식이 다르면 시험이 다른 것을 겨냥한다.
+    git() { if [ "$LOG_HAS" = yes ]; then printf "abcdef0\t%s\n" "$(subject_of "$NAME")"; fi; }
+    . "$4"
+    if should_run "$NAME"; then printf "RUN\n"; else printf "SKIP\n"; require_commit "$NAME"; fi
+  ' _ "$1" "$2" "$3" "$FUNCS"
+}
+case_check() { # $1=설명 $2=FROM $3=배치 $4=기대 $5=커밋(yes|no)
+  out="$(guard_case "$2" "$3" "$5")"
+  [ "$out" = "$4" ] && pass "$1 → $out" || fail "$1 → $out (기대 $4)"
+}
+case_check "FROM=SC6 은 전부 돈다" SC6 FLUSH RUN yes
+case_check "FROM=FLUSH 는 SC6 를 건너뛴다(커밋 있음)" FLUSH SC6 SKIP yes
+case_check "FROM=FLUSH 는 PERF 를 건너뛴다(커밋 있음)" FLUSH PERF SKIP yes
+case_check "FROM=FLUSH 는 FLUSH 를 돈다" FLUSH FLUSH RUN yes
+case_check "FROM=FLUSH2 는 FLUSH 를 건너뛴다" FLUSH2 FLUSH SKIP yes
+# 이빨: 건너뛰는데 **그 커밋이 없으면** 멈춰야 한다(없는 근거를 집지 않는다).
+out="$(guard_case FLUSH SC6 no)"
+printf '%s' "$out" | grep -q "STOP:" && pass "이빨: 커밋이 없으면 멈춘다($out)" \
+  || fail "이빨 없음 — 커밋 없는 건너뛰기를 허용했다($out)"
+# 이빨: 잘못된 FROM 값은 아무것도 하지 않고 거부한다(이름 오타가 조용한 전체 실행이 되면 안 된다).
+out="$(cd "$REPO" && NX10_CHAIN_FROM=BOGUS bash "$CHAIN" --plan 2>&1)"
+rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "값이 이상하다" \
+  && pass "이빨: FROM 오타는 거부한다(exit $rc)" || fail "FROM 오타를 받아들였다(exit $rc)"
+
 
 echo
 echo "=== R5: 소스 이빨 — 첫 적용 호출이 관문 뒤에 있다 ==="

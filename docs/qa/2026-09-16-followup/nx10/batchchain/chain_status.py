@@ -292,6 +292,9 @@ def last_soak_block(nx10: Path) -> dict[str, Any] | None:
         "end_fingerprint": fields.get("end_fingerprint"),
         "soak_seconds": fields.get("soak_seconds"),
         "workdir": fields.get("workdir"),
+        # 블록은 자기가 난 리포트 파일도 남긴다 — 그 경로가 “어느 리포트를 보고 판정했나”의 답이다
+        # (결정 브리프가 이 값을 쓴다: 최신 동명 파일을 고르면 낡은 회차를 집을 수 있다).
+        "report": fields.get("report"),
         "attributed": bool(
             fields.get("start_fingerprint")
             and fields.get("end_fingerprint")

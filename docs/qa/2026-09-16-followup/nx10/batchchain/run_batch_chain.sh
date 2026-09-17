@@ -72,6 +72,44 @@ LABEL="${NX10_GATE_LABEL:-batch}"
 SELF_PID="$$"
 started_epoch="$(date +%s)"
 
+# ── 이어받기(`NX10_CHAIN_FROM`) — 죽은 체인을 **손으로 마무리하지 않게** ─────────────────────
+# 왜 필요한가(2026-09-18 실측): 4-PERF 의 커밋에서 체인이 멈췄다. 그런데 이 체인은 단계마다 **사전 이미지**를
+# 고정하므로 처음부터 다시 돌려 FLUSH 까지 가는 것이 불가능하다 — SC6 의 사전 이미지(`ecd826ce…`)는 이미
+# 지나갔고 트리는 PERF 바이트다(다시 돌리면 SC6 가 exit 8 로 멈춘다). 그래서 “어느 단계부터”를 받는다.
+#
+# 안전장치: 건너뛰는 단계마다 **그 단계의 커밋 제목이 이력에 있어야 한다** — 없으면 멈춘다(가정하지 않는다).
+FROM="${NX10_CHAIN_FROM:-SC6}"
+case "$FROM" in
+  SC6|PERF|FLUSH|FLUSH2) ;;
+  *) echo "NX10_CHAIN_FROM 값이 이상하다: $FROM (SC6|PERF|FLUSH|FLUSH2)" >&2; exit 1 ;;
+esac
+# 각 배치의 커밋 제목 — 건너뛸 때 “그 일이 실제로 끝났는가”의 유일한 근거다.
+subject_of() {
+  case "$1" in
+    SC6) printf '%s' 'feat(nx10): judge SC-6 by the creep outside the warm-up window' ;;
+    PERF) printf '%s' 'feat(nx10): make throughput loss a first-class verdict axis' ;;
+    FLUSH) printf '%s' 'perf(nx10): read the journal tail once per append' ;;
+    FLUSH2) printf '%s' 'perf(nx10): stop rewriting the view on every append by default' ;;
+  esac
+}
+should_run() {  # $1 = 배치 이름 — FROM 이후(포함)면 0, 아니면 1
+  local target="$1" name
+  for name in SC6 PERF FLUSH FLUSH2; do
+    [ "$name" = "$FROM" ] && break
+    [ "$name" = "$target" ] && return 1
+  done
+  return 0
+}
+require_commit() {  # 건너뛸 단계는 커밋이 있어야 한다(없으면 “이미 됐다”는 가정이 거짓이다)
+  local name="$1" subject short
+  subject="$(subject_of "$name")"
+  # `%h` 는 가변 길이(축약)이므로 위치로 자르면 안 된다 — 실측: 처음에 `index($0,want)==3` 으로 썼다가
+  # 본문 위치가 9열이라 **항상 못 찾아** 이어받기가 언제나 멈추었다(리허설 R6 이 잡았다). 탭 구분으로 정확히 본다.
+  short="$(git log --format='%h%x09%s' -300 | awk -F'\t' -v want="$subject" '$2 == want { print $1; exit }')"
+  [ -n "$short" ] || _stop "$name 를 건너뛰라고 했는데 그 커밋이 이력에 없다 — 이어받기 전제가 거짓이다" "resume-$name"
+  ok "$name 는 이미 적용·커밋됐다($short · $subject)"
+}
+
 step() { printf '\n=== %s ===\n' "$1"; }
 ok() { printf '  [OK  ] %s\n' "$1"; }
 note() { printf '  [    ] %s\n' "$1"; }
@@ -181,11 +219,20 @@ if [ "$PLAN" -eq 1 ]; then
   ⑦ --rearm 이면: 예약 정리 → preflight → 새 8시간 soak 시작 → 감시 화면 재부착 → 회수 대기 예약
   멈추는 조건: ②가 성립하지 않거나, 어떤 배치의 가드·커밋이 실패했을 때(전부 기록을 남기고 쓰기 0건)
   멈추지 않는 것: 게이트가 빨간 것(기존 실패가 있다 — 요약만 남긴다)
+
+  이어받기: NX10_CHAIN_FROM=FLUSH bash …/run_batch_chain.sh --wait --rearm
+    · 이미 끝난 단계는 건너뛴다(사전 이미지 가드 때문에 처음부터 다시 돌릴 수 없다).
+    · 건너뛰는 단계마다 **그 커밋이 이력에 있어야 한다** — 없으면 쓰기 0건으로 멈춘다.
 TXT
   exit 0
 fi
 
-{ printf '\n# 배치 체인 — 시작 %s\n' "$(date -u +%FT%TZ)"; } >>"$RECORD"
+{
+  printf '\n# 배치 체인 — 시작 %s\n' "$(date -u +%FT%TZ)"
+  if [ "$FROM" != "SC6" ]; then
+    printf '  - 이어받기: `NX10_CHAIN_FROM=%s` — 그 앞 단계는 **커밋으로만** 확인한다(사전 이미지 가드 때문에 처음부터 다시 돌릴 수 없다)\n' "$FROM"
+  fi
+} >>"$RECORD"
 
 # ── 1. 앞 단계 대기 ─────────────────────────────────────────────────────────────────────────────
 step "1. 앞 단계 대기(soak · 3차 체인 · 게이트 러너 · 감시 · 회수)"
@@ -247,35 +294,51 @@ ok "코드 경로 깨끗(src/tests/scripts/dashboard)"
 
 # ── 3. SC6 ─────────────────────────────────────────────────────────────────────────────────────
 step "3. SC6 — SC-6 새 기준(창 밖 증가 + 반복당 creep)"
-bash "$NX10/sc6fix/apply_sc6fix.sh" || _stop "SC6 적용 실패(가드·검증) — 트리는 그 배치가 되돌렸다" 3
-commit_paths "feat(nx10): judge SC-6 by the creep outside the warm-up window" \
-  "The soak criterion compared a whole-run peak against a fixed cap, which mixes the start-up ramp into the judgement — the 30 MB spike the watcher printed was a warm-up artefact, not creep. The criterion is now computed by a pure function (warm-up window excluded, per-iteration creep scaled to the cap) with its own contract test, so the number the soak reports is the number the owner decided on." \
-  "3-SC6" scripts/val02_staging.py tests/test_sc6_criterion_contract.py
-run_gates "$LABEL-sc6" "SC6 배치(SC-6 새 기준) 뒤 커밋 $(git rev-parse --short HEAD) 에서 필수 23개 재측정" "3-SC6"
+if should_run SC6; then
+  bash "$NX10/sc6fix/apply_sc6fix.sh" || _stop "SC6 적용 실패(가드·검증) — 트리는 그 배치가 되돌렸다" 3
+  commit_paths "feat(nx10): judge SC-6 by the creep outside the warm-up window" \
+    "The soak criterion compared a whole-run peak against a fixed cap, which mixes the start-up ramp into the judgement — the 30 MB spike the watcher printed was a warm-up artefact, not creep. The criterion is now computed by a pure function (warm-up window excluded, per-iteration creep scaled to the cap) with its own contract test, so the number the soak reports is the number the owner decided on." \
+    "3-SC6" scripts/val02_staging.py tests/test_sc6_criterion_contract.py
+  run_gates "$LABEL-sc6" "SC6 배치(SC-6 새 기준) 뒤 커밋 $(git rev-parse --short HEAD) 에서 필수 23개 재측정" "3-SC6"
+else
+  require_commit SC6
+fi
 
 # ── 4. PERF ────────────────────────────────────────────────────────────────────────────────────
 step "4. PERF — 처리량 감소를 1급 판정 축으로(+귀속 사다리)"
-bash "$NX10/perf/apply_perf_gate.sh" || _stop "PERF 적용 실패(가드·검증) — 트리는 그 배치가 되돌렸다" 4
-commit_paths "feat(nx10): make throughput loss a first-class verdict axis" \
-  "A wall-clock drop can be the product getting slower, the machine being busy, or the run simply doing less work — the fourth soak measured -26.5% wall clock while efficiency moved -5.0%, so a wall-clock-only gate would have failed a healthy run exactly at its 27% threshold. The axis now decomposes wall clock into efficiency and utilisation, refuses to judge when load cannot be read, and carries an attribution ladder that names the phase, the function, its call path and the call path's sub-steps before any regression is reported." \
-  "4-PERF" scripts/val02_staging.py tests/test_throughput_gate_contract.py tests/live-4th-series.json
-run_gates "$LABEL-perf" "PERF 배치(처리량 축·귀속 사다리) 뒤 커밋 $(git rev-parse --short HEAD) 에서 필수 23개 재측정" "4-PERF"
+if should_run PERF; then
+  bash "$NX10/perf/apply_perf_gate.sh" || _stop "PERF 적용 실패(가드·검증) — 트리는 그 배치가 되돌렸다" 4
+  commit_paths "feat(nx10): make throughput loss a first-class verdict axis" \
+    "A wall-clock drop can be the product getting slower, the machine being busy, or the run simply doing less work — the fourth soak measured -26.5% wall clock while efficiency moved -5.0%, so a wall-clock-only gate would have failed a healthy run exactly at its 27% threshold. The axis now decomposes wall clock into efficiency and utilisation, refuses to judge when load cannot be read, and carries an attribution ladder that names the phase, the function, its call path and the call path's sub-steps before any regression is reported." \
+    "4-PERF" scripts/val02_staging.py tests/test_throughput_gate_contract.py tests/live-4th-series.json
+  run_gates "$LABEL-perf" "PERF 배치(처리량 축·귀속 사다리) 뒤 커밋 $(git rev-parse --short HEAD) 에서 필수 23개 재측정" "4-PERF"
+else
+  require_commit PERF
+fi
 
 # ── 5. FLUSH ───────────────────────────────────────────────────────────────────────────────────
 step "5. FLUSH — append 예산(F1: 꼬리 읽기 3회 → 1회)"
-bash "$NX10/fsync/apply_flush_batch.sh" || _stop "FLUSH 적용 실패(동결 9 / 사전 이미지 8 / 합성 순서 6 / 검증 5)" 5
-commit_paths "perf(nx10): read the journal tail once per append" \
-  "Every append read the same tail three times and re-read 113 KiB to answer a question one read answers — the flush budget probe put the cost in counts, not milliseconds, so the fix is deterministic under any disk state. Durability is untouched: the line is still written and fsynced before the view, and the tail is read exactly once inside the flock critical section." \
-  "5-FLUSH" src/antigravity_k/engine/conversation_journal.py src/antigravity_k/engine/conversation_store.py tests/test_flush_budget_contract.py
-run_gates "$LABEL-flush" "FLUSH 배치(append 예산) 뒤 커밋 $(git rev-parse --short HEAD) 에서 필수 23개 재측정" "5-FLUSH"
+if should_run FLUSH; then
+  bash "$NX10/fsync/apply_flush_batch.sh" || _stop "FLUSH 적용 실패(동결 9 / 사전 이미지 8 / 합성 순서 6 / 검증 5)" 5
+  commit_paths "perf(nx10): read the journal tail once per append" \
+    "Every append read the same tail three times and re-read 113 KiB to answer a question one read answers — the flush budget probe put the cost in counts, not milliseconds, so the fix is deterministic under any disk state. Durability is untouched: the line is still written and fsynced before the view, and the tail is read exactly once inside the flock critical section." \
+    "5-FLUSH" src/antigravity_k/engine/conversation_journal.py src/antigravity_k/engine/conversation_store.py tests/test_flush_budget_contract.py
+  run_gates "$LABEL-flush" "FLUSH 배치(append 예산) 뒤 커밋 $(git rev-parse --short HEAD) 에서 필수 23개 재측정" "5-FLUSH"
+else
+  require_commit FLUSH
+fi
 
 # ── 6. FLUSH2 ──────────────────────────────────────────────────────────────────────────────────
 step "6. FLUSH2 — view 신선도(읽기는 늦추지 않는다 · 기본값은 현행)"
-bash "$NX10/fsync2/apply_flush2.sh" || _stop "FLUSH2 적용 실패(동결 9 / 사전 이미지 8 = F1 먼저 / 합성 순서 6 / 검증 5)" 6
-commit_paths "perf(nx10): stop rewriting the view on every append by default" \
-  "The view is a cache of the journal, so the only thing a delayed rewrite can cost is the view file itself — public reads already reconcile from the journal, and the stale-view decision now compares sequences instead of mtime after a restore rehearsal showed mtime lying about committed turns. The lag stays opt-in and bounded, converges through flush_views(), and the default remains a rewrite per append." \
-  "6-FLUSH2" src/antigravity_k/engine/conversation_store.py tests/test_view_freshness_contract.py
-run_gates "$LABEL-flush2" "FLUSH2 배치(view 신선도) 뒤 커밋 $(git rev-parse --short HEAD) 에서 필수 23개 재측정" "6-FLUSH2"
+if should_run FLUSH2; then
+  bash "$NX10/fsync2/apply_flush2.sh" || _stop "FLUSH2 적용 실패(동결 9 / 사전 이미지 8 = F1 먼저 / 합성 순서 6 / 검증 5)" 6
+  commit_paths "perf(nx10): stop rewriting the view on every append by default" \
+    "The view is a cache of the journal, so the only thing a delayed rewrite can cost is the view file itself — public reads already reconcile from the journal, and the stale-view decision now compares sequences instead of mtime after a restore rehearsal showed mtime lying about committed turns. The lag stays opt-in and bounded, converges through flush_views(), and the default remains a rewrite per append." \
+    "6-FLUSH2" src/antigravity_k/engine/conversation_store.py tests/test_view_freshness_contract.py
+  run_gates "$LABEL-flush2" "FLUSH2 배치(view 신선도) 뒤 커밋 $(git rev-parse --short HEAD) 에서 필수 23개 재측정" "6-FLUSH2"
+else
+  require_commit FLUSH2
+fi
 
 # ── 7. 재장전 ──────────────────────────────────────────────────────────────────────────────────
 # 도구의 위치: 3차 배치가 감시·통제 도구를 **`scripts/` 로 승격**했다(`docs/` 사본은 이동으로 사라졌다).

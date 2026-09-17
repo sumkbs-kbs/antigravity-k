@@ -218,7 +218,7 @@ HEAD)까지 본다` 가 그대로 초록이라 귀속 검사가 살아 있음이
 | --- | --- | --- | --- |
 | `perf/val02_staging.py` | `scripts/val02_staging.py` (**덮어씀**) | RSS 축(SC6) + **처리량 축**(정체식 분해) + **귀속 사다리 4칸**(국면 적립 → 국면 안 함수 창 프로파일 → 호출 경로·빈도) | `a67695013fde…` |
 | `perf/test_throughput_gate_contract.py` | `tests/test_throughput_gate_contract.py` (신설) | 계약 시험 **47건**(축 독립 4조합 · 실측 실행 회귀 · 면제는 통과 아님 · **귀속 사다리 10건** · **국면 내부 12건** · **호출 경로 12건**) | `e47a4151872d…` |
-| `perf/live-4th-series.json` | `tests/live-4th-series.json` (신설) | 시험 #10 의 **실측 입력**(4차 실행 표본 288개) | `b9f25b218c76…` |
+| `perf/live-4th-series.json` | `tests/live-4th-series.json` (신설) | 시험 #10 의 **실측 입력**(4차 실행 표본 288개) | `68562c7ae3ad…`(2026-09-18 개정 — 두 사본 모두 훅이 강제하는 **마지막 줄바꿈**을 넣었다. 그 전 값 `b9f25b218c76…` 은 훅을 통과해 커밋될 수 없는 바이트였다: 대장 §41-2) |
 | `perf/apply_perf_gate.sh` | — (도구) | 본실행: 동결 가드 + **사전 이미지(=SC6 적용 뒤)** + 백업·자동 롤백 · **승격 위치 정적 검사** | `59a6c01fd6f0…` |
 | `perf/rehearse_perf.sh` | — (도구) | 미러 리허설 7시나리오(본 트리 쓰기 0건) | `c5332d007d1e…` |
 | `perf/probe_ladder_end_to_end.py` | — (도구 · `docs/` 전용) | 사다리 **배선 실측** 프로브(실제 하네스 60초 × 4회 · D 국면 내부 창 · **E 호출 경로·빈도**) | `d9f48b3ef0f9…` |

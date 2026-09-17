@@ -487,6 +487,10 @@ screen -dmS nx10batchchain caffeinate -i bash -c \
      >> docs/qa/2026-09-16-followup/nx10/batchchain/batchchain.log 2>&1"
 # 확인: tail -20 …/batchchain/batchchain.log · cat …/batchchain/batchchain-record.md
 # 취소: screen -S nx10batchchain -X quit   (각 배치의 백업은 그 배치 스크립트가 남긴다)
+# 이어받기: NX10_CHAIN_FROM=FLUSH bash …/run_batch_chain.sh --wait --rearm
+#   · 처음부터 다시 돌릴 수 없을 때 쓴다(사전 이미지 가드 — 대장 §41-3).
+#   · 건너뛰는 단계마다 **그 커밋이 이력에 있어야** 한다(없으면 쓰기 0건으로 멈춘다).
+#   · 확인: bash …/batchchain/rehearse_chain.sh  (R6 이 이 가드 문장들을 고정한다)
 ```
 
 **멈추는 조건**(모두 기록을 남기고 쓰기 0건): 앞 단계 결과가 성립하지 않을 때(회수 판정 PASS 아님 · 지문 갈림 ·
@@ -500,7 +504,16 @@ screen -dmS nx10batchchain caffeinate -i bash -c \
 ```bash
 .venv/bin/python docs/qa/2026-09-16-followup/nx10/batchchain/chain_status.py       # 사람용
 .venv/bin/python docs/qa/2026-09-16-followup/nx10/batchchain/chain_status.py --json # 기계 판독
+# 오너 결정 직전: 결정마다 “무엇을 보고 정하는가”와 **지금 그 숫자가 있는가**를 한 장으로
+.venv/bin/python docs/qa/2026-09-16-followup/nx10/batchchain/decision_brief.py     # 읽기 전용
 ```
+
+**결정 브리프(`decision_brief.py`)** — 오너 지시 *“모든 테스트가 완료되고 그 결과를 보고 결정하자”* 를
+실행 가능한 형태로 만든 도구다(2026-09-18). 회수 판정·검사 6건 · **러너 블록이 가리키는 리포트**의 SC-6 요약
+(이름이 비슷한 최신 파일을 집지 않는다 — 일부러 실패시킨 `soak-28800-fail001.json` 이 같은 폴더에 있다) · 네 배치
+게이트의 **빨간 게이트 이름** · 처리량 축이 리포트에 **있는지**(배치 `PERF` 전에는 없다)를 한 화면에 모으고,
+결정 D1~D8·D-P1~P3·D-F3-1~4 마다 필요한 숫자를 짝지어 보여 준다. 숫자가 없으면 “자료 없음”이라고 적는다 —
+없는 근거를 결정 자리에 들고 가지 않기 위해서다. 계약 시험 6건(`batchchain/test_decision_brief_contract.py`).
 
 살아 있는 무인 작업(화면/프로세스) · 배치 네 개의 `적용 커밋 / 게이트 요약 / 측정 지문` · 마지막 soak 러너
 블록(시작==종료 지문인가) · 마지막 판정(PASS/FAIL) · **다음 할 일**을 보여 준다. 근거는 문장이 아니라
@@ -525,6 +538,17 @@ screen -dmS nx10batchchain caffeinate -i bash -c \
 (`d555fc96`·`a021a336`), 같은 함수로 다시 계산한 지문은 회차 시작 값 **`24084566…` 그대로**였다. 반대로
 `src/`·`scripts/`·`tests/`·`dashboard/` 를 만지면 그 회차의 값은 “그 지문의 값”이 될 뿐이고,
 `promote001` 이 실제로 그렇게 갈렸다 — 그 셋은 **게이트가 끝난 뒤**에 만진다.
+
+**무인 체인이 도는 중에 이 창이 커밋하지 않는다(2026-09-18 실측 — 대장 §41)**: 체인은 배치마다 **자기가 커밋**한다.
+`git add` 는 인덱스를 공유하므로, 같은 순간에 창이 커밋을 시도하면 둘 다 깨지고 — 더 나빠지는 경우 — 창의 파일이
+제품 배치 커밋에 섞인다. 실제로 인덱스가 **11개 파일**(창 8 + PERF 3)을 들고 있었다. 그래서 규칙은: 체인이
+커밋을 할 수 있는 창 동안에는 창이 **스테이징하지 않는다**(문서 편집·도구 실행은 안전하다 — 지문이 `docs/` 를
+제외하기 때문이다). 그러므로 오늘의 배치 커밋을 창이 대신 해야 할 때는 **먼저 스테이징 상태를 확인하고,
+남의 파일이 인덱스에 없는지 본 뒤** 그 한 배치만 커밋한다.
+
+**배치가 옮기는 파일은 저장소 훅의 바이트 규칙을 지켜야 한다(같은 실측)**: `tests/live-4th-series.json` 이
+마지막 줄바꿈 없이 옮겨졌고 `end-of-file-fixer` 가 그 파일을 고쳐 **커밋이 통과할 수 없었다**. 새 배치를 만들 때는
+`pre-commit run` 을 대상 파일에 먼저 돌려 본다 — 그 실패는 무인 체인에서는 “밤 사이 반 시간”이 된다.
 
 **도구의 위치**: 감시·통제 도구는 3차 배치에서 `scripts/` 로 승격됐다(`docs/` 사본은 없다). 체인도
 승격 위치를 부르고 시작 전에 존재를 확인한다 — 그 문장은 계약 시험
