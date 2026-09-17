@@ -39,8 +39,13 @@ Regression results / raw log paths / hashes: regression.txt
     — 전체 스위트 안에서도 옛 비결정 실패가 재발하지 않음
 Data migration / backup / rollback observed: 데이터 변경 없음(시험·계측 계약만 수정).
   rollback = 이 파일을 HEAD 버전으로 되돌리면 옛 판정식으로 복귀하며, 그 경우 비결정 실패가 재발한다.
-Unverified / reason / impact: (1) 8h soak 의 `stream_line_count` 경로는 20초 리허설에서 로직만 확인했고
-  실측 규모(수 GB)에서 실행하지 않았다. (2) SC-6 의 `orphan_worktrees` 는 저장소 전역 상태를 읽으므로
+Unverified / reason / impact: (1) ~~8h soak 의 `stream_line_count` 경로는 실측 규모에서 미실행~~ →
+  **2026-09-17 정정: 경로가 처음 실행됐고 통과했다**(꼬리 창 수정 뒤 10분 하네스 실행의 journal 94.1 MB 가
+  임계 32 MiB 를 넘어 `conversation_originals_verification=stream_line_count` · `replay_deferred=True` ·
+  `journal_lines=269,088` · `terminated=True` · `originals_complete=True`). 남은 미검증은 **시간 규모**뿐이다:
+  이 실측은 10분 실행이므로 ”8시간 보고서의 그 필드”는 지금 도는 8시간 soak(종료 예정 2026-09-17 18:19 KST)이
+  닫는다. 근거: [../nx10/SOAK_8H_FINDINGS.md §5·§6](../nx10/SOAK_8H_FINDINGS.md) ·
+  [../nx10/GATE_LEDGER.md §16-1](../nx10/GATE_LEDGER.md). 아래 20초 리허설 기록은 그대로 보존한다. (2) SC-6 의 `orphan_worktrees` 는 저장소 전역 상태를 읽으므로
   공유 체크아웃에서는 다른 작업이 남긴 prunable worktree 때문에 pass 가 막힌다(이번 카드에서 prune 하지 않음).
   (3) 성능 수치는 10회 반복의 median/max 만 보고하며 절대 상한을 주장하지 않는다.
 Reviewer verdict / reviewed SHA / artifact: 미지정 — 독립 검토 필요.
@@ -86,6 +91,8 @@ NX-02 가 정본 계수 기준(journal 원본)을 만들었으므로 이제 두 
   잡힌다. 이 카드에서 `git worktree prune` 을 실행하지 않았다(파괴적·타 작업 소유 가능).
   NX-06(readiness) 또는 NX-10 전에 소유자가 정리하거나, "이 실행이 만든 worktree" 만 세도록
   좁히는 결정이 필요하다. **주장을 약화시키기 위해 검사를 삭제하지 않았다.**
-- `stream_line_count` 검증 경로는 실측 규모에서 미실행(20초 리허설은 full_replay 경로).
+- `stream_line_count` 검증 경로는 **2026-09-17 처음 실행·통과**했다(94.1 MB journal, 위 §Unverified). 남은 것은
+  실측 **시간 규모**(10분 → 8시간)의 확인뿐이며 2026-09-17 18:19 KST 종료 예정인 8시간 soak 이 닫는다.
+  그 전까지는 “8h 보고서에서 확인됨”이라고 쓰지 않는다.
 - 시험은 `pytest -p no:randomly` 로 확인했다. 기본 addopts(랜덤 순서)에서도 파일 단독 5회 반복은 안정적이나,
   전 스위트에서의 반복 안정성은 1회만 확인했다.

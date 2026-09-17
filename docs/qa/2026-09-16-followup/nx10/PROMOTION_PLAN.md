@@ -25,6 +25,18 @@
 `docs/` 의 원본은 **이동(mv)** 이다 — 사본을 남기면 시험이 `scripts/` 를 먼저 찾으므로 낡은 사본이
 가려지고, "고쳤는데 안 고쳐진" 상태가 조용히 생긴다. 원본 보존은 이 표의 해시와 `promotion-applied.txt` 가 맡는다.
 
+### 1b. 다음 승격 후보 (동결 해제 뒤 — 2026-09-17 추가)
+
+| 스테이징(지금 `docs/` 안) | 승격 위치(안) | 역할 | 왜 승격해야 하는가 |
+| --- | --- | --- | --- |
+| `nx01/restore_rehearsal.py` | `tests/test_restore_rehearsal_contract.py`(+ 필요하면 `scripts/`) | restore 절차 판정부(왕복·최신 변경 손실 방지·멱등·삭제 거절) | 제품에 import/restore API 가 없어 **안전성이 절차에만** 있다. 지금은 `docs/` 라 어느 게이트도 이 판정식을 지키지 않는다 — 규칙이 낡으면 아무도 모른다(§2 의 구멍과 같다) |
+| `nx01/restore-rehearsal-output.txt` | `tests/` 승격 뒤에는 raw artifact 로 `docs/` 에 남긴다 | 판정 근거(경계 4 + 이빨 1) | 러너·판정기 승격 때와 같다 |
+
+승격 시 함께 닫을 것: ① 위 표의 1b 항목 ② `NX03-RESTORE-MARKER` 수리안(`original_history`/
+`export_original_history` 가 `read_deletion_marker` 도 확인 — [nx01/restore-rehearsal.md](../nx01/restore-rehearsal.md) §2).
+둘 다 `src/` 나 `tests/` 를 건드리므로 **동결 중에는 하지 않는다** — 지문이 움직이면 도는 soak 의
+시작/종료 지문 일치가 깨진다.
+
 ## 2. 왜 이 위치인가 (선례를 따른다)
 
 * `scripts/` — 이 저장소의 검사기·판정기·러너는 전부 여기 산다(`ga_gate.py` · `ga_gate_verify.py` ·

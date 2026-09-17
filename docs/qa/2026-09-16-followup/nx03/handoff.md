@@ -138,5 +138,14 @@ Next owner / exact next action: 독립 검토자는 nx03/repro_nx03_session_dele
    운영자 명시 회수는 아카이브 이동). 장기 운영에서 디스크·목록 성능 영향은 **미측정**으로 남는다
    (회수 시점을 정하려면 실사용 누적률이 필요하다).
 2. NX-03 이전에 이미 삭제된 세션(표식 없음)의 stale writer는 여전히 부활 가능하다. 구버전 삭제 이력은 복구 불가.
+5. **`NX03-RESTORE-MARKER` — 표식이 원문 읽기 표면을 막지 못한다**(2026-09-17 실측, NX-01 restore 리허설):
+   삭제된 대화에 대해 **삭제 전 journal 바이트를 파일로 되돌려 놓으면** `history_state.deleted` 는 표식
+   덕에 `true` 로 남지만 **`original_history` 가 원문을 다시 반환**한다(관측 3건; 같은 함수 docstring 은
+   “Deleted conversations return an empty list.” 라고 적혀 있다). 즉 표식은 **상태 플래그에만** 적용되고
+   읽기 표면은 journal 안의 `delete` 이벤트만 본다 — 백업 복원·디스크 이미지 복구처럼 바이트를 되돌리는
+   경로에서 삭제된 대화의 본문이 export 표면으로 나올 수 있다. **동결 중이라 코드는 고치지 않았다**(`src/`
+   수정은 도는 8시간 soak 의 지문을 움직인다). 수리안: `original_history`/`export_original_history` 가
+   `read_deletion_marker` 도 확인하게 한다(동결 해제 뒤 별도 카드). 운영 절차는 이 상태를 거절한다 —
+   근거 [../nx01/restore-rehearsal.md](../nx01/restore-rehearsal.md) §2·§3.
 3. `redact`(마스킹) 경로는 여전히 잠금 없이 파일을 직접 덮어쓴다 → NX-08 에서 확인해야 한다.
 4. 파일시스템별 `flock`/fsync 신뢰성(NFS 등)은 미검증이다.

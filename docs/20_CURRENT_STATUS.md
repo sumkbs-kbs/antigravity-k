@@ -57,7 +57,9 @@ PIN 이 설정된 배포에서는 첫 화면이 PIN 입력이다.
 | ② 교정 결정 A | 2026-09-15 | ConversationStore soft-max auto-compact 기본 64(`78012f4a`) · **임계값 64MB 는 올리지 않음** | 결정 |
 | ③ 재soak | 2026-09-15 15:07 → ~23:08 KST | `duration_s=28801.318` · append `12,102,886` = revision `12,102,886` · 최종 view 26 (≤ soft max 64) · RSS `65.7 → 114.4`(+48.7) · `errors=0` · `fd_growth=0` · `orphan_worktrees=0` · SC-1~6 `all_pass: true` | **JSON 지표 PASS** |
 | ④ 종료·귀속 | — | 래퍼 로그 마지막 줄 `finished exit:141`(원문 명령 미보존 → stdout 절단 가능성, INCONCLUSIVE) · **재soak 당시 코드 후보·시작/종료 지문 귀속 UNVERIFIED** | **미확정** |
-| ⑥ NX-10 수정 뒤 재실행 | 2026-09-16 08:26 KST → 종료 예정 16:26 KST | 꼬리 창 수정(`7d8c25b5`) + 게이트 23개 재측정(22/1/0) 뒤 **같은 지문 `98855031…`** 에서 재실행 · preflight **6/6 OK**(처리량 하한 443 ops/s ≥ 133) · 시작 = 현재 트리 = HEAD 트리(후보 `7691ccc5`) | **실행 중** |
+| ⑥ 재실행 1차(꼬리 창 수정 뒤) | 2026-09-16T23:26:23Z(08:26 KST) → **00:13:54Z 중단**(09:13 KST) | 지문 `98855031…` = 당시 트리 = HEAD(후보 `7691ccc5`) · preflight 6/6 · **47분에 journal 452 MiB → 기본 hard cap 512 MiB 를 8분 뒤 넘긴다** → 넘기면 append 가 507 로 거절되고 하네스가 `errors` 로 세서 **설정 때문의 거짓 FAIL**(§3e) | **중단(도구가 8시간을 살렸다)** · `exit: 143` · 종료 지문 = 시작값 |
+| ⑥ 재실행 2차(러너가 cap 명시) | 2026-09-17T00:15:16Z(09:15 KST) → **00:22:48Z 중단**(09:22 KST) | `retention_caps: soft=64MiB hard=8192MiB` 로 재시작했으나 **SC-3 이 제품 경합**을 잡고(§3f), 하네스의 `q.get()` 에 타임아웃이 없어 죽은 worker 하나가 실행 전체를 멈췄다 — 러너는 종료 시에만 리포트를 쓰므로 8시간이 **FAIL 이 아니라 결과 0** 이 될 참이었다 | **중단(결함 둘 노출)** · `exit: 143` · 종료 지문 = 시작값 |
+| ⑦ 재실행 3차(현재) | 2026-09-17T01:19:43Z(10:19 KST) → 종료 예정 `09:19:43Z`(**18:19 KST**) | 결함 둘 수정(`c522b256`: registry 최초 생성도 공유 lock 아래 · 고유 tmp 이름 · worker 무응답 상한 120초 → 오류 1건으로 계상) + 계약 시험 5건 → 필수 23개 재측정(`sc3fix001`: **22 passed · 1 failed · 0 not_run**, 시작 = 종료 = `5c90b637…`) → 그 지문에서 재시작 · preflight **7/7 OK**(처리량 451 ops/s · 쓰기량 투영 4,282 MiB < cap 8,192 MiB) · **SC-1~5 완주 · 오류 0**(어제 멈췄던 SC-3 경합 통과) · 회수 감시는 `harvest` 가 대기 중 | **실행 중** |
 | ⑤ NX-10 재soak (새 후보 `fd16368c`) | 2026-09-16 21:13 → 09-17 05:13 KST | `duration_s 28800.075`(요청 100.0%) · append `70,430` · view 19 ≤ 64 · `errors 0` · fd 5→5 · `orphan_worktrees 0` · 원본 70,431건 전수 확인 · **`rss_growth_mb 1683.5` ≫ 64 → SC-6 FAIL** · start = end = 기대 지문 = `322b4d3b…` · **exit 1** | **FAIL(원인 측정)** |
 
 요약 JSON 의 SHA256 과 sample 배열 요약(count/min/max/first/last)은
@@ -80,10 +82,18 @@ journal 94.1 MB · `rss_growth_mb` **32.2** 로 `pass: true`, 기울기 평탄�
 **거짓으로 보고하지 않기 위해**: ⑤ 는 여전히 FAIL 이다 — 고침은 “원인이 사라졌다”는 뜻이고,
 새 지문에서 게이트 23개와 8시간을 다시 재기 전까지 “이김”이 아니다.
 
-**수정 뒤 같은 지문에서 8시간을 다시 시작했다(⑥, 08:26 KST → 16:26 KST)**: `soak_control.sh run` 의
-preflight 가 **6/6**(처리량 하한 포함 — 그 항목을 이번에 추가했다. 직전 실행은 60초에 2,978 ops를 내고도
-통과해 8시간을 태웠다). 직전 FAIL 리포트는 `soak-28800-fail001.json` 으로 보존했고, 회수 판정은
-`python scripts/collect_soak_result.py` 한 줄이다 — **그 전까지 ⑤ 는 FAIL, ⑥ 는 “실행 중”** 이다.
+**수정 뒤 같은 지문에서 8시간을 다시 시작했고, 그 실행은 두 번 멈췄다 — 매번 이유가 달랐다(⑥, §3e·§3f)**:
+1차는 `soak_control.sh run` 의 preflight **6/6**(처리량 하한 포함)으로 시작했지만 **47분에 중단**했다 —
+꼬리 창 수정으로 append 가 20배 빨라져 journal 이 **160 KB/s**(452 MiB/47분)로 자라 **기본 hard cap
+512 MiB 를 8분 뒤 넘기고**, 넘긴 뒤의 507 이 하네스에서 `errors` 로 세어져 **설정 때문의 거짓 FAIL** 이
+될 참이었다. 2차는 `retention_caps: soft=64MiB hard=8192MiB` 로 재시작했으나 **7분에 멈췄다**: SC-3 이
+`ProjectRegistry` 의 **최초 생성 경로가 공유 lock 밖**이고 백업 회전 tmp 이름이 고정인 **제품 경합**을
+잡았고, 하네스의 `q.get()` 에 타임아웃이 없어 **죽은 worker 하나가 실행 전체를 영원히 붙잡았다**(그대로
+두면 8시간이 결과 0). 둘 다 고쳐 커밋 `c522b256`(계약 시험 5건) 뒤 **필수 23개를 재측정**(`sc3fix001`:
+22 passed · 1 failed · 0 not_run, 시작 = 종료 = `5c90b637…` = HEAD 트리, 새 실패 0건)하고 **같은 지문에서
+3차를 시작했다**(`01:19:43Z` → 종료 예정 `09:19:43Z` = **18:19 KST**, preflight 7/7 · SC-1~5 완주 · 오류 0).
+직전 FAIL 리포트는 `soak-28800-fail001.json` 으로 보존했고, 회수 판정은 `harvest` 가 한다 — **그 전까지
+⑤ 는 FAIL, ⑦ 은 “실행 중”** 이다.
 
 **새 지문에서의 재측정(2026-09-17, attempt `tailfix001`)**: 커밋 `7d8c25b5`(수정) · `099cfc8b`(문서)
 뒤 **작업 트리 지문 = HEAD 트리 지문 = `98855031…`** 에서 필수 **23개를 전수 실행**해
@@ -104,6 +114,7 @@ preflight 가 **6/6**(처리량 하한 포함 — 그 항목을 이번에 추가
 - NX-00: 종료·귀속 INCONCLUSIVE (지표 재확인은 DONE) · **NX-00-F01** harness started/finished + exit 보존 결정
 - NX-01·NX-02·NX-03·NX-04·NX-05·NX-06·NX-08: 구현·시험 green **REVIEW** — 독립 검토자 미지정, NX-02 는 ADR 승인자 미지정
 - **NX-02-F01**: 세션 저장소가 prompt view 로 오염되는 경로 수정 여부 결정
+- **NX-01 restore 리허설 완료**(2026-09-17, 동결 중 `docs/` 만 수정): 제품에 import/restore API 가 없어 복구는 **파일 수준**이고 안전성은 절차가 책임진다 — 절차용 판정부를 만들고 4개 경계를 임시 저장소에서 실측(왕복·**최신 변경 손실 방지**(대상이 더 새로우면 거절)·멱등·삭제 거절, exit 0). 이빨 확인: 가드를 끄면 revision 8→5 로 되돌아가며 원문 3건이 사라진다([restore-rehearsal.md](qa/2026-09-16-followup/nx01/restore-rehearsal.md)). **남긴 발견 `NX03-RESTORE-MARKER`**: 삭제 표식은 상태 플래그에만 적용되고 원문 읽기 표면은 journal 의 `delete` 이벤트만 보므로, 삭제 전 바이트를 되돌리면 `deleted=true` 인데도 원문이 다시 읽힌다 — 동결 중이라 코드는 안 고치고 절차가 거절한다(수리안·승격 예정은 같은 문서 §2·§3).
 - NX-06: 정적 REVIEW / **런타임 BLOCKED**(cluster 없음 — Pod readiness·EndpointSlice 미관측) · `degraded→200` 정책 승인 필요
 - **NX-09**(2026-09-16, REVIEW): 실 UI 동선 — ~~**F04**(커밋된 `dashboard_dist` 가 소스보다 낡아 **서빙되는 SPA ≠ 소스**)~~ → **NX-10 에서 닫힘**(번들 재생성 후 UI 증인 30/30 passed · 동결 직전 `pnpm build` 를 절차로 고정)
   (NX-09-F06 은 재측정으로 **결함 아님** — 한 창 측정 아티팩트였고, 두 창 증인 T8 이 `sessions_revoked: 1`·close 571ms 로 계약을 고정한다)

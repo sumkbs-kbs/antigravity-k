@@ -713,3 +713,20 @@ SC-6 도 FAIL 이다. 수정 → 재측정 순서는 문서 §6.
 SC-3 이 그 코드를 직접 재므로 **고치되 기록을 남긴다**(동작은 안 바뀐다: lock 범위 확대 + tmp 이름 고유화).
 판정: 이 수정은 “어제 리허설의 초록”을 다시 쓰지 않는다 — 실패한 실행은 지우지 않고 증거로 남긴다
 (두 번의 중단 모두 러너가 `exit: 143` 과 시작·종료 지문을 기록했다).
+
+## 21. 잔여 작업 창 — 낡은 문장 정정 + NX-01 restore 리허설 (2026-09-17, 3차 soak 실행 중)
+
+3차 8시간 soak 이 도는 동안(시작 `01:19:43Z` · 지문 `5c90b637…`) **`docs/` 만** 수정했다
+(게이트 제외 프리픽스 `docs/` — 시작 지문이 안 움직인다).
+
+| 무엇 | 결과 | 근거 |
+|---|---|---|
+| 상위 상태 문서가 **지나간 실행을 현재로** 적고 있었다 | `docs/20` §3 표·서술과 `docs/19` NX-10 행의 “1차 재실행 = 실행 중” 을 세 실행(48분 중단 · 7분 중단 · 현재)으로 분리하고 사유·커밋·값을 넣었다 | `docs/20` §3 · `docs/19` NX-10 행 |
+| NX-04 “`stream_line_count` 실측 규모 미실행” | **실측으로 정정**(10분 실행, journal 94.1 MB > 임계 32 MiB → `stream_line_count`·`replay_deferred=True`·`journal_lines=269,088`). 남은 미검증은 **시간 규모**뿐 — 도는 8시간 soak 의 리포트가 닫는다 | [SOAK_8H_FINDINGS.md §5·§6](SOAK_8H_FINDINGS.md) · [../nx04/handoff.md](../nx04/handoff.md) |
+| NX-01 미완 항목 “restore 를 임시 경로에서 실행 + 최신 변경 손실 방지” | **종결(exit 0)** — 왕복 · 최신 변경 손실 방지(대상이 더 새로우면 거절) · 멱등 · 삭제 거절. 이빨: 가드를 끄면 revision 8→5 이며 원문 3건 소실 | [../nx01/restore-rehearsal.md](../nx01/restore-rehearsal.md) · `restore_rehearsal.py` · `restore-rehearsal-output.txt` |
+| **발견 `NX03-RESTORE-MARKER`** | 삭제 표식은 `history_state.deleted` 에만 적용되고 원문 읽기 표면은 journal 의 `delete` 이벤트만 본다 → 삭제 전 바이트를 되돌리면 `deleted=true` 인데 원문이 다시 읽힌다(3건). **동결 중이라 코드 미수정**(`src/` 수정은 도는 soak 의 지문을 가른다) — 운영 절차가 거절하고, 수리안은 동결 해제 뒤 | 위 문서 §2 · [../nx03/handoff.md §6-5](../nx03/handoff.md) |
+| 승격 예약 | 리허설 도구는 `docs/` 안이라 **어느 게이트도 지키지 않는다** → 다음 승격 후보로 등록 | [PROMOTION_PLAN.md §1b](PROMOTION_PLAN.md) |
+
+**지문 불변 확인**: 이 편집들은 `docs/` 안에만 있으므로 3차 실행의 시작 지문 `5c90b637…` 이 그대로 유효하다
+(`docs/` 는 정적 게이트 지문 제외 구역 — `scripts/ga_gate.py` 의 `FINGERPRINT_EXCLUDED_PREFIXES`).
+**판정은 변하지 않는다**: required red 1(`python-tests`, 타 레인) · CR-14 후보 재선언 없음 · owner 허용 없음.

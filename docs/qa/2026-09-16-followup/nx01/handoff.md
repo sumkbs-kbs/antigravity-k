@@ -118,6 +118,16 @@ Next owner / exact next action: 독립 검토자는 nx01/repro_nx01_compaction.p
 - 실제 유료 provider LLM 요약 경로는 실행하지 않았다(비용·외부 호출 미승인). fake summarizer/예외로만 검증했다.
 - `docs/packaging`, `vault_data`, 인증 백업은 건드리지 않았다.
 
+## 4b. restore 리허설 (2026-09-17 — 체크리스트 미완 항목 종결)
+
+제품에는 export 만 있고 import/restore API 가 없으므로 복구는 **파일 수준 작업**이고 안전성은 절차가
+책임진다. 임시 저장소만 써서 4개 경계를 실측(exit 0): **왕복**(지문 동일·revision 5=5·원문 5건 동일·view 재구성) ·
+**최신 변경 손실 방지**(대상이 더 새로우면 거절 — 그 사이 append 3건 생존) · **멱등**(같은 바이트는 `noop`) ·
+**삭제 부활 금지**(표식 있으면 거절 + `deleted` 유지). 이빨도 확인: 가드를 끄면 revision 8→5 로 되돌아가며
+3건이 사라진다. 근거 [restore-rehearsal.md](restore-rehearsal.md) · `restore_rehearsal.py` ·
+`restore-rehearsal-output.txt`. **발견 1건**(`NX03-RESTORE-MARKER`: 표식이 원문 읽기 표면을 막지 못함)은
+동결 때문에 고치지 않고 nx03/handoff §6-5 로 이관했다 — 승격은 동결 해제 뒤 `tests/` 로.
+
 ## 5. rollback
 
 - 스키마는 **추가 필드**만 도입했다. 구버전 레코드(`memory` 키 없음)는 그대로 읽히며, 다음 압축에서 `memory`가 생성된다.
@@ -126,6 +136,9 @@ Next owner / exact next action: 독립 검토자는 nx01/repro_nx01_compaction.p
   자동 다운그레이드 절차는 제공하지 않는다(계획 NX-01 rollback 조건).
 - 제품 데이터 포맷을 되돌릴 때는 반드시 백업 해시와 복구 리허설을 함께 남긴다. 이번 작업은 실사용 store 를 사용하지 않아
   실데이터 rollback 은 실행하지 않았고, 임시 `tmp_path` store 에서만 왕복을 확인했다.
+- **2026-09-17 추가**: 그 “복구 리허설”을 실제로 돌려 §4b 에 증거를 남겼다(임시 경로·exit 0).
+  복구 판정 규칙과 그 이빨(가드를 끄면 원문 3건이 사라짐)까지 수로 확인했으므로, 위 문장의
+  “왕복만 확인”보다 범위가 넓다. 실사용 store 복구는 여전히 미실시(운영 결정).
 
 ## 6. 남은 한계 / 검토자가 확인할 것
 
