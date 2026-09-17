@@ -727,7 +727,9 @@ SC-3 이 그 코드를 직접 재므로 **고치되 기록을 남긴다**(동작
 | NX-01 미완 항목 “restore 를 임시 경로에서 실행 + 최신 변경 손실 방지” | **종결(exit 0)** — 왕복 · 최신 변경 손실 방지(대상이 더 새로우면 거절) · 멱등 · 삭제 거절. 이빨: 가드를 끄면 revision 8→5 이며 원문 3건 소실 | [../nx01/restore-rehearsal.md](../nx01/restore-rehearsal.md) · `restore_rehearsal.py` · `restore-rehearsal-output.txt` |
 | **발견 `NX03-RESTORE-MARKER`** | 삭제 표식은 `history_state.deleted` 에만 적용되고 원문 읽기 표면은 journal 의 `delete` 이벤트만 본다 → 삭제 전 바이트를 되돌리면 `deleted=true` 인데 원문이 다시 읽힌다(3건). **동결 중이라 코드 미수정**(`src/` 수정은 도는 soak 의 지문을 가른다) — 운영 절차가 거절하고, 수리안은 동결 해제 뒤 | 위 문서 §2 · [../nx03/handoff.md §6-5](../nx03/handoff.md) |
 | NX-03 미완 항목 “tombstone 미지원 구버전 rollback, 실리허설 미실시” | **종결(exit 0)** — 구버전 판(`d929da01^`)을 그림자 트리로 돌려 ① 구버전끼리는 되살아난다(표식 0개) ② **현재가 삭제한 뒤에도 구버전은 다시 쓴다**(표식은 살아남음) ③ **복귀하면 현재 코드가 거절한다**(`marker_visible false` · 삭제된 id 대신 **새 id**). 종전 문구 “되돌리면 폐기 토큰이 살아난다” 를 **“위험은 되돌림 창 안에서의 노출”** 로 정정 | [../nx03/handoff.md §5b](../nx03/handoff.md) · `rollback_rehearsal.py` · `rollback-rehearsal-output.txt` |
-| 승격 예약 | 리허설 도구 둘 다 `docs/` 안이라 **어느 게이트도 지키지 않는다** → 다음 승격 후보로 등록 | [PROMOTION_PLAN.md §1b](PROMOTION_PLAN.md) |
+| **조기 경보 도구 `soak_watch.py`** (새 도구) | 돌고 있는 실행을 **매 표본 읽는다**(읽기 전용·저널을 읽지 않아 측정을 안 건드린다): 살아 있음 · 쓰기 진행 · **journal 증가율 vs 보존 cap 투영** · **RSS 기울기 vs SC-6 기준** · 추정 처리량 vs 하한. 오늘 두 실패가 모두 **끝나야 알 수 있었던** 종류여서 만들었다(1차: 47분에야 cap 초과 투영을 알았다 · 2차: 멈춘 뒤 30분 대기). 자기시험 **3/3**(정상 · 멈춤 → exit 6 · cap 초과 투영 → exit 2) | `soak_watch.py` · [soak-watch-live.txt](soak-watch-live.txt) |
+| ↳ **돌고 있는 3차 실행 실측**(2026-09-17T01:41Z, 실행 경과 21분) | 판정 **정상**: journal **290.0 MiB**(증가 ≈230 KiB/s) · 추정 **672 ops/s**(하한 133) · **종료 시 cap 추정 6,396 MiB < 8,192 MiB** · RSS 외삽 **+11~40 MB < 64 MB**. **주목**: preflight 의 사전 투영은 **4,282 MiB** 였는데 실측 추세는 **~6.4 GiB** 로 더 크다 — 여유가 사전 계산보다 **얓다**(둘 다 통과지만 사전 투영이 낙관적이다) | 위 출력 파일 |
+| 승격 예약 | 리허설·경보 도구 셋 다 `docs/` 안이라 **어느 게이트도 지키지 않는다** → 다음 승격 후보로 등록 | [PROMOTION_PLAN.md §1b](PROMOTION_PLAN.md) |
 
 **지문 불변 확인**: 이 편집들은 `docs/` 안에만 있으므로 3차 실행의 시작 지문 `5c90b637…` 이 그대로 유효하다
 (`docs/` 는 정적 게이트 지문 제외 구역 — `scripts/ga_gate.py` 의 `FINGERPRINT_EXCLUDED_PREFIXES`).

@@ -44,6 +44,19 @@ tail -20 docs/qa/2026-09-16-followup/nx10/soak-harvest.log   # 대기 중이면 
 ls -t docs/qa/2026-09-16-followup/nx10/soak-harvest-*.txt   # 끝나면 판정 원문이 생긴다
 ```
 
+**돌고 있는 동안에도 물어볼 수 있다(조기 경보, 2026-09-17 추가)**:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
+  docs/qa/2026-09-16-followup/nx10/soak_watch.py --once   # exit 0 정상 · 2 경고 · 6 멈춤
+```
+
+한 표본에 살아 있음 · 마지막 쓰기 · **journal 증가율 vs 보존 cap 투영** · **RSS 외삽 vs SC-6 64 MB** ·
+추정 처리량 vs 하한(133 ops/s)이 나온다. **읽기 전용이고 저널을 읽지 않아** 이 8시간의 측정을 건드리지 않는다
+(`--selftest` 3/3: 정상 · 멈춤 · cap 초과 투영). 왜 필요한가는 오늘 기록이 답한다 — 1차는 47분에야 cap 초과를,
+2차는 멈춘 뒤 30분을 더 기다려야 알았다(GATE_LEDGER §21). `harvest` 는 **끝나야** 판정하는 도구이고,
+이쪽은 **돌고 있는 동안** 말하는 도구라고 구분해 쓴다.
+
 감시가 끝나면 판정 `exit` 를 그대로 전하고, 그 출력을 `soak-harvest-<UTC>.txt` 로도 남긴다.
 `exit 6` 이면 **멈춘 실행**을 만난 것이니 §1-0 의 정리 절차를 보고 다시 시작한다.
 
