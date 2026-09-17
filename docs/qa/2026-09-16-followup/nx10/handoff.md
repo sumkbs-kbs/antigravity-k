@@ -133,14 +133,16 @@ screen -dmS nx10gates bash docs/qa/2026-09-16-followup/nx10/run_remaining_gates.
 `.venv/bin/python` 으로 고정하고, `UNVERIFIED` 는 드리프트보다 **먼저** 막도록 바꿨다(`exit 3`).
 
 **도구:** [soak_control.sh](soak_control.sh) — `arm`(지문을 지금 트리에서 계산) · `status`(단일 예약·고아·
-지문 일치를 한 화면에) · `cancel`(트리 단위 종료 + **검증**) · `orphans` · `preflight`(발화 전 10개 점검) ·
-`selftest`(**32/32**, 약 2분, 임시 디렉터리에서 사고를 재현). `preflight` 는 **8시간이 끝나도 결과를
+지문 일치를 한 화면에) · `cancel`(트리 단위 종료 + **검증**) · `orphans` · `preflight`(발화 전 점검 — 예약 11개 ·
+즉시 시작 7개) · `run`(지금 시작) · `harvest`(끝날 때까지 기다렸다가 회수 판정까지) ·
+`selftest`(**70/70**, 약 3분, 임시 디렉터리에서 사고를 재현 — **진짜 soak 이 도는 중에도** 통과한다). `preflight` 는 **8시간이 끝나도 결과를
 후보에 귀속할 수 있는가**를 미리 묻는다 — `현재 트리 지문 == HEAD 트리 지문`(`tree_fingerprint_of_commit`)을
 직접 확인하고, 인터프리터·러너 자산·`/tmp` 여유·이미 도는 soak 까지 함께 본다(실측: 10/10 OK). 예약 잠금은 `mkdir` 원자성이고(두 번째 예약은 `exit 2`),
 러너에도 별도 실행 잠금이 생겼다(이미 soak 이 돌면 `exit 5`, 리포트 미생성).
-사고·한계·자기시험이 잡은 결함 4건(macOS `tac` 부재 · 예약 1건이 프로세스 2개로 보이던 오탐 ·
-가짜 프로세스가 파이프를 물고 있는 문제 · heartbeat 중복)은
-[SOAK_SCHEDULING.md](SOAK_SCHEDULING.md) 가 소유한다.
+사고·한계·자기시험이 잡은 결함 6건(macOS `tac` 부재 · 예약 1건이 프로세스 2개로 보이던 오탐 ·
+가짜 프로세스가 파이프를 물고 있는 문제 · heartbeat 중복 · **실행 중 soak 을 ATTENTION 으로 오탐** ·
+**시험이 환경에 결합돼 진짜 soak 이 도는 동안 47/50**)은 [SOAK_SCHEDULING.md](SOAK_SCHEDULING.md) 가 소유한다.
+뒤의 두 결함은 §3d, 8시간 재실행(§17-3) 중에 발견했다 — 도구 결함이므로 그 실행의 기록은 그대로 유효하다.
 
 **세 번째 결함(이 창에서 발견·수정): 회수 판정기가 “첫 예약”을 읽었다.** `soak-schedule.txt` 는 예약할
 때마다 블록을 덧붙이는데, `scripts/collect_soak_result.py` 의 `expected_fingerprint()` 가 `re.search`
@@ -295,8 +297,54 @@ clean-machine 창이 열리고, 타 레인의 실패 4건이 정리되고(오너
   재고(`NX10_PREFLIGHT_MIN_OPS_PER_SEC` 기본 133) 미달이면 프루브 로그를 남기고 중단한다.
   자기시험 **43/43**, 실측 443 ops/s. 만들다 걸린 두 함정(SC-6 단독 실행의 exit 1 / 절대 개수 기준)은
   [SOAK_SCHEDULING.md](SOAK_SCHEDULING.md) §3b 에 적었다.
-- **8시간 재실행 시작(2026-09-16T23:26:23Z → 종료 예정 09-17T07:26:23Z = 16:26 KST)**: 시작 지문
-  `98855031…` = 현재 트리 = HEAD 트리(커밋된 후보 `7691ccc5`) · preflight **6/6 OK** ·
-  직전 FAIL 리포트는 `soak-28800-fail001.json` 으로 보존. 이 시점부터 이 창은 `docs/` 만 수정한다.
-- **다음**: 회수 판정(`collect_soak_result.py`) → 결과를 대장에 반영. 남는 required red 1 과 CR-14
-  재선언은 여전히 타 레인/오너의 일이다.
+- **8시간 재실행 1차 시작(2026-09-16T23:26:23Z) → 48분에 중단**(`2026-09-17T00:13:54Z`, 러너 `exit: 143`,
+  `end_fingerprint` = 시작값 — 트리는 안 흔들렸다). 이유는 아래 여섯 번째 결함이다(스스로 끝난 실행이 아니므로
+  판정 대상이 아니다).
+- **여섯 번째 결함(같은 날, 도구가 잡았다): 내 수정이 만든 새 사각지대 — 쓰기량 > 기본 hard cap.**
+  재실행이 47분쯤 돌았을 때 journal 이 **452 MiB**(159 KB/s)였다. ADR-DAT-02 의 기본 hard cap 은
+  **512 MiB 이고 자동 prune 이 없다** → **8분 뒤 507 로 모든 append 가 거절**되고, 하네스가 그것을
+  `errors` 로 세므로(`SC-6 pass` 에 `errors == 0`) 8시간이 **설정 때문의 거짓 FAIL** 로 끝날 참이었다.
+  직전 FAIL 실행의 8시간 journal 은 24.4 MB 였기에 기본 캡과 부딪힐 일이 없었고, 바로 그 때문에
+  어제의 리허설·점검이 이 벽을 보지 못했다 — §10 의 처리량 하한과 **쌍둥이 사각지대**다
+  (“빠르게 도는가”는 묻고 “그 속도로 쓰면 어디서 멈추는가”는 묻지 않았다).
+  조치: ① 중단 ② 러너가 캡을 정하고 **기록**한다(`AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=8192`, soft 는 기본 유지
+  — 경고 관측을 살린다; 기록에 `retention_caps: soft=64MiB hard=8192MiB` 를 해석해 남긴다)
+  ③ **preflight 에 쓰기량 투영 점검**을 추가해 8시간으로 외삽한 journal 바이트가 cap 의 90% 를 넘으면
+  시작 전에 막는다(자기시험 **70/70** — 캡 1 MiB 면 빨개지고 캡 8192 MiB 면 초록).
+  전문: [SOAK_SCHEDULING.md](SOAK_SCHEDULING.md) §3e.
+- **8시간 재실행 2차(2026-09-17T00:15:16Z) → 7분에 중단(00:22:48Z, `exit: 143`)**: 시작 지문 `98855031…` =
+  당시 트리 = HEAD(`aa1ead1f`) · preflight **6/6 OK**(처리량 437 ops/s · 투영 4,050 MiB < cap 8,192 MiB).
+  원인은 **SC-3 경합 + 하네스 무한 대기**(아래). 둘 다 고쳐 커밋 **`c522b256`** → 필수 23개 재측정
+  (attempt `sc3fix001`) → 그 지문에서 다시 시작한다(새 후보 지문 `5c90b637…`).
+- **일곱 번째 결함 — 제품 경합(SC-3 이 잡았다)**: `ProjectRegistry` 의 **최초 생성 경로만 공유 flock 밖**이었고
+  백업 회전의 임시 파일 이름이 **고정**(`projects.json.bak.tmp`)이었다. 동시에 시작한 프로세스가 같은 이름을 쓰고
+  한 쪽이 먼저 `os.replace` 로 옮기면 다른 쪽이 `RegistrySaveError` 로 죽는다 — 실측 traceback:
+  `FileNotFoundError: … projects.json.bak.tmp -> … projects.json.bak`. 대화 저장소에서는 **같은 종류**
+  (결정론적 tmp 이름, F1)를 이미 고쳤는데 registry 백업 회전에 같은 규칙이 남아 있었다.
+  고침: 생성도 `with self._locked()` 안에서(경합에서 진 쪽은 이긴 쪽이 쓴 파일을 읽는다 — 같은 lock 재진입은
+  flock 이 막으므로 재귀하지 않는다) + 백업 tmp 이름 `.{name}.tmp-{pid}`. 계약 시험 3건.
+- **여덟 번째 결함 — 하네스 무한 대기(더 위험했다)**: SC-3 worker 가 죽자 `q.get()` 에 타임아웃이 없어
+  부모가 **영원히** 기다렸다. 러너는 **종료 시에만** 리포트를 쓰므로, 그대로 두면 8시간이 “FAIL”이 아니라
+  **아무 결과도 없이** 사라진다 — 이 카드가 하루 종일 다툰 “다른 이유로 빨간 결과”보다 한 단계 나쁘다.
+  SC-1·SC-2·SC-3 세 곳 모두 같은 형태였다. 고침: `_collect_worker_results` 가 상한(기본 120초) 안에 안 오는
+  worker 를 terminate 하고 **오류 1건**으로 세며 계속하며, 리포트에 `worker_timeouts` 를 남긴다. 계약 시험 2건.
+- **판정의 의미**: ⑦은 “SC-3 가 제품 경합을 잡았다”는 뜻이고(시나리오가 제 역할을 했다),
+  ⑧은 “하네스가 그 발견을 결과로 못 바꿨다”는 뜻이다. 둘 다 같은 날 닫았다.
+  전문: [SOAK_SCHEDULING.md](SOAK_SCHEDULING.md) §3f · [GATE_LEDGER.md](GATE_LEDGER.md) §20.
+- **회수는 이제 도구가 한다**: `soak_control.sh harvest` — 끝날 때까지 기다렸다가(잠자기 차단 포함)
+  판정기까지 돌리고 그 `exit` 를 그대로 전한다. 아직 도는 중에 `--no-wait` 면 `exit 4` 로 거부하는데,
+  러너는 **종료 시에만** `end_*`·`exit` 를 쓰므로 그 거부가 곧 “옛 블록을 읽지 않는다”는 보장이다
+  (자기시험 11건이 네 경로를 고정: 거부·대기 뒤 판정·완성 블록 없음·판정기 exit 전달).
+- **필수 23개 재측정(attempt `sc3fix001`)**: **22 passed · 1 failed · 0 not_run**, 시작 = 종료 =
+  `5c90b637…` = HEAD(`c522b256`) · `clean-machine-runtime` passed · 실패 5건은 `promote004` 와 시험 단위 동일
+  → **새 실패 0건**, 통과 수 6621 → **6626**(+5 = 이 창의 계약 시험). 마감 도구 문제는 `required_red: python-tests` 하나.
+- **8시간 재실행 3차(현재)**: `2026-09-17T01:19:44Z` 시작 → 종료 예정 `09:19:43Z` = **18:19 KST** ·
+  지문 `5c90b637…` = 현재 트리 = HEAD · preflight **7/7 OK**(처리량 451 ops/s · 쓰기량 투영 4,282 MiB < cap 8,192 MiB)
+  · **SC-1~5 완주·오류 0** — SC-3 경합이 지금 통과했다(하루 전 같은 자리에서 실행이 멈췄다).
+  작업디렉터리 `/tmp/nx10-soak-work-20260917T011943Z`.
+- **도구에 붙인 문(같은 창)**: `harvest` 의 **무응답 상한**(`NX10_HARVEST_MAX_STALL`, 기본 1800초 —
+  살아 있지만 안 쓰는 상태를 “도는 중” 으로 보지 않는다) · `NX10_HARVEST_SETTLE`(러너의 마지막 플러시 대기).
+  자기시험 **75/75**.
+- **다음**: `soak_control.sh harvest --detach` → 결과를 대장(§16 옆)에 반영. 남는 required red 1 과 CR-14
+  재선언은 여전히 타 레인/오너의 일이고, `docs/` 도구를 `scripts/`·`tests/` 로 승격하는 일은
+  **회수 뒤**다(지금 옮기면 이 8시간의 종료 지문이 갈린다).

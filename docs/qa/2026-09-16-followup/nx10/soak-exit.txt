@@ -234,3 +234,80 @@ start_fingerprint: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639baf
 # 이 시점부터의 제약: `src/`·`tests/`·`scripts/`·`dashboard/` 를 건드리면 종료 지문이 갈려 이 8시간이 무효가 된다.
 #   이 창은 `docs/` 만 수정한다(이미 여러 번 실측된 사실: 문서 편집은 지문을 움직이지 않는다).
 # 회수: 종료 뒤 `python scripts/collect_soak_result.py` 한 줄 — 판정기는 **마지막 완료 블록**과 **마지막 예약**을 쓴다.
+exit: 143
+end_time: 2026-09-17T00:13:54Z
+end_head: aa1ead1f07309e4bff23f9c1f79cbe216b98de2b
+end_dirty: true
+end_fingerprint: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639bafcf4
+# NX-10 SC-1~6 soak 러너 기록
+generated_at: 2026-09-17T00:15:16Z
+soak_seconds: 28800
+report: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json
+workdir: /tmp/nx10-soak-work-20260917T001516Z
+command: AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=8192 PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 28800 --workdir /tmp/nx10-soak-work-20260917T001516Z
+retention_caps: soft=64MiB hard=8192MiB (soft 는 기본 유지 — 경고 관측을 남긴다)
+start_time: 2026-09-17T00:15:16Z
+start_head: aa1ead1f07309e4bff23f9c1f79cbe216b98de2b
+start_dirty: true
+start_fingerprint: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639bafcf4
+
+# ── 운영자 기록: 직전 실행을 48분에 **우리가** 중단했다 (아래 줄들은 `#` 로 시작) ──
+# recorded_at: 2026-09-17T00:32:00Z
+# 무엇을: `2026-09-16T23:26:23Z` 실행(위 블록)을 `2026-09-17T00:13:54Z`(=48분)에 SIGTERM 으로 중단했다.
+#   러너가 `exit: 143` · `end_time` · `end_fingerprint 98855031…`(시작값과 동일 — 트리는 안 흔들렸다)을
+#   기록했으므로 이 블록은 **스스로 끝난 실행이 아니다**(판정 대상이 아니다).
+# 왜: journal 이 **47분에 452 MiB**(실측 159 KB/s)였다. ADR-DAT-02 의 기본 hard cap 은 512 MiB 이고
+#   자동 prune 이 없으므로, **8분 뒤부터 모든 append 가 507 로 거절**되고 하네스가 그 예외를
+#   `errors += 1` 로 세며 SC-6 `pass` 조건에 `errors == 0` 이 있다 → 8시간이 **제품 결함이 아니라
+#   설정 때문에 거짓 FAIL** 로 끝났을 것이다. 직전 FAIL 실행의 8h journal 은 24.4 MB 였고,
+#   그래서 꼬리 창 수정 전의 리허설·점검이 이 벽을 보지 못했다(수정이 append 를 20배 빠르게 만들었다).
+#   같은 가족의 사각지대를 두 번 겪었다: 처리량 하한(§3b) · 쓰기량 상한(이번).
+# 조치: ① 러너가 캡을 정하고 **기록**한다 — `AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=8192`
+#   (soft 는 기본 64 MiB 유지 — 경고·`journals_over_soft_cap` 관측을 살린다). 위 블록의
+#   `command:`/`retention_caps:` 줄이 그 증거다(측정 설정도 증거다).
+#   ② `preflight` 에 **쓰기량 투영 vs hard cap** 점검을 추가(8시간 외삽이 cap 의 90% 를 넘으면 시작 전 중단).
+#   ③ 회수를 도구가 한다 — `soak_control.sh harvest`(끝날 때까지 기다렸다가 판정기까지),
+#   아직 도는 중에 `--no-wait` 면 exit 4(러너는 종료 시에만 end_*/exit 를 쓰므로 옛 블록을 읽지 않는다).
+# 새 실행: `2026-09-17T00:15:16Z` 시작 → 종료 예정 `08:15:16Z`(17:15 KST) · preflight 6/6 OK
+#   (처리량 437 ops/s · 투영 4,050 MiB < cap 8,192 MiB) · 시작 지문 `98855031…` = 현재 트리 = HEAD(`aa1ead1f`).
+# 회수: `bash docs/qa/2026-09-16-followup/nx10/soak_control.sh harvest` 한 줄.
+exit: 143
+end_time: 2026-09-17T00:22:48Z
+end_head: aa1ead1f07309e4bff23f9c1f79cbe216b98de2b
+end_dirty: true
+end_fingerprint: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639bafcf4
+
+# ── 운영자 기록: 2차 실행도 우리가 중단했다 (7분, exit 143) ─────────────────────
+# recorded_at: 2026-09-17T00:50:00Z
+# 무엇을: `2026-09-17T00:15:16Z` 실행(위 블록)을 `00:22:48Z`(=7분)에 SIGTERM 으로 중단했다.
+#   러너가 `exit: 143` · `end_fingerprint 98855031…`(시작값과 동일)을 기록했다.
+# 왜: 실행이 **멈춰 있었다.** 시작 13초 뒤 SC-3 worker 하나가 죽었고(제품 경합), 하네스의
+#   `q.get()` 에 타임아웃이 없어 부모가 영원히 기다렸다 — 로그·작업디렉터리 쓰기가 90초 이상 0건,
+#   CPU 0.0%. 러너는 **종료 시에만** 리포트를 쓰므로 그대로 두면 8시간이 **결과 0** 이 된다.
+#   일곱 번째(제품)·여덟 번째(하네스) 결함은 SOAK_SCHEDULING.md §3f 가 소유한다.
+# 조치: 둘 다 고쳐 커밋 `c522b256` (생성도 lock 아래 + 백업 tmp 이름 고유화 + worker 결과 수집에 상한
+#   · 타임아웃은 오류 1건으로 계상하고 `worker_timeouts` 로 리포트에 드러냄). 계약 시험 5건.
+# 다음: 필수 23개 재측정(attempt sc3fix001, 지문 5c90b637…) → 그 지문에서 8시간 시작 → `harvest` 로 회수.
+# NX-10 SC-1~6 soak 러너 기록
+generated_at: 2026-09-17T01:19:43Z
+soak_seconds: 28800
+report: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json
+workdir: /tmp/nx10-soak-work-20260917T011943Z
+command: AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=8192 PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 28800 --workdir /tmp/nx10-soak-work-20260917T011943Z
+retention_caps: soft=64MiB hard=8192MiB (soft 는 기본 유지 — 경고 관측을 남긴다)
+start_time: 2026-09-17T01:19:43Z
+start_head: c522b256cc7f345c657f45b4fe3231a752bde774
+start_dirty: true
+start_fingerprint: 5c90b63761159253b10662711b29d1f8cd7a4357174ec3ce952f150d5f6ddff9
+
+# ── 운영자 기록: 3차 실행 시작 (SC-3 결함 2건을 고친 뒤) ────────────────────────
+# recorded_at: 2026-09-17T01:25:00Z
+# 무엇을: 커밋 `c522b256` + 필수 23개 재측정(attempt sc3fix001, 22 passed · 1 failed · 0 not_run,
+#   시작=종료=5c90b637…) 뒤 `soak_control.sh run` 으로 시작했다. preflight **7/7 OK**:
+#   처리량 하한 451 ops/s · 쓰기량 투영 4,282 MiB < cap 8,192 MiB · 현재 트리 == HEAD 트리.
+# 지문: 실행 시작 = 5c90b637… = HEAD 트리(`c522b256`) → 이 8시간은 그 커밋의 것이다.
+# 종료 예정: 2026-09-17T09:19:43Z = 18:19 KST. 작업디렉터리 /tmp/nx10-soak-work-20260917T011943Z.
+# 확인(시작 2분 시점): SC-1~5 완주·오류 0 · SC-3 가 40개 worker 디렉터리를 만들고 통과했다
+#   (하루 전 같은 지점에서 RegistrySaveError 로 worker 가 죽고 부모가 영원히 대기했다).
+# 회수: `bash docs/qa/2026-09-16-followup/nx10/soak_control.sh harvest --detach`
+#   (무응답 상한 1800초 — 살아 있어도 30분간 아무것도 안 쓰면 exit 6 으로 알려 준다).

@@ -30,6 +30,17 @@ OUT="${NX10_SOAK_OUT_DIR:-$REPO/$OUT_REL}"
 PY="$REPO/.venv/bin/python"
 SOAK_SECONDS="${SOAK_SECONDS:-28800}"
 REPORT="$OUT/soak-${SOAK_SECONDS}.json"
+# ── 보존 캡(측정 설정 — 기록에 남긴다) ─────────────────────────────────────────
+# 왜 러너가 정하는가(실측 2026-09-17): ADR-DAT-02 의 기본 **hard cap 은 512 MiB 이고 자동 prune 은
+# 없다**(설계 — 지우지 않고 거절한다). 꼬리 창 수정으로 append 가 20배 빨라진 뒤 이 soak 은 journal 을
+# ≈160 KB/s 로 쓴다 → **50분이면 기본 캡을 넘긴다**(실측: 47분에 452 MiB, 중단 시점 439 MiB).
+# 넘긴 뒤에는 모든 append 가 `ConversationHistoryQuotaExceededError`(507) 로 거절되고, 하네스가
+# 그것을 `errors` 로 세므로(`SC-6 pass` 조건에 `errors == 0`) **제품 결함이 아닌 설정 때문의 거짓 FAIL**
+# 이 된다 — 이 카드가 반복해 겪은 종류(`돌리다 만 것`과 `다른 이유로 빨개진 것`)다.
+# 8시간 예상 쓰기량(≈4.5 GB)이 여유 있게 들어가는 값으로 올리고, 그 사실을 기록·문서에 남긴다.
+# soft cap 은 기본값을 그대로 둔다(경고·`journals_over_soft_cap` 관측이 그대로 살아 있다).
+export AGK_CONVERSATION_JOURNAL_HARD_CAP_MB="${AGK_CONVERSATION_JOURNAL_HARD_CAP_MB:-8192}"
+RETENTION_CAPS="$("$REPO/.venv/bin/python" -c "import sys; sys.path.insert(0,'src'); from antigravity_k.engine.conversation_retention import resolve_policy as r; p=r(); print('soft=%dMiB hard=%dMiB' % (p.soft_cap_bytes//1048576, p.hard_cap_bytes//1048576))" 2>/dev/null || echo unknown)"
 # 작업 디렉토리는 **저장소 밖**에 둔다 — 8시간 soak 은 수백 MB~수 GB 를 쓰므로 공유 체크아웃을
 # 더럽히면 다른 레인의 `git status`/프라이어블 worktree 판정에 끼어든다. (60초 리허설은
 # 저장소 안에 만들었던 적이 있다 — 그 디렉토리들은 증거로 남기고, 정식 실행부터는 /tmp 를 쓴다.)
@@ -87,7 +98,8 @@ trap '_soak_unlock' EXIT INT TERM HUP
   echo "soak_seconds: $SOAK_SECONDS"
   echo "report: $REPORT"
   echo "workdir: $WORKDIR"
-  echo "command: PYTHONPATH=src $PY scripts/val02_staging.py --output $REPORT --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds $SOAK_SECONDS --workdir $WORKDIR"
+  echo "command: AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=$AGK_CONVERSATION_JOURNAL_HARD_CAP_MB PYTHONPATH=src $PY scripts/val02_staging.py --output $REPORT --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds $SOAK_SECONDS --workdir $WORKDIR"
+  echo "retention_caps: $RETENTION_CAPS (soft 는 기본 유지 — 경고 관측을 남긴다)"
 } >> "$OUT/soak-exit.txt"
 
 # ② 시작 시점의 후보 귀속 (종료 시점에도 다시 찍는다)

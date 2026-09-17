@@ -5,34 +5,66 @@
 담는다. 값의 소유자는 [GATE_LEDGER.md](GATE_LEDGER.md) §12 와 [BATCH_FREEZE.md](BATCH_FREEZE.md) 다.
 예약을 걸고·확인하고·취소하는 일의 소유자는 [SOAK_SCHEDULING.md](SOAK_SCHEDULING.md) 다.
 
-## 0. 현재 상태 (2026-09-16T12:0xZ, 커밋 뒤 기준)
+## 0. 현재 상태 (2026-09-17T00:2xZ, 커밋 뒤 기준)
 
 | 항목 | 값 |
 |---|---|
-| 후보 지문 | `322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe` (`1bd95e7d` — 회수 판정기가 마지막 예약을 읽도록 고친 커밋; 그 전 후보는 `89dd383b`/`92fcaeb5…`) |
-| 필수 게이트 | 커밋된 후보에서 23개 중 **22 passed · 1 failed · 0 not_run** (`gate-report-promote004.json`; 동일한 값이 `promote003` 에도 있다) |
-| 마감 도구(`ga_gate_verify`) | **FAIL** — 문제는 정확히 1개: `required_red: python-tests`(타 레인 EX-05 2 · CR-14 울타리 2) |
-| soak | 8시간 SC-1~6 **실행 중** — `2026-09-16T12:13:12Z`(21:13 KST) `soak_control.sh run` 으로 시작(오너 지시로 22:00 예약을 기다리지 않았다; 예약은 먼저 `cancel` 로 **검증 종료**). 종료 예정 `20:13Z` = **05:13 KST**. 시작 지문 = `322b4d3b…` = 예약 기대 = HEAD 트리 |
-| 코드 | 커밋 완료 — 이 창은 이제 **`docs/` 만** 수정한다(문서는 지문 제외 경로다) |
+| 후보 지문 | `5c90b63761159253b10662711b29d1f8cd7a4357174ec3ce952f150d5f6ddff9` (`c522b256` — SC-3 경합·하네스 무한 대기 수정 커밋; 그 전 후보는 `aa1ead1f`/`98855031…` · `7691ccc5`/`322b4d3b…`) |
+| 필수 게이트 | `sc3fix001`(23개 · `clean-machine-runtime` 포함) **22 passed · 1 failed · 0 not_run**; 시작 = 종료 = `5c90b637…` — 상세는 [GATE_LEDGER.md](GATE_LEDGER.md) §20-1 |
+| 마감 도구(`ga_gate_verify`) | **FAIL** — 문제는 정확히 1개: `required_red: python-tests`(실패 5건 = NX-07 문서 정합성 2 · CR-14 울타리 3 · `promote004` 와 시험 단위 동일) |
+| soak | **실행 중** — `2026-09-17T01:19:44Z` 시작 → 종료 예정 `09:19:43Z` = **18:19 KST**(§0b). preflight **7/7 OK** · SC-1~5 완주·오류 0 |
+| 코드 | 커밋 완료(`c522b256`) — 이 창은 이제 **`docs/` 만** 수정한다(문서는 지문 제외 경로다) |
 
-## 0b. soak 은 이미 돌고 있다 (2026-09-16T12:13Z 시작)
+### 0a. 8시간 재실행이 두 번 걸렸다(둘 다 도구가 잡았다)
 
-- 상태 보기: `tail -3 docs/qa/2026-09-16-followup/nx10/soak-run.log` · `screen -ls` · 실행 잠금 `pid` 는
-  `.soak-run.lock/owner`(이 잠금이 살아 있는 한 soak 이 돈다).
-- **이 시점부터 코드를 건드리면 8시간이 무효다**(종료 지문이 시작과 갈린다). 문서(`docs/`)만 수정한다.
-- 아침에는 **회수 판정을 먼저** 끝낸다(§1). 판정기가 “지금 트리 == 시작 지문”까지 보므로, 판정을 끝내기
-  전에 코드를 만지면 그 green 은 후보의 것이 아니게 된다.
-- 시작 기록: `soak-exit.txt`(러너 블록 `start_time 12:13:12Z` · `start_head fd16368c` ·
-  `start_fingerprint 322b4d3b…`) · 작업디렉터리 `/tmp/nx10-soak-work-20260916T121312Z` ·
+1. `2026-09-16T23:26:23Z` 실행 → **48분에 중단**(`exit: 143`). 이유: 수정으로 빨라진 append 가
+   journal 을 160 KB/s 로 키워 **기본 hard cap 512 MiB 를 50분에 넘긴다**(중단 시점 439 MiB) —
+   넘기면 모든 append 가 507 로 거절되고 하네스가 그것을 `errors` 로 세서 **설정 때문의 거짓 FAIL**
+   이 된다. 상세: [SOAK_SCHEDULING.md](SOAK_SCHEDULING.md) §3e.
+2. `2026-09-17T00:15:16Z` 실행 → **7분에 중단**(`00:22:48Z`, `exit: 143`). 이유: **SC-3 의 worker 하나가
+   죽자 하네스가 영원히 대기**했다(`q.get()` 타임아웃 없음 → 8시간을 주면 결과 0). worker 를 죽인 것은
+   제품 경합(`ProjectRegistry` 최초 생성이 lock 밖 + 고정 백업 tmp 이름)이다 — 둘 다 고쳐
+   커밋 `c522b256` 했고, 23개 재측정 → 재시작 순서로 다시 세운다. 상세: §3f.
+3. 러너가 `AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=8192` 를 export 하고 그 사실을 기록에 남긴다
+   (`retention_caps: soft=64MiB hard=8192MiB`) — 이것은 §0a-1 의 조치이고 새 실행에도 그대로 적용된다.
+
+## 0b. soak 실행/회수 순서 (현재: **실행 중** — 2026-09-17T01:19:44Z 시작)
+
+```bash
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight   # exit 0 이어야 시작한다
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh run         # 같은 preflight 를 통과해야 뜨다
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh harvest --detach   # 끝날 때까지 기다렸다가 회수 판정까지
+```
+
+### 0b-1. 시작했던 실행(이제 종료됨)의 기록
+
+- 상태 보기: `bash docs/qa/2026-09-16-followup/nx10/soak_control.sh status`(한 화면에 모드·지문·관은 초·종료 예정)
+  · `tail -3 …/nx10/soak-run.log` · `screen -ls` · 실행 잠금 `pid` 는 `.soak-run.lock/owner`.
+- **이 시점부터 코드를 건드리면 8시간이 무효다**(종료 지문이 시작과 갈린다 — `src/`·`tests/`·`scripts/`·`dashboard/`).
+  이 창은 `docs/` 만 수정한다(측정 도구(`soak_control.sh`·`run_nx10_soak.sh`)도 `docs/` 안이라 안전하다).
+- 회수는 **`harvest` 한 줄**이다(§1). 끝나기 전에 코드를 만지면 “이 8시간은 후보의 것이다”라는 근거가 사라진다.
+- 시작 기록: `soak-exit.txt`(러너 블록 `start_time 00:15:16Z` · `start_head aa1ead1f` ·
+  `start_fingerprint 98855031…` · `retention_caps: soft=64MiB hard=8192MiB`) ·
+  작업디렉터리 `/tmp/nx10-soak-work-20260917T001516Z` ·
   `start_dirty: true`(이 창의 `docs/` 편집과 gitlink `vault_data` 때문 — 귀속은 지문으로 본다).
+
+기록이 길어진 이유도 적어 둔다: **일부러 일찍 시작하지 않는다.** 한 번은 `tail()` 결함 때문에,
+한 번은 그 수정이 만든 쓰기량 때문에 밤을 버리는 것을 막았고(§0a), 이제 발화 전 `preflight` 가
+둘 다(처리량 하한 · 쓰기량 투영)를 문장으로 답한다.
 
 ## 1-0. 예약 상태·취소 (도구가 있다)
 
 ```bash
 bash docs/qa/2026-09-16-followup/nx10/soak_control.sh status     # exit 0 = 단일 예약 · 고아 0 · 지문 일치
-bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight  # exit 0 = 밤을 태울 준비가 됐다(10개 점검)
+                                                                 #   (즉시 실행 중이면 모드: RUNNING — 시작 지문 == 현재 트리)
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight  # exit 0 = 밤을 태울 준비가 됐다(예약 11개 · 즉시 시작 7개 점검)
 bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel     # 취소 — 죽었는지 검증하고 기록한다
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh harvest    # 끝날 때까지 기다렸다가 회수 판정까지(06:00 에 깨어 있을 필요 없음)
 ```
+
+`status` 는 모드를 먼저 가른다 — 종전에는 도는 soak 을 보면서도 `ATTENTION` 을 냈다(예약 잠금이 없는
+즉시 실행을 "예약 아님"으로 본 탓; 2026-09-17 수정, [SOAK_SCHEDULING.md](./SOAK_SCHEDULING.md) §3d).
+실행 중이면 그 줄이 곧 **이 8시간이 후보에 붙는가**의 답이다(시작 지문 vs 현재 트리).
 
 `preflight` 가 답하는 것 중 가장 중요한 것은 **후보 귀속**이다: `현재 트리 지문 == HEAD 트리 지문`
 (`tree_fingerprint_of_commit`)이면 8시간이 끝났을 때 그 값을 **커밋된 후보**의 것으로 쓸 수 있다.
@@ -48,16 +80,21 @@ bash docs/qa/2026-09-16-followup/nx10/soak_control.sh cancel     # 취소 — �
 
 ```bash
 cd <repo>
-# 2026-09-16 승격 완료 — 판정기는 이제 scripts/ 에 있다(증거는 계속 nx10/ 에 쓴다).
+# 기다렸다가 판정까지 — 도구가 실행 종료·블록 완성을 확인한 뒤에만 판정한다.
+bash docs/qa/2026-09-16-followup/nx10/soak_control.sh harvest
+#   `--detach` 면 화면 세션(`nx10harvest`)에 띄워 창이 재시작돼도 살아남는다(대기 중 잠자기 차단 포함).
+#   `--no-wait` 는 “지금 끝난 실행만 판정” 이다 — 아직 돌면 `exit 4` 로 거부한다.
+# 대안(같은 판정을 직접): 판정기는 scripts/ 에 있다(증거는 계속 nx10/ 에 쓴다).
 python3 scripts/collect_soak_result.py            # 지표 + 실행 + 귀속 3단계 판정
-python3 scripts/collect_soak_result.py --wait     # 아직 돌고 있으면 기다린다
+python3 scripts/collect_soak_result.py --wait     # 아직 돌고 있으면 기다린다(기본 30분 상한)
 ```
 
 판정은 셋을 **모두** 통과해야 PASS 다: ① 지표(`all_pass`·`missing_required`) ② 실행(러너 `exit==0` **그리고**
 벽시계 ≥ 요청 시간 — 즉시 실패한 실행도 리포트는 쓴다) ③ 귀속(예약 기대 지문 == 시작 == 종료 == **지금 트리**).
 지표만 통과하면 판정은 `METRICS_PASS / 실행·귀속 INCONCLUSIVE — DONE 아님` 이다(EX-05 가 겪은 상태).
 산출물: `soak-recovery-<실행시작>.json`(실행별 보존) · `soak-recovery-latest.json` · `soak-recovery.log`.
-판정 로직 자체는 `--selftest` 로 검증된다(6/6 — 중단·지문불일치·지표실패·측정 후 코드변경·리포트 없음).
+판정 로직 자체는 `--selftest` 로 검증된다(**9/9** — 중단·지문불일치·지표실패·측정 후 코드변경·리포트 없음·
+예약 이력이 쌓였을 때 **마지막 예약**을 쓰는가).
 
 원문을 직접 보려면(대안, 같은 사실을 눈으로 확인):
 
@@ -71,14 +108,16 @@ tail -12 docs/qa/2026-09-16-followup/nx10/soak-exit.txt                         
 - 8h 규모에서 처음 타는 `stream_line_count` 경로(NX-04 가 남긴 미실측)도 이 리포트에서 확인한다.
 - 결과는 `GATE_LEDGER.md` §12 에 **회수 행으로 추가**하고, 통과가 아니면 그대로 적는다.
 
-## 2. ⚠ 커밋해도 빨간 4건은 초록이 되지 않는다 (먼저 알아야 할 사실)
+## 2. ⚠ 커밋해도 빨간 5건은 초록이 되지 않는다 (먼저 알아야 할 사실)
 
-`python-tests` 의 실패 4건은 **우리 후보의 결함이 아니라 거버넌스 상태**다:
+`python-tests` 의 실패 **5건**(2026-09-17 실물 리포트로 정정 — 종전 “4건” 표기는 오기다)은
+**우리 후보의 결함이 아니라 거버넌스 상태**다:
 
 | 시험 | 왜 빨간가 | 우리 커밋이 고치나 |
 |---|---|---|
 | `test_cr14_fence_movement_detection.py::test_no_code_scope_commit_after_the_declared_candidate` | 선언된 후보 `b6003205`(지문 `02349a8d…`) 이후 코드 스코프 **38개 경로**가 움직였다(HEAD `20d529fc`, 지문 `2068e72b…`) | **아니다** — 우리가 커밋하면 HEAD 가 더 멀어진다 |
-| `…::test_declared_fingerprint_is_the_fingerprint_of_head_within_the_fence` | 선언 지문과 HEAD 지문이 다르다 | **아니다** — 같은 이유 |
+| `test_cr14_fence_movement_detection.py::test_declared_fingerprint_is_the_fingerprint_of_head_within_the_fence` | 선언 지문과 HEAD 지문이 다르다 | **아니다** — 같은 이유 |
+| `test_cr14_fence_movement_detection.py::test_worktree_matches_the_declared_fingerprint…` (실물 리포트의 **세 번째** 건) | 작업 트리도 선언 지문과 다르다 | **아니다** — 같은 이유 |
 | `test_nx07_doc_consistency.py::test_soak_phases_stay_separated` · `::test_teeth_soak_done_promotion_is_detected` | 타 레인이 `docs/ga/CR14_EX_EXECUTION_LEDGER.md` 의 EX-05 상태 셀을 승격(PASS)하면서 “종료·귀속 미확정” 문구를 지웠다 | **아니다** — 타 레인 문서 소유 |
 
 즉 **`python-tests` 는 우리 창에서 초록이 될 수 없다.** 카드 §수용(“실패 0”)은

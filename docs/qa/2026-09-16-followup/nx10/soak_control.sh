@@ -20,11 +20,23 @@
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight      # 발화 전: 8시간을 태울 준비가 됐는가(의존성·여유 공간·후보 귀속·**처리량 하한**)
 #     처리량 하한은 `NX10_PREFLIGHT_PROBE_SECONDS`(기본 60초)·`NX10_PREFLIGHT_MIN_OPS_PER_SEC`(기본 133)로 조정하고,
 #     `NX10_PREFLIGHT_SKIP_THROUGHPUT=1` 로 생략한다(자기시험은 그 문을 쓴다 — 60초 프루브는 시험을 느리게 만든다).
+#     “다른 soak 실행 없음” 은 **기계 전체**를 보고 하네스 이름은 `NX10_SOAK_PROC_PATTERN`(기본
+#     `val02_staging.py`)으로 정한다 — 진짜 soak 이 도는 동안에도 시험이 의미를 가지려면 이름을 시험이 통제해야 한다.
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh run           # 예약을 기다리지 않고 **지금** 시작(같은 preflight 를 통과해야 한다)
+#   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh harvest       # 8시간 뒤 회수: 끝날 때까지 기다렸다가 회수 판정기까지 돌린다
+#     `--detach` 면 화면 세션(`nx10harvest`)에 띄워 창이 재시작돼도 살아남는다(대기 중 잠자기 차단 포함).
+#     `--no-wait` 는 "지금 끝난 실행만 판정" 이다(아직 돌면 exit 4로 거부한다 — 옛 블록을 읽지 않기 위해).
+#     대기 상한 `NX10_HARVEST_TIMEOUT`(기본 43200초) · 폴링 `NX10_HARVEST_POLL`(기본 60초) ·
+#     판정기 교체 `NX10_JUDGE`(기본 `scripts/collect_soak_result.py` — 자기시험은 스텁을 쓴다).
+#     **플러시 대기** `NX10_HARVEST_SETTLE`(기본 120초) · **무응답 상한** `NX10_HARVEST_MAX_STALL`(기본 1800초): 프로세스는 살아 있는데 그 시간 동안
+#     아무것도 쓰지 않으면 "도는 중" 이 아니라 **멈춘 것**으로 보고 exit 6 으로 내려온다
+#     (실측 2026-09-17: 죽은 worker 를 부모가 영원히 기다렸고, 프로세스 생존만 보는 판정은 그 상태를 몰랐다).
 #   bash docs/qa/2026-09-16-followup/nx10/soak_control.sh selftest       # 임시 디렉터리에서 전 수명주기 검증
 #
-# 종료 코드: arm/cancel 은 성공 0, 거부 2(이미 예약 있음), 검증 실패 3(죽이지 못했다).
-#            status 는 "건강한 단일 예약 + 지문 일치" 일 때만 0, 아니면 1(단순 조회용).
+# 종료 코드: arm/cancel 은 성공 0, 거부 2(이미 예약 있음), 검증 실패 3(죽이지 못했다). harvest 는
+#            판정기의 exit 그대로(0=PASS) · 2 인자 · 3 회수할 실행 없음 · 4 아직 돌고 있다 · 5 대기 초과
+#            · 6 무응답(살아 있지만 오래 아무것도 안 쓴다 — 멈춘 것으로 본다).
+#            status 는 0 = "단일 예약 + 지문 일치" **또는** "실행 중(run) + 시작 지문 일치", 아니면 1.
 #
 # 테스트를 위해 경로를 덮어쓸 수 있다(기본값은 이 저장소): NX10_REPO · NX10_OUT ·
 # NX10_SCHEDULER · NX10_RUNNER · NX10_SCHED_PATTERN · NX10_CANCEL_GRACE.
@@ -38,6 +50,9 @@ RUNNER="${NX10_RUNNER:-$OUT/run_nx10_soak.sh}"
 PATTERN="${NX10_SCHED_PATTERN:-schedule_nx10_soak.sh}"
 GRACE="${NX10_CANCEL_GRACE:-15}"
 SCREEN_NAME="${NX10_SCREEN_NAME:-nx10soak}"
+# “이미 돌고 있는 soak” 을 알아보는 이름(하네스). 기본값은 실제 하네스이고, **자기시험은 이 값을
+# 통제해야 한다** — 그렇지 않으면 진짜 soak 이 돌 때 시험 픽스처가 전부 빨개진다(실측 2026-09-16T23:34Z).
+SOAK_PROC_PATTERN="${NX10_SOAK_PROC_PATTERN:-val02_staging.py}"
 LOCK="$OUT/.soak-arm.lock"          # 예약(대기 중) 단일 잠금 — scheduler 가 만든다
 RUNLOCK="$OUT/.soak-run.lock"       # 8시간 실행 단일 잠금 — runner 가 만든다
 EXIT_TXT="$OUT/soak-exit.txt"
@@ -57,7 +72,104 @@ _tree_fingerprint() {
   (cd "$REPO" && "$(_py)" -c "import sys,pathlib; sys.path.insert(0,'scripts'); import ga_gate; print(ga_gate.worktree_fingerprint(pathlib.Path('.')))" 2>/dev/null) || echo UNVERIFIED
 }
 
+_iso_after() { # 남은 초 → 종료 예정 시각(UTC ISO). macOS 에서 epoch→ISO 는 date -r 의 의미가
+  # GNU 와 달라서(--reference) 이식성이 없다 — 파이썬으로 계산한다.
+  [ -n "${1:-}" ] || return 0
+  "$(_py)" -c 'import datetime,sys; print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(seconds=int(sys.argv[1]))).strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1" 2>/dev/null || true
+}
+
+_secs_since() { # ISO8601(UTC) → 경과 초. 계산 못 하면 빈 문자열(호출자가 줄을 생략한다).
+  [ -n "${1:-}" ] || return 0
+  "$(_py)" -c 'import datetime,sys; t=datetime.datetime.strptime(sys.argv[1],"%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc); print(int((datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()))' "$1" 2>/dev/null || true
+}
+
+_run_field() { # soak-exit.txt 의 **마지막 러너 블록**에서 키 값. 운영자 기록은 `#` 로 시작하므로
+  # `^키:` 에 걸리지 않는다(그 구분이 판정기 파서와 같아야 한다).
+  sed -n "s/^$1: //p" "$EXIT_TXT" 2>/dev/null | tail -1
+}
+
+_run_soak_seconds() { # 러너 블록의 command 줄에서 요청 길이를 읽는다(실행 중 남은 초 계산용)
+  grep -o -e '--soak-seconds [0-9][0-9]*' "$EXIT_TXT" 2>/dev/null | tail -1 | awk '{print $2}'
+}
+
+# 러너는 **시작할 때** 블록의 앞부분을 쓰고 `end_time`·`exit` 은 끝날 때 덧붙인다. 그래서
+# `sed -n s/^key: //p | tail -1` 로 값을 읽으면 **직전 실행의** 값을 읽을 수 있다(회수 판정이
+# 겪었던 함정과 같은 종류다). 여기서는 마지막 `generated_at:` 부터만 잘라 쓴다.
+_runner_block() {
+  awk '/^generated_at: /{buf=""} {buf = buf $0 "\n"} END{printf "%s", buf}' "$EXIT_TXT" 2>/dev/null
+}
+
+_block_field() { # $1=key — **마지막 러너 블록** 안에서
+  _runner_block | sed -n "s/^$1: //p" | head -1
+}
+
+_block_complete() { # 러너가 종료 시에만 쓰는 필드가 다 있는가
+  local b
+  b="$(_runner_block)"
+  printf '%s' "$b" | grep -q '^exit: ' &&
+    printf '%s' "$b" | grep -q '^end_time: ' &&
+    printf '%s' "$b" | grep -q '^end_fingerprint: '
+}
+
+_soak_pids() { # 지금 실제로 soak 이 돌고 있는가 — 하네스 프로세스 · 실행 잠금 주인 · 아직 기다리는 예약
+  local p
+  pgrep -f -- "$SOAK_PROC_PATTERN" 2>/dev/null | grep -v -x -e "$$" -e "${PPID:-0}" || true
+  p="$(sed -n 's/^pid: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
+  if [ -n "$p" ] && _alive "$p"; then printf '%s\n' "$p"; fi
+  p="$(_lock_owner_pid 2>/dev/null || true)"
+  if [ -n "${p:-}" ] && _alive "$p"; then printf '%s\n' "$p"; fi
+  return 0
+}
+
 _alive() { kill -0 "$1" 2>/dev/null; }
+
+_newest_write_epoch() { # $1=파일 또는 디렉터리 → 그 안(또는 자신)의 마지막 쓰기 epoch(없으면 0)
+  "$(_py)" - "$1" <<'PY' 2>/dev/null || echo 0
+import os, sys
+root = sys.argv[1]
+newest = 0.0
+if os.path.isdir(root):
+    # 디렉터리 **자신**의 mtime 도 본다: 파일을 하나도 안 쓰는 동안에도 디렉터리는 지워지지 않고,
+    # 작업디렉터리가 빈 순간에도 답이 필요하다(실측: 빈 디렉터리에서 unknown 이 나와 문이 안 걸렸다).
+    try:
+        newest = os.path.getmtime(root)
+    except OSError:
+        pass
+    for dirpath, _dirs, files in os.walk(root):
+        try:
+            newest = max(newest, os.path.getmtime(dirpath))
+        except OSError:
+            pass
+        for name in files:
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(dirpath, name)))
+            except OSError:
+                pass
+else:
+    try:
+        newest = os.path.getmtime(root)
+    except OSError:
+        pass
+print(int(newest))
+PY
+}
+
+_soak_stall_seconds() { # 지금 도는 실행이 **마지막으로 무엇인가를 쓴 지** 얼마나 됐는가
+  # 왜 필요한가(실측 2026-09-17): SC-3 worker 가 죽자 하네스가 영원히 대기했는데, 프로세스는
+  # 살아 있었으므로 `_soak_pids` 로는 "도는 중"과 구분되지 않았다. 그 상태를 그대로 두면
+  # 끝나지 않는 실행을 하루치 기다리게 된다 — 마지막 쓰기 이후 경과로 그것을 본다.
+  local workdir log last=0 w
+  workdir="$(_block_field workdir)"
+  log="$OUT/soak-run.log"
+  for w in "$workdir" "$log"; do
+    [ -n "$w" ] || continue
+    [ -e "$w" ] || continue
+    last="$(_newest_write_epoch "$w")"
+    [ "${last:-0}" -gt 0 ] && break
+  done
+  [ "${last:-0}" -gt 0 ] || { printf 'unknown'; return 0; }
+  printf '%s' "$(( $(date +%s) - last ))"
+}
 
 _descendants() {
   # 부모 → 자식 BFS(손자 포함). heartbeat 파이썬처럼 **패턴에 안 걸리는** 자식을 놓치지 않으려면
@@ -148,7 +260,7 @@ PY
 
 # ── status ──────────────────────────────────────────────────────────────────
 cmd_status() {
-  local state fp_current fp_expected live roots orphans=() pid owner healthy=1 count
+  local state fp_current fp_expected live roots orphans=() pid owner healthy=1 count run_owner
   printf 'NX-10 soak 예약 상태 (%s)\n' "$(_utc)"
   printf '  repo=%s\n  pattern=%s\n' "$REPO" "$PATTERN"
 
@@ -181,6 +293,48 @@ cmd_status() {
 
   fp_expected="$(_lock_field expected_fingerprint 2>/dev/null || true)"
   fp_current="$(_tree_fingerprint)"
+
+  # 실행 중인 soak 은 **예약 잠금이 없다**(즉시 실행 모드 — `run`). 그러니 "예약 == armed" 를 그대로
+  # 요구하면 도는 soak 을 보면서도 영원히 ATTENTION 을 뱉는다(실측 2026-09-16T23:28Z: 8시간 재실행 중
+  # `판정: ATTENTION`). 상시 거짓 경보는 다음 사람이 이 줄을 안 읽게 만든다 — 그래서 모드를 먼저 가른다.
+  run_owner=""
+  if [ -d "$RUNLOCK" ]; then
+    run_owner="$(sed -n 's/^pid: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
+  fi
+
+  if [ -n "$run_owner" ] && _alive "$run_owner"; then
+    local started elapsed remaining soak_secs run_fp
+    started="$(sed -n 's/^started_at: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
+    run_fp="$(_run_field start_fingerprint)"
+    soak_secs="$(_run_soak_seconds)"
+    elapsed="$(_secs_since "${started:-}")"
+    printf '  모드: RUNNING (즉시 실행 — 예약 아님) pid=%s alive=yes\n' "$run_owner"
+    printf '  지문: 실행 시작=%s\n        현재 트리=%s\n' "${run_fp:-?}" "$fp_current"
+    if [ -n "$elapsed" ]; then
+      printf '  경과: %s초' "$elapsed"
+      if [ -n "$soak_secs" ]; then
+        remaining=$((soak_secs - elapsed))
+        printf ' · 남은 초: %s · 종료 예정: %s' "$remaining" "$(_iso_after "$remaining")"
+      fi
+      printf '\n'
+    fi
+    [ "${#orphans[@]}" -gt 0 ] && healthy=0
+    if [ -z "$run_fp" ]; then
+      printf '  판정: ATTENTION — 실행 중인데 기록에서 시작 지문을 찾지 못했다(이 실행은 후보에 붙일 수 없다)\n'
+      return 1
+    fi
+    if [ "$run_fp" != "$fp_current" ]; then
+      printf '  판정: ATTENTION — 실행 중인데 트리 지문이 시작값과 다르다(이 실행은 후보에 붙일 수 없다)\n'
+      return 1
+    fi
+    printf '  판정: RUNNING — 시작 지문 == 현재 트리. 이 창은 `docs/` 만 수정한다(코드 스코프 편집 금지)\n'
+    return 0
+  fi
+
+  # 여기부터는 대기 중(예약) 상태의 판정이다.
+  if [ -n "$run_owner" ]; then
+    printf '  모드: 실행 잠금의 주인(pid=%s)이 죽었다 — 죽은 잠금은 증거로 남긴다\n' "$run_owner"
+  fi
   printf '  지문: 기대=%s\n        현재=%s\n' "${fp_expected:-?}" "$fp_current"
   [ "${#orphans[@]}" -gt 0 ] && healthy=0
   [ "$state" = "armed" ] || healthy=0
@@ -188,14 +342,6 @@ cmd_status() {
   if [ -n "$fp_expected" ] && [ "$fp_expected" != "$fp_current" ]; then healthy=0; fi
   if [ "$state" = "armed" ]; then
     printf '  발화까지 남은 초: %s\n' "$(_remaining)"
-  fi
-  # 8시간 실행 잠금 — 예약과 별개다(대기는 예약 잠금, 실행은 러너가 자기 잠금을 잡는다).
-  if [ -d "$RUNLOCK" ]; then
-    local rpid
-    rpid="$(sed -n 's/^pid: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
-    printf '  8시간 실행 잠금: pid=%s alive=%s\n' "${rpid:-?}" "$(_alive "${rpid:-0}" && echo yes || echo no)"
-  else
-    printf '  8시간 실행 잠금: none\n'
   fi
   if [ "$healthy" = "1" ]; then
     printf '  판정: OK — 단일 예약 · 지문 일치\n'
@@ -406,6 +552,55 @@ _free_mb() { # $1=디렉터리 → MiB
   df -m "$1" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0
 }
 
+_hard_cap_mb() { # 유효 hard cap(MiB). 우선순위: 환경변수 > 러너가 선언한 기본값 > 제품 기본값
+  # 러너가 선언한 기본값을 읽는 이유: 그 값이 이 soak 의 실제 hard cap 이고(러너가 export 한다),
+  # preflight 는 **다른 프로세스**라 그 env 를 물려받지 못한다. 커플링이지만 위험한 방향이 아니다 —
+  # 러너가 선언을 멈추면 제품 기본값(512)으로 내려가고, 그때는 이 점검이 **더 엄격해진다**.
+  local v="${AGK_CONVERSATION_JOURNAL_HARD_CAP_MB:-}"
+  if [ -z "$v" ]; then
+    v="$(sed -n 's/.*AGK_CONVERSATION_JOURNAL_HARD_CAP_MB:-\([0-9][0-9]*\).*/\1/p' "$RUNNER" 2>/dev/null | head -1)"
+  fi
+  if [ -z "$v" ]; then
+    v="$(sed -n 's/.*DEFAULT_HARD_CAP_MB: Final = \([0-9][0-9]*\).*/\1/p' \
+      "$REPO/src/antigravity_k/engine/conversation_retention.py" 2>/dev/null | head -1)"
+  fi
+  printf '%s' "${v:-512}"
+}
+
+_pf_journal_check() { # $1=프루브 작업디렉터리 $2=프루브 초 — 쓰기량 투영 vs hard cap
+  # 왜 이 항목이 있는가(실측 2026-09-17): 꼬리 창 수정으로 append 가 20배 빨라지자 8시간 soak 이
+  # journal 을 ≈160 KB/s 로 쓰게 됐고, **기본 hard cap 512 MiB 를 50분 만에 넘겼다**(중단 시점 439 MiB).
+  # ADR-DAT-02 는 자동 prune 을 금지하므로 넘긴 뒤에는 **모든 append 가 507 로 거절**되고, 하네스는
+  # 그것을 `errors` 로 세므로(`SC-6 pass` 조건에 `errors == 0`) 새 실행이 **설정 때문의 거짓 FAIL**
+  # 이 된다. 처리량 하한과 같은 가족의 사각지대이다 — 시작 전에 보이는 것을 시작 전에 본다.
+  local jbytes cap_mb projected_mb jdisp
+  jbytes="$("$(_py)" -c 'import glob,os,sys; print(sum(os.path.getsize(p) for p in glob.glob(os.path.join(sys.argv[1],"soak-conversations","**","*.jsonl"),recursive=True)))' "$1" 2>/dev/null | tr -dc '0-9')"
+  case "${jbytes:-}" in ''|*[!0-9]*) jbytes=0 ;; esac
+  [ "${2:-0}" -gt 0 ] || return 0
+  cap_mb="$(_hard_cap_mb)"
+  projected_mb=$(( jbytes * 28800 / $2 / 1048576 ))
+  if [ "$jbytes" = "0" ]; then
+    _pf_check "예상 journal 쓰기량 < hard cap" 0 \
+      "프루브가 journal 을 만들지 않았다 — 측정할 수 없다(경로·권한 확인)"
+    return 1
+  fi
+  # 여유 10% 를 요구한다 — 투영은 선형이지만 실제 곡선은 초반이 더 느리므로, 90% 를 넘으면 넘길 여지가 없다.
+  # 프루브는 5초라 MiB 가 0 으로 보일 수 있다 — KiB 로 내려 읽을 수 있게 한다(0 MiB 로 보이면 못 읽는다).
+  if [ "$jbytes" -ge 1048576 ]; then
+    jdisp="$(( jbytes / 1048576 )) MiB"
+  else
+    jdisp="$(( jbytes / 1024 )) KiB"
+  fi
+  if [ "$(( projected_mb * 10 ))" -lt "$(( cap_mb * 9 ))" ]; then
+    _pf_check "예상 journal 쓰기량 < hard cap" 1 \
+      "${2}초 ${jdisp} → 8시간 외삽 ${projected_mb} MiB < cap ${cap_mb} MiB"
+    return 0
+  fi
+  _pf_check "예상 journal 쓰기량 < hard cap" 0 \
+    "8시간 외삽 ${projected_mb} MiB ≥ cap ${cap_mb} MiB 의 90% — 그러면 50분쯤 뒤부터 append 가 507 로 거절되고 하네스가 그것을 errors 로 세서 **설정 때문의 거짓 FAIL** 이 된다(러너의 AGK_CONVERSATION_JOURNAL_HARD_CAP_MB 를 올려라)"
+  return 1
+}
+
 _pf_throughput() {
   # 왜 이 항목이 있는가: 2026-09-16 의 8시간 soak 은 **60초에 2,978 ops(49.6 ops/s)** 를 내고도
   # preflight 를 통과했고, 8시간 뒤 **70,430 ops(2.45 ops/s)** 로 끝났다. 원인은 `journal.tail()` 이
@@ -443,6 +638,7 @@ _pf_throughput() {
   if [ "$measured" -ge "$rate" ]; then
     _pf_check "처리량 하한 ≥ ${rate} ops/s" 1 \
       "실측 ${measured} ops/s(${secs}초 ${ops} ops · 8시간 외삽 ≈${projected} ops)"
+    _pf_journal_check "$dir/work" "$secs" || true   # 실패는 _pf_check 가 이미 셌다
     rm -rf "$dir"
     return 0
   fi
@@ -517,18 +713,19 @@ cmd_preflight() {
   free="$(_free_mb /tmp)"
   _pf_check "작업디렉터리 여유 ≥ ${minfree} MiB" "$([ "${free:-0}" -ge "$minfree" ] && echo 1 || echo 0)" "/tmp 여유=${free} MiB"
 
-  # ⑦ 이미 돌고 있는 soak 이 없는가(리포트·작업디렉터리를 다투지 않게)
+  # ⑦ 이미 돌고 있는 soak 이 없는가 — **기계 전체**를 본다(다른 디렉터리에서 시작됐어도 두 개가 동시에
+  #    돌면 서로의 처리량·RSS 측정을 오염시킨다). 이름은 $SOAK_PROC_PATTERN 으로 통제한다.
   local running
-  running="$(pgrep -f 'val02_staging.py' 2>/dev/null | grep -v -x -e "$$" -e "${PPID:-0}" || true)"
+  running="$(pgrep -f "$SOAK_PROC_PATTERN" 2>/dev/null | grep -v -x -e "$$" -e "${PPID:-0}" || true)"
   if [ -n "$running" ]; then
-    _pf_check "다른 soak 실행 없음" 0 "val02_staging.py pid=$running"
+    _pf_check "다른 soak 실행 없음" 0 "$SOAK_PROC_PATTERN pid=$running"
   else
     local rpid
     rpid="$(sed -n 's/^pid: //p' "$RUNLOCK/owner" 2>/dev/null | head -1)"
     if [ -n "$rpid" ] && _alive "$rpid"; then
       _pf_check "다른 soak 실행 없음" 0 "실행 잠금 주인 pid=$rpid 가 살아 있다"
     else
-      _pf_check "다른 soak 실행 없음" 1 "실행 잠금 없음 · val02_staging.py 0건"
+      _pf_check "다른 soak 실행 없음" 1 "실행 잠금 없음 · $SOAK_PROC_PATTERN 0건"
     fi
   fi
 
@@ -595,6 +792,124 @@ cmd_run() {
   printf '%s run: 즉시 시작(pid %s, caffeinate=%s)\n' "$(_utc)" "$rpid" \
     "$([ "${NX10_NO_CAFFEINATE:-0}" = "1" ] && echo no || echo yes)" >> "$SCHED_LOG"
   return 0
+}
+
+# ── harvest — 8시간 뒤 회수를 **기다렸다가 한 번에** 한다 ───────────────────
+# 왜 도구가 하는가: 회수는 (a) 러너가 종료 시에만 `end_*`·`exit` 를 쓰므로 **끝난 뒤**에만 성립하고,
+# (b) 그 시각이 깨어 있는 시각과 겹친다는 보장이 없다. 손으로 두 번(기다렸다가, 다시 판정) 하는 대신
+# 한 번 띄워 두며, `--detach` 를 쓰면 화면 세션에서 돌아 창이 재시작돼도 살아남는다.
+# 종료 코드: 판정기의 exit 그대로(0=PASS) · 2 인자 · 3 회수할 실행 없음(마지막 블록 미완성) ·
+#            4 `--no-wait` 인데 아직 돌고 있다 · 5 대기 시간 초과.
+_harvest_cmdline() { # $1=timeout $2=poll $3=judge $4=log — 화면 세션에 넘길 한 줄(경로 인용)
+  printf 'bash %q harvest --timeout %s --poll %s --judge %q >> %q 2>&1' "$0" "$1" "$2" "$3" "$4"
+}
+
+cmd_harvest() {
+  local detach=0 no_wait=0 timeout="${NX10_HARVEST_TIMEOUT:-43200}" poll="${NX10_HARVEST_POLL:-60}"
+  local judge="${NX10_JUDGE:-$REPO/scripts/collect_soak_result.py}"
+  local hscreen="${NX10_HARVEST_SCREEN:-nx10harvest}"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --detach) detach=1; shift ;;
+      --no-wait) no_wait=1; shift ;;
+      --timeout) timeout="$2"; shift 2 ;;
+      --poll) poll="$2"; shift 2 ;;
+      --judge) judge="$2"; shift 2 ;;
+      *) printf '알 수 없는 인자: %s\n' "$1" >&2; return 2 ;;
+    esac
+  done
+  local hlog="$OUT/soak-harvest.log"
+  if [ "$detach" = 1 ]; then
+    local cmd
+    cmd="$(_harvest_cmdline "$timeout" "$poll" "$judge" "$hlog")"
+    if [ "${NX10_NO_CAFFEINATE:-0}" = "1" ] || ! command -v caffeinate >/dev/null 2>&1; then
+      screen -dmS "$hscreen" bash -c "$cmd"
+    else
+      # 대기 구간에 기기가 잠들면 판정이 밀린다 — `run` 과 같은 포장을 쓴다.
+      screen -dmS "$hscreen" caffeinate -i bash -c "$cmd"
+    fi
+    printf '회수 감시를 화면 세션에 띄움: %s\n  기록: %s\n  확인: screen -ls · tail -f %s\n' \
+      "$hscreen" "$hlog" "$hlog"
+    return 0
+  fi
+
+  local pids waited=0
+  pids="$(_soak_pids)"
+  if [ -n "$pids" ]; then
+    if [ "$no_wait" = 1 ]; then
+      printf '거부: 아직 soak 이 돌고 있다(pid %s). 회수 판정은 **끝난 뒤**에만 성립한다 —\n' \
+        "$(printf '%s' "$pids" | tr '\n' ' ')" >&2
+      printf '      러너는 종료 시에만 end_time·exit 를 쓰므로 지금 판정하면 옛 값을 읽는다.\n' >&2
+      return 4
+    fi
+    local stall max_stall="${NX10_HARVEST_MAX_STALL:-1800}"
+    printf '회수 대기: 도는 soak 이 끝나기를 기다린다(최대 %ss · %s초 간격 · 무응답 상한 %ss)\n' \
+      "$timeout" "$poll" "$max_stall"
+    while :; do
+      pids="$(_soak_pids)"
+      [ -z "$pids" ] && break
+      if [ "$waited" -ge "$timeout" ]; then
+        printf '중단: %ss 를 기다렸는데 아직 돌고 있다(pid %s). 수확하지 않았다.\n' "$timeout" \
+          "$(printf '%s' "$pids" | tr '\n' ' ')" >&2
+        return 5
+      fi
+      stall="$(_soak_stall_seconds)"
+      printf '  [%s] 대기 %ss — 아직 실행 중(pid %s) · 마지막 쓰기 %s초 전\n' "$(_utc)" "$waited" \
+        "$(printf '%s' "$pids" | tr '\n' ' ')" "$stall"
+      # 살아 있는데 아무것도 안 쓰는 상태는 "도는 중" 이 아니라 **사로잡힌 중**이다(실측).
+      if [ "$stall" != "unknown" ] && [ "$stall" -ge "$max_stall" ]; then
+        printf '중단: %ss 동안 아무것도 쓰지 않았다(pid %s) — 도는 중이 아니라 멈춘 것으로 본다.\n' \
+          "$stall" "$(printf '%s' "$pids" | tr '\n' ' ')" >&2
+        printf '      확인: tail -20 %s · 그리고 정지가 맞다면 `soak_control.sh` 로 정리하고 \n' "$OUT/soak-run.log" >&2
+        printf '      다시 시작하라(러너는 종료 시에만 리포트를 쓴다 — 이대로 두면 8시간이 결과 0 이다).\n' >&2
+        printf '      상한 조정: NX10_HARVEST_MAX_STALL(기본 1800초).\n' >&2
+        return 6
+      fi
+      sleep "$poll"
+      waited=$((waited + poll))
+    done
+    printf '  실행 종료를 확인했다(%ss 대기).\n' "$waited"
+  fi
+
+  # 잠금·프로세스가 사라졌다고 해서 블록이 완성된 것은 아니다(러너가 마지막 필드를 쓰는 중일 수 있다).
+  # `NX10_HARVEST_SETTLE`(기본 120초)은 그 플러시를 기다리는 시간 — 자기시험은 짧게 준다.
+  local settle=0 settle_max="${NX10_HARVEST_SETTLE:-120}"
+  while [ "$settle" -lt "$settle_max" ] && ! _block_complete; do
+    sleep 5
+    settle=$((settle + 5))
+  done
+  if ! _block_complete; then
+    printf '거부: 마지막 러너 블록이 완성되지 않았다(end_time/exit 없음) — 회수할 실행이 없다.\n' >&2
+    printf '      중단된 실행이라면 그 사실이 soak-exit.txt 에 러너 기록과 구분돼 있어야 한다.\n' >&2
+    return 3
+  fi
+  if [ "$waited" = 0 ]; then
+    printf '  (도는 soak 이 없다 — 이미 끝난 마지막 실행을 판정한다: %s → %s)\n' \
+      "$(_block_field start_time)" "$(_block_field end_time)"
+  fi
+
+  local stamp log rc verdict start_fp end_fp
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  log="$OUT/soak-harvest-$stamp.txt"
+  printf '  판정기: %s\n  판정 기록: %s\n\n' "$judge" "$log"
+  "$(_py)" "$judge" 2>&1 | tee "$log"
+  rc="${PIPESTATUS[0]}"
+
+  verdict="$(sed -n 's/^  판정: \([A-Z][A-Z]*\).*/\1/p' "$log" | tail -1)"
+  start_fp="$(_block_field start_fingerprint)"
+  end_fp="$(_block_field end_fingerprint)"
+  printf '\n  ── 수확 요약 ──\n'
+  printf '  실행: %s → %s · exit %s · 판정: %s\n' "$(_block_field start_time)" \
+    "$(_block_field end_time)" "$(_block_field exit)" "${verdict:-?}"
+  printf '  시작 지문=%s\n  종료 지문=%s\n' "${start_fp:-?}" "${end_fp:-?}"
+  if [ -n "$start_fp" ] && [ "$start_fp" = "$end_fp" ]; then
+    printf '  귀속: 성립(시작 == 종료) — 이 실행은 후보의 것으로 적을 수 있다\n'
+  else
+    printf '  귀속: 불성립(시작 != 종료) — 이 실행은 후보에 붙일 수 없다\n'
+  fi
+  printf '  다음: 대장 기록 → 커밋 → clean-machine → ga_gate_verify (판정기의 순서를 그대로 따른다)\n'
+  printf '  타 레인/오너 대기: required red · CR-14 재선언 · owner 허용 — OWNER_REQUEST_TAILFIX.md\n'
+  return "$rc"
 }
 
 # ── selftest ────────────────────────────────────────────────────────────────
@@ -731,8 +1046,11 @@ sleep 300"
   _owner8() { printf 'pid: %s\nexpected_fingerprint: %s\ntarget_utc: %s\nat_local: 22:00\n' "$fake8" "$1" "$future" > "$d/out/.soak-arm.lock/owner"; }
   _owner8 "$fp8"
   preflight() {
+    # `NX10_SOAK_PROC_PATTERN` 은 **시험이 통제한다** — 기본값(실제 하네스)을 그대로 두면 진짜 soak 이
+    # 도는 동안 “다른 soak 실행 없음” 이 정당하게 빨개져서, 이 픽스처가 전부 무의미해진다.
     NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
       NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/schedule_nx10_soak.sh" \
+      NX10_SOAK_PROC_PATTERN="${NX10_SOAK_PROC_PATTERN:-$d/no-such-soak-harness-$$}" \
       NX10_PREFLIGHT_MIN_FREE_MB="${NX10_PREFLIGHT_MIN_FREE_MB:-2048}" \
       NX10_PREFLIGHT_SKIP_THROUGHPUT="${NX10_PREFLIGHT_SKIP_THROUGHPUT:-1}" bash "$0" preflight "$@"
   }
@@ -768,10 +1086,31 @@ sleep 300"
   _st_ck "⑧ 유령 잠금이면 preflight 1" 1 "$?"
   _st_ck_has "⑧ 유령 잠금을 지목" "$d/pf-ghost.txt" "잠금 상태=armed"
 
+  # ⑧ 이미 도는 soak(다른 디렉터리에서 시작된 것)은 **기계 전체**에서 잡는다 — 두 개가 동시에 돌면
+  #    서로의 처리량·RSS 측정을 오염시키기 때문이다. 판정은 하네스 이름으로 하는데, 그 이름을 시험이
+  #    통제하지 않으면 **진짜 soak 이 도는 동안 이 픽스처가 전부 빨개진다**(실측 2026-09-16T23:34Z:
+  #    재실행 중인 soak 을 “다른 soak 실행 없음” 이 잡아 ⑧·⑨ 3건이 실패 — 원인은 도구가 아니라 시험 쪽).
+  #    ※ 뒤 픽스처가 `$d`(t8)의 자산을 그대로 쓰므로 여기서 `$d` 를 바꾸지 않는다 — 바꿦다가 처리량
+  #      픽스처가 “스케줄러 자산 없음” 으로 빨개졌다(실측: 51/52 의 유일한 실패가 그것이었다).
+  local df="$tmp/t8f"
+  mkdir -p "$df/out"
+  printf '#!/usr/bin/env bash\nsleep 120\n' > "$df/pretend-soak.sh"
+  bash "$df/pretend-soak.sh" > "$df/pretend.log" 2>&1 & local pre8=$!
+  sleep 1
+  NX10_OUT="$df/out" NX10_REPO="$REPO" NX10_SCHED_PATTERN="$df/no.sh" \
+    NX10_SOAK_PROC_PATTERN="$df/pretend-soak.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_PREFLIGHT_SKIP_THROUGHPUT=1 \
+    bash "$0" preflight > "$df/pf-foreign.txt" 2>&1
+  _st_ck "⑧ 다른 soak 이 돌면 preflight 1" 1 "$?"
+  _st_ck_has "⑧ 도는 프로세스를 pid 로 지목한다" "$df/pf-foreign.txt" "pretend-soak.sh pid="
+  kill -TERM "$pre8" 2>/dev/null || true
+  wait "$pre8" 2>/dev/null || true
+
   # ⑧ 처리량 하한 — 5초 프루브로 문 하나만 본다(예약 점검은 빼고, 60초는 시험을 느리게 만든다).
   #     넉넉한 하한은 통과하고, 터무니없이 높은 하한은 **실패해야** 한다(문이 실제로 작동하는가).
   NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
     NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=1 \
     bash "$0" preflight > "$d/pf-thr-ok.txt" 2>&1
   _st_ck "⑧ 처리량 하한을 넘으면 preflight 0" 0 "$?"
@@ -780,6 +1119,7 @@ sleep 300"
 
   NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
     NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=99999999 \
     bash "$0" preflight > "$d/pf-thr-fail.txt" 2>&1
   _st_ck "⑧ 처리량 미달이면 preflight 1" 1 "$?"
@@ -788,10 +1128,35 @@ sleep 300"
   # 프루브가 리포트를 내지 못하면(예: 소크 하네스 자체가 깨짐) 0 ops 로 **실패**해야 한다
   NX10_OUT="$d/out" NX10_REPO="$d/no-such-repo" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
     NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=1 \
     bash "$0" preflight > "$d/pf-thr-noreport.txt" 2>&1
   _st_ck "⑧ 프루브가 리포트를 못 내면 preflight 1" 1 "$?"
   _st_ck_has "⑧ 그 사유를 문장으로 남긴다" "$d/pf-thr-noreport.txt" "SC-6 프루브가 리포트를 내지 않았다"
+
+  # ⑧ 쓰기량 투영 vs hard cap — 처리량 하한의 쌍둥이 사각지대다. 실측(2026-09-17): 꼬리 창 수정으로
+  #    append 가 빨라지자 기본 512 MiB 캡을 **47분에 452 MiB**로 밀어붙였고, 넘긴 뒤에는 모든 append 가
+  #    507 로 거절되어 하네스가 그것을 `errors` 로 세고 SC-6 이 **설정 때문의 거짓 FAIL** 이 된다.
+  #    문이 두 방향으로 작동하는지 본다: 넘치는 캡은 빨개지고, 넉넉한 캡은 초록이다.
+  NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
+    NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
+    NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=1 \
+    AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=1 \
+    bash "$0" preflight > "$d/pf-cap-fail.txt" 2>&1
+  _st_ck "⑧ 예상 쓰기량이 hard cap 을 넘으면 preflight 1" 1 "$?"
+  _st_ck_has "⑧ 그 항목을 지목한다" "$d/pf-cap-fail.txt" "예상 journal 쓰기량 < hard cap"
+  _st_ck_has "⑧ 왜 빨간지(507 거절 → 거짓 FAIL)를 말한다" "$d/pf-cap-fail.txt" "거짓 FAIL"
+
+  NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
+    NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PF_SKIP_RESERVATION=1 \
+    NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
+    NX10_PREFLIGHT_SKIP_THROUGHPUT=0 NX10_PREFLIGHT_PROBE_SECONDS=5 NX10_PREFLIGHT_MIN_OPS_PER_SEC=1 \
+    AGK_CONVERSATION_JOURNAL_HARD_CAP_MB=8192 \
+    bash "$0" preflight > "$d/pf-cap-ok.txt" 2>&1
+  _st_ck "⑧ 넉넉한 캡이면 preflight 0" 0 "$?"
+  _st_ck_has "⑧ 투영·캡·프루브 길이를 숫자로 보여준다" "$d/pf-cap-ok.txt" "8시간 외삽"
+  _st_ck_has "⑧ 캡 값을 문장으로 남긴다" "$d/pf-cap-ok.txt" "cap 8192 MiB"
 
   # ⑨ `run`(예약을 기다리지 않고 지금 시작) — **거부** 쪽을 고정한다. 해피 패스는 8시간 soak 을 실제로
   #     띄우므로 시험에서 돌리지 않는다(그 자체가 운영 기록이다 — 오늘 밤 실제 시작이 그 증거다).
@@ -799,6 +1164,7 @@ sleep 300"
   mkdir -p "$d/out" "$d/empty"
   NX10_OUT="$d/out" NX10_REPO="$d/empty" NX10_SCHEDULER="$d/does-not-exist.sh" \
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/no.sh" NX10_PREFLIGHT_MIN_FREE_MB=99999999 \
+    NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
     NX10_PREFLIGHT_SKIP_THROUGHPUT=1 \
     bash "$0" run > "$d/run-fail.txt" 2>&1
   _st_ck "⑨ preflight 실패면 run 거부(exit 2)" 2 "$?"
@@ -812,11 +1178,42 @@ sleep 300"
   sleep 1
   NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHEDULER="$d/schedule_nx10_soak.sh" \
     NX10_RUNNER="$RUNNER" NX10_SCHED_PATTERN="$d/schedule_nx10_soak.sh" \
+    NX10_SOAK_PROC_PATTERN="$d/no-such-soak-harness-$$" \
     NX10_PREFLIGHT_SKIP_THROUGHPUT=1 \
     bash "$0" run > "$d/run-armed.txt" 2>&1
   _st_ck "⑨ 예약이 걸려 있으면 run 거부(exit 2)" 2 "$?"
   _st_ck_has "⑨ 예약을 지목" "$d/run-armed.txt" "예약이 이미 걸려 있다"
   kill -TERM "$fake9" 2>/dev/null || true
+
+  # ⑩ 실행 중(`run`)에는 예약 잠금이 **없다** — 그때 status 가 ATTENTION 을 내면 상시 거짓 경보가 되고,
+  #    상시 거짓 경보는 진짜 경보를 무디게 만든다(실측 2026-09-16T23:28Z: 8시간 재실행 중 `판정: ATTENTION`).
+  d="$tmp/t10"
+  mkdir -p "$d/out/.soak-run.lock"
+  sleep 60 & local runp=$!
+  fp="$(_tree_fingerprint)"
+  _st_ck "⑩ (전제) 시험용 지문을 계산했다" "yes" "$([ "${#fp}" = 64 ] && echo yes || echo no)"
+  printf 'pid: %s\nstarted_at: %s\n' "$runp" "$(_utc)" > "$d/out/.soak-run.lock/owner"
+  {
+    printf 'command: x --soak-seconds 28800 --workdir /tmp/x\n'
+    printf 'start_fingerprint: %s\n' "$fp"
+  } > "$d/out/soak-exit.txt"
+  NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHED_PATTERN="$d/no-such-scheduler.sh" \
+    bash "$0" status > "$d/run-status.txt" 2>&1
+  _st_ck "⑩ 실행 중이면 status 가 RUNNING(exit 0)" 0 "$?"
+  _st_ck_has "⑩ 모드를 문장으로 말한다" "$d/run-status.txt" "모드: RUNNING"
+  _st_ck_has "⑩ 남은 초와 종료 예정을 보여준다" "$d/run-status.txt" "남은 초:"
+  _st_ck_has "⑩ 실행 시작 지문을 현재 트리와 나란히 보여준다" "$d/run-status.txt" "실행 시작="
+
+  #     실행 중인데 트리 지문이 갈리면(코드 스코프 편집) 그 실행은 후보에 못 붙는다 — 그때는 빨개야 한다.
+  #     마지막 러너 블록을 쓰는지도 같이 본다(값을 뒤에 덧붙여 확인한다).
+  printf 'start_fingerprint: %s\n' "0000000000000000000000000000000000000000000000000000000000000000" \
+    >> "$d/out/soak-exit.txt"
+  NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_SCHED_PATTERN="$d/no-such-scheduler.sh" \
+    bash "$0" status > "$d/run-status2.txt" 2>&1
+  _st_ck "⑩ 지문이 갈리면 status 가 ATTENTION(exit 1)" 1 "$?"
+  _st_ck_has "⑩ 후보 귀속이 끊겼다고 말한다" "$d/run-status2.txt" "후보에 붙일 수 없다"
+  kill -TERM "$runp" 2>/dev/null || true
+  wait "$runp" 2>/dev/null || true
 
   # ⑤ 죽은 주인의 잠금은 '예약됨'이 아니라 'stale' 로 보인다(상태를 속이지 않는다)
   d="$tmp/t5"
@@ -862,6 +1259,103 @@ PY
     screen -S nx10selftest -X quit >/dev/null 2>&1 || true
   fi
 
+  # ⑪ harvest — 회수를 **기다렸다가** 한 번에 한다. 문은 네 가지: 끝나기 전엔 판정하지 않는다,
+  #    기다린 뒤에는 판정기의 exit 를 **그대로** 전한다, 완료 블록이 없으면 판정하지 않는다,
+  #    그리고 기다릴 때는 정말로 기다린다. 판정기는 시험용 파이썬 스텁으로 갈아 끼운다.
+  d="$tmp/t11"
+  mkdir -p "$d/out"
+  printf 'import os, pathlib, sys\npathlib.Path(os.environ["JUDGE_RAN"]).write_text("ran\\n")\nprint("  판정: FAIL (미충족: SC-6)")\nsys.exit(7)\n' > "$d/judge.py"
+  hpat="$d/fake-soak.sh"
+  hrun() { # 인자를 그대로 전달하며 판정기·하네스 이름을 시험용으로 갈아 끼운다
+    JUDGE_RAN="$d/judge-ran.txt" NX10_OUT="$d/out" NX10_REPO="$REPO" NX10_JUDGE="$d/judge.py" \
+      NX10_SOAK_PROC_PATTERN="$hpat" NX10_SCHED_PATTERN="$d/no.sh" NX10_REPO="$REPO" \
+      bash "$0" harvest "$@"
+  }
+  _completed_block() { # 러너가 종료 시에 쓰는 필드까지 갖춘 블록
+    {
+      printf 'generated_at: 2026-01-01T00:00:00Z\nreport: %s/soak-28800.json\n' "$d/out"
+      printf 'start_time: 2026-01-01T00:00:00Z\nstart_fingerprint: aaaaaaaaaaaa\n'
+      printf 'exit: 1\nend_time: 2026-01-01T08:00:00Z\nend_fingerprint: aaaaaaaaaaaa\n'
+    } > "$d/out/soak-exit.txt"
+  }
+
+  _fake_sched "$d/fake-soak.sh" 'sleep 8'
+  bash "$d/fake-soak.sh" > "$d/fake.log" 2>&1 & local fake11=$!
+  sleep 1
+  hrun --no-wait > "$d/h-nowait.txt" 2>&1
+  _st_ck "⑪ 도는 soak 이 있으면 --no-wait 는 거부(exit 4)" 4 "$?"
+  _st_ck_has "⑪ 그 사유가 '끝난 뒤' 임을 말한다" "$d/h-nowait.txt" "끝난 뒤"
+  _st_ck "⑪ 거부된 회수는 판정기를 실행하지 않는다" "no" \
+    "$(test -f "$d/judge-ran.txt" && echo yes || echo no)"
+
+  # 완성 블록 + 도는 soak 없음 → 판정기의 exit 를 **그대로** 전하고, 그 출력을 파일로 남긴다.
+  kill -TERM "$fake11" 2>/dev/null || true
+  wait "$fake11" 2>/dev/null || true
+  _completed_block
+  hrun --no-wait > "$d/h-run.txt" 2>&1
+  _st_ck "⑪ 판정기의 exit 를 그대로 전한다(7)" 7 "$?"
+  _st_ck "⑪ 판정기를 실제로 실행했다" "yes" "$(test -f "$d/judge-ran.txt" && echo yes || echo no)"
+  _st_ck "⑪ 판정 출력을 파일로 남긴다" "yes" \
+    "$(ls "$d/out"/soak-harvest-*.txt >/dev/null 2>&1 && echo yes || echo no)"
+  _st_ck_has "⑪ 요약에 실행·판정·지문을 모아 보여준다" "$d/h-run.txt" "수확 요약"
+  _st_ck_has "⑪ 시작 == 종료 지문이면 귀속 성립을 말한다" "$d/h-run.txt" "귀속: 성립"
+
+  # 완성되지 않은 블록(러너는 시작했는데 끝나지 않은 모양) → 판정하지 않는다.
+  # (러너의 마지막 플러시를 기다리는 `settle` 을 짧게 줘서 시험이 120초를 쓰지 않게 한다.)
+  printf 'generated_at: 2026-01-01T00:00:00Z\nstart_fingerprint: bbbbbbbbbbbb\n' \
+    > "$d/out/soak-exit.txt"
+  NX10_HARVEST_SETTLE=2 hrun --no-wait > "$d/h-incomplete.txt" 2>&1
+  _st_ck "⑪ 완성 블록이 없으면 판정하지 않는다(exit 3)" 3 "$?"
+  _st_ck_has "⑪ 그 사유를 문장으로 남긴다" "$d/h-incomplete.txt" "완성되지 않았다"
+
+  # 기다리는 경로: 아직 도는 soak 이 끝나야 판정한다(초 단위 폴링으로 빠르게 확인).
+  hpat="$d/short-soak.sh"
+  _fake_sched "$d/short-soak.sh" 'sleep 6'
+  bash "$d/short-soak.sh" > "$d/short.log" 2>&1 & local short11=$!
+  sleep 1
+  _completed_block
+  hrun --poll 1 --timeout 30 > "$d/h-wait.txt" 2>&1
+  _st_ck "⑪ 기다렸다가 판정한다(exit 7 = 판정기 exit)" 7 "$?"
+  _st_ck_has "⑪ 기다린 사실을 기록한다" "$d/h-wait.txt" "실행 종료를 확인했다"
+  kill -TERM "$short11" 2>/dev/null || true
+  wait "$short11" 2>/dev/null || true
+
+  # ⑫ 죽은-것-같은 실행을 **하루치 기다리지 않는다**. 프로세스가 살아 있으면 `harvest` 는 그냥
+  #    "도는 중" 으로 보는데, 실측 사고는 정확히 그 모양이었다(worker 가 죽고 부모가 영원히 대기,
+  #    로그·작업디렉터리 쓰기 0건). 마지막 쓰기 이후 경과로 그것을 잡는가.
+  d="$tmp/t12"
+  mkdir -p "$d/out/work"
+  # 작업디렉터리를 **과거로** 만들어 둔다(멈춘 실행은 마지막 쓰기가 오래 전이다).
+  touch -t 202001010000 "$d/out/work" 2>/dev/null || true
+  _fake_sched "$d/hung-soak.sh" 'sleep 60'
+  bash "$d/hung-soak.sh" > "$d/fake.log" 2>&1 & local hung12=$!
+  sleep 1
+  {
+    printf 'generated_at: 2026-01-01T00:00:00Z\nworkdir: %s\n' "$d/out/work"
+    printf 'start_time: 2026-01-01T00:00:00Z\nstart_fingerprint: aaaa\n'
+  } > "$d/out/soak-exit.txt"
+  JUDGE_RAN="$d/judge-ran.txt" NX10_OUT="$d/out" NX10_JUDGE="$d/judge.py" \
+    NX10_SOAK_PROC_PATTERN="$d/hung-soak.sh" NX10_HARVEST_MAX_STALL=2 NX10_HARVEST_POLL=1 \
+    NX10_HARVEST_TIMEOUT=60 \
+    bash "$0" harvest > "$d/h-stall.txt" 2>&1
+  _st_ck "⑫ 무응답(살아 있지만 안 쓴다)이면 harvest 가 중단(exit 6)" 6 "$?"
+  _st_ck_has "⑫ 마지막 쓰기 경과를 숫자로 보여준다" "$d/h-stall.txt" "마지막 쓰기"
+  _st_ck_has "⑫ 그대로 두면 8시간이 결과 0 이라고 말한다" "$d/h-stall.txt" "결과 0"
+  _st_ck "⑫ 멈춘 실행을 판정하지 않는다" "no" \
+    "$(test -f "$d/out/soak-harvest-*.txt" 2>/dev/null && echo yes || echo no)"
+
+  #    그리고 쓰기가 살아 있으면(정상 실행) 그 문에 걸리지 않고 계속 기다린다.
+  _fake_sched "$d/alive-soak.sh" 'for i in $(seq 1 20); do mkdir -p "$1"; date > "$1/tick"; sleep 1; done'
+  bash "$d/alive-soak.sh" "$d/out/work/alive" > "$d/alive.log" 2>&1 & local alive12=$!
+  sleep 1
+  JUDGE_RAN="$d/judge-ran.txt" NX10_OUT="$d/out" NX10_JUDGE="$d/judge.py" \
+    NX10_SOAK_PROC_PATTERN="$d/alive-soak.sh" NX10_HARVEST_MAX_STALL=3 NX10_HARVEST_POLL=1 \
+    NX10_HARVEST_TIMEOUT=6 \
+    bash "$0" harvest > "$d/h-alive.txt" 2>&1
+  _st_ck "⑫ 쓰기가 살아 있으면 무응답으로 몰지 않는다(exit 5 = 대기 초과)" 5 "$?"
+  kill -TERM "$alive12" "$hung12" 2>/dev/null || true
+  wait "$alive12" "$hung12" 2>/dev/null || true
+
   # 청소: 임시 디렉터리의 가짜 프로세스가 남지 않게 한다.
   pkill -f -- "$tmp" 2>/dev/null || true
   rm -rf "$tmp"
@@ -877,10 +1371,11 @@ case "${1:-status}" in
   orphans) shift; cmd_orphans "$@" ;;
   preflight) shift; cmd_preflight "$@" ;;
   run) shift; cmd_run "$@" ;;
+  harvest) shift; cmd_harvest "$@" ;;
   selftest) shift; cmd_selftest "$@" ;;
-  -h | --help | help) sed -n '2,30p' "$0" ;;
+  -h | --help | help) sed -n '2,40p' "$0" ;;
   *)
-    printf '사용: %s {status|arm|cancel|orphans|selftest} [--at HH:MM] [--fp <지문>]\n' "$0" >&2
+    printf '사용: %s {status|arm|cancel|orphans|preflight|run|harvest|selftest} [--at HH:MM] [--fp <지문>]\n' "$0" >&2
     exit 2
     ;;
 esac
