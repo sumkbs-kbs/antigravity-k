@@ -247,6 +247,13 @@ def run_loop(args: argparse.Namespace) -> int:
                 rows.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
+    # RSS 기준선을 **실행 첫 표본**에 고정한다 — 감시를 재시작해도 “실행 시작 이후 얼마나 자랐나”가
+    # 0 으로 돌아가지 않게(실측: 재시작 직후 +0.0 MB 로 보였다).
+    baseline = next((row for row in rows if row.get("rss_mb") is not None), None)
+    if baseline is not None:
+        watch.baseline_rss_mb = float(baseline["rss_mb"])  # type: ignore[arg-type]
+        watch.baseline_at = float(baseline["at"])  # type: ignore[arg-type]
+    watch.rss_series = [(float(row["at"]), float(row["rss_mb"])) for row in rows if row.get("rss_mb") is not None]  # type: ignore[arg-type]
     code = soak_watch.OK
     sample_budget = 1 if args.once else args.samples
     index = 0
@@ -257,6 +264,8 @@ def run_loop(args: argparse.Namespace) -> int:
         watch.samples.append(sample)
         code, lines = watch.verdict()
         rows.append(sample_to_row(sample, watch.soak_started))
+        if sample.rss_mb is not None:
+            watch.rss_series.append((sample.at, sample.rss_mb))
         with history.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(rows[-1], ensure_ascii=False) + "\n")
         _write_view(rows[-400:], code, lines, watch, html_path)

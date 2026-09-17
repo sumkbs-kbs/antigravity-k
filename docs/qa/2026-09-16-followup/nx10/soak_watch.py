@@ -74,6 +74,12 @@ class Watch:
     max_stall: int
     pid_pattern: str
     samples: list[Sample] = field(default_factory=list)
+    # RSS 기준선은 **이 프로세스가 아니라 실행 첫 표본**에 둔다 — 감시가 재시작되더라도
+    # “실행 시작 이후 얼마나 자랐나”가 흔들리면 안 된다(실측: 재시작 직후 +0.0 MB 로 보였다).
+    baseline_rss_mb: float | None = None
+    baseline_at: float | None = None
+    # 실행 첫 표본부터의 (시각, RSS) 계열 — 회수가 **감속 여부**를 보려면 표본 두 개로는 부족하다.
+    rss_series: list[tuple[float, float]] = field(default_factory=list)
 
     # ── 측정 ────────────────────────────────────────────────────────────
     def _find_pid(self, override: str | None) -> int | None:
@@ -129,18 +135,19 @@ class Watch:
                 continue
         return None if newest == 0.0 else max(0.0, time.time() - newest)
 
-    def take(self, pid_override: str | None) -> Sample:
+    def take(self, pid_override: str | None, *, rss_override: float | None = None) -> Sample:
         now = time.time()
         pid = self._find_pid(pid_override)
         alive = False
         cpu: float | None = None
-        rss: float | None = None
+        rss: float | None = rss_override
         if pid is not None:
             alive = bool(self._ps(pid, "stat"))
             if alive:
                 cpu = self._parse_cputime(self._ps(pid, "cputime"))
-                raw_rss = self._ps(pid, "rss")
-                rss = float(raw_rss) / 1024 if raw_rss.isdigit() else None
+                if rss is None:
+                    raw_rss = self._ps(pid, "rss")
+                    rss = float(raw_rss) / 1024 if raw_rss.isdigit() else None
         return Sample(
             at=now,
             pid=pid,
@@ -152,6 +159,22 @@ class Watch:
         )
 
     # ── 판정 ────────────────────────────────────────────────────────────
+    def _rss_decelerating(self) -> bool:
+        """최근 구간 RSS 증가율이 앞 구간보다 뚜렷이 낮은가(워밍업이면 참). 판단 근거가 부족하면 거짓.
+
+        계열이 처음부터 있으면 그것을(감시 재시작에도 유지), 없으면 이 프로세스의 표본을 쓴다.
+        """
+        series = self.rss_series or [(s.at, s.rss_mb) for s in self.samples if s.rss_mb is not None]
+        if len(series) < 4:
+            return False
+        middle = len(series) // 2
+        first, second = series[:middle], series[middle:]
+        first_rate = (first[-1][1] - first[0][1]) / max(1.0, first[-1][0] - first[0][0])
+        second_rate = (second[-1][1] - second[0][1]) / max(1.0, second[-1][0] - second[0][0])
+        if first_rate <= 0:
+            return False
+        return second_rate < 0.5 * first_rate
+
     def verdict(self) -> tuple[int, list[str]]:
         """(exit code, 사람이 읽는 줄들). 표본이 하나뿐이면 추세 판단은 보류한다."""
         lines: list[str] = []
@@ -176,20 +199,29 @@ class Watch:
                     f"멈춤: {stall_ref:.0f}s 동안 쓰기도 CPU 도 진행 없음(상한 {self.max_stall}s) — "
                     "`soak_control.sh harvest` 는 종료를 기다리므로 이 상태로는 8시간이 결과 0 이 된다"
                 ]
-            if progress > 0:
-                rate_events = progress / B_PER_EVENT / max(1.0, last.at - previous.at)
-                lines.append(f"추정 진행 {progress / 1024:.0f} KiB/표본 ≈ {rate_events:.0f} ops/s(추정)")
+            # **외삼은 순간 기울기가 아니라 누적 평균으로 한다.** 왜인가: 순간 기울기는 표본 하나의 작은
+            # 계단(할당 high-water)을 8시간으로 증폭해 **가짜 경보**를 만든다(실측: 29분에 RSS 가 1.9 MB
+            # 올랐다고 “8시간 외삼 +305 MB, SC-6 빨개진다”가 떴다 — 그대로 두면 다음 사람이 배지를 안 믿는다).
+            # 누적 평균은 경과 시간이 길수록 안정되고, 고장난 코드의 **선형 누수**는 여전히 크게 잡힌다
+            # (tail() 결함 실행: 29분 시점 이미 +100 MB → 외삼 +1,700 MB 로 경보가 떴다).
+            if progress > 0 and elapsed > 0:
+                avg_rate = (last.journal_bytes or 0) / elapsed
+                rate_events = avg_rate / B_PER_EVENT
+                lines.append(
+                    f"평균 증가 {avg_rate / 1024:.0f} KiB/s ≈ {rate_events:.0f} ops/s(추정, 바이트 기반)"
+                    f" — 직전 표본 +{progress / 1024:.0f} KiB"
+                )
                 if rate_events < self.min_ops_per_sec:
                     warns.append(
                         f"추정 처리량 {rate_events:.0f} ops/s < 하한 {self.min_ops_per_sec:.0f} ops/s"
                         " — 이대로면 8시간에 요청한 양을 못 채운다"
                     )
                 remaining = max(0, self.duration - elapsed)
-                projected_bytes = (last.journal_bytes or 0) + progress / max(1.0, last.at - previous.at) * remaining
+                projected_bytes = (last.journal_bytes or 0) + avg_rate * remaining
                 cap_bytes = self.hard_cap_mib * 1048576
                 if projected_bytes > cap_bytes:
                     warns.append(
-                        f"보존 cap 위험: 증가율대로면 종료 시 {projected_bytes / 1048576:.0f} MiB > hard cap "
+                        f"보존 cap 위험: 평균 증가율대로면 종료 시 {projected_bytes / 1048576:.0f} MiB > hard cap "
                         f"{self.hard_cap_mib:.0f} MiB — 넘긴 뒤의 쓰기 거절(507)은 하네스가 `errors` 로 세므로 "
                         "설정 때문의 거짓 FAIL 이 된다"
                     )
@@ -197,19 +229,42 @@ class Watch:
                     lines.append(
                         f"cap 여유: 종료 시 추정 {projected_bytes / 1048576:.0f} MiB / cap {self.hard_cap_mib:.0f} MiB"
                     )
-            if len(self.samples) >= 3 and last.rss_mb is not None:
-                first = self.samples[0]
-                span = last.at - first.at
-                if span > 0 and first.rss_mb is not None and (last.rss_mb - first.rss_mb) > 0:
-                    slope_mb_per_s = (last.rss_mb - first.rss_mb) / span
-                    projected_growth = slope_mb_per_s * self.duration
+            baseline_rss = self.baseline_rss_mb
+            baseline_at = self.baseline_at
+            if baseline_rss is None and self.samples and self.samples[0].rss_mb is not None:
+                baseline_rss, baseline_at = self.samples[0].rss_mb, self.samples[0].at
+            if last.rss_mb is not None and baseline_rss is not None and baseline_at is not None:
+                growth = last.rss_mb - baseline_rss
+                span = last.at - baseline_at
+                if growth > 0 and span > 0:
+                    projected_growth = growth * (self.duration / span)
                     lines.append(
-                        f"RSS 기울기 {slope_mb_per_s * 3600:.1f} MB/시간 → 8시간 외삽 +{projected_growth:.0f} MB"
+                        f"RSS 증가 +{growth:.1f} MB(실행 {_hms(span)} 경과) → 8시간 외삼 +{projected_growth:.0f} MB"
+                        f" {'<' if projected_growth <= self.rss_limit_mb else '>'} 기준 {self.rss_limit_mb:.0f} MB"
                     )
-                    if projected_growth > self.rss_limit_mb:
+                    # 두 가지를 더 요구한다. 이유는 둘 다 실측 오탐에서 나왔다:
+                    #  ① **워밍업**: 실행 초기에는 할당·캐시가 차오르며 RSS 가 계단식으로 오르고
+                    #     나중에 평탄해진다. 33분에 2 MB 오른 것을 8시간으로 늘리면 +126 MB 라는
+                    #     경보가 떴다(실측 10:53Z) — 그 실행은 이후 평탄해졌다(10분 리허설 기울기 0.004 KB/op).
+                    #  ② **감속**: 뒤 구간 증가율이 앞 구간보다 확실히 낮으면 회수가 아니라 워밍업이다.
+                    warmup = max(600.0, 0.25 * self.duration)
+                    decelerating = self._rss_decelerating()
+                    if projected_growth <= self.rss_limit_mb:
+                        pass
+                    elif elapsed < warmup:
+                        lines.append(
+                            f"(외삼 +{projected_growth:.0f} MB 은 기준 초과지만 실행 {_hms(elapsed)} 가 워밍업 "
+                            f"{_hms(warmup)}(실행 25%) 보다 짧다 — 경보하지 않고 기다린다)"
+                        )
+                    elif decelerating:
+                        lines.append(
+                            f"(외삼 +{projected_growth:.0f} MB 이지만 **감속 중** — 최근 구간 증가율이 앞 구간의 "
+                            "절반 미만이다. 워밍업으로 보고 경보하지 않는다)"
+                        )
+                    else:
                         warns.append(
-                            f"RSS 외삽 +{projected_growth:.0f} MB > SC-6 기준 {self.rss_limit_mb:.0f} MB"
-                            " — 지금 추세로는 SC-6 가 빨개진다"
+                            f"RSS 외삼 +{projected_growth:.0f} MB > SC-6 기준 {self.rss_limit_mb:.0f} MB"
+                            " — 워밍업이 지났는데도 증가세가 유지된다면 SC-6 가 빨개진다"
                         )
         for warn in warns:
             lines.append(f"경고: {warn}")
@@ -335,6 +390,11 @@ def run_selftest() -> int:
         if got != want:
             failures.append(name)
 
+    def check_bool(name: str, condition: bool, detail: str = "") -> None:
+        print(f"  [{'OK ' if condition else 'FAIL'}] {name}{'' if condition else f' — {detail}'}")
+        if not condition:
+            failures.append(name)
+
     with tempfile.TemporaryDirectory(prefix="nx10-watch-") as tmp:
         root = Path(tmp)
 
@@ -403,6 +463,74 @@ def run_selftest() -> int:
             (fast / "journal").write_bytes(b"z" * 8_000_000)  # +7 MB/표본 → 8시간이면 cap 초과
             watch3.samples.append(watch3.take(str(live.pid)))
             check("cap 초과 투영은 경고", watch3.verdict()[0], WARN)
+
+            # ④ 이빨 — **작은 RSS 계단 하나를 8시간으로 증폭하지 않는다**(실측 오탐의 재현):
+            #   순간 기울기 규칙이었다면 2 MB/1초 × 28,800초 = +57,600 MB 로 경보가 뗐다
+            #   (2026-09-17 10:48Z 실측: 경과 29분의 1.9 MB 계단이 “8시간 외삼 +305 MB, SC-6 빨개진다”를 냈다).
+            step = root / "step"
+            step.mkdir()
+            (step / "journal").write_bytes(b"w" * 300_000_000)
+            watch4 = Watch(
+                workdir=step,
+                soak_started=time.time() - 1740,
+                duration=28800,
+                interval=1,
+                min_ops_per_sec=133,
+                rss_limit_mb=64,
+                hard_cap_mib=8192,
+                max_stall=600,
+                pid_pattern="sleep",
+            )
+            watch4.samples.append(watch4.take(str(live.pid), rss_override=100.0))
+            watch4.samples.append(watch4.take(str(live.pid), rss_override=102.0))
+            watch4.baseline_rss_mb, watch4.baseline_at = 100.0, watch4.soak_started
+            code4, lines4 = watch4.verdict()
+            check("RSS 계단 하나를 8시간으로 증폭하지 않는다", code4, OK)
+            check_bool(
+                "대신 누적 평균 외삼을 문장으로 남긴다",
+                any("8시간 외삼" in line for line in lines4),
+                " | ".join(lines4),
+            )
+
+            # ⑤ 이빨 — 워밍업이 지난 뒤에도 **지속** 증가하면 경보해야 한다(진짜 누수를 놓치지 않는다):
+            #   tail() 결함 실행은 29분에 이미 +100 MB 였다. 그 모양을 워밍업으로 넘기면 안 된다.
+            now = time.time()
+            sustained = Watch(
+                workdir=step,
+                soak_started=now - 10800,
+                duration=28800,
+                interval=1,
+                min_ops_per_sec=133,
+                rss_limit_mb=64,
+                hard_cap_mib=8192,
+                max_stall=600,
+                pid_pattern="sleep",
+            )
+            sustained.samples.append(sustained.take(str(live.pid), rss_override=100.0))
+            sustained.baseline_rss_mb, sustained.baseline_at = 100.0, now - 10800
+            sustained.rss_series = [(now - 10800, 100.0), (now - 7200, 120.0), (now - 3600, 140.0)]
+            sustained.samples.append(sustained.take(str(live.pid), rss_override=160.0))
+            sustained.rss_series.append((now, 160.0))
+            check("워밍업 지난 지속 증가는 경보", sustained.verdict()[0], WARN)
+
+            # ⑥ 이빨 — 감속하면(워밍업) 경보하지 않는다: 앞 구간 +30 MB, 뒤 구간 +3 MB.
+            calm = Watch(
+                workdir=step,
+                soak_started=now - 5400,
+                duration=14400,
+                interval=1,
+                min_ops_per_sec=133,
+                rss_limit_mb=64,
+                hard_cap_mib=8192,
+                max_stall=600,
+                pid_pattern="sleep",
+            )
+            calm.samples.append(calm.take(str(live.pid), rss_override=100.0))
+            calm.baseline_rss_mb, calm.baseline_at = 100.0, now - 5400
+            calm.rss_series = [(now - 5400, 100.0), (now - 3600, 130.0), (now - 1800, 132.0)]
+            calm.samples.append(calm.take(str(live.pid), rss_override=133.0))
+            calm.rss_series.append((now, 133.0))
+            check("감속 중이면 경보하지 않는다", calm.verdict()[0], OK)
         finally:
             live.terminate()
             live.wait(timeout=10)
