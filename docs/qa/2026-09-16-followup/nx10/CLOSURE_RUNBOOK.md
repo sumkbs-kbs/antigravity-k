@@ -36,6 +36,17 @@ bash docs/qa/2026-09-16-followup/nx10/soak_control.sh run         # 같은 prefl
 bash docs/qa/2026-09-16-followup/nx10/soak_control.sh harvest --detach   # 끝날 때까지 기다렸다가 회수 판정까지
 ```
 
+**지금 상태**: 3차 실행이 **돌고 있고**(`screen nx10soak`) 회수 감시도 **이미 떠 있다**(`screen nx10harvest`,
+`2026-09-17T01:23Z` 부터 대기). 그러므로 아침에 할 일은 **감시 로그를 읽는 것**이지 다시 띄우는 것이 아니다:
+
+```bash
+tail -20 docs/qa/2026-09-16-followup/nx10/soak-harvest.log   # 대기 중이면 “마지막 쓰기 N초 전”
+ls -t docs/qa/2026-09-16-followup/nx10/soak-harvest-*.txt   # 끝나면 판정 원문이 생긴다
+```
+
+감시가 끝나면 판정 `exit` 를 그대로 전하고, 그 출력을 `soak-harvest-<UTC>.txt` 로도 남긴다.
+`exit 6` 이면 **멈춘 실행**을 만난 것이니 §1-0 의 정리 절차를 보고 다시 시작한다.
+
 ### 0b-1. 시작했던 실행(이제 종료됨)의 기록
 
 - 상태 보기: `bash docs/qa/2026-09-16-followup/nx10/soak_control.sh status`(한 화면에 모드·지문·관은 초·종료 예정)
