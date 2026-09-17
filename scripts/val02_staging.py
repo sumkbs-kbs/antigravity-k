@@ -20,9 +20,11 @@
 from __future__ import annotations
 
 import argparse
+import cProfile
 import json
 import multiprocessing as mp
 import os
+import pstats
 import queue as queue_module
 import signal
 import statistics
@@ -60,6 +62,68 @@ RSS_WARMUP_MIN_S = 300.0  # 창의 하한 — 1분 창은 종료 투영을 기�
 RSS_WARMUP_FRACTION = 0.05  # 8시간 → 1,440초(24분). 실측: 5분 이상이면 세 모델의 판정이 일치한다
 RSS_CREEP_MAX_KB_PER_OP = 0.25  # 창 밖 반복당 상한 — 건강한 실행 0.004 KB/회 · 누수 24.5 KB/회(실측)
 SOAK_DEFAULT_SECONDS = 60  # 정식 gate는 8h(28800) — --soak-seconds로 상향
+
+# ── 처리량 회귀 축(2026-09-17 오너 지시) ───────────────────────────────────────
+# 왜 별도 축인가: 8시간 실행이 **느려지는 것**과 **메모리가 새는 것**은 다른 사건인데 지금은 RSS 하나만 본다.
+# 실측(2026-09-17 4차 실행 30분 블록): 벽시계 692→508 ops/s(**-26.5%**)인데 CPU 정규화 효율은 779.9→740.6
+# ops/CPU초(**-5.0%**)였다 — 즉 벽시계 감소의 대부분은 **기계 경합/대기**이고 제품 항목은 5% 였다.
+# 그래서 `벽시계 = 효율 × 이용률` 로 **분해해 원인을 귀속**한다(`THROUGHPUT_MAX_DECLINE` 은 그 전에 걸린다).
+THROUGHPUT_MAX_DECLINE = 0.15  # 허용 감소 15% — 잡아야 하는 회귀는 27%, 건강한 실행 실측은 5~6%(여유 10%p)
+THROUGHPUT_MIN_RUN_S = 7200.0  # 이보다 짧으면 분기 중앙값이 성립하지 않는다(60초 리허설은 판정 불가)
+THROUGHPUT_BLOCK_MIN_S = 300.0  # 블록 하한(5분) — 10분 블록 실측 잡음 중앙 8.4%/최대 29.6%
+THROUGHPUT_BLOCK_FRACTION = 0.02  # 8시간 → 576초(9.6분) 블록
+THROUGHPUT_MIN_BLOCKS_PER_QUARTER = 3  # 분기당 블록 3개 미만이면 중앙값을 신뢰하지 않는다
+THROUGHPUT_HOST_LOAD_MAX = 0.5  # load1/코어수 — 넘으면 “내 회귀”라 단정하지 않는다(재실행 요구)
+THROUGHPUT_EFFICIENCY_FLAT = 0.95  # 효율이 이 이상 유지되면 벽시계 감소를 제품 탓으로 돌리지 않는다
+
+# ── 처리량 회귀의 **귀속 사다리**(2026-09-17 오너 지시) ───────────────────────────
+# 게이트는 “느려졌다”까지만 말한다. 다음 질문은 항상 같다: **어느 호출이** 느려졌나.
+# 사다리는 한 반복을 국면(phase)으로 나누고, 각 국면의 **단가(µs/반복)** 를 같은 블록 추정량으로 재서
+# 분기 사이 증가분을 국면별로 쪼갠다. 쪼갠 합은 총 증가분과 같아야 하므로(정체식) 잔차를 같이 남긴다.
+#   ① 국면 하나가 증가분의 절반 이상  → 그 국면을 **이름으로 지목**(phase)
+#   ② 증가가 국면들에 고르게 퍼짐      → 공통 경로를 본다(spread)
+#   ③ 계측 밖(할당자·GC·인터프리터)    → 잔차가 크다(outside_phases) → 다음 칸은 프로세스 전체 프로파일
+#   ④ 총 증가가 잡음 수준            → 지목하지 않는다(insufficient) — 없는 범인을 만들지 않는다
+# 이 사다리는 **판정이 아니라 설명**이다: 초록 실행에는 돌지 않고(not_applicable), 빨간 판정을 바꾸지도 않는다.
+ATTRIBUTION_DOMINANCE = 0.5  # 한 국면이 증가분의 절반 이상이면 지목한다(그 미만이면 “퍼졌다”)
+ATTRIBUTION_MIN_DELTA_RATIO = 0.02  # 총 단가 증가가 첫 분기 단가의 2% 미만이면 “귀속할 증가 없음”(잡음)
+ATTRIBUTION_SAMPLE_EVERY = int(os.environ.get("NX10_ATTRIBUTION_SAMPLE_EVERY", 500))  # 국면 CPU 스냅샷 간격
+ATTRIBUTION_OUTSIDE_GAP_RATIO = 0.5  # 잔차가 총 증가분의 절반을 넘으면 “계측 밖”으로 귀속한다
+# 한 반복은 이 국면들을 **순서대로** 지난다(이름은 리포트에 실려 다음 사람이 같은 쪼개기를 재현한다).
+SOAK_PHASES: tuple[str, ...] = ("task.create", "task.transition", "conversation.append")
+
+# ── 사다리의 **다음 칸**: 지목된 국면 **안**의 하위 단계(2026-09-17 오너 지시) ─────────────────
+# 국면 이름까지 좁혀지면 다음 질문은 “그 국면 안에서 어느 단계인가”(예: `conversation.append` 안의
+# 저널 한 줄 쓰기 · view 재작성 · tail) 다. 그 단계들은 **제품 코드 안**(`src/`)에 있어 경계 타이머를
+# 심을 수 없다 — 그래서 하네스가 **창(window) 단위로 cProfile 을 걸어** 파이썬 수준 귀속을 얻는다.
+#   · 창은 **국면 하나**만 계측한다(국면을 돌려 가며) — 그래야 “그 국면 안의 함수 순위”가 나온다
+#   · 계측한 창의 반복은 **판정 계열에서 제외**한다(계측이 판정을 오염시키지 않는다 — §28 의 규칙)
+#   · 오버헤드는 따로 **보고**한다(`deep_overhead_ratio`) — 측정기가 만든 몫을 숨기지 않는다
+#   · 파이썬 프로파일러는 **C 확장을 못 본다**(sqlite·json C 인코더·커널 fsync). 그 몫은 잔차로 남기고
+#     잔차가 크면 “파이썬 밖”이라 말한다(지어내지 않는다)
+#   · 표본률은 8시간에서도 무시할 수준(기본 1/200 · 총 상한 1,000 반복 = 측정 계열의 0.006%)
+DEEP_PROFILE_ENABLED = os.environ.get("NX10_DEEP_PROFILE", "1") != "0"
+DEEP_SAMPLE_EVERY = int(os.environ.get("NX10_DEEP_SAMPLE_EVERY", 200))  # 몇 반복마다 창을 여는가
+DEEP_WINDOW_CALLS = 25  # 한 창이 계측하는 **국면 호출 수**(전이는 반복당 2회라 반복 수와 다르다)
+DEEP_MAX_WINDOWS = 40  # 창 상한(국면 3개에 고르게 돌려 간다)
+DEEP_MAX_OPS = 1000  # 계측 반복 총 상한
+DEEP_MIN_WINDOWS = 3  # 이보다 적으면 함수 순위를 말하지 않는다
+DEEP_FUNCTION_DOMINANCE = 0.5  # 한 함수가 국면 안 시간의 절반 이상이면 그 이름을 지목한다
+DEEP_OUTSIDE_RATIO = 0.5  # 파이썬 밖(C 확장·커널) 잔차가 국면 시간의 절반을 넘으면 “국면 밖”이라 말한다
+DEEP_TOP_FUNCTIONS = 5  # 리포트에 싣는 상위 함수 수
+# 계측기 자신(하네스 파일)의 프레임은 순위에서 **뺀다** — 안 빼면 첫 칸이 `val02_staging.py:<lambda>` 가 되어
+# 사다리가 자기 자신을 지목한다(프로브가 실제로 그렸다). 뺀 몫은 `deep_instrument_us_per_op` 로 밝힌다.
+DEEP_EXCLUDE_FILES: tuple[str, ...] = (Path(__file__).name,)
+
+# ── 사다리의 **네 번째 칸**: 지목된 함수를 **어느 경로가 부르고, 반복당 몇 번** 부르는가(2026-09-17 오너 지시) ──
+# 앞칸이 “`posix.fsync` 다”까지 말했다면 남는 질문은 둘이다 — **누가** 부르는가(**호출 경로**), 그리고
+# **얼마나 자주** 부르는가. 둘은 처방을 가른다: 반복당 1회면 그 호출 자체를 싸게 만들어야 하고(정책·배치),
+# 반복당 여러 번이면 **호출을 합쳐야** 한다(코얼레싱). 같은 함수·같은 시간이라도 다른 수술이다.
+# 자료는 새로 계측할 필요가 없다 — `cProfile` 통계가 **호출자 표**(`callers`)를 이미 들고 있다.
+PATH_MIN_CALLER_SHARE = 0.5  # 한 호출자가 그 함수 호출의 절반 이상이면 그 경로를 지목한다
+PATH_TOP_CALLERS = 5  # 함수마다 리포트에 싣는 호출자 수(리포트 크기 상한)
+PATH_MAX_DEPTH = 4  # 경로 사슬을 위로 걷는 최대 칸 수
+PATH_REPEAT_PER_ITERATION = 1.5  # 반복당 이 이상이면 “여러 번”(한 번과 두 번의 경계를 1.5 로 둔다)
 # NX-04: 원본 이력 전수 replay 는 이 크기까지만 수행한다(8h soak 은 연기 보고).
 ORIGINALS_REPLAY_MAX_BYTES = 32 * 1024 * 1024
 SOAK_CONSTRAINT_TEXT = "승인 없이 도구를 실행하지 마"
@@ -151,6 +215,48 @@ def _fd_count() -> int:
         )
     except Exception:
         return -1
+
+
+# ── 프레임 라벨: cProfile/pstats 가 주는 것을 **읽을 수 있는 키**로 바꾸는 단 하나의 자리 ────────────────
+# 키 규칙: 파이썬 프레임은 `파일이름:함수이름`, 내장/C 프레임은 그 라벨 그대로(`'<built-in method posix.fsync>'`).
+# 계약 시험의 픽스처가 이 규칙을 그대로 쓴다.
+# `_lsprof` 는 자기 오버헤드를 `<method 'disable' of '_lsprof.Profiler' objects>` 라는 가짜 프레임으로
+# 끼워 넣는다 — 이것도 **계측기**이므로 하네스 파일과 같이 순위에서 뺀다(뺐다고 밝힌다).
+INSTRUMENT_FRAME_LABELS: tuple[str, ...] = ("<method 'disable' of '_lsprof.Profiler' objects>",)
+
+
+def _frame_key(label: tuple[str, int, str]) -> tuple[str, str, int]:
+    """pstats 라벨 `(파일, 행, 이름)` → `(키, 파일, 행)`.
+
+    내장/C 프레임은 pstats 가 파일 자리를 `'~'` 로 준다(실측) — 그때는 그 라벨을 그대로 키로 쓴다.
+    """
+    filename, line, funcname = label
+    if filename in ("", "~"):
+        return funcname, "", int(line)
+    return f"{Path(filename).name}:{funcname}", filename, int(line)
+
+
+def _is_instrument_frame(key: str) -> bool:
+    """계측기 자신(하네스 파일·`_lsprof` 가짜 프레임)인가 — 사다리가 자기 자신을 지목하지 않게 한다."""
+    if key in INSTRUMENT_FRAME_LABELS:
+        return True
+    return Path(key.split(":", 1)[0]).name in DEEP_EXCLUDE_FILES
+
+
+def _pstats_table(profile: cProfile.Profile) -> dict[Any, Any]:
+    """cProfile 통계를 **호출자 표까지** 담긴 pstats 표로 꺼낸다.
+
+    왜 `pstats` 를 거치는가: `Profile.getstats()` 의 6번째 칸은 **callees**(내가 부른 것)이고 호출자가
+    아니다 — 거기서 호출 경로를 읽으려던 첫 구현은 내장 함수에서 `None` 을 만났다(프로브가 실측으로 잡음).
+    `pstats.Stats` 가 그 callee 목록을 뒤집어 caller 표를 만든다(`print_callers` 가 쓰는 그 자료다).
+
+    ⚠ 두 가지를 알고 쓸 것:
+      ① `Stats(profile)` 는 `profile.stats` 를 **비운다**(typeshed 에 `Stats.stats` 선언이 없어 `vars()` 로
+         꺼내는데, 그 우회를 여기 한 곳에만 둔다).
+      ② 한 프로파일러로 두 번 부르면 두 번째 표는 **빈다** — 그래서 창마다 새 `Profile` 을 쓴다.
+    """
+    table: dict[Any, Any] = vars(pstats.Stats(profile))["stats"]
+    return table
 
 
 def _rss_mb() -> float:
@@ -727,6 +833,905 @@ def sc6_rss_criterion(
     return fields
 
 
+def _median(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def throughput_blocks(
+    sample_ops: list[int],
+    sample_times_s: list[float],
+    sample_cpu_s: list[float],
+    *,
+    actual_duration_s: float,
+) -> dict[str, Any]:
+    """표본 계열을 **블록 중앙값** 삼중항으로 접는다 — (벽시계 ops/s, 효율 ops/CPU초, 이용률 CPU초/벽초).
+
+    왜 중앙값인가: 60초 표본의 벽시계 처리량 변동은 실측 CV 16.8%(블록 편차 중앙 8.4% · 최대 29.6%)라
+    두 점(처음/끝) 비교는 잡음에 진다. 블록 중앙값을 다시 분기로 묶으면 표본오차가 √블록 수 만큼 줄어
+    “27% 감소”를 잡으면서 건강한 실행을 건드리지 않는다(분기 = 실행의 1/4).
+    블록 크기 = `max(5분, 지속×2%)` — 8시간이면 9.6분으로 50개 블록, 분기당 12개다.
+    """
+    if len(sample_ops) < 4 or len(sample_cpu_s) != len(sample_ops) or len(sample_times_s) != len(sample_ops):
+        return {"blocks": [], "block_s": 0.0, "window_s": sc6_warmup_window_s(actual_duration_s), "skipped": 0}
+    window_s = sc6_warmup_window_s(actual_duration_s)
+    block_s = max(THROUGHPUT_BLOCK_MIN_S, actual_duration_s * THROUGHPUT_BLOCK_FRACTION)
+    buckets: dict[int, list[tuple[float, float, float]]] = {}
+    skipped = 0
+    for index in range(1, len(sample_ops)):
+        start = sample_times_s[index - 1]
+        span = sample_times_s[index] - start
+        if span <= 0:
+            continue
+        if start < window_s or sample_times_s[index] < window_s:
+            skipped += 1
+            continue
+        delta_ops = sample_ops[index] - sample_ops[index - 1]
+        delta_cpu = sample_cpu_s[index] - sample_cpu_s[index - 1]
+        if delta_ops <= 0 or delta_cpu <= 0:
+            continue
+        bucket = buckets.setdefault(int(sample_times_s[index] // block_s), [])
+        bucket.append((delta_ops / span, delta_ops / delta_cpu, delta_cpu / span))
+    blocks = [
+        (
+            round(_median([b[0] for b in sorted(values, key=lambda item: item[0])]), 3),
+            round(_median([b[1] for b in values]), 3),
+            round(_median([b[2] for b in values]), 5),
+        )
+        for _, values in sorted(buckets.items())
+        if values
+    ]
+    return {"blocks": blocks, "block_s": round(block_s, 1), "window_s": round(window_s, 1), "skipped": skipped}
+
+
+def throughput_criterion(
+    sample_ops: list[int],
+    sample_times_s: list[float],
+    sample_cpu_s: list[float],
+    sample_load1: list[float],
+    cpu_count: int,
+    actual_duration_s: float,
+) -> dict[str, Any]:
+    """SC-6 의 **처리량 회귀 판정** — RSS 와 독립인 축(2026-09-17 오너 지시).
+
+    세 축을 동시에 낸다(정체성이 “벽시계 = 효율 × 이용률”):
+      · 효율(`ops/CPU초`) = **제품 축** — 한 일당 비용이 늘었는가(기계 부하에 거의 안 흔들린다)
+      · 벽시계(`ops/s`)   = **서비스 축** — 운영자가 겪는 것
+      · 이용률(`CPU초/벽초`) = **진단 축** — 벽시계 감소가 “느려짐”인지 “덜 돌아감(경합/대기)”인지 가른다
+
+    판정 규칙(실측 보정: 건강 −5.0% · 잡아야 하는 회귀 −27% · 허용 −15%):
+      ① 효율이 `1−15%` 미만 → **fail**(제품 회귀 — 벽시계와 무관하게 잡는다)
+      ② 벽시계만 `1−15%` 미만:
+         · 호스트 부하(`load1/코어수`) > 0.5 → **not_applicable**(경합 — 다시 재야 한다. 통과가 아니다)
+         · 부하가 낮다면 → **fail**(제품이 대기로 느려졌다 — I/O·lock 대기 증가)
+      ③ 그 밖 → pass
+    """
+    rolled = throughput_blocks(sample_ops, sample_times_s, sample_cpu_s, actual_duration_s=actual_duration_s)
+    blocks: list[tuple[float, float, float]] = rolled["blocks"]
+    load_after = [value for value, at in zip(sample_load1, sample_times_s) if at >= rolled["window_s"] and value >= 0]
+    load_ratio = round(_median(load_after) / cpu_count, 4) if load_after and cpu_count else -1.0
+    fields: dict[str, Any] = {
+        "throughput_block_s": rolled["block_s"],
+        "throughput_blocks": len(blocks),
+        "throughput_warmup_skipped": rolled["skipped"],
+        "throughput_host_load_ratio": load_ratio,
+        "throughput_max_decline": THROUGHPUT_MAX_DECLINE,
+        "throughput_blocks_wall": [b[0] for b in blocks],
+        "throughput_blocks_efficiency": [b[1] for b in blocks],
+        "throughput_blocks_utilization": [b[2] for b in blocks],
+    }
+    if actual_duration_s < THROUGHPUT_MIN_RUN_S:
+        fields.update(
+            {
+                "throughput_wall_ratio": 1.0,
+                "throughput_efficiency_ratio": 1.0,
+                "throughput_utilization_ratio": 1.0,
+                "throughput_criterion": "not_applicable",
+                "throughput_criterion_basis": (
+                    f"판정 불가: 실측 {actual_duration_s:.0f}s < 최소 {THROUGHPUT_MIN_RUN_S:.0f}s —"
+                    " 처리량 회귀는 8시간 규모에서만 뜻이 있다(60초 리허설은 시작 비용이 지배한다)"
+                ),
+            }
+        )
+        return fields
+    quarter = max(THROUGHPUT_MIN_BLOCKS_PER_QUARTER, len(blocks) // 4)
+    if len(blocks) < quarter * 2:
+        fields.update(
+            {
+                "throughput_wall_ratio": 1.0,
+                "throughput_efficiency_ratio": 1.0,
+                "throughput_utilization_ratio": 1.0,
+                "throughput_criterion": "not_applicable",
+                "throughput_criterion_basis": (
+                    f"판정 불가: 워밍업 창 밖 블록이 {len(blocks)}개(블록 {rolled['block_s']:.0f}s) —"
+                    f" 분기마다 {THROUGHPUT_MIN_BLOCKS_PER_QUARTER}개 이상 필요하다(샘플 간격을 줄이거나 실행을 늘려야 한다)"
+                ),
+            }
+        )
+        return fields
+    first, last = blocks[:quarter], blocks[-quarter:]
+    wall_ratio = round(_median([b[0] for b in last]) / max(_median([b[0] for b in first]), 1e-9), 4)
+    eff_ratio = round(_median([b[1] for b in last]) / max(_median([b[1] for b in first]), 1e-9), 4)
+    util_ratio = round(_median([b[2] for b in last]) / max(_median([b[2] for b in first]), 1e-9), 4)
+    floor = 1.0 - THROUGHPUT_MAX_DECLINE
+    numbers = (
+        f"벽시계 {_median([b[0] for b in first]):.0f}→{_median([b[0] for b in last]):.0f} ops/s({(wall_ratio - 1) * 100:+.1f}%)"
+        f" · 효율 {_median([b[1] for b in first]):.0f}→{_median([b[1] for b in last]):.0f} ops/CPU초({(eff_ratio - 1) * 100:+.1f}%)"
+        f" · 이용률 {(util_ratio - 1) * 100:+.1f}% · 부하 {load_ratio if load_ratio >= 0 else '모름'} (블록 {len(blocks)}개 · 창 {rolled['window_s']:.0f}s 제외)"
+    )
+    identity_gap = round(abs(wall_ratio - eff_ratio * util_ratio), 4)
+    fields.update(
+        {
+            "throughput_wall_ratio": wall_ratio,
+            "throughput_efficiency_ratio": eff_ratio,
+            "throughput_utilization_ratio": util_ratio,
+            "throughput_identity_gap": identity_gap,
+            "throughput_wall_ops_per_s": round(_median([b[0] for b in last]), 1),
+            "throughput_efficiency_ops_per_cpu_s": round(_median([b[1] for b in last]), 2),
+            "throughput_utilization": round(_median([b[2] for b in last]), 5),
+        }
+    )
+    if eff_ratio < floor:
+        fields["throughput_criterion"] = "fail"
+        fields["throughput_criterion_basis"] = (
+            f"**제품 회귀**: 일당 비용이 {(1 - eff_ratio) * 100:.1f}% 늘었다(허용 {THROUGHPUT_MAX_DECLINE * 100:.0f}%)"
+            f" — {numbers}"
+        )
+    elif wall_ratio < floor and load_ratio < 0:
+        # 부하를 못 읽었으면 **어느 쪽으로도 단정하지 않는다**: “내 회귀”라고 하면 없는 결함을 만들고,
+        # “경합”이라고 하면 진짜 회귀를 덮어 준다. 재실행이 답이다(`not_applicable` 은 통과가 아니다).
+        fields["throughput_criterion"] = "not_applicable"
+        fields["throughput_criterion_basis"] = (
+            f"판정 불가(재실행 필요): 벽시계가 {(1 - wall_ratio) * 100:.1f}% 줄었는데 **부하 계기를 못 읽었다**"
+            f"(load1 미지원 또는 표본 없음) — 효율은 유지됐다.{numbers}. "
+            "호스트 부하를 함께 남기는 실행에서만 ‘경합’과 ‘대기’를 가를 수 있다."
+        )
+    elif wall_ratio < floor and load_ratio > THROUGHPUT_HOST_LOAD_MAX:
+        fields["throughput_criterion"] = "not_applicable"
+        fields["throughput_criterion_basis"] = (
+            f"판정 불가(재실행 필요): 벽시계가 {(1 - wall_ratio) * 100:.1f}% 줄었지만 **효율은 유지**됐다"
+            f"(제품 회귀 아님) — {numbers}. 호스트가 바빴다(load1/코어 {load_ratio:.2f} > {THROUGHPUT_HOST_LOAD_MAX})."
+            " 조용한 기계에서 다시 재야 판정이 된다."
+        )
+    elif wall_ratio < floor:
+        fields["throughput_criterion"] = "fail"
+        fields["throughput_criterion_basis"] = (
+            f"**서비스 회귀**: 호스트 부하는 낮은데(load1/코어 {load_ratio:.2f}) 벽시계가"
+            f"{(1 - wall_ratio) * 100:.1f}% 줄었고 효율은 유지됐다 — 일이 줄어든 게 아니라 **대기가 늘었다**"
+            f"(I/O·lock·fsync). {numbers}"
+        )
+    else:
+        fields["throughput_criterion"] = "pass"
+        fields["throughput_criterion_basis"] = f"벽시계·효율 모두 허용 안 — {numbers}"
+    return fields
+
+
+class _PhaseProfiler:
+    """국면 하나씩 돌려 가며 **창 단위로 cProfile** 을 걸어 국면 내부의 함수별 시간을 모은다.
+
+    설계상 중요한 세 가지:
+      ① **창 하나 = 국면 하나.** 국면을 돌려 가며 계측하므로 “그 국면 안의 함수 순위”가 나온다.
+      ② 계측 중인 반복은 호출자가 **판정 계열에서 제외**한다(`take()` 가 `None` 이 아닌 반복은 계열에 안 들어간다).
+         계측이 판정을 오염시키면 “느려졌다”가 측정기 때문일 수 있다(§28 의 교훈).
+      ③ 창의 **CPU 시간을 따로 잰다** — 프로파일러 오버헤드를 숨기지 않고 비율로 보고한다.
+    """
+
+    def __init__(self, phases: tuple[str, ...]) -> None:
+        self.phases = phases
+        self.enabled = DEEP_PROFILE_ENABLED
+        self.windows: list[dict[str, Any]] = []
+        # `callers` 는 **네 번째 칸**의 자료다: {함수 키: {호출자 키: 호출 수}} — cProfile 이 이미 들고 있는
+        # 호출자 표를 창이 닫힐 때마다 옮겨 담는다(추가 계측 비용 0).
+        self.per_phase: dict[str, dict[str, Any]] = {
+            name: {"total_s": 0.0, "ops": 0, "windows": 0, "functions": {}, "callers": {}} for name in phases
+        }
+        self.profiled_calls = 0
+        self._profiler = cProfile.Profile()
+        self._phase: str | None = None
+        self._calls_left = 0
+        self._cpu_s = 0.0
+        self._call_t0 = 0.0
+        self._window_ops = 0
+
+    def take(self, index: int) -> str | None:
+        """이번 반복에 계측할 국면 이름을 돌려준다(`None` 이면 평소처럼 계열에 넣는다).
+
+        주의: 국면 호출 수와 반복 수는 다르다(전이는 반복당 2회). 창 크기와 계수는 **호출 수**로 하고,
+        단가는 반복 수로 나누므로 어느 국면이든 “µs/반복”으로 같게 맞는다.
+        """
+        if not self.enabled or self.profiled_calls >= DEEP_MAX_OPS:
+            return None
+        if self._calls_left <= 0:
+            if len(self.windows) >= DEEP_MAX_WINDOWS or index % max(DEEP_SAMPLE_EVERY, 1) != 0:
+                return None
+            self._phase = self.phases[len(self.windows) % len(self.phases)]  # 국면을 돌려 가며
+            self._calls_left = DEEP_WINDOW_CALLS
+            self._cpu_s = 0.0
+            self._window_ops = 0
+        self._window_ops += 1  # 이 반복을 창에 포함(단가의 분모)
+        return self._phase
+
+    def active_for(self, phase: str) -> bool:
+        """이 국면이 **지금** 창 안에 있는가.
+
+        필요한 이유(프로브가 실측으로 잡은 결함): 전이는 반복당 2회 부르므로 창이 그 반복의 **첫 호출**에서
+        닫힐 수 있다. 그때 같은 반복의 둘째 호출까지 계측하면 창이 **두 번 닫혀** 유령 창이 생기고(창 수가
+        부풀고 국면 회전이 어긍나 세 번째 국면이 영영 안 돌아간다). 그래서 창이 닫힌 뒤의 꼬리 호출은
+        계측하지 않는다.
+        """
+        return self._calls_left > 0 and self._phase == phase
+
+    def enable(self) -> None:
+        if self._calls_left <= 0:
+            return
+        self._call_t0 = time.process_time()
+        self._profiler.enable()
+
+    def disable(self) -> None:
+        """국면 호출 **하나**의 CPU 를 더하고, 창이 다 차면 통계를 누적해 닫는다.
+
+        첫 구현은 창 시작 시각에서 누적해 **호출마다 창 전체 시간을 다시 더했다**(전이는 반복당 2회라
+        두 배로 부풀었다) — 프로브가 실측으로 잡았고, 지금은 호출 경계 사이의 델타만 더한다.
+        """
+        if self._calls_left <= 0:  # 창이 이미 닫렸다 — 꼬리 호출은 버린다(유령 창 금지)
+            return
+        self._profiler.disable()
+        self._cpu_s += time.process_time() - self._call_t0
+        self.profiled_calls += 1
+        self._calls_left -= 1
+        if self._calls_left > 0:
+            return
+        bucket = self.per_phase[self._phase or ""]
+        bucket["total_s"] += self._cpu_s
+        bucket["ops"] += self._window_ops
+        bucket["windows"] += 1
+        # 호출자 표까지 담긴 표를 얻는다(자세한 이유·주의는 `_pstats_table` 참조).
+        for label, (cc, nc, tt, ct, callers) in _pstats_table(self._profiler).items():
+            key, filename, line = _frame_key(label)
+            slot = bucket["functions"].setdefault(
+                key, {"self_s": 0.0, "cum_s": 0.0, "calls": 0, "file": filename, "line": line}
+            )
+            # pstats 튜플 순서(실측): `(cc, nc, tt, ct, callers)` — 자기 시간은 **tt**, 하위 포함은 **ct**.
+            # (raw getstats 는 `(code, nc, cc, ns, tt, ct)` 로 **순서가 다르다** — 그 차이가 예전에 자기 시간과
+            #  총합을 바꿔 읽은 원인이었다.)
+            slot["self_s"] += float(tt)  # 자기 시간 — 순위의 근거
+            slot["cum_s"] += float(ct)  # 하위 호출 포함 — 직관용
+            slot["calls"] += int(nc)
+            # 호출자 표: pstats 의 caller 값도 `(nc, cc, tt, ct)` 이므로 **0번이 호출 수**다.
+            by_caller = bucket["callers"].setdefault(key, {})
+            for caller_label, caller_stats in (callers or {}).items():
+                caller_key, _cfile, _cline = _frame_key(caller_label)
+                by_caller[caller_key] = by_caller.get(caller_key, 0) + int(caller_stats[0])
+        self.windows.append(
+            {
+                "phase": self._phase,
+                "ops": self._window_ops,
+                "calls": DEEP_WINDOW_CALLS,
+                "cpu_s": round(self._cpu_s, 4),
+            }
+        )
+        self._profiler = cProfile.Profile()  # 창마다 새 프로파일러(누적이 겹치지 않게)
+
+    def report(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "profiled_calls": self.profiled_calls,
+            "windows": len(self.windows),
+            "sample_every": DEEP_SAMPLE_EVERY,
+            "window_calls": DEEP_WINDOW_CALLS,
+            "max_windows": DEEP_MAX_WINDOWS,
+            "max_ops": DEEP_MAX_OPS,
+            "phases": {
+                name: {
+                    "total_s": round(bucket["total_s"], 4),
+                    "ops": bucket["ops"],
+                    "windows": bucket["windows"],
+                    # 호출자 표(네 번째 칸의 입력) — 함수마다 상위 `PATH_TOP_CALLERS` 만 싣는다.
+                    # 트리밍을 **리포트에서** 하는 이유: 네 번째 칸은 리포트만 보고 재현할 수 있어야 하므로,
+                    # 읽는 쪽과 계산하는 쪽이 **같은 자료**를 봐야 한다.
+                    "callers": {
+                        key: dict(sorted(value.items(), key=lambda kv: (-kv[1], kv[0]))[:PATH_TOP_CALLERS])
+                        for key, value in (bucket.get("callers") or {}).items()
+                        if value
+                    },
+                    "functions": {
+                        key: {
+                            "self_s": round(value["self_s"], 6),
+                            "cum_s": round(value["cum_s"], 6),
+                            "calls": value["calls"],
+                            "file": value["file"],
+                            "line": value["line"],
+                        }
+                        for key, value in bucket["functions"].items()
+                    },
+                }
+                for name, bucket in self.per_phase.items()
+            },
+        }
+
+
+def phase_function_attribution(
+    phase: str | None,
+    profile: dict[str, Any],
+    ladder_verdict: dict[str, Any],
+    actual_duration_s: float,
+) -> dict[str, Any]:
+    """사다리의 **다음 칸**: 지목된 국면 **안**의 하위 단계를 함수별로 좁힌다(순수 함수).
+
+    입력은 하네스가 창 단위로 모은 cProfile 통계다(국면별 total/ops/windows/functions).
+    국면 경계 타이머가 답하지 못하는 질문에 답한다: `conversation.append` 안에서 **저널 한 줄 쓰기·
+    view 재작성·tail 중 무엇**이 늘었나.
+
+    산출 판정(`deep_criterion`):
+      · `not_applicable` — 앞칸이 국면을 지목하지 않았거나 짧은 실행이거나 계측을 껐다(돌릴 이유가 없다)
+      · `insufficient`  — 창이 너무 적거나 통계가 비었다(지목하지 않는다)
+      · `function`      — 한 함수가 국면 안 시간의 `DEEP_FUNCTION_DOMINANCE` 이상
+      · `spread_within_phase` — 여러 함수에 퍼졌다(그 국면 안에서 더 쪼갤 근거가 없다)
+      · `outside_functions`   — 파이썬 밖(C 확장·커널 fsync) 잔차가 절반 초과 → “프로파일러가 못 보는 곳”
+
+    **정직성 장치**: 계측 오버헤드 비율(`deep_overhead_ratio`)과 잔차(`deep_residual_*`)를 항상 싣고,
+    계측한 창의 반복은 앞칸의 판정 계열에서 이미 제외되어 있다(`deep_profiled_calls` 로 밝힌다).
+    """
+    fields: dict[str, Any] = {
+        "deep_criterion": "not_applicable",
+        "deep_phase": phase,
+        "deep_function": None,
+        "deep_function_share": 0.0,
+        "deep_functions_top": [],
+        "deep_excluded_functions": 0,
+        "deep_profiled_calls": int(profile.get("profiled_calls") or 0),
+        "deep_windows": int(profile.get("windows") or 0),
+        "deep_sample_every": DEEP_SAMPLE_EVERY,
+        "deep_window_calls": DEEP_WINDOW_CALLS,
+        "deep_max_windows": DEEP_MAX_WINDOWS,
+        "deep_max_ops": DEEP_MAX_OPS,
+        "deep_function_dominance": DEEP_FUNCTION_DOMINANCE,
+        "deep_outside_ratio": DEEP_OUTSIDE_RATIO,
+    }
+    if ladder_verdict.get("attribution_criterion") != "phase":
+        fields["deep_criterion_basis"] = (
+            "하위 단계 귀속 불필요: 앞칸이 국면을 지목하지 않았다"
+            f"(판정 `{ladder_verdict.get('attribution_criterion')}`) — 함수 순위는 지목된 국면에만 묻는다"
+        )
+        fields["deep_next_step"] = "없음(국면 미지목)"
+        return fields
+    if actual_duration_s < THROUGHPUT_MIN_RUN_S:
+        fields["deep_criterion_basis"] = (
+            f"하위 단계 귀속 불가: 실측 {actual_duration_s:.0f}s < 최소 {THROUGHPUT_MIN_RUN_S:.0f}s"
+        )
+        fields["deep_next_step"] = "8시간 규모에서 다시 잰다"
+        return fields
+    if not profile.get("enabled"):
+        fields["deep_criterion_basis"] = (
+            "하위 단계 귀속 불가: 창 계측이 꺼져 있다(`NX10_DEEP_PROFILE=0`) — 이 칸은 **설명용**이라"
+            " 꺼도 통과/실패 판정은 약해지지 않지만, 왜 느린지는 말할 수 없다"
+        )
+        fields["deep_next_step"] = "재실행(계측을 켜고) — 판정은 그대로 유효하다"
+        return fields
+    bucket = (profile.get("phases") or {}).get(phase or "") or {}
+    ops = int(bucket.get("ops") or 0)
+    if int(bucket.get("windows") or 0) < DEEP_MIN_WINDOWS or ops <= 0:
+        fields["deep_criterion"] = "insufficient"
+        fields["deep_criterion_basis"] = (
+            f"하위 단계 귀속 불가: 국면 `{phase}` 의 창이 {int(bucket.get('windows') or 0)}개"
+            f"(최소 {DEEP_MIN_WINDOWS}개 필요) · 계측 반복 {ops} — 표본이 너무 적다"
+        )
+        fields["deep_next_step"] = f"`NX10_DEEP_SAMPLE_EVERY` 를 낮추거나 실행을 늘린다(현재 {DEEP_SAMPLE_EVERY})"
+        return fields
+    total_us_per_op = round(float(bucket["total_s"]) / ops * 1e6, 3)
+    rows: list[tuple[str, float, float, int]] = []
+    instrument_us_per_op = 0.0
+    excluded = 0
+    for key, value in (bucket.get("functions") or {}).items():
+        # 계측기 자신(하네스 파일)의 프레임은 **순위에서 뺀다** — 안 빼면 사다리가 자기 자신을 지목한다.
+        # 뺀 몫은 버리지 않고 `deep_instrument_us_per_op` 로 밝혀서, 잔차 계산에서도 떼어 낸다.
+        # 판정은 **키 규칙**으로 한다(리포트만 보고도 같은 판정이 나와야 하므로 — `file` 필드에
+        # 매달리면 파일을 옮긴 뒤 경로가 달라질 때 조용히 달라진다).
+        if _is_instrument_frame(str(key)):
+            instrument_us_per_op += float(value["self_s"]) / ops * 1e6
+            excluded += 1
+            continue
+        rows.append(
+            (
+                key,
+                round(float(value["self_s"]) / ops * 1e6, 3),
+                round(float(value["cum_s"]) / ops * 1e6, 3),
+                int(value["calls"]),
+            )
+        )
+    rows.sort(key=lambda row: -row[1])
+    top_name, top_self = (rows[0][0], rows[0][1]) if rows else (None, 0.0)
+    share = round(top_self / total_us_per_op, 4) if total_us_per_op > 0 else 0.0
+    units = (ladder_verdict.get("attribution_units_us_per_op") or {}).get(phase or "")
+    phase_unit_last = float(units[1]) if isinstance(units, list) and len(units) == 2 else 0.0
+    instrument_us_per_op = round(instrument_us_per_op, 3)
+    product_us_per_op = round(total_us_per_op - instrument_us_per_op, 3)
+    # 잔차 = 국면 단가 − **파이썬이 본 제품 몫**(계측기 몫을 뺀 뒤). 남는 것이 프로파일러가 못 보는 몫이다.
+    residual = round(phase_unit_last - product_us_per_op, 3)
+    residual_ratio = round(residual / phase_unit_last, 4) if phase_unit_last > 0 else 0.0
+    overhead = round(total_us_per_op / phase_unit_last, 4) if phase_unit_last > 0 else -1.0
+    fields.update(
+        {
+            "deep_total_us_per_op": total_us_per_op,
+            "deep_instrument_us_per_op": instrument_us_per_op,
+            "deep_product_us_per_op": product_us_per_op,
+            "deep_excluded_functions": excluded,
+            "deep_phase_unit_us_per_op": phase_unit_last,
+            "deep_residual_us_per_op": residual,
+            "deep_residual_ratio": residual_ratio,
+            "deep_overhead_ratio": overhead,
+            "deep_function": top_name,
+            "deep_function_share": share,
+            "deep_functions_top": [
+                {"function": key, "self_us_per_op": self_us, "cum_us_per_op": cum_us, "calls": calls}
+                for key, self_us, cum_us, calls in rows[:DEEP_TOP_FUNCTIONS]
+            ],
+        }
+    )
+    numbers = (
+        f"국면 `{phase}` 단가 {phase_unit_last:.1f} µs/반복 · 계측 반복 {ops}(창 {int(bucket['windows'])}개)"
+        f" · 파이썬이 본 몫 {product_us_per_op:.1f} µs/반복(계측기 {instrument_us_per_op:.1f} 는 제외)"
+        f" · 프로파일러가 못 본 잔차 {residual:+.1f}({residual_ratio * 100:.0f}%)"
+    )
+    if residual < 0:
+        # 음수 잔차 = 프로파일러 오버헤드가 국면 시간을 부풀린 것. 이걸 숨기면 “파이썬 밖은 없다”를
+        # “파이썬 밖이 마이너스”로 말하게 된다 — 실측(프로브)에서 오버헤드 비율 1.50 으로 실제로 나왔다.
+        fields["deep_residual_note"] = (
+            f"계측 오버헤드가 국면 시간을 {overhead:.2f}배로 부풀렸다(잔차가 음수) —"
+            " 이 실행의 “파이썬 밖 몫”은 0 으로 읽고, 함수 순위만 쓴다(다음 8시간 실행은 이 칸 없이 잰다)"
+        )
+    if residual_ratio > DEEP_OUTSIDE_RATIO and residual > 0:
+        fields["deep_criterion"] = "outside_functions"
+        fields["deep_criterion_basis"] = (
+            f"파이썬 밖에 있다: 국면 시간의 {residual_ratio * 100:.0f}% 가 프로파일러에 안 보인다"
+            f"(C 확장 sqlite·json 인코더나 커널 fsync) — {numbers}"
+        )
+        fields["deep_next_step"] = (
+            "프로파일러가 못 보는 곳을 본다: 그 국면의 syscall·바이트 수(쓰기량·fsync 횟수)를 재거나"
+            " py-spy 같은 C 스택까지 보는 도구를 쓴다"
+        )
+    elif top_name is not None and share >= DEEP_FUNCTION_DOMINANCE:
+        fields["deep_criterion"] = "function"
+        fields["deep_criterion_basis"] = (
+            f"그 함수다: **{top_name}** 이 국면 안 파이썬 시간의 {share * 100:.0f}%"
+            f"(자기 시간 {top_self:.1f} µs/반복) — {numbers}"
+        )
+        fields["deep_next_step"] = f"`{top_name}` 을 본다: 그 파일의 호출 경로와 하위 호출을 짚는다"
+    else:
+        fields["deep_criterion"] = "spread_within_phase"
+        fields["deep_criterion_basis"] = (
+            f"국면 안에 퍼졌다: 한 함수가 지배하지 않는다(최대 {top_name or '없음'} {share * 100:.0f}%) — {numbers}"
+        )
+        fields["deep_next_step"] = (
+            "그 국면 자체를 줄이는 방향(일감량·구조)을 본다 — 함수 하나를 범인으로 만들 근거가 없다"
+        )
+    return fields
+
+
+def _caller_chain(callers_map: dict[str, dict[str, int]], start: str) -> tuple[list[str], int]:
+    """지목된 함수에서 **위로** 지배 호출자를 따라 올라간다(`PATH_MAX_DEPTH` 칸까지).
+
+    계측기 프레임(하네스 파일·`_lsprof` 가짜 프레임)은 경로에서 **건너뛴다** — 계측 wrapper 는 제품의
+    호출 경로가 아니기 때문이다. 건너뛴 수를 함께 돌려주어 “경로가 거기서 끝났다”와 “계측기를 지나
+    더 올라갈 곳이 없다”를 구분할 수 있게 한다.
+    """
+    chain: list[str] = []
+    skipped = 0
+    current = start
+    for _ in range(PATH_MAX_DEPTH):
+        candidates = callers_map.get(current) or {}
+        ranked = sorted(
+            ((key, int(value)) for key, value in candidates.items() if not _is_instrument_frame(key)),
+            key=lambda kv: (-kv[1], kv[0]),
+        )
+        skipped += sum(1 for key in candidates if _is_instrument_frame(key))
+        if not ranked:
+            break
+        chain.append(ranked[0][0])
+        current = ranked[0][0]
+    return chain, skipped
+
+
+def function_call_path(
+    deep_verdict: dict[str, Any],
+    profile: dict[str, Any],
+    actual_duration_s: float,
+) -> dict[str, Any]:
+    """사다리의 **네 번째 칸**: 지목된 함수를 **어느 경로가** 부르고 **반복당 몇 번** 부르는가(순수 함수).
+
+    앞칸(`phase_function_attribution`)이 “`posix.fsync` 다”까지 말한 뒤에 남는 두 질문에 답한다:
+      · **누가** 부르는가 — cProfile 이 들고 있는 호출자 표(`profile[...]["callers"]`)
+      · **얼마나 자주** 부르는가 — 호출 수 ÷ 계측 반복 수
+
+    둘을 나눠 내는 이유는 **처방이 다르기 때문**이다: 반복당 1회면 그 호출 자체를 싸게 만들어야 하고
+    (정책·배치·비동기화), 반복당 여러 번이면 **호출을 합쳐야** 한다(코얼레싱). 같은 함수·같은 시간이라도
+    다른 수술이고, 이 칸이 그것을 문장으로 가른다(`path_frequency_class` · `path_frequency_note`).
+
+    산출 판정(`path_criterion`):
+      · `not_applicable` — 앞칸이 함수를 지목하지 않았거나 짧은/계측 꺼짐 실행(돌릴 이유가 없다)
+      · `insufficient`  — 창이 적거나 호출자 표가 비었거나 기록이 불완전하다(지목하지 않는다)
+      · `path`          — 한 호출자가 그 함수 호출의 `PATH_MIN_CALLER_SHARE` 이상
+      · `multi_path`    — 여러 곳이 부르고 지배자가 없다 → 공통 함수 **자체**를 싸게 만드는 방향
+
+    호출 수의 분모는 그 함수 자신의 호출 수(`calls`)다 — 보관한 상위 호출자만 더한 값이 아니다(트리밍된
+    호출자가 있는데 몫을 부풀리면 “지배자”를 지어내게 된다).
+
+    **하네스가 직접 부르는 경우를 숨기지 않는다**: 국면 진입점 함수(예: `create_task`)는 호출자가 하네스
+    루프다. 그것을 “계측기라서 제외”하면 아무 호출자도 없는 것처럼 보이지만, 사실은 **제품 쪽 호출 경로가
+    없다**는 뜻이고 처방도 그에 맞다(그 함수 자체를 싸게). 그래서 하네스 프레임은 순위에서 빼는 대신
+    `path_caller_is_instrument` 로 **밝히고** 처방을 바꾼다.
+    """
+    fields: dict[str, Any] = {
+        "path_criterion": "not_applicable",
+        "path_phase": deep_verdict.get("deep_phase"),
+        "path_function": None,
+        "path_calls": 0,
+        "path_calls_per_iteration": 0.0,
+        "path_frequency_class": "unknown",
+        "path_frequency_note": "",
+        "path_caller": None,
+        "path_caller_is_instrument": False,
+        "path_caller_share": 0.0,
+        "path_callers_top": [],
+        "path_chain": [],
+        "path_instrument_frames_skipped": 0,
+        "path_min_caller_share": PATH_MIN_CALLER_SHARE,
+        "path_top_callers": PATH_TOP_CALLERS,
+        "path_max_depth": PATH_MAX_DEPTH,
+        "path_repeat_per_iteration": PATH_REPEAT_PER_ITERATION,
+    }
+    if deep_verdict.get("deep_criterion") != "function":
+        fields["path_criterion_basis"] = (
+            "호출 경로 귀속 불필요: 앞칸이 함수를 지목하지 않았다"
+            f"(판정 `{deep_verdict.get('deep_criterion')}`) — 경로는 지목된 함수에만 묻는다"
+        )
+        fields["path_next_step"] = "없음(함수 미지목)"
+        return fields
+    fields["path_function"] = deep_verdict.get("deep_function")
+    if actual_duration_s < THROUGHPUT_MIN_RUN_S:
+        fields["path_criterion_basis"] = (
+            f"호출 경로 귀속 불가: 실측 {actual_duration_s:.0f}s < 최소 {THROUGHPUT_MIN_RUN_S:.0f}s"
+        )
+        fields["path_next_step"] = "8시간 규모에서 다시 잰다"
+        return fields
+    if not profile.get("enabled"):
+        fields["path_criterion_basis"] = (
+            "호출 경로 귀속 불가: 창 계측이 꺼져 있다(`NX10_DEEP_PROFILE=0`) — 앞칸과 같은 이유로"
+            " “왜 느린지 말할 수 없다”만 남는다"
+        )
+        fields["path_next_step"] = "재실행(계측을 켜고) — 판정은 그대로 유효하다"
+        return fields
+    phase = deep_verdict.get("deep_phase")
+    function = str(deep_verdict.get("deep_function") or "")
+    bucket = (profile.get("phases") or {}).get(phase or "") or {}
+    ops = int(bucket.get("ops") or 0)
+    calls = int(((bucket.get("functions") or {}).get(function) or {}).get("calls") or 0)
+    callers = (bucket.get("callers") or {}).get(function) or {}
+    ranked = sorted(((key, int(value)) for key, value in callers.items()), key=lambda kv: (-kv[1], kv[0]))
+    if int(bucket.get("windows") or 0) < DEEP_MIN_WINDOWS or ops <= 0 or calls <= 0 or not ranked:
+        fields["path_criterion"] = "insufficient"
+        fields["path_criterion_basis"] = (
+            f"호출 경로 귀속 불가: 국면 `{phase}` 창 {int(bucket.get('windows') or 0)}개 · 계측 반복 {ops}"
+            f" · `{function}` 호출 {calls} · 기록된 호출자 {len(ranked)}곳"
+            " — 호출자를 말할 표본이 없다(창이 모자라거나 C 쪽에서만 불린다)"
+        )
+        fields["path_next_step"] = (
+            f"`NX10_DEEP_SAMPLE_EVERY` 를 낮추거나 실행을 늘린다(현재 {DEEP_SAMPLE_EVERY})"
+            " · 호출자가 C 쪽이면 이 칸은 답하지 못한다(다음은 syscall·trace 도구)"
+        )
+        return fields
+    calls_per_iteration = round(calls / ops, 3)
+    if calls_per_iteration >= PATH_REPEAT_PER_ITERATION:
+        fields["path_frequency_class"] = "repeated_per_iteration"
+        fields["path_frequency_note"] = (
+            f"반복당 {calls_per_iteration:.2f}회 — **호출을 합치는** 쪽이 처방이다: 한 반복에 여러 번 부른다는"
+            " 것은 한 번으로 줄일 여지가 있다는 뜻이다(중복 제거·일괄 처리)"
+        )
+    else:
+        fields["path_frequency_class"] = "at_most_once_per_iteration"
+        fields["path_frequency_note"] = (
+            f"반복당 {calls_per_iteration:.2f}회 — 횟수가 아니라 **그 호출 자체의 비용**이 문제다"
+            "(정책·배치·비동기화로 비용을 낮춘다)"
+        )
+    top_caller, top_calls = ranked[0]
+    share = round(top_calls / calls, 4)
+    chain, skipped = _caller_chain(bucket.get("callers") or {}, function)
+    fields.update(
+        {
+            "path_calls": calls,
+            "path_calls_per_iteration": calls_per_iteration,
+            "path_caller": top_caller,
+            "path_caller_share": share,
+            "path_callers_top": [
+                {
+                    "caller": key,
+                    "calls": value,
+                    "calls_per_iteration": round(value / ops, 3),
+                    "share": round(value / calls, 4),
+                }
+                for key, value in ranked[:PATH_TOP_CALLERS]
+            ],
+            "path_chain": chain,
+            "path_instrument_frames_skipped": skipped,
+        }
+    )
+    numbers = (
+        f"`{function}` 이 국면 `{phase}` 에서 반복당 {calls_per_iteration:.2f}회 불린다"
+        f"(창 {int(bucket['windows'])}개 · 계측 반복 {ops} · 기록된 호출자 {len(ranked)}곳)"
+        f" · 경로: {' ← '.join([function, *chain])}"
+    )
+    fields["path_caller_is_instrument"] = _is_instrument_frame(top_caller)
+    if share >= PATH_MIN_CALLER_SHARE:
+        fields["path_criterion"] = "path"
+        if fields["path_caller_is_instrument"]:
+            # 국면 진입점: 호출자가 하네스(계측기)다 = **제품 쪽 호출 경로가 없다**는 뜻(처방이 달라진다).
+            fields["path_criterion_basis"] = (
+                f"국면 진입점이다: `{function}` 을 **하네스가 직접** 부른다"
+                f"({share * 100:.0f}% · 호출 {top_calls}회) — 제품 쪽 호출 경로가 없다. {numbers}"
+            )
+            fields["path_next_step"] = (
+                "부르는 곳을 고칠 것이 없다 — **그 함수 자체**를 싸게 만든다: " + fields["path_frequency_note"]
+            )
+        else:
+            fields["path_criterion_basis"] = (
+                f"그 경로다: **{top_caller}** 가 `{function}` 호출의 {share * 100:.0f}%(호출 {top_calls}회) — {numbers}"
+            )
+            fields["path_next_step"] = f"`{top_caller}` 경로를 본다 — {fields['path_frequency_note']}"
+    elif len(ranked) >= 2:
+        fields["path_criterion"] = "multi_path"
+        heads = " · ".join(f"{key} {value / calls * 100:.0f}%" for key, value in ranked[:3])
+        fields["path_criterion_basis"] = f"여러 경로가 같은 함수를 부른다: 한 곳이 지배하지 않는다({heads}) — {numbers}"
+        fields["path_next_step"] = (
+            "부르는 곳을 고치는 대신 **그 함수 자체**를 싸게 만드는 방향 — " + fields["path_frequency_note"]
+        )
+    else:
+        # 한 곳만 기록됐는데 그 몫이 절반 미만이다 = 호출자 표가 불완전하다(재귀·C 프레임 등).
+        # 이때 그 한 곳을 “범인”이라 부르면 트리밍된 나머지를 숨기는 것이므로 지목하지 않는다.
+        fields["path_criterion"] = "insufficient"
+        fields["path_criterion_basis"] = (
+            f"호출자 표가 불완전하다: 기록된 곳이 `{top_caller}` 하나인데 그 몫이 {share * 100:.0f}%"
+            f"(절반 미만) — 나머지 호출의 출처를 모른다. {numbers}"
+        )
+        fields["path_next_step"] = "호출자 표가 더 필요하다(창을 늘리거나 trace 도구로 본다)"
+    return fields
+
+
+def throughput_attribution(
+    phases: tuple[str, ...],
+    phase_cpu_s: list[list[float]],
+    attribution_ops: list[int],
+    attribution_times_s: list[float],
+    sample_ops: list[int],
+    sample_times_s: list[float],
+    sample_cpu_s: list[float],
+    throughput_verdict: dict[str, Any],
+    actual_duration_s: float,
+) -> dict[str, Any]:
+    """처리량 회귀가 **빨간일 때만** 돌아 “어느 국면이 느려졌나”를 좁히는 **귀속 사다리**(순수 함수).
+
+    입력은 하네스가 국면마다 적립한 누적 CPU 초와 누적 반복 수(`SOAK_PHASES` 순서) **그리고** 같은 실행의
+    전체 CPU 표본이다. 둘을 함께 받는 이유가 핵심이다: 국면 타이머는 **경계 안**만 보고, 루프 자체·표본
+    수집·할당자·GC 는 어느 국면에도 안 붙는다. 그래서 총량은 전체 표본에서 재고 국면 합은 국면에서 재서
+    **차이를 잔차로 남긴다** — 잔차가 크면 “국면 밖”이라고 말한다(국면 합을 총량으로 쓰면 잔차가
+    정의상 0 이 되어 그 판정이 영영 안 난다).
+    국면 단가는 같은 블록 추정량(블록 = `max(5분, 지속×2%)` 중앙값 · 워밍업 창 제외 · 분기 1/4)으로 재고,
+    분기 사이 증가분(µs/반복)을 국면별로 쪼갠다. 쪼갠 합이 총 증가분과 같아야 하므로(정체식) **잔차**를 남긴다.
+
+    산출 판정(`attribution_criterion`):
+      · `not_applicable` — 게이트가 빨갭지 않거나 실행이 짧다(돌릴 이유가 없다. 사다리는 설명이지 판정이 아니다)
+      · `phase`          — 한 국면이 증가분의 `ATTRIBUTION_DOMINANCE` 이상(그 이름과 몫을 낸다)
+      · `spread`         — 증가가 국면들에 퍼졌고 합이 총량을 설명한다(잔차 작음)
+      · `outside_phases` — 계측 밖 비중이 크다(할당자·GC·인터프리터 · 잔차가 절반 초과)
+      · `insufficient`   — 게이트는 빨간데 이 실행의 총 증가가 잡음 수준(범인을 만들지 않는다)
+
+    리포트만으로 같은 쪼개기를 재현할 수 있도록 국면 단가·증가분·잔차를 모두 싣는다.
+    """
+    fields: dict[str, Any] = {
+        "attribution_phases": list(phases),
+        "attribution_dominance": ATTRIBUTION_DOMINANCE,
+        "attribution_min_delta_ratio": ATTRIBUTION_MIN_DELTA_RATIO,
+        "attribution_sample_every": ATTRIBUTION_SAMPLE_EVERY,
+        "attribution_units_us_per_op": {},
+        "attribution_contributions_us_per_op": {},
+        "attribution_speedups_us_per_op": {},
+        "attribution_samples": len(attribution_ops),
+    }
+    if throughput_verdict.get("throughput_criterion") != "fail":
+        fields["attribution_criterion"] = "not_applicable"
+        fields["attribution_criterion_basis"] = (
+            "귀속 불필요: 처리량 게이트가 빨간색이 아니다"
+            f"(판정 `{throughput_verdict.get('throughput_criterion')}`) — 사다리는 빨간 실행에서만 돈다"
+        )
+        fields["attribution_next_step"] = "없음(게이트 초록)"
+        return fields
+    if actual_duration_s < THROUGHPUT_MIN_RUN_S:
+        fields["attribution_criterion"] = "not_applicable"
+        fields["attribution_criterion_basis"] = (
+            f"귀속 불가: 실측 {actual_duration_s:.0f}s < 최소 {THROUGHPUT_MIN_RUN_S:.0f}s —"
+            " 분기 단가를 잴 수 없는 실행에서는 국면을 지목하지 않는다"
+        )
+        fields["attribution_next_step"] = "8시간 규모에서 다시 잰다"
+        return fields
+    block_s = max(THROUGHPUT_BLOCK_MIN_S, actual_duration_s * THROUGHPUT_BLOCK_FRACTION)
+    window_s = sc6_warmup_window_s(actual_duration_s)
+    fields["attribution_block_s"] = round(block_s, 1)
+    fields["attribution_warmup_window_s"] = round(window_s, 1)
+    series = [list(values) for values in phase_cpu_s]
+    if len(series) != len(phases) or len(attribution_ops) < 4 or len(attribution_times_s) != len(attribution_ops):
+        fields["attribution_criterion"] = "insufficient"
+        fields["attribution_criterion_basis"] = "국면별 계열이 비었거나 길이가 맞지 않는다 — 귀속할 재료가 없다"
+        fields["attribution_next_step"] = "하네스가 국면 CPU 를 적립하는지 확인한다"
+        return fields
+    for values in series:
+        if len(values) != len(attribution_ops):
+            fields["attribution_criterion"] = "insufficient"
+            fields["attribution_criterion_basis"] = "국면 하나의 표본 수가 맞지 않는다 — 어느 국면에 귀속할지 판단 불가"
+            fields["attribution_next_step"] = "하네스가 모든 국면을 같은 시점에 스냅샷하는지 확인한다"
+            return fields  # 국면별 **블록 단가**(µs/반복)와 **전체** 블록 단가 — 블록 버킷은 처리량 게이트와 같은 기준(시각//블록).
+    buckets: dict[int, list[list[float]]] = {}
+    for index in range(1, len(attribution_ops)):
+        start = attribution_times_s[index - 1]
+        span = attribution_times_s[index] - start
+        delta_ops = attribution_ops[index] - attribution_ops[index - 1]
+        if span <= 0 or delta_ops <= 0 or start < window_s or attribution_times_s[index] < window_s:
+            continue
+        units = []
+        for values in series:
+            delta_cpu = values[index] - values[index - 1]
+            if delta_cpu < 0:
+                break
+            units.append(delta_cpu / delta_ops * 1e6)
+        else:
+            buckets.setdefault(int(attribution_times_s[index] // block_s), []).append(units)
+    # 전체 단가는 **프로세스 전체 CPU 표본**에서 잰다(국면 합이 아니다 — 잔차가 정의상 0 이 되면
+    # “국면 밖”이라는 판정이 영영 안 난다). 같은 블록 키로 모아 국면과 같은 분기에 짝지운다.
+    total_buckets: dict[int, list[float]] = {}
+    if len(sample_ops) == len(sample_times_s) == len(sample_cpu_s):
+        for index in range(1, len(sample_ops)):
+            start = sample_times_s[index - 1]
+            span = sample_times_s[index] - start
+            delta_ops = sample_ops[index] - sample_ops[index - 1]
+            delta_cpu = sample_cpu_s[index] - sample_cpu_s[index - 1]
+            if span <= 0 or delta_ops <= 0 or delta_cpu <= 0:
+                continue
+            if start < window_s or sample_times_s[index] < window_s:
+                continue
+            total_buckets.setdefault(int(sample_times_s[index] // block_s), []).append(delta_cpu / delta_ops * 1e6)
+    keys = sorted(set(buckets) & set(total_buckets))
+    quarter = max(THROUGHPUT_MIN_BLOCKS_PER_QUARTER, len(keys) // 4)
+    fields["attribution_blocks"] = len(keys)
+    if len(keys) < quarter * 2:
+        fields["attribution_criterion"] = "insufficient"
+        fields["attribution_criterion_basis"] = (
+            f"귀속 불가: 창 밖에서 국면 · 전체 표본이 겹치는 블록이 {len(keys)}개"
+            f"(블록 {block_s:.0f}s · 분기마다 {quarter}개 필요) — 두 계열의 스냅샷 간격"
+            f"(국면 {ATTRIBUTION_SAMPLE_EVERY} 반복 · 전체 50 반복)을 좁히거나 실행을 늘려야 한다"
+        )
+        fields["attribution_next_step"] = (
+            f"`NX10_ATTRIBUTION_SAMPLE_EVERY` 를 낮추거나(현재 {ATTRIBUTION_SAMPLE_EVERY}) 더 긴 실행으로 다시 잰다"
+        )
+        return fields
+    # 분기 안의 **모든 구간 행**을 펼친 뒤 국면별 중간값을 낸다(버킷 단위로 중간값을 내면 블록이 두 번 접힌다).
+    first_rows = [row for key in keys[:quarter] for row in buckets[key]]
+    last_rows = [row for key in keys[-quarter:] for row in buckets[key]]
+    totals_first = [_median(total_buckets[key]) for key in keys[:quarter]]
+    totals_last = [_median(total_buckets[key]) for key in keys[-quarter:]]
+    units_first = [round(_median([row[i] for row in first_rows]), 3) for i in range(len(phases))]
+    units_last = [round(_median([row[i] for row in last_rows]), 3) for i in range(len(phases))]
+    contributions = {
+        name: round(unit_last - unit_first, 3) for name, unit_first, unit_last in zip(phases, units_first, units_last)
+    }
+    total_first = round(_median(totals_first), 3)
+    total_last = round(_median(totals_last), 3)
+    total_delta = round(total_last - total_first, 3)
+    attributed_delta = round(sum(contributions.values()), 3)
+    gap = round(total_delta - attributed_delta, 3)
+    positive = {name: value for name, value in contributions.items() if value > 0}
+    speedups = {name: value for name, value in contributions.items() if value < 0}
+    positive_total = round(sum(positive.values()), 3)
+    top_name = max(positive, key=lambda name: positive[name]) if positive else None
+    top_share = round(positive[top_name] / positive_total, 4) if top_name and positive_total > 0 else 0.0
+    gap_ratio = round(abs(gap) / max(total_delta, 1e-9), 4) if total_delta > 0 else 0.0
+    fields.update(
+        {
+            "attribution_units_us_per_op": {
+                name: [unit_first, unit_last] for name, unit_first, unit_last in zip(phases, units_first, units_last)
+            },
+            "attribution_contributions_us_per_op": contributions,
+            "attribution_speedups_us_per_op": speedups,
+            "attribution_total_us_per_op": [total_first, total_last],
+            "attribution_total_delta_us_per_op": total_delta,
+            "attribution_attributed_delta_us_per_op": attributed_delta,
+            "attribution_gap_us_per_op": gap,
+            "attribution_gap_ratio": gap_ratio,
+            "attribution_phase": top_name,
+            "attribution_top_share": top_share,
+            "attribution_gate_efficiency_ratio": throughput_verdict.get("throughput_efficiency_ratio"),
+        }
+    )
+    numbers = (
+        "단가 "
+        + f"{total_first:.1f}→{total_last:.1f} µs/반복({(total_delta / max(total_first, 1e-9)) * 100:+.1f}%)"
+        + " · 국면별 증가분 "
+        + (
+            " ".join(f"{name} {value:+.1f}" for name, value in sorted(contributions.items(), key=lambda item: -item[1]))
+            or "없음"
+        )
+        + f" · 국면 밖 잔차 {gap:+.1f}({gap_ratio * 100:.0f}%)"
+    )
+    if total_delta < ATTRIBUTION_MIN_DELTA_RATIO * max(total_first, 1e-9):
+        fields["attribution_criterion"] = "insufficient"
+        fields["attribution_criterion_basis"] = (
+            "귀속할 증가가 없다: 총 증가가 첫 분기 단가의 "
+            f"{ATTRIBUTION_MIN_DELTA_RATIO * 100:.0f}% 미만이다(잡음 수준) — 없는 범인을 지목하지 않는다. {numbers}"
+        )
+        fields["attribution_next_step"] = "재실행(게이트가 효율 임계로 빨개졌지만 이 실행의 단가 증가는 잡음 수준)"
+    elif gap_ratio > ATTRIBUTION_OUTSIDE_GAP_RATIO:
+        fields["attribution_criterion"] = "outside_phases"
+        fields["attribution_criterion_basis"] = (
+            "계측 밖에 있다: 국면별 증가분을 다 더해도 총 증가와 맞지 않는다"
+            f"(잔차 {gap:+.1f} µs/반복 = 총 증가의 {gap_ratio * 100:.0f}%) — 할당자·GC·인터프리터·루프 자체를 봐야 한다. {numbers}"
+        )
+        fields["attribution_next_step"] = (
+            "그 프로세스 전체를 잡는다: 재실행에서 cProfile/py-spy 로 전체 콜 스택을 샘플링한다"
+            "(국면 타이머는 경계만 보므로 경계 밖 비용은 여기서만 보인다)"
+        )
+    elif top_name is not None and top_share >= ATTRIBUTION_DOMINANCE:
+        fields["attribution_criterion"] = "phase"
+        fields["attribution_criterion_basis"] = (
+            f"그 국면이다: **{top_name}** 이 증가분의 {top_share * 100:.0f}%"
+            f"(+{positive[top_name]:.1f} µs/반복)를 차지한다 — {numbers}"
+        )
+        fields["attribution_next_step"] = (
+            f"`{top_name}` 내부를 본다: 그 경로의 하위 단계(직렬화·fsync·lock)를 계약 시험이나 프로파일로 잡는다"
+        )
+    else:
+        fields["attribution_criterion"] = "spread"
+        spread_names = ", ".join(
+            f"{name} {value:+.1f}" for name, value in sorted(positive.items(), key=lambda item: -item[1])
+        )
+        fields["attribution_criterion_basis"] = (
+            f"고르게 늘었다: 한 국면이 지배하지 않는다(최대 {top_name or '없음'} {top_share * 100:.0f}%) — {spread_names}. {numbers}"
+        )
+        fields["attribution_next_step"] = (
+            "공통 경로를 본다(모든 국면이 지나는 직렬화·할당·로그) — 국면 타이머로는 더 좁혀지지 않는다"
+        )
+    return fields
+
+
+def criteria_gate(
+    rss_verdict: dict[str, Any], throughput_verdict: dict[str, Any], actual_duration_s: float
+) -> tuple[bool, str]:
+    """두 축의 판정을 **시나리오 통과 여부**로 접고, 왜 그런지를 문장으로 돌려준다.
+
+    왜 이 문이 필요한가(실측 2026-09-17, 스테이징본 점검): 종전 규칙은 `!= "fail"` 이어서 **8시간 실행이
+    `not_applicable` 로 끝나도 통과**했다 — 즉 환경 변수 한 줄로 게이트를 비울 수 있었다(조용한 통과).
+    반대로 `not_applicable` 을 무조건 실패로 만들면 60초 리허설이 영원히 빨간불이 되고, 그러면
+    아무도 그 불을 안 본다. 그래서 **그 축의 최소 길이보다 짧을 때만** 면제한다:
+      · RSS: 창(=`max(5분, 지속×5%)`)의 두 배 안에서는 “증가”를 말할 수 없다
+      · 처리량: 2시간 미만에서는 시작 비용이 지배한다
+    그보다 긴 실행에서 `not_applicable` 이면 **판정 불가를 통과로 취급하지 않는다**(재실행 요구).
+    """
+    unjudgeable: list[str] = []
+    for label, verdict, key, floor in (
+        ("RSS", rss_verdict, "rss_criterion", float(rss_verdict.get("rss_warmup_window_s") or 0) * 2),
+        ("처리량", throughput_verdict, "throughput_criterion", THROUGHPUT_MIN_RUN_S),
+    ):
+        state = verdict.get(key)
+        if state == "fail":
+            return False, f"{label} 축 실패 — {verdict.get(key.replace('_criterion', '_criterion_basis'), '')}"
+        if state == "not_applicable" and actual_duration_s >= floor:
+            unjudgeable.append(f"{label}(최소 {floor:.0f}s 이상인데 판정 불가)")
+    if unjudgeable:
+        return False, (
+            "판정 불가를 통과로 취급하지 않는다: " + " · ".join(unjudgeable) + " — 조건을 고쳐 다시 재야 한다"
+        )
+    return True, "두 축 모두 판정됨(실패 없음 — 짧은 실행의 판정 불가는 면제)"
+
+
 def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
     from antigravity_k.engine.conversation_store import ConversationStore
     from antigravity_k.engine.task_state_store import TaskStateStore
@@ -740,6 +1745,10 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
     # 리포트에는 결과 인덱스·값만 싣고 이 두 목록은 메모리에만 둔다(리포트 크기를 늘리지 않는다).
     sample_times_s: list[float] = []
     sample_ops: list[int] = []
+    # 처리량 회귀 축(2026-09-17): 벽시계 감소를 **효율 × 이용률** 로 분해하려면 표본마다 CPU 시간이 필요하고,
+    # 그 감소가 경합 탓인지 가르려면 호스트 부하도 같이 남겨야 한다(둘 다 `ps`/`time` 수준이라 싸다).
+    sample_cpu_s: list[float] = []
+    sample_load1: list[float] = []
     fd_samples: list[int] = []
     ops = 0
     conv_ops = 0
@@ -755,45 +1764,136 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
         content=SOAK_CONSTRAINT_TEXT,
     )
     conv_rev = seeded.revision
+    # 귀속 사다리(2026-09-17): 국면 경계에서 CPU 시간을 적립한다(한 반복에 세 번). 반복 끝에서 시계를
+    # **청구 없이** 리셋하므로 루프 자체와 표본 수집 비용은 어느 국면에도 안 들어가고, 그만큼이 자연히
+    # “국면 밖 잔여”로 남는다(그 잔여가 크면 사다리는 “계측 밖”이라고 말한다 — 지어내지 않는다).
+    phase_cpu = [0.0] * len(SOAK_PHASES)
+    attribution_cpu_s: list[list[float]] = [[] for _ in SOAK_PHASES]
+    attribution_ops: list[int] = []
+    attribution_times_s: list[float] = []
+    attribution_measured_ops = 0  # **계측된** 반복만 센다(창 계측분은 판정 계열에서 빠진다)
+    _clock = [time.process_time()]
+    profiler = _PhaseProfiler(SOAK_PHASES)
+    _deep_phase: list[str | None] = [None]
+
+    def _lap(index: int) -> None:
+        now = time.process_time()
+        if _deep_phase[0] == SOAK_PHASES[index]:
+            # 창 계측 중인 국면은 **판정 계열에 안 넣는다**(계측이 판정을 오염시키지 않는다).
+            _clock[0] = now
+            return
+        phase_cpu[index] += now - _clock[0]
+        _clock[0] = now
+
+    def _profiled(index: int, call: Callable[[], Any]) -> Any:
+        """국면 호출을 창 계측과 함께 실행한다(계측 중이 아니면 그냥 부른다 — 비용은 함수 호출 하나).
+
+        `_deep_phase`(이번 반복의 계측 국면)가 아니라 `active_for` 로 묻는다: 창이 이 반복의 첫 호출에서
+        닫혔을 수 있으므로 “이 호출이 창 안인가”를 호출 시점에 다시 확인해야 한다(유령 창 방지).
+        """
+        phase = SOAK_PHASES[index]
+        if not profiler.active_for(phase):
+            return call()
+        profiler.enable()
+        try:
+            return call()
+        finally:
+            profiler.disable()
+
     started = time.time()
     deadline = started + seconds
     i = 0
     while time.time() < deadline:
         tid = f"soak-{i}"
+        _deep_phase[0] = profiler.take(i)  # 이번 반복에 계측할 국면(창 단위로 국면을 돌려 간다)
         try:
-            store.create_task(tid, "soak", "pending", "2026-09-09T00:00:00Z")
-            _ = store.transition(tid, "running", expected_status="pending")
-            _ = store.transition(tid, "done", output="ok", expected_status="running")
+            _profiled(0, lambda: store.create_task(tid, "soak", "pending", "2026-09-09T00:00:00Z"))
+            _lap(0)
+            _profiled(1, lambda: store.transition(tid, "running", expected_status="pending"))
+            _profiled(1, lambda: store.transition(tid, "done", output="ok", expected_status="running"))
+            _lap(1)
             ops += 1
         except Exception:
             errors += 1
         # FR-06/RP-11(R11-07): DB 루프만이 아니라 conversation 작업 부하 포함.
         try:
-            snap = conv_store.append(
-                project_id="soak",
-                conversation_id="soak-conv",
-                expected_revision=conv_rev,
-                role="user",
-                content=f"soak turn {i}",
+            snap = _profiled(
+                2,
+                lambda: conv_store.append(
+                    project_id="soak",
+                    conversation_id="soak-conv",
+                    expected_revision=conv_rev,
+                    role="user",
+                    content=f"soak turn {i}",
+                ),
             )
+            _lap(2)
             conv_rev = snap.revision
             conv_ops += 1
         except Exception:
             errors += 1
+        if _deep_phase[0] is None:
+            attribution_measured_ops += 1
+        _clock[0] = time.process_time()  # 루프·표본 비용은 국면에 안 붙인다(잔차로 남긴다)
         i += 1
         if i % 50 == 0:
             # NX-04: 계측 overhead 를 실측해 보고한다(샘플링이 soak 를 지배하지 않음).
             _t0 = time.perf_counter()
             sample_times_s.append(time.time() - started)
             sample_ops.append(i)
+            sample_cpu_s.append(time.process_time())
+            try:
+                sample_load1.append(float(os.getloadavg()[0]))
+            except (OSError, AttributeError):  # 부하 계기를 못 읽으면 “모름”(-1)으로 남긴다
+                sample_load1.append(-1.0)
             rss_samples.append(_rss_mb())
             fd_samples.append(_fd_count())
+            if i % ATTRIBUTION_SAMPLE_EVERY == 0:
+                # 국면 누적 CPU 를 같은 시점에 스냅샷한다(세 국면의 길이가 항상 같다 — 그게 계약이다).
+                for phase_index in range(len(SOAK_PHASES)):
+                    attribution_cpu_s[phase_index].append(round(phase_cpu[phase_index], 3))
+                attribution_ops.append(attribution_measured_ops)
+                attribution_times_s.append(round(time.time() - started, 3))
             sample_overhead_s += time.perf_counter() - _t0
     # FR-06/RP-11: 실측 종료 시각 — 요청값이 아니라 실제로 흘린 시간을 기록한다.
     actual_duration = round(time.time() - started, 3)
     # SC-6 기준 재설계: 판정은 순수 함수가 한다(워밍업 창 밖 증가 + 반복당 creep). 입력은 리포트에
     # 실리는 반올림 값과 같게 맞춘다 — 리포트만 보고도 같은 판정을 재현할 수 있어야 한다.
     rss_verdict = sc6_rss_criterion([round(r, 1) for r in rss_samples], sample_ops, sample_times_s, actual_duration)
+    # 처리량 회귀는 **RSS 와 다른 축**이다(둘은 서로를 대신하지 못한다 — 계약 시험이 네 조합을 고정한다).
+    throughput_verdict = throughput_criterion(
+        sample_ops,
+        [round(t, 3) for t in sample_times_s],
+        [round(c, 3) for c in sample_cpu_s],
+        sample_load1,
+        os.cpu_count() or 1,
+        actual_duration,
+    )
+    # 귀속 사다리: **게이트가 빨간 실행에서만** 돈다(초록이면 `not_applicable` · 판정을 바꾸지 않는다).
+    attribution_verdict = throughput_attribution(
+        SOAK_PHASES,
+        attribution_cpu_s,
+        attribution_ops,
+        attribution_times_s,
+        sample_ops,
+        [round(t, 3) for t in sample_times_s],
+        [round(c, 3) for c in sample_cpu_s],
+        throughput_verdict,
+        actual_duration,
+    )
+    # 프로파일 원자료는 **한 번만** 만든다: 두 칸(국면 내부 · 호출 경로)이 **같은 자료**를 보아야 하고,
+    # 리포트에 실리는 것도 그 자료다(읽는 사람과 계산하는 사람이 같은 것을 본다).
+    deep_profile = profiler.report()
+    # 사다리의 **다음 칸**: 앞칸이 국면을 지목했을 때만 그 국면 **안**의 함수 순위를 낸다.
+    deep_verdict = phase_function_attribution(
+        attribution_verdict.get("attribution_phase"),
+        deep_profile,
+        attribution_verdict,
+        actual_duration,
+    )
+    # **네 번째 칸**: 앞 칸이 함수를 지목했을 때만 그 함수를 **누가·얼마나 자주** 부르는지 좁힌다.
+    path_verdict = function_call_path(deep_verdict, deep_profile, actual_duration)
+    criteria_ok, criteria_why = criteria_gate(rss_verdict, throughput_verdict, actual_duration)
     fd_growth = (fd_samples[-1] - fd_samples[0]) if len(fd_samples) >= 2 else 0
     # orphan worktree: 이 스크립트는 repo 내 worktree를 만들지 않는다 — 관측만.
     # NX-10: 범위는 제품 worktree 루트(`.ag_worktrees`) — 저장소 전역 카운트는 타 작업의
@@ -872,8 +1972,15 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
         "measurement_overhead_s": round(sample_overhead_s, 4),
         "measurement_overhead_ratio": round(sample_overhead_s / actual_duration, 5) if actual_duration else 0.0,
         "errors": errors,
+        "criteria_gate": criteria_why,
         "rss_samples_mb": [round(r, 1) for r in rss_samples],
         **rss_verdict,
+        **throughput_verdict,
+        **attribution_verdict,
+        **deep_verdict,
+        **path_verdict,
+        # 원자료도 싣는다: 다음 사람이 같은 함수 순위·호출 경로를 리포트만으로 다시 낼 수 있어야 한다.
+        "deep_profile": deep_profile,
         "fd_samples": fd_samples,
         "fd_growth": fd_growth,
         "orphan_worktrees": orphan_wt,
@@ -882,6 +1989,8 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
             errors == 0
             # RSS 는 두 축(창 밖 증가 · 반복당 creep)으로 본다 — 판정 불가(not_applicable)는 통과가 아니다.
             and rss_verdict["rss_criterion"] != "fail"
+            # 두 축은 **독립**이고, 긴 실행에서는 `not_applicable` 도 통과가 아니다(`criteria_gate` 참조).
+            and criteria_ok
             and fd_growth <= FD_LEAK_THRESHOLD
             and orphan_wt == 0
             and lock_ok
@@ -935,6 +2044,20 @@ def main() -> int:
             "rss_warmup_min_s": RSS_WARMUP_MIN_S,
             "rss_warmup_fraction": RSS_WARMUP_FRACTION,
             "rss_creep_max_kb_per_op": RSS_CREEP_MAX_KB_PER_OP,
+            "throughput_max_decline": THROUGHPUT_MAX_DECLINE,
+            "throughput_min_run_s": THROUGHPUT_MIN_RUN_S,
+            "throughput_block_min_s": THROUGHPUT_BLOCK_MIN_S,
+            "throughput_host_load_max": THROUGHPUT_HOST_LOAD_MAX,
+            "attribution_dominance": ATTRIBUTION_DOMINANCE,
+            "attribution_min_delta_ratio": ATTRIBUTION_MIN_DELTA_RATIO,
+            "attribution_sample_every": ATTRIBUTION_SAMPLE_EVERY,
+            "attribution_outside_gap_ratio": ATTRIBUTION_OUTSIDE_GAP_RATIO,
+            "deep_sample_every": DEEP_SAMPLE_EVERY,
+            "deep_window_calls": DEEP_WINDOW_CALLS,
+            "deep_max_windows": DEEP_MAX_WINDOWS,
+            "deep_max_ops": DEEP_MAX_OPS,
+            "deep_function_dominance": DEEP_FUNCTION_DOMINANCE,
+            "deep_outside_ratio": DEEP_OUTSIDE_RATIO,
         },
         "scenarios": [],
     }
