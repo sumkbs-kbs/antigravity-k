@@ -354,7 +354,11 @@ bash docs/qa/2026-09-16-followup/nx10/run_clean_machine_gate.sh   # HEAD 기준 
    #   `--plan` 은 계획만(부작용 0) · `--skip-gates` 는 승격만 · `--wait` 없이 돌리면 **도는 soak 을 보고 거절**한다
    ```
 
-   **현재: 무인으로 걸려 있다** — `screen nx10promote` 가 `post_harvest_sequence.sh --wait` 를 돌려
+   ~~현재: 무인으로 걸려 있다~~ → **2026-09-18 완료**(커밋 `bde261dc` · 보관 `promote2/promotion2-applied.txt`): 두 리허설이
+   `tests/test_restore_rehearsal_contract.py` · `tests/test_rollback_rehearsal_contract.py` 로 승격됐고, 승격 위치에서
+   **14 passed**(수집 노드가 `tests/` 인지까지 검사 — `promote2/promoted-contract-tests.txt`)다. 이 항목을 다시
+   걸지 않는다 — 본실행 명령·가드는 이 아래 문단에 기록으로만 남긴다(첫 승격의 상세 기록과 같은 방식).
+   실행 당시 상황: `screen nx10promote` 가 `post_harvest_sequence.sh --wait` 를 돌려
    실행 종료(18:19 KST)를 기다리는 중이고, 로그는 `promote2/post-harvest-sequence.log` 다.
    중간에 취소하려면 `screen -S nx10promote -X quit`(승격 전이면 트리 무변경).
    무인 실행을 위해 두 가드를 추가했다(샌드박스 4경로로 확인 — ① 판정 FAIL 이면 승격을 **멈춘다**(트리 무변경)
