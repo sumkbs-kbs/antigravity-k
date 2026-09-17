@@ -1,0 +1,155 @@
+[
+  {
+    "label": "누수 실행",
+    "report": "soak-28800-fail001.json",
+    "samples": 1408,
+    "duration_s": 28800.075,
+    "completed_ops": 70430,
+    "ops_per_sample_assumed": 50.02,
+    "window_s": 1440.0,
+    "total_growth_mb": 1683.4,
+    "old_criterion_limit_mb": 64.0,
+    "old_verdict": "fail",
+    "arms": {
+      "0.040": {
+        "verdict": "fail",
+        "index": 56,
+        "excluded_mb": 1664.6,
+        "creep_kb_per_op": 25.2339,
+        "basis": "창 밖 증가 1664.6 MB ≤ 64 MB · 반복당 25.2339 KB ≤ 0.25 KB (창 1440s = 표본 56개 건너뜀 · 창 밖 반복 67,550회)"
+      },
+      "0.045": {
+        "verdict": "fail",
+        "index": 63,
+        "excluded_mb": 1658.8,
+        "creep_kb_per_op": 25.277,
+        "basis": "창 밖 증가 1658.8 MB ≤ 64 MB · 반복당 25.2770 KB ≤ 0.25 KB (창 1440s = 표본 63개 건너뜀 · 창 밖 반복 67,200회)"
+      },
+      "0.050": {
+        "verdict": "fail",
+        "index": 70,
+        "excluded_mb": 1657.3,
+        "creep_kb_per_op": 25.3863,
+        "basis": "창 밖 증가 1657.3 MB ≤ 64 MB · 반복당 25.3863 KB ≤ 0.25 KB (창 1440s = 표본 70개 건너뜀 · 창 밖 반복 66,850회)"
+      },
+      "0.055": {
+        "verdict": "fail",
+        "index": 77,
+        "excluded_mb": 1657.1,
+        "creep_kb_per_op": 25.5168,
+        "basis": "창 밖 증가 1657.1 MB ≤ 64 MB · 반복당 25.5168 KB ≤ 0.25 KB (창 1440s = 표본 77개 건너뜀 · 창 밖 반복 66,500회)"
+      },
+      "0.060": {
+        "verdict": "fail",
+        "index": 84,
+        "excluded_mb": 1655.6,
+        "creep_kb_per_op": 25.6286,
+        "basis": "창 밖 증가 1655.6 MB ≤ 64 MB · 반복당 25.6286 KB ≤ 0.25 KB (창 1440s = 표본 84개 건너뜀 · 창 밖 반복 66,150회)"
+      }
+    },
+    "robust_to_time_model": true,
+    "verdict": "fail"
+  },
+  {
+    "label": "4차 실행(건강)",
+    "report": "soak-28800.json",
+    "samples": 211991,
+    "duration_s": 28800.006,
+    "completed_ops": 10599576,
+    "ops_per_sample_assumed": 50.0,
+    "window_s": 1440.0,
+    "total_growth_mb": 52.2,
+    "old_criterion_limit_mb": 64.0,
+    "old_verdict": "pass",
+    "arms": {
+      "0.040": {
+        "verdict": "pass",
+        "index": 8480,
+        "excluded_mb": 25.6,
+        "creep_kb_per_op": 0.0026,
+        "basis": "창 밖 증가 25.6 MB ≤ 64 MB · 반복당 0.0026 KB ≤ 0.25 KB (창 1440s = 표본 8480개 건너뜀 · 창 밖 반복 10,175,500회)"
+      },
+      "0.045": {
+        "verdict": "pass",
+        "index": 9540,
+        "excluded_mb": 25.6,
+        "creep_kb_per_op": 0.0026,
+        "basis": "창 밖 증가 25.6 MB ≤ 64 MB · 반복당 0.0026 KB ≤ 0.25 KB (창 1440s = 표본 9540개 건너뜀 · 창 밖 반복 10,122,500회)"
+      },
+      "0.050": {
+        "verdict": "pass",
+        "index": 10600,
+        "excluded_mb": 23.7,
+        "creep_kb_per_op": 0.0024,
+        "basis": "창 밖 증가 23.7 MB ≤ 64 MB · 반복당 0.0024 KB ≤ 0.25 KB (창 1440s = 표본 10600개 건너뜀 · 창 밖 반복 10,069,500회)"
+      },
+      "0.055": {
+        "verdict": "pass",
+        "index": 11660,
+        "excluded_mb": 23.7,
+        "creep_kb_per_op": 0.0024,
+        "basis": "창 밖 증가 23.7 MB ≤ 64 MB · 반복당 0.0024 KB ≤ 0.25 KB (창 1440s = 표본 11660개 건너뜀 · 창 밖 반복 10,016,500회)"
+      },
+      "0.060": {
+        "verdict": "pass",
+        "index": 12719,
+        "excluded_mb": 21.8,
+        "creep_kb_per_op": 0.0022,
+        "basis": "창 밖 증가 21.8 MB ≤ 64 MB · 반복당 0.0022 KB ≤ 0.25 KB (창 1440s = 표본 12719개 건너뜀 · 창 밖 반복 9,963,550회)"
+      }
+    },
+    "robust_to_time_model": true,
+    "verdict": "pass"
+  },
+  {
+    "label": "60초 리허설",
+    "report": "soak-60.json",
+    "samples": 59,
+    "duration_s": 60.028,
+    "completed_ops": 2978,
+    "ops_per_sample_assumed": 50.47,
+    "window_s": 300.0,
+    "total_growth_mb": 21.2,
+    "old_criterion_limit_mb": 64.0,
+    "old_verdict": "pass",
+    "arms": {
+      "0.040": {
+        "verdict": "not_applicable",
+        "index": -1,
+        "excluded_mb": 0.0,
+        "creep_kb_per_op": 0.0,
+        "basis": "판정 불가: 실측 60.0s < 창 300.0s × 2 (표본 59개) — 이 구간의 증가는 누수가 아니라 시작 비용이다"
+      },
+      "0.045": {
+        "verdict": "not_applicable",
+        "index": -1,
+        "excluded_mb": 0.0,
+        "creep_kb_per_op": 0.0,
+        "basis": "판정 불가: 실측 60.0s < 창 300.0s × 2 (표본 59개) — 이 구간의 증가는 누수가 아니라 시작 비용이다"
+      },
+      "0.050": {
+        "verdict": "not_applicable",
+        "index": -1,
+        "excluded_mb": 0.0,
+        "creep_kb_per_op": 0.0,
+        "basis": "판정 불가: 실측 60.0s < 창 300.0s × 2 (표본 59개) — 이 구간의 증가는 누수가 아니라 시작 비용이다"
+      },
+      "0.055": {
+        "verdict": "not_applicable",
+        "index": -1,
+        "excluded_mb": 0.0,
+        "creep_kb_per_op": 0.0,
+        "basis": "판정 불가: 실측 60.0s < 창 300.0s × 2 (표본 59개) — 이 구간의 증가는 누수가 아니라 시작 비용이다"
+      },
+      "0.060": {
+        "verdict": "not_applicable",
+        "index": -1,
+        "excluded_mb": 0.0,
+        "creep_kb_per_op": 0.0,
+        "basis": "판정 불가: 실측 60.0s < 창 300.0s × 2 (표본 59개) — 이 구간의 증가는 누수가 아니라 시작 비용이다"
+      }
+    },
+    "robust_to_time_model": true,
+    "verdict": "not_applicable"
+  }
+]
