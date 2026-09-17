@@ -468,6 +468,32 @@ bash docs/qa/2026-09-16-followup/nx10/run_clean_machine_gate.sh   # HEAD 기준 
 `/usr/bin/python3`(3.9.6)는 `ga_gate.py` 의 3.12 문법을 파싱하지 못해 지문이 `UNVERIFIED` 가 되고,
 예약 실행기는 이제 그것을 **드리프트보다 먼저** 막는다(`exit 3`, 기록 사유 `fingerprint unverifiable`).
 
+## 5d. 동결 해제 뒤의 **배치 체인** — `SC6 → PERF → FLUSH → FLUSH2` (2026-09-18)
+
+`FLUSH` 하나만 걸면 **아무것도 적용되지 않는다**: `fsync/apply_flush_batch.sh` 의 합성 순서 가드(exit 6)가
+`scripts/val02_staging.py` 에 PERF 사다리 표식(`NX10_DEEP_PROFILE`)이 있어야 통과한다(그 배치가 지문을
+움직이므로 마지막이어야 한다는 규칙을 코드로 고정한 것). 그래서 순서는 **SC6 → PERF → FLUSH → FLUSH2** 이고,
+그 넷을 적용·커밋·게이트까지 한 줄로 묶은 것이 `batchchain/run_batch_chain.sh` 다.
+
+```bash
+bash docs/qa/2026-09-16-followup/nx10/batchchain/run_batch_chain.sh --plan          # 무엇을 할지만(부작용 0)
+# 무인: 앞 단계를 기다렸다가 적용 → 배치마다 커밋 → 그 지문에서 필수 23개 → 새 8시간 soak 재장전
+screen -dmS nx10batchchain caffeinate -i bash -c \
+  "cd \"$PWD\" && bash docs/qa/2026-09-16-followup/nx10/batchchain/run_batch_chain.sh --wait --rearm \
+     >> docs/qa/2026-09-16-followup/nx10/batchchain/batchchain.log 2>&1"
+# 확인: tail -20 …/batchchain/batchchain.log · cat …/batchchain/batchchain-record.md
+# 취소: screen -S nx10batchchain -X quit   (각 배치의 백업은 그 배치 스크립트가 남긴다)
+```
+
+**멈추는 조건**(모두 기록을 남기고 쓰기 0건): 앞 단계 결과가 성립하지 않을 때(회수 판정 PASS 아님 · 지문 갈림 ·
+**앞 체인의 게이트 리포트 파일 부재**) · 코드 경로에 소유 불명 변경이 있을 때 · 배치의 가드/커밋이 실패했을 때.
+**멈추지 않는 것**: 게이트가 빨간 것(이 저장소에는 기존 실패가 있다) — 요약만 남기고 계속하되, 측정 중 지문이
+움직였으면 그 사실을 WARN 으로 남긴다.
+
+**도구의 위치**: 감시·통제 도구는 3차 배치에서 `scripts/` 로 승격됐다(`docs/` 사본은 없다). 체인도
+승격 위치를 부르고 시작 전에 존재를 확인한다 — 그 문장은 계약 시험
+`batchchain/test_chain_tool_paths_contract.py` 가 고정한다(문서 사본 경로가 다시 들어오면 빨개진다).
+
 ## 6. 이 절차를 쓰는 사람에게
 
 - “초록”을 늘리는 방향의 수정만 했다: 분류 오류(`clean-machine-runtime`)는 **실행해서** 바로잡았고,

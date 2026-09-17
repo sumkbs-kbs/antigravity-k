@@ -126,7 +126,16 @@ HEAD 트리`(후보 귀속)가 **설계상** 거짓이다. 그런데 자기시�
 `⑧ 후보 귀속(현재 트리 == HEAD)까지 본다` 가 그대로 초록인 것으로 확인했다. 즉 이빨은 깨끗한 트리에서
 그대로 물고, 리허설에서는 “무엇을 생략했는지”가 증거로 남는다(조용한 스킵 금지 — 하루 종일 반복된 규칙).
 
-| `attempt5` | 계약 시험 docstring 의 자기시험 수(75 → 75~76, 환경에 따라)를 고침 | **ALL PASS** — 바이트가 바뀌었으므로 리허설을 다시 돌려 이동 바이트 동일을 다시 확인했다(승격 전의 마지막 바이트 = 이 회차) |
+| `attempt5` | 계약 시험 docstring 의 자기시험 수(75 → 75~76, 환경에 따라)를 고침 | **ALL PASS** — 바이트가 바뀌었으므로 리허설을 다시 돌려 이동 바이트 동일을 다시 확인했다 |
+| `attempt6` | (배치 바이트 변경) `soak_control.sh` 에 **셸 오탐 차단** + 이빨 ⑧b 추가 — 본 트리 자기시험 **77/77** 을 보고 걸었다 | **실패 2건** — `⑧ (이빨) 셸이 패턴에 걸러도 preflight 0 (기대=0 실제=1)`. 원인은 도구가 아니라 **내 시험**: 그 자리만 preflight 를 직접 호출해 공용 헬퍼의 귀속 문(`NX10_PF_SKIP_ATTRIBUTION`)을 빠뜨려, **더러운 트리(미러)에서만** 빨개졌다 — §25-8 |
+| `attempt7` | 그 자리에 같은 문을 붙이고, 생략이면 **문장으로 밝히는** 검사를 함께 넣음(조용한 생략 금지) | **ALL PASS** — 계약 시험 `14 passed in 110.64s` · 이동 5건 sha256 동일 · 이빨 3/3 · 스테이징 잔존 0 · 자기시험 **79/79**(더러운 트리 전용 확인 1건 포함) |
+| `attempt8` | 계약 시험 docstring 의 자기시험 수(75~76 → **77/79**)를 고침 — 값을 만드는 코드와 그 값을 말하는 문장을 같은 커밋에 둔다 | **ALL PASS** — `14 passed in 106.77s` · 자기시험 79/79 · 이동 5건 sha256 동일 · 본실행이 옮길 **검증된 바이트**: `soak_watch.py 88af4a5b5264` · `soak_watch_loop.py d7b1df867443` · `soak_control.sh 00661d6f2152` · `test_soak_watch_contract.py f7bf824145b7` · `test_soak_control_contract.py a713185925d4` |
+
+| `attempt9` | (`soak_watch.py`·`soak_watch_loop.py`·계약 시험에 **workdir 엄격 문 + 재부착 수정**을 넣은 바이트 — 오너 지시) | **실패 1건** — `ruff format --check`(포맷만 어긋남 · 계약 시험 17 passed·이빨 A·B·D 초록) → 포맷 뒤 재실행 |
+| `attempt10` | 두 파일 포맷 + **재부착 계약 시험** 추가(`test_loop_attaches_to_a_run_already_in_flight`) | **ALL PASS** — 계약 시험 `17 passed in 108.89s` · 이빨 3/3 · 스테이징 잔존 0 · 이동 5건 sha256 동일 · 본실행이 옮길 **검증된 바이트**: `soak_watch.py fc8599af9d48` · `soak_watch_loop.py c38d16d58845` · `soak_control.sh 00661d6f2152` · `test_soak_watch_contract.py 263ea2da0777` · `test_soak_control_contract.py a713185925d4` |
+
+> `attempt10` 의 바이트로 상시 감시를 **재부착까지 마쳤다**(`GATE_LEDGER` §27-3). 리허설이 증명하는 것은
+> “동결 해제 뒤 옮길 바이트”이고, 그 바이트가 지금 이미 도는 것은 `docs/` 사본뿐이다(지문 불변).
 
 **두 트리에서 각각 무엇을 물었는지가 남았다**: 깨끗한 트리(실트리) `75/75` — `⑧ 후보 귀속(현재 트리 ==
 HEAD)까지 본다` 가 그대로 초록이라 귀속 검사가 살아 있음이 증명된다. 더러운 트리(미러) `76/76` — 같은 항목이
@@ -136,6 +145,39 @@ HEAD)까지 본다` 가 그대로 초록이라 귀속 검사가 살아 있음이
 순간 회수 감시(`screen nx10harvest`)가 실행 중이었고, bash 는 스크립트를 조금씩 읽으므로 수정이 실행을
 깨뜨릴 수 있다. 그래서 편집 전에 감시를 내리고(프로세스 0건 실측) 편집 뒤 재부착했다 — 회수 도구의
 `cancel` 이 “취소했다고 기록한 예약이 살아 있었다” 를 겪은 뒤 세운 규칙(죽음 확인)을 이 창에도 적용한 것.
+
+### 1f. **배치 `SC6` — SC-6 기준 구현**(준비 완료, 본실행은 동결 해제 뒤 · 2026-09-17)
+
+오너 지시(“새 기준을 구현하고 계약 시험으로 고정”)에 따라 기준을 **코드와 시험으로** 옮겨 두었다.
+이 배치는 도구 이동이 아니라 **기준 변경**이라, 적용 순서가 더 엄격하다(도는 soak 의 지문을 건드린다).
+
+| 위치(지금) | 적용 뒤 | 역할 | 검증된 바이트 |
+| --- | --- | --- | --- |
+| `sc6fix/val02_staging.py` | `scripts/val02_staging.py` (**덮어씀**) | 기준 구현 — `max(5분, 지속×5%)` 창 밖 증가(P1) + 반복당 creep(P2) + `not_applicable` | `ecd826ce90af…` |
+| `sc6fix/test_sc6_criterion_contract.py` | `tests/test_sc6_criterion_contract.py` (신설) | 그 기준을 지키는 계약 시험 8건(음성 대조군 포함) | `cd4ff2da732b…` |
+| `sc6fix/apply_sc6fix.sh` | — (도구) | 본실행: 동결 가드 + **사전 이미지 sha256 고정** + 백업 + 실패 시 자동 롤백 | `ea45db386c96…` |
+| `sc6fix/rehearse_sc6fix.sh` | — (도구) | 미러 리허설(본 트리 쓰기 0건) | `b34ef49cfdc1…` |
+
+**적용 전 바이트 고정**: `scripts/val02_staging.py` 의 사전 이미지 sha256
+`83da9a4885038bac710938a8cfc8bed13ac620dd664975fa86639eb2bc1b16b2` — 다른 바이트 위에는 덮지 않는다.
+
+**리허설 결과(미러, ALL PASS 22건 · `sc6fix/rehearsal-output.txt`)**: 사전 이빨(적용 전 계약 시험이 **실패**한다) ·
+동결 가드 물림(exit 9) · 적용 뒤 ruff/format/basedpyright(0 errors)/계약 시험 8 passed/기존 val02 시험 ·
+**실제 60초 리허설**이 `rss_criterion="not_applicable"` 과 사유를 리포트에 남김 · 도구를 되돌리면 시험이 빨개짐 ·
+다른 바이트 위에는 거부(exit 8) · 본 트리 하네스 바이트 불변·신설 파일 없음·지문 대상 쓰기 0건.
+
+**이 리허설이 잡은 것(여섯 번째 “조용한 어긋남”)**: 첫 회차가 `apply` 단계에서 **자동 롤백**됐다 —
+계약 시험이 `반복당 creep` 의 재현성에서 걸렸다. 원인은 기준이 아니라 **반올림 지점이 두 곳**인 것이었다
+(리포트는 0.1 MB 단위로 싣는데 creep 은 반올림 전 값으로 계산 → 다음 사람이 리포트만으로 재현하면 1e-4 어긋남).
+반올림을 한 번만 하도록 고치고, 그 틈을 고정하는 시험(`test_report_rounding_does_not_open_a_reproducibility_gap`)을
+추가했다 — “리포트만으로 같은 판정을 재현한다”는 새 기준의 전제가 시험으로 남는다.
+
+**적용 순서(어기면 지문이 갈린다)**: 4차 soak 회수 → **3차 배치(도구 5건) 승격** → **배치 `SC6` 적용** →
+필수 게이트 재측정 → 새 지문에서 8시간 soak(그 실행이 SC-6 를 **새 기준으로** 판정한다).
+60초 리허설의 SC-6 행은 이제 `not_applicable` 이다(1분 실행에 8시간 임계값을 물으면 시작 비용을 누수로 본다).
+
+**남는 한계(정직하게)**: `not_applicable` 이 아닌 **통과 경로**는 픽스처로는 증명했지만 실물 규모(700초 이상)에서는
+아직 안 돌았다 — 다음 8시간 soak 이 처음으로 그 경로를 실물로 지난다(그 전까지 이 배치는 “리허설 ALL PASS” 상태다).
 
 #### 1e-1. **회수 뒤 순서를 무인으로** — 오너 요청(2026-09-17)
 
@@ -167,6 +209,152 @@ HEAD)까지 본다` 가 그대로 초록이라 귀속 검사가 살아 있음이
 무인 실행 중 실패하면 트리를 옮기지 않고 멈춘다. 판정 FAIL 을 무릅쓰고 강행하려면 `NX10_PROMOTE_ON_FAIL=1`
 — FAIL 원인이 후보 코드면 승격 직후 지문이 또 움직이기 때문이다(오늘 SC-6 로 그것을 계산해 둔 이유다).
 
+### 1g. **배치 `PERF` — 처리량 회귀 축**(준비 완료, 본실행은 동결 해제 + `SC6` 뒤 · 2026-09-17)
+
+오너 지시(“처리량 감소를 1급 판정 축으로 삼는 성능 회귀 게이트 — 8시간에 27% 느려진 실행을 RSS 누수와 별개로”)에
+따른 배치. 설계·보정 원자료: [perf/THROUGHPUT_GATE_DESIGN.md](./perf/THROUGHPUT_GATE_DESIGN.md) · 대장 §29.
+
+| 위치(지금) | 적용 뒤 | 역할 | 검증된 바이트 |
+| --- | --- | --- | --- |
+| `perf/val02_staging.py` | `scripts/val02_staging.py` (**덮어씀**) | RSS 축(SC6) + **처리량 축**(정체식 분해) + **귀속 사다리 4칸**(국면 적립 → 국면 안 함수 창 프로파일 → 호출 경로·빈도) | `a67695013fde…` |
+| `perf/test_throughput_gate_contract.py` | `tests/test_throughput_gate_contract.py` (신설) | 계약 시험 **47건**(축 독립 4조합 · 실측 실행 회귀 · 면제는 통과 아님 · **귀속 사다리 10건** · **국면 내부 12건** · **호출 경로 12건**) | `e47a4151872d…` |
+| `perf/live-4th-series.json` | `tests/live-4th-series.json` (신설) | 시험 #10 의 **실측 입력**(4차 실행 표본 288개) | `b9f25b218c76…` |
+| `perf/apply_perf_gate.sh` | — (도구) | 본실행: 동결 가드 + **사전 이미지(=SC6 적용 뒤)** + 백업·자동 롤백 · **승격 위치 정적 검사** | `59a6c01fd6f0…` |
+| `perf/rehearse_perf.sh` | — (도구) | 미러 리허설 7시나리오(본 트리 쓰기 0건) | `c5332d007d1e…` |
+| `perf/probe_ladder_end_to_end.py` | — (도구 · `docs/` 전용) | 사다리 **배선 실측** 프로브(실제 하네스 60초 × 4회 · D 국면 내부 창 · **E 호출 경로·빈도**) | `d9f48b3ef0f9…` |
+| `perf/probe-ladder-output.json` | — (산출물) | 프로브가 실제 하네스에서 받은 판정·국면 단가·함수 순위·**호출 사슬** | `6ca277f959c3…` |
+
+**합성 순서를 코드로 고정한다**: `SC6` 과 `PERF` 는 **같은 파일**(`scripts/val02_staging.py`)을 바꾸므로
+`PERF` 의 사전 이미지는 동결 바이트(`83da9a48…`)가 아니라 **`SC6` 적용 뒤 이미지**(`ecd826ce90af…`)다.
+동결 바이트를 만나면 “SC6 를 먼저”로 **exit 6**(쓰기 0건) — 두 배치가 서로 다른 바이트를 검증하는 사고를 막는다.
+
+**귀속 사다리(같은 배치에 합류)**: 게이트가 빨간 실행에서만 돌아 `phase`/`spread`/`outside_phases`/
+`insufficient` 로 “어느 국면이 느려졌나”를 좁히고, 초록이면 돌지 않는다(설계 §9 · 대장 §30). 이어 붙은
+**세 번째 칸**은 지목된 국면 **안**을 창 단위 `cProfile` 로 열어 `function`(이름 지목)/
+`spread_within_phase`/`outside_functions`/`insufficient` 로 한 번 더 좁힌다(설계 §10 · 대장 §31). 계측한
+창의 반복은 **판정 계열에서 제외**하고, 계측기 자신의 프레임은 순위에서 빼되 뺐다고 밝힌다.
+
+**네 번째 칸**(오너 지시 2026-09-17)은 지목된 함수를 **누가 부르고 반복당 몇 번** 부르는지 좁힌다(설계 §11 ·
+대장 §32): `path`/`multi_path`/`insufficient`/`not_applicable` + `path_calls_per_iteration` ·
+`path_callers_top` · `path_chain`. 경로와 빈도를 **나눠 내는 이유는 처방이 다르기 때문**이다(1회 → 그 호출
+자체를 싸게 · 여러 번 → 호출을 합친다). 자료는 `cProfile` 이 이미 들고 있는 호출자 표다(새 계측 0).
+실측: `posix.fsync` ← `conversation_journal.py:_fsync_fd` ← `_append_bytes` ← `append` ← `_commit_event`,
+**반복당 1.00회**.
+
+**리허설 결과(미러, ALL PASS 17/17)**: P1 적용 전 이빨(SC6 이미지에서 계약 시험이 **실패** — 사다리 시험 포함) · P2 적용·검증
+(승격 위치 시험 통과 · 60초 스모그가 `throughput_criterion` 을 사유와 함께 리포트에 실음 · 이동 sha256 동일 ·
+승격 위치 정적 검사 0 errors) · **P2b 승격 위치에 심은 타입 오류를 exit 5 로 물고 자동 롤백** ·
+P3 동결 가드 exit 9 · P4 합성 순서 exit 6 · P5 사전 이미지 불일치 exit 8 · P6 지문 대상 3파일 전후 동일.
+P1 은 이제 **세 칸 시험 전부가 SC6 이미지에서 빨개지는 것**까지 본다(시험이 조용히 통과하지 않는다).
+리허설이 **결함 2건**을 찾았다: ① 두 축 다 `not_applicable` 인데 시나리오 `pass=True`(게이트를 비울 수 있는 문)
+→ `criteria_gate` 로 봉인(긴 실행의 면제는 재실행 요구, 계약 시험 #12) ② 계약 시험 파일이 `docs/` 안에
+있는 동안 **정적 게이트의 시야 밖**이라 `basedpyright` 오류 **5건**을 숨기고 있었다(승격하면 정적 게이트가
+빨개지는 부류 — §1d 에서 실제로 겪었다) → 고치고, **승격 위치 정적 검사**를 `apply_perf_gate.sh` 검증에 넣었다.
+
+**적용 순서**: 4차 soak 회수 → 3차 배치 → `SC6` → **`PERF`** → 필수 게이트 재측정 → 새 지문에서 8시간 soak
+(그 실행이 **처음으로 두 축으로** 판정된다). 오너 결정 3건(D-P1 허용 15% · D-P2 경합 재실행 · D-P3 최소 2시간) 대기.
+
+### 1h. **배치 `FLUSH` — flush 예산**(설계만 완료 · 본실행은 동결 해제 + `PERF` **뒤** · 2026-09-17)
+
+오너 지시(“`conversation.append` 의 fsync 69% 를 근거로 flush 정책·배치 대안들을 동결 해제 뒤 지문에 반영할 수
+있는 배치로”)에 따른 배치. 설계·증거: [fsync/FLUSH_BATCH_DESIGN.md](./fsync/FLUSH_BATCH_DESIGN.md) · 대장 §33.
+**`src/` 를 바꾸는 첫 배치다** — 지금 돌고 있는 4차 soak 의 지문 대상 그 자체이므로 **항상 맨 마지막**이다.
+
+| 스테이징(`docs/` 안) | 적용 뒤 | 역할 |
+| --- | --- | --- |
+| `fsync/patch_flush_budget.py` | — (도구) | F1 패처(훅 6개 · 사전 이미지 고정 · `--check/--apply/--revert`) |
+| `fsync/test_flush_budget_contract.py` | `tests/test_flush_budget_contract.py` (신설) | 계약 시험 **9건**(예산 결정적 + 내구성 불변) |
+| `fsync/apply_flush_batch.sh` | — (도구) | 동결 가드 exit 9 · 합성 순서 exit 6 · 사전 이미지 exit 8 · 자동 롤백 exit 5 |
+| `fsync/rehearse_flush.sh` | — (도구) | 미러 리허설 7시나리오(본 트리 쓰기 0건) |
+| `fsync/probe_flush_path.py` + `probe-flush-output.json` | — (증거) | append 예산 · fsync 곡선 · 플랫폼 능력 |
+
+**배치의 핵심**: 근거는 시간이 아니라 **개수**다(디스크 상태와 무관). append 1회에 `tail()` 3.00회 ·
+읽은 바이트 116 KB · `open` 5.00 · **`fsync` 1.00(불변)**. F1 은 꼬리를 **한 번만** 읽어
+(3.00 → 1.00 · 113 KiB → ≈38 KiB · `open` ≤4) 내구성 계약은 **한 글자도 안 바꾼다**. F2(view 스로틸)·
+F3(sync 정책 · **ADR §2 개정 필요**)는 **오너 결정 뒤 별도 배치**다(D-F1~F4).
+
+**사전 이미지**(다르면 아무것도 쓰지 않는다): `conversation_journal.py a89dfd2d82cc…` ·
+`conversation_store.py 7f3e4605da9d…`. 미러 리허설 **ALL PASS 16/16**(적용 전 이빨 3 failed · 적용 뒤 9 passed ·
+기존 시험 70 passed 무회귀 · 심은 타입 결함 롤백 · 동결 exit 9 · 합성 순서 exit 6 · 사전 이미지 exit 8 · 본 트리 무변경).
+적용 순서: **회수 → 3차 배치 → `SC6` → `PERF` → 게이트 재측정 → `FLUSH` → 게이트 재측정 → 새 8시간 soak**.
+
+**세 대안을 배치 셋으로 나눈 것**(설계 §10 · 오너가 고르는 표): `FLUSH`(F1 · 계약 불변 · **지금 적용 가능**) ·
+`FLUSH2`(F2 view 스로틸 — 훅 4개·시험 후보 5건·기본값은 현행 `immediate` 라 무회귀) · `FLUSH3`(F3 sync 정책 —
+**ADR-DAT-02 §2 개정 6문장이 선행물**, 플랫폼 강등·크래시 시뮬레이션 시험 후보 6건, 되돌림은 노브 한 줄).
+F2·F3 은 “문장이 정해져야 시험을 쓰는 종류”라 **결정 뒤 배치로 만드는 조건**(훅·시험·사전 이미지·합성 순서)만
+지금 적어 두었다 — 승인이 서면 같은 틀(사전 이미지 고정 · 가드 셋 · 승격 위치 정적 검사)로 바로 만든다.
+검증된 바이트(2026-09-17T10:01Z): 패처 `e2016ef42ced…` · 시험 `59d469ead4e1…` · apply `92fdcef5b0e3…` ·
+rehearse `945250421759…` · 프로브 `0382e99fbcf2…` / `537fa87fbb38…` · **리허설 재확인 ALL PASS 16/16**.
+
+### 1i. **배치 `FLUSH2` — view 신선도**(계약·구현·리허설 완료 · 본실행은 `FLUSH` **뒤** · 2026-09-17)
+
+오너 지시(“신선도 계약을 정하고 계약 시험으로 옮겨 둬”)에 따른 배치. 결정문
+[fsync2/VIEW_FRESHNESS_CONTRACT.md](./fsync2/VIEW_FRESHNESS_CONTRACT.md) · 대장 §34.
+
+| 스테이징(`docs/` 안) | 적용 뒤 | 역할 |
+| --- | --- | --- |
+| `fsync2/patch_view_freshness.py` | — (도구) | F2 패처(훅 12개 · 사전 이미지 = **F1 적용 뒤** · `--check/--apply/--revert`) |
+| `fsync2/test_view_freshness_contract.py` | `tests/test_view_freshness_contract.py` (신설) | 계약 시험 **10건**(C-1~C-8) |
+| `fsync2/apply_flush2.sh` | — (도구) | 동결 exit 9 · 사전 이미지 exit 8 · 합성 순서 exit 6 · 자동 롤백 exit 5 |
+| `fsync2/rehearse_flush2.sh` + `rehearsal-output.txt` | — (증거) | 미러 리허설 7시나리오(ALL PASS **21/21**) |
+| `fsync2/probe_view_staleness.py` + `probe_view_throttle_benefit.py` (+ json) | — (증거) | mtime 결함 · 순진한 스로틸의 회귀 · 400턴 이득(1/8 · 재생 0) |
+
+**한 줄**: *읽기는 늦추지 않는다 — 늦출 수 있는 것은 표시용 파일뿐이다.* 그리고 판정을 mtime 에서 **시퀀스**로
+바꾸면서 **실제 결함 하나가 닫혔다**(복원된 옛 view + 새 mtime → 읽기가 커밋된 턴 2개를 놓쳤다).
+**기본값은 현행(`immediate`)** 이므로 이 배치를 적용해도 켜기 전까지 동작은 그대로다.
+**적용 순서**: **… → `FLUSH` → 게이트 재측정 → `FLUSH2` → 게이트 재측정 → 새 8시간 soak**.
+
+### 1j. **배치 `FLUSH3` — sync 정책**(ADR 개정 **초안**까지 완료 · 본실행은 **ADR 승인 + `FLUSH`·`FLUSH2` 뒤** · 2026-09-17)
+
+오너 지시(“sync 정책 batched 를 위한 ADR-DAT-02 §2 개정 초안을 … 리뷰 가능한 형태로”)에 따른 배치.
+초안 [fsync3/ADR_DAT02_S2_AMENDMENT_DRAFT.md](./fsync3/ADR_DAT02_S2_AMENDMENT_DRAFT.md) · 대장 §35 ·
+근거 `fsync3/probe-durability-output.json`. **ADR 본문에는 비규범 포인터 한 줄만** 넣었고 Status 는 `Proposed` 그대로다.
+
+| 스테이징(`docs/` 안) | 적용 뒤 | 역할 |
+| --- | --- | --- |
+| `fsync3/ADR_DAT02_S2_AMENDMENT_DRAFT.md` | ADR-DAT-02 §2 를 대체(승인 뒤) | 등급 셋·유실 창·관측·플랫폼 표·결정 D-F3-1~4·시험 후보 7건 |
+| `fsync3/probe_durability_semantics.py` + `-output.json` | — (증거) | 등급별 비용 실측(88배·242 %) |
+
+**실측이 뒤집은 것**: `cache`(`os.fsync`) 등급은 이미 **커밋당 예산의 2.74 %** 라 `batched` 로 0.59 % 를 만드는 것은
+**약속을 바꿀 값을 못한다**(F2 와 같은 결론을 숫자가 확인). 반대로 `media`(`F_FULLFSYNC`)는 **242.5 %** 로
+커밋마다 줄 수 없다 — 진짜 미디어 보장은 **핫패스 밖**에만 있다. 그래서 이 배치는 “배치를 넣는다”가 아니라
+**등급·창·강등·관측을 정하는 배치**이고, 선행물은 **ADR 개정 승인**이다(코드가 약속을 앞지르지 않는다).
+
+### 1k. **`FLUSH3` 의 배치 설계 — `media` 를 언제 부르는가**(D-F3-2 결정지 채움 · 2026-09-17)
+
+오너 지시(“media 등급을 핫패스 밖에서만 돌리는 대안을 비용 모델과 함께 비교해서 D-F3-2 결정지를 채워줘”)에 따른
+설계. 비용 모델·실측 [fsync4/MEDIA_OFFLOAD_COST_MODEL.md](./fsync4/MEDIA_OFFLOAD_COST_MODEL.md) · 대장 §36 ·
+프로브 두 실행([a](./fsync4/probe-media-offload-run-a.json)/[b](./fsync4/probe-media-offload-run-b.json)) ·
+계기·문서 계약 시험 **17건 passed**([test_media_offload_contract.py](./fsync4/test_media_offload_contract.py) — 계기 16 + 문서↔픽스처 대조 1). **코드는 안 썼다.**
+
+| 스테이징(`docs/` 안) | 적용 뒤 | 역할 |
+| --- | --- | --- |
+| `fsync4/MEDIA_OFFLOAD_COST_MODEL.md` | — (설계) | 비용 모델·간섭 실측·대안 다섯·**D-F3-2 답** |
+| `fsync4/probe_media_offload_cost.py` (+ run-a/b json) | — (증거) | 누적→호출 비용 · 유휴 호출 · 교차 설계 간섭 |
+| `fsync4/test_media_offload_contract.py` | (설계라 적용 없음 — 계기 계약은 `docs/` 에 남는다) | 계기 계약 16건(음성 대조군 포함) + 문서↔픽스처 대조 1건 |
+
+**왜 “단위”가 아니라 “언제”인가**: 주기 T초의 커밋당 상각은 T=10 s 에서 **예산의 0.044 %**, T=60 s 에서 0.0073 % 다 —
+비용은 결정을 가르지 않는다. 대신 배경에서 부르면 **쓰는 쪽이 멈춘다**: 200 ms 주기에서 최대 **3.2 s** 밀림, 중앙 −2.2~−27.4 %,
+밀림은 **100 % 진행 중인 호출과 겹쳤고**(기준선에서는 0건) **다른 파일이어도 멈췄다**. 그래서 답은
+**대화별 옵트인 + 상한 `T_max` 가 있는 정지 감지**이고, 강행할 때는 **스톨을 관측에 남긴다**.
+계약 시험 후보가 ⑦→**⑪** 로 늘었다(조용한 창·상한 강행·옵트인 격리·스톨 관측).
+
+### 1l. **3차 배치 본실행 — 적용→커밋→게이트, 그리고 승격이 만든 두 결함**(2026-09-18)
+
+이동 5건(`soak_watch.py`·`soak_watch_loop.py`·`soak_control.sh`·계약 시험 2종)은 `2026-09-17T12:12:11Z` 에
+**적용 완료**됐고(sha256 동일 · 백업 `/tmp/nx10-promote3-backup-20260917T121211Z` · 승격 위치 게이트 A·B·C 초록
+`18 passed in 258.71s`), 그 직후 **세션이 죽어 커밋이 남지 않았다**. 이어받아 닫은 것이 아래 셋이다.
+
+| 커밋 | 무엇 | 왜 필요했나 |
+| --- | --- | --- |
+| `a1c6387f` | 승격 커밋(인덱스에 스테이징된 채 남아 있던 그대로) | `clean-machine-runtime` 이 `--ref HEAD` 를 쓰므로 커밋 없이는 후보가 아니다 |
+| `8d762c3e` | 호출자 경로 수정 + 계약 시험 7건 | 승격은 `mv` 인데 체인 4개가 **없는 문서 사본**을 부르고 있었다 — 배치 체인이면 **4개 배치를 다 적용한 뒤 재장전에서** 터진다 |
+| `22d653c9` | 승격된 감시 도구의 타입 정리 + **승격 게이트 C 에 basedpyright 추가** | 승격이 파일을 `scripts/` 로 옮기면 필수 게이트가 그 파일을 검사한다 — 실제로 `28 errors` 로 빨개졌다 |
+
+**교훈**: 승격의 완료 조건은 “옮겼다”가 아니라 **“부르는 쪽이 살고 검사도 통과한다”** 다. 그래서 이번에
+① 호출자 경로를 계약 시험으로 메고 ② 승격 게이트가 **필수 게이트와 같은 명령**(ruff·basedpyright)을
+미리 돌리게 했다(빨강이 승격 **전에** 나오도록). 전체 근거: 대장 §38 · handoff §28.
+
 ### 1b. 다음 승격 후보 (동결 해제 뒤 — 2026-09-17 추가)
 
 | 스테이징(지금 `docs/` 안) | 승격 위치(안) | 역할 | 왜 승격해야 하는가 |
@@ -177,6 +365,13 @@ HEAD)까지 본다` 가 그대로 초록이라 귀속 검사가 살아 있음이
 | `nx03/rollback-rehearsal-output.txt` | raw artifact 로 `docs/` 유지 | 판정 근거(경계 3) | 위와 같다 |
 | `nx10/soak_watch.py` | `scripts/soak_watch.py` + hermetic 계약 시험 | 돌고 있는 soak 의 조기 경보(멈춤·cap 투영·RSS 외삽·처리량 하한) | 회수 도구는 **끝나야** 판정하므로 오늘 두 실패를 조기에 못 잡았다. 경보 판정식이 낡으면 아무도 모른다 — 자기시험을 `tests/` 계약으로 올려야 지켜진다 |
 | `nx10/soak_watch_loop.py` | `tests/test_soak_watch_view_contract.py`(그림·배지 계약) | 표본 적재 + **자기 새로고침 HTML** 추세 화면(화면이 조용히 틀리는 것을 막는다) | 지금은 `docs/` 라 그림·배지 회귀를 아무도 안 본다. 자기시험 9/9 를 계약으로 올린다 |
+| `nx10/analyze_sc6_criterion.py` | `scripts/analyze_sc6_criterion.py` + `tests/test_sc6_criterion_analysis_contract.py` | SC-6 기준 **재설계의 근거 산출기**(워밍업 창 감도 · 모델 분산 · 창 잡음 · 반복당 환산) | 기준을 바꾸는 근거가 `docs/` 에만 있으면, 기준을 바꿀 때마다 같은 분석을 다시 손으로 한다(오늘 “30 MB 순간 최고치” 같은 거짓 결론이 그 비용이었다). 승격하면 §1b 의 1e 배치와 같이 가고, **기준 구현(`scripts/val02_staging.py`) 변경의 계약 시험과 쌍**을 이룬다 — 근거 산출기와 판정기가 같은 정의를 쓰는지 시험이 지킨다 |
+
+**아직 카드로만 남긴 것(동결 해제 뒤 손대며, 지금 바이트를 바꾸면 검증이 무효가 된다)**
+
+- `soak_control.sh` 의 `status` 가 **자기 셀프테스트 픽스처**를 “고아 예약”으로 보고한다(실측 2026-09-17 · 대장 §25-7) — 뿌리 pid 의 명령줄·수명을 함께 보고 셀프테스트 픽스처는 제외.
+- `soak_watch.py` 의 후보 선택을 **감시 중인 workdir 기준**으로 좁힌다(대장 §25-9) — 하네스는 `--workdir` 로 뜨므로 다른 workdir 의 같은 이름 프로세스(리허설 처리량 프루브)가 계열에 섞이는 것을 막는다. 계약 시험은 “첫 표본에서 남의 workdir 을 채택하지 않는다”를 고정.
+- 기준 변경 뒤 **리포트 크기** 확인(대장 §26-4) — `rss_samples_mb` 는 50 반복마다 쌓이므로 처리량 600회/초 × 8시간이면 그 필드만 ~2 MB 다.
 
 승격 시 함께 닫을 것: ① 위 표의 1b 항목 ② `NX03-RESTORE-MARKER` 수리안(`original_history`/
 `export_original_history` 가 `read_deletion_marker` 도 확인 — [nx01/restore-rehearsal.md](../nx01/restore-rehearsal.md) §2).

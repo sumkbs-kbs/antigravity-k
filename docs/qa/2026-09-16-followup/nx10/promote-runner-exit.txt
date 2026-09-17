@@ -70,3 +70,17 @@ promote-gates exit:1 end:2026-09-17T03:07:03Z report:gate-report-promote2c.json
 # fingerprint after: b6a74304dbd21148e83e7e4f4920068568a73e8166bce86c30828ea0890da5c8
 ga_gate_verify exit:1
 runner done:2026-09-17T03:07:03Z
+--- promote-gates attempt 2026-09-17T21:19:41Z ---
+# HEAD: 8d762c3edad861e8005821c20062f4523d4cb62e
+# why: 3차 승격 배치(감시·통제 도구) + 호출자 경로 수정 뒤 커밋 8d762c3e 에서 필수 23개 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: af462f781371232e8e94db16b8973b41084cb4f3609bc4a62be1459ceb50dd7f
+--- promote-gates attempt 2026-09-17T21:27:48Z ---
+# HEAD: 22d653c931df6ee2f1ac66b0d26ed7db1b3620d9
+# why: 3차 승격(감시·통제 도구) + 호출자 경로 + 승격 뒤 basedpyright 28건 수리 뒤 커밋 22d653c9 에서 필수 23개 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: df512a17ff464b3f658e1eae8816a0a371cdffef228f258d8fa749cfc62d06ae
+promote-gates exit:1 end:2026-09-17T21:51:42Z report:gate-report-promote3.json
+# fingerprint after: df512a17ff464b3f658e1eae8816a0a371cdffef228f258d8fa749cfc62d06ae
+ga_gate_verify exit:1
+runner done:2026-09-17T21:51:42Z
