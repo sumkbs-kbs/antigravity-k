@@ -34,6 +34,7 @@
 | `nx03/rollback_rehearsal.py` | `tests/test_rollback_generation_contract.py` | 구버전 판을 그림자 트리로 돌려 되돌림 창의 노출과 **복귀 뒤 거절**을 재는 리허설 | NX-03 의 유일한 남은 항목이던 “실리허설 미실시”를 닫은 증거다. 삭제·도구와 가장 가까운 계약인데 지금은 `docs/` 라 안 지켜진다 |
 | `nx03/rollback-rehearsal-output.txt` | raw artifact 로 `docs/` 유지 | 판정 근거(경계 3) | 위와 같다 |
 | `nx10/soak_watch.py` | `scripts/soak_watch.py` + hermetic 계약 시험 | 돌고 있는 soak 의 조기 경보(멈춤·cap 투영·RSS 외삽·처리량 하한) | 회수 도구는 **끝나야** 판정하므로 오늘 두 실패를 조기에 못 잡았다. 경보 판정식이 낡으면 아무도 모른다 — 자기시험을 `tests/` 계약으로 올려야 지켜진다 |
+| `nx10/soak_watch_loop.py` | `tests/test_soak_watch_view_contract.py`(그림·배지 계약) | 표본 적재 + **자기 새로고침 HTML** 추세 화면(화면이 조용히 틀리는 것을 막는다) | 지금은 `docs/` 라 그림·배지 회귀를 아무도 안 본다. 자기시험 9/9 를 계약으로 올린다 |
 
 승격 시 함께 닫을 것: ① 위 표의 1b 항목 ② `NX03-RESTORE-MARKER` 수리안(`original_history`/
 `export_original_history` 가 `read_deletion_marker` 도 확인 — [nx01/restore-rehearsal.md](../nx01/restore-rehearsal.md) §2).

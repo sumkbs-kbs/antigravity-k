@@ -3,3 +3,10 @@
 # `docs/` 는 코드 지문 제외 경로라 이 파일도 지문을 움직이지 않는다.
 .soak-arm.lock/
 .soak-run.lock/
+
+# 라이브 감시 화면은 **파생물**이다(상시 감시가 60초마다 다시 쓴다) — 증거는
+# GATE_LEDGER §21 의 문장·수치와 `soak-watch-live.txt`(명령형 실측)이고, 최종 판정은
+# 실행이 끝난 뒤 `soak_control.sh harvest` 가 만든다. 파생물을 커밋하면 8시간 동안
+# git status 가 계속 더러워지고, 같은 사실이 두 곳에서 갈린다.
+soak-watch-live.html
+soak-watch-history.jsonl

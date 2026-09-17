@@ -57,6 +57,22 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
 2차는 멈춘 뒤 30분을 더 기다려야 알았다(GATE_LEDGER §21). `harvest` 는 **끝나야** 판정하는 도구이고,
 이쪽은 **돌고 있는 동안** 말하는 도구라고 구분해 쓴다.
 
+**상시 감시 + 라이브 화면(같은 날 추가)**: 표본을 명령으로 물어보는 대신 붙여 두면 추세를 계속 볼 수 있다.
+
+```bash
+screen -dmS nx10watch caffeinate -i bash -c \
+  'cd "$PWD" && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u \
+     docs/qa/2026-09-16-followup/nx10/soak_watch_loop.py \
+     >> docs/qa/2026-09-16-followup/nx10/soak-watch-loop.log 2>&1'
+# 보기: docs/qa/2026-09-16-followup/nx10/soak-watch-live.html(30초 자기 새로고침, 서버 불필요)
+tail -5 docs/qa/2026-09-16-followup/nx10/soak-watch-loop.log   # 같은 내용을 터미널에서
+```
+
+화면에는 **경보 등급 배지**(정상/경고/멈춤) · 경고 배너 · journal·RSS·추정 처리량 추세 · **기준 대비 막대**
+(cap 사용률, SC-6 RSS 증가율) · 최근 30표본 표가 나온다. 표본이 2개 미만이면 그림은 “표본이 아직 부족하다” 로
+비어 있다(빈 표본을 0 으로 그리지 않는다). 감시는 **읽기 전용**이고, 실행이 끝나면 “실행을 찾지 못했다” 로
+스스로 멈춘다(판정은 여전히 `harvest` 의 일).
+
 감시가 끝나면 판정 `exit` 를 그대로 전하고, 그 출력을 `soak-harvest-<UTC>.txt` 로도 남긴다.
 `exit 6` 이면 **멈춘 실행**을 만난 것이니 §1-0 의 정리 절차를 보고 다시 시작한다.
 
