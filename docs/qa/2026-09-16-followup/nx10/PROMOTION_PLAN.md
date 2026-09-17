@@ -33,15 +33,32 @@
 | 스테이징(지금 `docs/`) | 승격 위치 | 역할 | sha256(앞 12, 리허설 실측) |
 | --- | --- | --- | --- |
 | `nx01/restore_rehearsal.py` | `scripts/restore_rehearsal.py` | restore 절차 판정부 리허설(왕복·손실 방지·멱등·삭제 거절) | `0a46008bba1b` |
-| `nx03/rollback_rehearsal.py` | `scripts/rollback_rehearsal.py` | 구버전 판을 그림자 트리로 돌려 되돌림 창의 노출과 복귀 뒤 거절을 잰다 | `8fa81ca66140` |
-| `nx10/promote2/test_restore_rehearsal_contract.py` | `tests/test_restore_rehearsal_contract.py` | 판정부 5결정 + 4경계 + 미수리 결함 기록 + 위생 | `b48b24a51c21` |
-| `nx10/promote2/test_rollback_rehearsal_contract.py` | `tests/test_rollback_rehearsal_contract.py` | 고정 판이 표식 이전인가 + 3국면 + id 재사용 금지 + 위생 | `0f0448b4f3d4` |
+| `nx03/rollback_rehearsal.py` | `scripts/rollback_rehearsal.py` | 구버전 판을 그림자 트리로 돌려 되돌림 창의 노출과 복귀 뒤 거절을 잰다 | `f695df1ee8ab` |
+| `nx10/promote2/test_restore_rehearsal_contract.py` | `tests/test_restore_rehearsal_contract.py` | 판정부 5결정 + 4경계 + 미수리 결함 기록 + 위생 | `554d648d1950` |
+| `nx10/promote2/test_rollback_rehearsal_contract.py` | `tests/test_rollback_rehearsal_contract.py` | 고정 판이 표식 이전인가 + 3국면 + id 재사용 금지 + 위생 | `98628c86ec9a` |
+
+> 해시는 **마지막 리허설이 실측한 값**이다(이동표 자체가 아니라 이동 직전·직후 sha256 비교가 근거).
+> 리허설 도구를 고치면 이 열이 낡는다 — 그래서 표가 아니라 `dry-run2-output.txt` 가 정본이다.
 
 **미러 리허설이 증명한 것**(`promote2/dry-run2-output.txt`, ALL PASS · 본 트리 쓰기 0건):
 이동 전 스테이징 초록 → 이동(바이트 동일) → **승격 위치에서 14 passed** → 도구 직접 실행 초록 →
 ruff check·format 초록 → **도구를 치우면 그 시험이 실패한다**(이빨) → 스테이징 잔존 0건.
 
-**실행**: `bash docs/qa/2026-09-16-followup/nx10/promote2/apply_promotion2.sh`
+**승격 위치 확인은 이제 기록으로 남는다** — `promote2/promoted-contract-tests.txt` (게이트 `A` 가 매번
+다시 쓴다): 타임스탬프 · 루트 · HEAD · 실행 명령 · 승격 위치 두 파일의 sha256 · **exit** · 전문(`-v`) …
+그리고 판정 줄에서 **수집 노드가 `tests/` 인지**까지 본다. 왜 이게 필요한가: 종전 게이트는 `pytest | tail`
+로 요약만 찍어서, 16분짜리 리포트를 끝까지 읽지 않은 사람에게는 “승격 위치에서 통과했다”가 **없었던 것과
+같았다**. 그 파이프는 `pipefail` 이 없는 셸에서 **실패해도 초록**이 된다(이 카드가 계속 쫓는 조용한 초록이다).
+이번에 새 확인을 넣자마자 첫 실행이 **거짓 FAIL 2건**을 냈다 — 작은따옴표로 쓴 정규식에 변수가 안
+확장됐고(`'^${PROMOTED_TESTS[0]}::'`), 요약줄 grep 이 `==== 14 passed ====` 형태를 못 잡았다.
+둘 다 고친 뒤 다시 돌려 **14 passed** 를 받았다. 음성 대조군도 확인했다: 승격 **전**에는 같은 명령이
+`exit 4` 이고 노드 검사가 red 다(그래서 이 확인은 승격 뒤에만 초록이 된다 — 빈 껍데기가 아니다).
+
+**실행(한 줄, 권장)**: `bash docs/qa/2026-09-16-followup/nx10/promote2/post_harvest_sequence.sh --wait`
+— ① 종료 대기 → ② 회수 판정 → ③ 승격 → ④ **새 지문에서 필수 게이트 재측정**(약 16분, screen) → ⑤ 기록·재장전
+을 묶은 것이다(승격을 먼저 하면 8시간이 무효이므로 순서를 사람이 기억하지 않아도 되게 묶었다).
+`--plan` 은 무엇을 할지만 보여 주고(부작용 0), 승격만 하고 싶으면 `--skip-gates`.
+**승격 단독**: `bash docs/qa/2026-09-16-followup/nx10/promote2/apply_promotion2.sh`
 — 이 스크립트는 **도는 soak 을 발견하면 거절**한다(`scripts/`·`tests/` 는 지문 대상이므로 8시간이 무효가 된다).
 리허설 기록이 ALL PASS 가 아니어도 거절하고, 실패하면 이동을 **자동으로 되돌린다**(백업은 `/tmp`).
 실행 뒤에는 반드시 **필수 게이트 재측정 → soak 재장전**(§3 의 순서 규칙)이다.

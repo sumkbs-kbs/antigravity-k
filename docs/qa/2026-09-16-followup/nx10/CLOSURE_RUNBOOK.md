@@ -301,6 +301,23 @@ bash docs/qa/2026-09-16-followup/nx10/run_clean_machine_gate.sh   # HEAD 기준 
    `scripts/` 는 지문 대상이라 편집하면 22:00 예약이 드리프트로 스스로 중단된다(이 창은 그래서
    검사기 등록을 미뤘다 — `docs/` 만 수정했다).
 
+6. **승격 2차 배치 — restore·rollback 리허설 → `scripts/`·`tests/`**(2026-09-17 추가, **준비 완료·본실행만 남음**).
+   오너 요청은 “동결을 해제하면 두 리허설을 `tests/` 계약 시험으로 승격하고, **승격된 위치에서 전부
+   통과하는지 확인**”이다. 본실행 한 줄:
+
+   ```bash
+   cd <repo>
+   # 기다렸다가 판정 → 승격 → 새 지문에서 필수 23개 재측정(화면 세션)까지 묶는다.
+   bash docs/qa/2026-09-16-followup/nx10/promote2/post_harvest_sequence.sh --wait
+   #   `--plan` 은 계획만(부작용 0) · `--skip-gates` 는 승격만 · `--wait` 없이 돌리면 **도는 soak 을 보고 거절**한다
+   ```
+
+   “통과 확인”의 산출물은 `promote2/promoted-contract-tests.txt` 다(게이트 `A` 가 매번 다시 쓴다):
+   실행 시각·루트·HEAD·명령·**승격 위치 두 파일의 sha256**·exit·전문(`-v`), 그리고 **수집 노드가 `tests/` 인지**
+   까지 본다. 승격 **전**에는 같은 명령이 `exit 4` 이고 노드 검사가 red 다(음성 대조군 확인) — 그래서 이
+   확인은 “승격 위치에서만” 초록이 된다. 미러 리허설 기록: `promote2/dry-run2-output.txt`(ALL PASS, 14 passed).
+   승격 뒤에는 §5b 의 규칙이 그대로 적용된다: **게이트 재측정(16분) → 지문 확인 → soak 재장전 → 그 뒤 `docs/` 만**.
+
 ## 5a. 회수 판정이 **어느 예약**을 기준으로 하는가 (2026-09-16 수정)
 
 `soak-schedule.txt` 는 예약할 때마다 블록을 **덧붙인다**(재장전·취소 기록도 쌓인다). 회수 판정기

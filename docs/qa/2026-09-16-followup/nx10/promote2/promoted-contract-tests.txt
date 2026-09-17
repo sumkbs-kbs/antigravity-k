@@ -1,0 +1,34 @@
+# 승격 위치 계약 시험 기록 (gates2.sh · A)
+실행: 2026-09-17T02:17:40Z · 루트: /tmp/nx10-promote2-dryrun-20260917T021723Z · HEAD: c65c7beb
+명령: pytest tests/test_restore_rehearsal_contract.py tests/test_rollback_rehearsal_contract.py -v -p no:randomly
+대상 파일(승격 위치):
+  tests/test_restore_rehearsal_contract.py (sha256 554d648d1950)
+  tests/test_rollback_rehearsal_contract.py (sha256 98628c86ec9a)
+exit: 0
+--- 출력 ---
+============================= test session starts ==============================
+platform darwin -- Python 3.13.12, pytest-9.1.1, pluggy-1.6.0 -- /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /private/tmp/nx10-promote2-dryrun-20260917T021723Z
+configfile: pyproject.toml
+plugins: cov-7.1.0, asyncio-1.4.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 14 items
+
+tests/test_restore_rehearsal_contract.py::test_repo_root_detection_survives_the_move PASSED [  7%]
+tests/test_restore_rehearsal_contract.py::test_restore_plan_decisions[target0-old-proceed] PASSED [ 14%]
+tests/test_restore_rehearsal_contract.py::test_restore_plan_decisions[target1-same-bytes-noop] PASSED [ 21%]
+tests/test_restore_rehearsal_contract.py::test_restore_plan_decisions[target2-newer-refuse] PASSED [ 28%]
+tests/test_restore_rehearsal_contract.py::test_restore_plan_decisions[target3--refuse] PASSED [ 35%]
+tests/test_restore_rehearsal_contract.py::test_restore_plan_decisions[target4-different-bytes-refuse] PASSED [ 42%]
+tests/test_restore_rehearsal_contract.py::test_rehearsal_runs_and_reports_four_boundaries PASSED [ 50%]
+tests/test_restore_rehearsal_contract.py::test_deleted_target_keeps_its_marker_after_bytes_return PASSED [ 57%]
+tests/test_restore_rehearsal_contract.py::test_documented_finding_still_reported_or_the_defect_is_fixed PASSED [ 64%]
+tests/test_restore_rehearsal_contract.py::test_rehearsal_does_not_dirty_the_repository PASSED [ 71%]
+tests/test_rollback_rehearsal_contract.py::test_pinned_revision_exists_and_predates_tombstones PASSED [ 78%]
+tests/test_rollback_rehearsal_contract.py::test_three_boundaries_hold PASSED [ 85%]
+tests/test_rollback_rehearsal_contract.py::test_roll_forward_does_not_reuse_the_deleted_id PASSED [ 92%]
+tests/test_rollback_rehearsal_contract.py::test_rehearsal_does_not_dirty_the_repository PASSED [100%]
+
+============================== 14 passed in 7.85s ==============================
+판정: exit=0 · 14 passed · 실패 0 · 수집 노드 tests/test_restore_rehearsal_contract.py:: 10
