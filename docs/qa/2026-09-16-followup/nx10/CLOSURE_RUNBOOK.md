@@ -490,6 +490,21 @@ screen -dmS nx10batchchain caffeinate -i bash -c \
 **멈추지 않는 것**: 게이트가 빨간 것(이 저장소에는 기존 실패가 있다) — 요약만 남기고 계속하되, 측정 중 지문이
 움직였으면 그 사실을 WARN 으로 남긴다.
 
+**상태판 — 죽은 뒤 처음부터 읽지 않게(2026-09-18 추가)**: 세션이 죽으면 무인 체인도 같이 죽는다
+(재부팅이면 화면·프로세스 0건). 그때 “어디까지 갔나”를 **한 화면**으로 보는 읽기 전용 도구가 있다:
+
+```bash
+.venv/bin/python docs/qa/2026-09-16-followup/nx10/batchchain/chain_status.py       # 사람용
+.venv/bin/python docs/qa/2026-09-16-followup/nx10/batchchain/chain_status.py --json # 기계 판독
+```
+
+살아 있는 무인 작업(화면/프로세스) · 배치 네 개의 `적용 커밋 / 게이트 요약 / 측정 지문` · 마지막 soak 러너
+블록(시작==종료 지문인가) · 마지막 판정(PASS/FAIL) · **다음 할 일**을 보여 준다. 근거는 문장이 아니라
+**파일·종료 코드**이고(커밋 이력 · `gate-report-*.json` · `soak-exit.txt` · `soak-recovery-latest.json`),
+**아무것도 쓰지 않아** 도는 체인의 측정에 끼어들지 않는다. 낡은 중단 기록을 현재로 오해하지 않는 것도
+계약이다(마지막 `# 배치 체인 — 시작` **뒤**의 `## 중단` 만 본다). 계약 시험 8건:
+`batchchain/test_chain_status_contract.py`(읽기 전용 · 커밋 근거 · 리포트 근거 · 낡은 중단 · 귀속 · 다음 할 일).
+
 **도구의 위치**: 감시·통제 도구는 3차 배치에서 `scripts/` 로 승격됐다(`docs/` 사본은 없다). 체인도
 승격 위치를 부르고 시작 전에 존재를 확인한다 — 그 문장은 계약 시험
 `batchchain/test_chain_tool_paths_contract.py` 가 고정한다(문서 사본 경로가 다시 들어오면 빨개진다).
