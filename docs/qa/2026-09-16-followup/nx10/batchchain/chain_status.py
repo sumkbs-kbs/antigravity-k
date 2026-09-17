@@ -30,6 +30,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -168,7 +169,55 @@ def gate_summary(nx10: Path, label: str) -> dict[str, Any] | None:
         "head": git.get("sha"),
         "verdict": verdict,
         "gates": len(doc.get("gates") or []),
+        "ids": [gate.get("id") for gate in doc.get("gates") or []],
     }
+
+
+# 러너는 게이트를 **시작하기 전에** `[id] 명령` 한 줄을 남긴다(`run_promote_gates.sh` → `ga_gate.py`).
+GATE_LINE = re.compile(r"^\[(?P<id>[a-z0-9][a-z0-9-]*)\] (?P<command>.+)$", re.M)
+START_LINE = re.compile(r"^=== promote-gates START ", re.M)
+
+
+def gate_progress(nx10: Path, collected: list[Any] | None) -> dict[str, Any] | None:
+    """러너 로그에서 **지금 재고 있는 게이트 하나**와 그 경과를 읽는다.
+
+    왜 필요한가(실측): 게이트 23개는 전부 `ga_gate.py` 안에서 돌아 **끝나야 리포트가 쓰인다**. 그래서
+    리포트만 보면 “4/23 진행 중”까지밖에 못 말한다 — 어느 게이트인지, 얼마나 걸렸는지, 멈춘 것인지
+    알려면 사람이 `ps` 를 두드려야 했다(이 창에서 실제로 그렇게 했다). 로그는 그 답을 이미 갖고 있다:
+    게이트 출력은 로그로 흐르지 않으므로(실측: 12분째 `[python-tests]` 줄이 마지막이고 mtime 이 멈춰
+    있었다) **줄 순서 ∧ 리포트의 id** 로 지금 재는 하나가 남는다.
+
+    모르면 `None` 이다 — 없는 근거를 집지 않는다(로그가 다른 attempt 것이면 `state` 로 밝힌다).
+    """
+    path = nx10 / "promote-runner.log"
+    text = read_text(path)
+    if not text:
+        return None
+    starts = [match.start() for match in START_LINE.finditer(text)]
+    if not starts:
+        return None
+    block = text[starts[-1] :]
+    entries = [(match.group("id"), match.group("command")) for match in GATE_LINE.finditer(block)]
+    if not entries:
+        return None
+    order = [entry[0] for entry in entries]
+    done = [str(item) for item in (collected or [])]
+    # 리포트의 id 들이 로그 순서의 **앞머리**가 아니면 이 로그 블록은 이 리포트의 attempt 가 아니다.
+    if done != order[: len(done)]:
+        return {"state": "다른 attempt 의 로그", "block_ids": len(order), "collected_ids": len(done)}
+    running = next((entry for entry in entries if entry[0] not in set(done)), None)
+    if running is None:
+        return {"state": "끝", "id": order[-1] if order else None, "block_ids": len(order)}
+    result: dict[str, Any] = {"state": "진행 중", "id": running[0], "command": running[1]}
+    if order[-1] == running[0]:
+        # 마지막 줄이 이 게이트의 줄이다 → 그 줄이 쓰인 시각(mtime)이 이 게이트가 시작된 시각이다.
+        try:
+            started = path.stat().st_mtime
+        except OSError:
+            return result
+        result["started_unix"] = round(started, 3)
+        result["elapsed_seconds"] = max(0, round(time.time() - started, 1))
+    return result
 
 
 def batch_states(repo: Path, nx10: Path) -> list[dict[str, Any]]:
@@ -176,12 +225,16 @@ def batch_states(repo: Path, nx10: Path) -> list[dict[str, Any]]:
     states: list[dict[str, Any]] = []
     for batch in BATCHES:
         commit = next((line for line in commits if batch.commit_subject in line), None)
+        gates = gate_summary(nx10, batch.gate_label)
+        partial = bool(gates) and gates.get("gates", 0) < EXPECTED_GATES
         states.append(
             {
                 "batch": batch.name,
                 "commit": commit,
                 "applied": commit is not None,
-                "gates": gate_summary(nx10, batch.gate_label),
+                "gates": gates,
+                "gates_complete": bool(gates) and gates.get("gates", 0) >= EXPECTED_GATES,
+                "running_gate": gate_progress(nx10, gates.get("ids")) if partial else None,
             }
         )
     return states
@@ -266,14 +319,22 @@ def last_verdict(nx10: Path) -> dict[str, Any] | None:
 
 # ── 4. 다음 할 일(파일 근거로만 계산한다) ──────────────────────────────────────────────────────
 def next_action(states: list[dict[str, Any]], stop: dict[str, Any] | None, jobs: list[dict[str, Any]]) -> str:
-    pending = [state for state in states if not (state["applied"] and state["gates"])]
+    # **부분 리포트는 끝난 것이 아니다**(실측: 4/23 인 리포트를 “게이트 있다”로 세면 SC6 이 완료로 보이고
+    # 다음 할 일이 PERF 로 넘어간다 — 실제로는 SC6 을 재고 있는 중이었다).
+    pending = [state for state in states if not (state["applied"] and state["gates_complete"])]
     if stop and not any(job["label"] == "배치 체인" for job in jobs):
         return f"체인이 멈췄다(단계 {stop['step']} · {stop['at']}) — record 의 사유를 읽고 재개 여부를 정한다"
     if not pending:
         return "네 배치가 모두 적용·측정됐다 — 새 지문에서 soak 이 돌고 있는지 확인한다(아래 soak 상태)"
     current = pending[0]
+    running = current.get("running_gate") or {}
+    if current["applied"] and running.get("state") == "다른 attempt 의 로그":
+        return f"{current['batch']} 게이트 리포트가 부분인데 러너 로그는 다른 attempt 다 — 상태를 단정하지 않는다"
+    if current["applied"] and current["gates"]:
+        where = f"지금 [{running['id']}]" if running.get("id") else "어느 게이트인지 로그에서 읽지 못했다"
+        return f"{current['batch']} 게이트 23개가 도는 중이다({where}) — 끝나면 요약이 리포트에 붙는다"
     if current["applied"] and not current["gates"]:
-        return f"{current['batch']} 게이트 23개가 도는 중이다 — 끝나면 요약이 리포트에 붙는다"
+        return f"{current['batch']} 게이트가 아직 시작 전이다 — 러너가 살아 있는지 확인한다"
     if not current["applied"]:
         return f"{current['batch']} 적용 전이다 — 체인이 살아 있는지 확인한다(없으면 재개)"
     return "상태를 판단할 수 없다"
@@ -298,6 +359,21 @@ def collect(root: Path, repo: Path | None = None) -> dict[str, Any]:
         "next": next_action(states, stop, jobs),
         "soak": {"last_block": last_soak_block(nx10), "verdict": last_verdict(nx10)},
     }
+
+
+def running_gate_text(progress: dict[str, Any] | None) -> str:
+    """지금 재고 있는 게이트 한 칸 — 경과는 **로그 줄이 쓰인 시각** 기준임을 숨기지 않는다."""
+    if not progress:
+        return ""
+    if progress.get("state") == "다른 attempt 의 로그":
+        return " · 지금 도는 게이트: **로그가 다른 attempt 라 단정하지 않는다**"
+    if not progress.get("id"):
+        return " · 지금 도는 게이트: 로그에서 읽지 못했다"
+    elapsed = progress.get("elapsed_seconds")
+    if elapsed is None:
+        return f" · 지금 [{progress['id']}](경과 미상)"
+    minutes, seconds = divmod(int(elapsed), 60)
+    return f" · 지금 [{progress['id']}] (그 줄이 쓰인 뒤 {minutes}분 {seconds}초)"
 
 
 def render(state: dict[str, Any]) -> str:
@@ -331,7 +407,7 @@ def render(state: dict[str, Any]) -> str:
             gate_text = (
                 f"게이트 {summary.get('passed')} passed · {summary.get('failed')} failed · "
                 f"{summary.get('not_run', 0)} not_run (수집 {collected}/{EXPECTED_GATES}개{progress}) · "
-                f"판정 {gates.get('verdict') or '(아직 없음)'}"
+                f"판정 {gates.get('verdict') or '(아직 없음)'}" + running_gate_text(state_.get("running_gate"))
             )
         commit = state_["commit"] or "커밋 없음"
         lines.append(f"  [{state_['batch']}] {commit} · {gate_text}")

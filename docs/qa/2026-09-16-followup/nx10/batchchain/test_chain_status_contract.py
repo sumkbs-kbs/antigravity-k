@@ -12,6 +12,10 @@
   · **S-4 낡은 중단은 현재가 아니다**: 마지막 `# 배치 체인 — 시작` **뒤**의 `## 중단` 만 현재로 본다.
   · **S-5 soak 귀속**: 시작/종료 지문이 같을 때만 “귀속 성립”이라 말한다.
   · **S-6 다음 할 일**: 진행 상태에서 **계산**되고, 판단할 수 없으면 그렇게 말한다.
+  · **S-7 게이트 자식은 무인 작업이 아니다**: 부모 계보를 따라 게이트가 돌린 시험을 걸러낸다.
+  · **S-8 지금 도는 게이트**: 부분 리포트(“4/23”)는 **어느 게이트인지 말하지 못한다** — 로그 줄과
+    리포트 id 를 대조해 이름을 붙이고, 대조가 안 되면(다른 attempt) **단정하지 않는다**.
+    그리고 **부분 리포트를 끝난 배치로 세지 않는다**(그 오판이 다음 할 일을 한 칸 앞당겼다).
 
 실행:
   .venv/bin/python -m pytest docs/qa/2026-09-16-followup/nx10/batchchain/test_chain_status_contract.py -q
@@ -21,6 +25,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +52,8 @@ def _fixture(
     record: str = "",
     soak_exit: str = "",
     verdict: dict[str, Any] | None = None,
+    gate_ids: dict[str, list[str]] | None = None,
+    log: str = "",
 ) -> Path:
     """가짜 nx10 트리를 만든다(`repo` 는 진짜 저장소 — `git log` 만 진짜를 쓴다).
 
@@ -54,7 +62,14 @@ def _fixture(
     """
     (root / "batchchain").mkdir(parents=True, exist_ok=True)
     for label, summary in gate_labels:
-        (root / f"gate-report-{label}.json").write_text(json.dumps({"summary": summary, "git": {}}), encoding="utf-8")
+        doc: dict[str, Any] = {"summary": summary, "git": {}}
+        ids = (gate_ids or {}).get(label)
+        if ids is not None:
+            # 실제 리포트는 **끝날 때까지 부분**이다(수집된 게이트만 들어 있다) — 그 모양을 그대로 만든다.
+            doc["gates"] = [{"id": gate} for gate in ids]
+        (root / f"gate-report-{label}.json").write_text(json.dumps(doc), encoding="utf-8")
+    if log:
+        (root / "promote-runner.log").write_text(log, encoding="utf-8")
     if record:
         (root / "batchchain" / "batchchain-record.md").write_text(record, encoding="utf-8")
     if soak_exit:
@@ -139,6 +154,84 @@ def test_the_last_soak_block_is_the_last_one(tmp_path: Path) -> None:
     assert STATUS.last_soak_block(tmp_path)["start_time"] == "new"
 
 
+def test_the_gate_in_flight_is_read_from_the_log_and_the_report(tmp_path: Path) -> None:
+    """S-8 — 부분 리포트만으로는 “4/23”까지밖에 못 말한다. **어느 게이트인지**는 로그가 답한다.
+
+    실측 동기: 이 창에서 “지금 무슨 게이트를 재고 있나”를 알려고 사람이 `ps` 를 두드려야 했다.
+    """
+    ids = [
+        "python-ruff",
+        "python-format",
+        "python-mypy",
+        "python-basedpyright",
+        "python-tests",
+        "python-benchmark",
+    ]
+    # 실제 로그는 진행하면서 자란다 — 다섯 번째 게이트가 **시작된 순간**의 모양으로 만든다.
+    log = "=== promote-gates START 2026-09-18T06:52:53Z (6 gates) ===\n" + "".join(
+        f"[{gate}] uv run --isolated pytest tests/\n" for gate in ids[:5]
+    )
+    _fixture(
+        tmp_path,
+        gate_labels=[("batch-sc6", {"passed": 4, "failed": 0, "total": 4})],
+        gate_ids={"batch-sc6": ids[:4]},
+        log=log,
+    )
+    sc6 = STATUS.batch_states(STATUS.repo_root(NX10), tmp_path)[0]
+    assert sc6["gates_complete"] is False
+    assert sc6["gates"]["gates"] == 4 and sc6["gates"]["ids"] == ids[:4]
+    assert sc6["running_gate"]["id"] == "python-tests"
+
+    # 경과는 **그 줄이 쓰인 시각**(로그 mtime) 기준이다 — 10분 전으로 못박고 확인한다.
+    stamp = time.time() - 600
+    os.utime(tmp_path / "promote-runner.log", (stamp, stamp))
+    again = STATUS.gate_progress(tmp_path, ids[:4])
+    assert 595 <= again["elapsed_seconds"] <= 605
+    assert "python-tests" in STATUS.running_gate_text(again)
+    # 로그의 줄을 다 채우면 “끝”이라 말한다(끝난 배치를 “도는 중”으로 잡지 않는다).
+    assert STATUS.gate_progress(tmp_path, ids[:5])["state"] == "끝"
+    # 리포트가 로그보다 **많은** id 를 갖는 것도 모순이다 — 그대로 단정하지 않는다.
+    assert STATUS.gate_progress(tmp_path, ids)["state"] == "다른 attempt 의 로그"
+    # 도는 게이트가 **마지막 줄이 아니면** 시작 시각을 모른다 — 그때는 경과를 지어내지 않는다.
+    (tmp_path / "promote-runner.log").write_text(log + "[python-benchmark] x\n", encoding="utf-8")
+    unknown = STATUS.gate_progress(tmp_path, ids[:4])
+    assert unknown["id"] == "python-tests" and "elapsed_seconds" not in unknown
+    assert "경과 미상" in STATUS.running_gate_text(unknown)
+
+
+def test_a_log_from_another_attempt_is_not_used_to_name_a_gate(tmp_path: Path) -> None:
+    """S-8(음성) — 리포트의 id 들이 로그 순서의 **앞머리**가 아니면 단정하지 않는다.
+
+    로그는 attempt 마다 쌓인다. 옛 로그와 새 리포트를 섞으면 “지금 [python-tests]”가 거짓이 된다.
+    """
+    log = "=== promote-gates START … ===\n[python-ruff] x\n[python-format] x\n"
+    _fixture(tmp_path, gate_labels=[("batch-sc6", {})], gate_ids={"batch-sc6": ["python-format"]}, log=log)
+    assert STATUS.gate_progress(tmp_path, ["python-format"])["state"] == "다른 attempt 의 로그"
+    # 로그가 없으면 모른다(없는 근거를 집지 않는다).
+    assert STATUS.gate_progress(tmp_path / "nolog", []) is None
+
+
+def test_a_partial_report_is_not_a_finished_batch(tmp_path: Path) -> None:
+    """S-3(정밀) — 4/23 인 리포트를 “게이트 있다”로 세면 배치가 끝난 걸로 보인다.
+
+    이 창에서 실제로 난 오판이다: SC6 을 재고 있는 중인데 다음 할 일이 **PERF** 로 건너갔다.
+    """
+    running = {"state": "진행 중", "id": "python-tests", "command": "pytest", "elapsed_seconds": 755.9}
+    states = [
+        _synth("SC6", True, 4, running),
+        _synth("PERF", False, None),
+        _synth("FLUSH", False, None),
+        _synth("FLUSH2", False, None),
+    ]
+    action = STATUS.next_action(states, None, [{"label": "배치 체인"}])
+    assert "SC6" in action and "python-tests" in action, action
+    assert "PERF " not in action, "부분 리포트를 끝난 배치로 세었다"
+
+    # 로그가 다른 attempt 면 이름을 붙이지 않고 그렇게 말한다.
+    mismatch = STATUS.next_action([_synth("SC6", True, 4, {"state": "다른 attempt 의 로그"}), *states[1:]], None, [])
+    assert "단정하지 않는다" in mismatch, mismatch
+
+
 def test_a_gate_child_is_not_reported_as_an_unattended_job() -> None:
     """S-7 — 게이트가 돌리는 시험의 자식은 **무인 작업이 아니다**.
 
@@ -161,24 +254,32 @@ def test_a_gate_child_is_not_reported_as_an_unattended_job() -> None:
     assert STATUS.is_gate_child(1, lambda _pid: None) is False
 
 
+def _synth(batch: str, applied: bool, collected: int | None, running: dict[str, Any] | None = None) -> dict[str, Any]:
+    """합성 배치 상태 — `batch_states` 가 만드는 모양 그대로(수집 수·완료 여부·도는 게이트)."""
+    return {
+        "batch": batch,
+        "commit": "abc" if applied else None,
+        "applied": applied,
+        "gates": {"summary": {}, "gates": collected} if collected is not None else None,
+        "gates_complete": collected is not None and collected >= STATUS.EXPECTED_GATES,
+        "running_gate": running,
+    }
+
+
 def test_next_action_is_computed_and_says_so_when_it_cannot(tmp_path: Path) -> None:
     """S-6 — 다음 할 일은 진행 상태에서 계산한다. 모르면 모른다고 말한다(없는 근거를 집지 않는다)."""
     states = [
-        {"batch": "SC6", "commit": "abc", "applied": True, "gates": {"summary": {}}},
-        {"batch": "PERF", "commit": None, "applied": False, "gates": None},
-        {"batch": "FLUSH", "commit": None, "applied": False, "gates": None},
-        {"batch": "FLUSH2", "commit": None, "applied": False, "gates": None},
+        _synth("SC6", True, STATUS.EXPECTED_GATES),
+        _synth("PERF", False, None),
+        _synth("FLUSH", False, None),
+        _synth("FLUSH2", False, None),
     ]
     assert "PERF" in STATUS.next_action(states, None, [{"label": "배치 체인"}])
 
-    half = [
-        {"batch": "SC6", "commit": "abc", "applied": True, "gates": None},
-        {"batch": "PERF", "commit": None, "applied": False, "gates": None},
-    ]
+    half = [_synth("SC6", True, None), _synth("PERF", False, None)]
     assert "게이트" in STATUS.next_action(half, None, [{"label": "배치 체인"}])
 
-    all_done = [dict(state, gates={"summary": {}}) for state in states]
-    all_done[1]["applied"] = all_done[2]["applied"] = all_done[3]["applied"] = True
+    all_done = [_synth(batch, True, STATUS.EXPECTED_GATES) for batch in ("SC6", "PERF", "FLUSH", "FLUSH2")]
     assert "soak" in STATUS.next_action(all_done, None, [])
 
     stopped = STATUS.next_action(states, {"step": "5", "at": "t", "reason": "r"}, [])
