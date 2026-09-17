@@ -50,6 +50,15 @@ CONVERSATION_SOFT_MAX_MESSAGES = 64  # align with ConversationStore default (Dec
 WORKER_RESULT_TIMEOUT_S = float(os.environ.get("AGK_VAL02_WORKER_TIMEOUT_S", "120"))
 
 RSS_LEAK_THRESHOLD_MB = 64.0
+# SC-6 기준 재설계(2026-09-17 · 오너 질문 “워밍업 구간이 기준에 포함되는 게 맞나”):
+# 옛 판정식 `마지막 표본 − 첫 표본` 은 첫 표본이 **루프 50 반복 뒤**라, 그 50 반복이 처리량에 따라
+# 0.08초(600회/초)에서 20.45초(2.4회/초)까지 움직였다 — **같은 코드를 처리량에 따라 다르게 재는**
+# 기준이었고, 그 워밍업이 예산의 15~33%를 먹었다. 이제 ① **워밍업 창 밖의 증가**를 64 MB 로 보고
+# (연속성 유지) ② **반복당 creep** 을 함께 재서 처리량이 변해도 뜻이 유지되게 한다.
+# 근거 수치·대안 비교: docs/qa/2026-09-16-followup/nx10/SC6_CRITERION_REVIEW.md
+RSS_WARMUP_MIN_S = 300.0  # 창의 하한 — 1분 창은 종료 투영을 기울기 모델에 매단다(모델 분산 30~46%)
+RSS_WARMUP_FRACTION = 0.05  # 8시간 → 1,440초(24분). 실측: 5분 이상이면 세 모델의 판정이 일치한다
+RSS_CREEP_MAX_KB_PER_OP = 0.25  # 창 밖 반복당 상한 — 건강한 실행 0.004 KB/회 · 누수 24.5 KB/회(실측)
 SOAK_DEFAULT_SECONDS = 60  # 정식 gate는 8h(28800) — --soak-seconds로 상향
 # NX-04: 원본 이력 전수 replay 는 이 크기까지만 수행한다(8h soak 은 연기 보고).
 ORIGINALS_REPLAY_MAX_BYTES = 32 * 1024 * 1024
@@ -626,6 +635,98 @@ def scenario_load_latency(workdir: Path, ops: int = 300) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────
 
 
+def sc6_warmup_window_s(actual_duration_s: float) -> float:
+    """SC-6 워밍업 창(초) — 시작 비용(임포트·할당자·첫 압축)을 판정에서 빼는 구간.
+
+    왜 `max(5분, 지속×5%)` 인가(실측 근거): 창을 1분으로 두면 같은 실행의 종료 투영이
+    “요즘 기울기”와 “창 밖 평균”에 따라 **갈렸고**(모델 분산 = 기준의 30~46%), 창을 5분으로 두면
+    세 모델이 일치했다. 더 늘리면 숫자 폭만 줄고 판정 구간을 잃는다.
+    """
+    return max(RSS_WARMUP_MIN_S, actual_duration_s * RSS_WARMUP_FRACTION)
+
+
+def sc6_rss_criterion(
+    rss_samples_mb: list[float],
+    sample_ops: list[int],
+    sample_times_s: list[float],
+    actual_duration_s: float,
+) -> dict[str, Any]:
+    """SC-6 의 RSS 판정 — **워밍업 창 밖 증가**(P1)와 **반복당 creep**(P2) 두 축.
+
+    반환 필드는 그대로 리포트에 실린다. `rss_growth_mb`(옛 값)도 함께 남긴다 — 판정에는 쓰지 않고
+    회귀 비교·연속성용이다. 입력은 **리포트에 실리는 값과 같은 반올림**을 거친 목록을 쓴다(누구든
+    `rss_samples_mb` 만으로 같은 판정을 재현할 수 있게).
+
+    1 반복(operation) = DB task 3단계 + 대화 append 1회 — `scenario_soak` 의 루프 1회와 같다.
+    """
+    window_s = sc6_warmup_window_s(actual_duration_s)
+    total_growth = (rss_samples_mb[-1] - rss_samples_mb[0]) if len(rss_samples_mb) >= 2 else 0.0
+    fields: dict[str, Any] = {
+        "rss_growth_mb": round(total_growth, 1),
+        "rss_warmup_window_s": round(window_s, 1),
+        "rss_warmup_fraction": RSS_WARMUP_FRACTION,
+        "rss_warmup_min_s": RSS_WARMUP_MIN_S,
+        "rss_creep_max_kb_per_op": RSS_CREEP_MAX_KB_PER_OP,
+    }
+    # 창이 실행 길이와 비슷하면 “워밍업을 뺀 증가”라는 값 자체가 없다 — 판정하지 않고 이유를 남긴다.
+    # (60초 리허설이 여기로 온다: 1분 실행에 8시간 임계값을 물으면 +21 MB 를 누수처럼 보고한다.)
+    if actual_duration_s < window_s * 2 or len(rss_samples_mb) < 3:
+        fields.update(
+            {
+                "rss_warmup_index": -1,
+                "rss_warmup_growth_mb": 0.0,
+                "rss_growth_warmup_excluded_mb": 0.0,
+                "rss_creep_kb_per_operation": 0.0,
+                "rss_criterion": "not_applicable",
+                "rss_criterion_basis": (
+                    f"판정 불가: 실측 {actual_duration_s:.1f}s < 창 {window_s:.1f}s × 2 "
+                    f"(표본 {len(rss_samples_mb)}개) — 이 구간의 증가는 누수가 아니라 시작 비용이다"
+                ),
+            }
+        )
+        return fields
+    index = next((k for k, t in enumerate(sample_times_s) if t >= window_s), len(sample_times_s) - 1)
+    if index >= len(rss_samples_mb) - 1:
+        fields.update(
+            {
+                "rss_warmup_index": -1,
+                "rss_warmup_growth_mb": 0.0,
+                "rss_growth_warmup_excluded_mb": 0.0,
+                "rss_creep_kb_per_operation": 0.0,
+                "rss_criterion": "not_applicable",
+                "rss_criterion_basis": (
+                    f"판정 불가: 창 {window_s:.1f}s 뒤에 표본이 없다(표본 {len(rss_samples_mb)}개) — "
+                    "샘플 간격을 줄이거나 실행을 늘려야 판정이 된다"
+                ),
+            }
+        )
+        return fields
+    # 반올림은 **한 번만** 한다: 리포트에 실리는 값(0.1 MB 단위)과 같은 값으로 반복당 creep 까지
+    # 계산해야, 다음 사람이 `rss_samples_mb` + `rss_warmup_index` 만으로 **같은 숫자를 재현**할 수 있다
+    # (2026-09-17 리허설이 이 틈을 잡았다 — 반올림 전 값으로 계산하면 리포트와 1e-4 만큼 어긋났다).
+    excluded_mb = round(rss_samples_mb[-1] - rss_samples_mb[index], 1)
+    ops_after = max(sample_ops[-1] - sample_ops[index], 1)
+    creep_kb_per_op = round(excluded_mb * 1024.0 / ops_after, 4)
+    verdict = (
+        "pass" if (excluded_mb <= RSS_LEAK_THRESHOLD_MB and creep_kb_per_op <= RSS_CREEP_MAX_KB_PER_OP) else "fail"
+    )
+    fields.update(
+        {
+            "rss_warmup_index": index,
+            "rss_warmup_growth_mb": round(rss_samples_mb[index] - rss_samples_mb[0], 1),
+            "rss_growth_warmup_excluded_mb": excluded_mb,
+            "rss_creep_kb_per_operation": creep_kb_per_op,
+            "rss_criterion": verdict,
+            "rss_criterion_basis": (
+                f"창 밖 증가 {excluded_mb:.1f} MB ≤ {RSS_LEAK_THRESHOLD_MB:.0f} MB "
+                f"· 반복당 {creep_kb_per_op:.4f} KB ≤ {RSS_CREEP_MAX_KB_PER_OP} KB "
+                f"(창 {window_s:.0f}s = 표본 {index}개 건너뜀 · 창 밖 반복 {ops_after:,}회)"
+            ),
+        }
+    )
+    return fields
+
+
 def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
     from antigravity_k.engine.conversation_store import ConversationStore
     from antigravity_k.engine.task_state_store import TaskStateStore
@@ -635,6 +736,10 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
     store.initialize()
     conv_store = ConversationStore(storage_dir=workdir / "soak-conversations")
     rss_samples: list[float] = []
+    # SC-6 기준 재설계: 창 밖 증가와 반복당 creep 을 재려면 **표본의 시각·반복 수**가 필요하다.
+    # 리포트에는 결과 인덱스·값만 싣고 이 두 목록은 메모리에만 둔다(리포트 크기를 늘리지 않는다).
+    sample_times_s: list[float] = []
+    sample_ops: list[int] = []
     fd_samples: list[int] = []
     ops = 0
     conv_ops = 0
@@ -679,12 +784,16 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
         if i % 50 == 0:
             # NX-04: 계측 overhead 를 실측해 보고한다(샘플링이 soak 를 지배하지 않음).
             _t0 = time.perf_counter()
+            sample_times_s.append(time.time() - started)
+            sample_ops.append(i)
             rss_samples.append(_rss_mb())
             fd_samples.append(_fd_count())
             sample_overhead_s += time.perf_counter() - _t0
     # FR-06/RP-11: 실측 종료 시각 — 요청값이 아니라 실제로 흘린 시간을 기록한다.
     actual_duration = round(time.time() - started, 3)
-    growth = (rss_samples[-1] - rss_samples[0]) if len(rss_samples) >= 2 else 0.0
+    # SC-6 기준 재설계: 판정은 순수 함수가 한다(워밍업 창 밖 증가 + 반복당 creep). 입력은 리포트에
+    # 실리는 반올림 값과 같게 맞춘다 — 리포트만 보고도 같은 판정을 재현할 수 있어야 한다.
+    rss_verdict = sc6_rss_criterion([round(r, 1) for r in rss_samples], sample_ops, sample_times_s, actual_duration)
     fd_growth = (fd_samples[-1] - fd_samples[0]) if len(fd_samples) >= 2 else 0
     # orphan worktree: 이 스크립트는 repo 내 worktree를 만들지 않는다 — 관측만.
     # NX-10: 범위는 제품 worktree 루트(`.ag_worktrees`) — 저장소 전역 카운트는 타 작업의
@@ -764,14 +873,15 @@ def scenario_soak(workdir: Path, seconds: int) -> dict[str, Any]:
         "measurement_overhead_ratio": round(sample_overhead_s / actual_duration, 5) if actual_duration else 0.0,
         "errors": errors,
         "rss_samples_mb": [round(r, 1) for r in rss_samples],
-        "rss_growth_mb": round(growth, 1),
+        **rss_verdict,
         "fd_samples": fd_samples,
         "fd_growth": fd_growth,
         "orphan_worktrees": orphan_wt,
         "db_accessible_after": lock_ok,
         "pass": (
             errors == 0
-            and growth <= RSS_LEAK_THRESHOLD_MB
+            # RSS 는 두 축(창 밖 증가 · 반복당 creep)으로 본다 — 판정 불가(not_applicable)는 통과가 아니다.
+            and rss_verdict["rss_criterion"] != "fail"
             and fd_growth <= FD_LEAK_THRESHOLD
             and orphan_wt == 0
             and lock_ok
@@ -822,6 +932,9 @@ def main() -> int:
             "error_rate_max": ERROR_RATE_THRESHOLD,
             "fd_leak_max": FD_LEAK_THRESHOLD,
             "rss_leak_mb": RSS_LEAK_THRESHOLD_MB,
+            "rss_warmup_min_s": RSS_WARMUP_MIN_S,
+            "rss_warmup_fraction": RSS_WARMUP_FRACTION,
+            "rss_creep_max_kb_per_op": RSS_CREEP_MAX_KB_PER_OP,
         },
         "scenarios": [],
     }
