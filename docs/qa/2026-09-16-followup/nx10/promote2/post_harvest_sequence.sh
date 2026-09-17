@@ -13,7 +13,15 @@
 #   bash …/promote2/post_harvest_sequence.sh            # 지금 상태로 실행(도는 soak 이 있으면 거절)
 #
 # 옵션: `--skip-gates`(승격만 하고 게이트는 따로), `NX10_WAIT_SECONDS`(기본 43200),
-#       `NX10_GATE_ATTEMPT`(기본 promote2b), `NX10_INCLUDE_CLEAN_MACHINE`(기본 1 = 23개).
+#       `NX10_GATE_ATTEMPT`(기본 promote2b), `NX10_INCLUDE_CLEAN_MACHINE`(기본 1 = 23개),
+#       `NX10_JUDGE_SETTLE`(기본 900 — 떠 있는 감시의 판정을 기다리는 상한),
+#       `NX10_PROMOTE_ON_FAIL=1`(판정 FAIL 이어도 강행 — 기본은 멈춘다).
+#
+# 무인 실행(오너 요청 “동결 해제하면 승격하고 승격 위치에서 통과 확인”):
+#   screen -dmS nx10promote caffeinate -i bash -c 'cd <repo> && bash …/post_harvest_sequence.sh --wait \
+#     >> …/post-harvest-sequence.log 2>&1'
+#   → 실행 종료를 기다렸다가 판정 → (PASS면) 승격 → 새 지문에서 필수 게이트(약 16분, 다른 화면).
+#   → 도중에 취소: `screen -S nx10promote -X quit`(승격 전이면 트리 무변경).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -77,17 +85,43 @@ else
 fi
 
 step "2. 회수 판정"
-latest="$(ls -t "$NX10"/soak-harvest-*.txt 2>/dev/null | head -1 || true)"
-if [[ -z "$latest" ]]; then
+# 이미 떠 있는 회수 감시(`screen nx10harvest`)가 먼저 판정을 쓸 수 있다. 둘이 동시에 판정기를
+# 돌리면 자물쇠 경합으로 이 순서가 통째로 끊길 수 있으므로, **그 감시가 남긴 원문을 먼저 기다린다**.
+# 기다리는 조건은 “방금 쓰였는가”(mtime ≥ 지금) — 오래된 판정 원문을 오늘 것으로 착각하지 않기 위해서다.
+mtime_of() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+judge_started="$(date +%s)"
+settle="${NX10_JUDGE_SETTLE:-900}"
+latest=""
+waited=0
+while [[ "$waited" -lt "$settle" ]]; do
+  latest="$(ls -t "$NX10"/soak-harvest-*.txt 2>/dev/null | head -1 || true)"
+  if [[ -n "$latest" && "$(mtime_of "$latest")" -ge "$judge_started" ]]; then
+    break
+  fi
+  latest=""
+  sleep 15
+  waited=$((waited + 15))
+done
+judge_rc=0
+if [[ -n "$latest" ]]; then
+  ok "떠 있던 감시가 판정을 남겼다(대기 ${waited}s): $(basename "$latest")"
+else
   echo "  판정 원문이 아직 없다 — harvest 를 돌린다(끝난 실행이면 곧 돌아온다)"
-  if bash "$NX10/soak_control.sh" harvest --timeout 900 >/tmp/nx10-post-harvest-judge.log 2>&1; then
+  bash "$NX10/soak_control.sh" harvest --timeout 900 >/tmp/nx10-post-harvest-judge.log 2>&1 || judge_rc=$?
+  latest="$(ls -t "$NX10"/soak-harvest-*.txt 2>/dev/null | head -1 || true)"
+  if [[ "$judge_rc" -eq 0 ]]; then
     ok "harvest exit 0(판정 PASS)"
   else
-    echo "  [WARN] harvest 가 PASS 가 아니다(exit $?) — 판정 원문을 읽고 기록할 것(승격은 계속한다)"
+    echo "  [WARN] harvest exit $judge_rc — 판정 원문을 읽을 것"
   fi
-  latest="$(ls -t "$NX10"/soak-harvest-*.txt 2>/dev/null | head -1 || true)"
 fi
 [[ -n "$latest" ]] && ok "판정 원문: $(basename "$latest")" || echo "  [WARN] 판정 원문을 찾지 못했다 — harvest 로그를 직접 확인할 것"
+# 판정이 PASS 가 아니면 **사람 없이 트리를 옮기지 않는다**: FAIL 이면 후보에 손을 대야 하므로
+# (오늘 SC-6 로 그랬다) 승격 직후 지문이 또 움직인다 — 강행하려면 NX10_PROMOTE_ON_FAIL=1.
+if [[ "$judge_rc" -ne 0 && "${NX10_PROMOTE_ON_FAIL:-0}" != "1" ]]; then
+  echo
+  bad "판정이 PASS 가 아니다(exit $judge_rc) — 승격을 멈춘다(트리 무변경). 읽을 것: ${latest:-판정 원문 없음}"
+fi
 
 step "3. 승격(2차 배치)"
 bash "$HERE/apply_promotion2.sh" || bad "승격 실패 — 이동은 자동 롤백됐다(기록 확인)"
