@@ -1,5 +1,5 @@
 # 승격 위치 계약 시험 기록 (gates2.sh · A)
-실행: 2026-09-17T02:17:40Z · 루트: /tmp/nx10-promote2-dryrun-20260917T021723Z · HEAD: c65c7beb
+실행: 2026-09-17T02:24:32Z · 루트: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai · HEAD: 2894d825
 명령: pytest tests/test_restore_rehearsal_contract.py tests/test_rollback_rehearsal_contract.py -v -p no:randomly
 대상 파일(승격 위치):
   tests/test_restore_rehearsal_contract.py (sha256 554d648d1950)
@@ -9,7 +9,7 @@ exit: 0
 ============================= test session starts ==============================
 platform darwin -- Python 3.13.12, pytest-9.1.1, pluggy-1.6.0 -- /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python
 cachedir: .pytest_cache
-rootdir: /private/tmp/nx10-promote2-dryrun-20260917T021723Z
+rootdir: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
 configfile: pyproject.toml
 plugins: cov-7.1.0, asyncio-1.4.0, anyio-4.13.0
 asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
@@ -30,5 +30,5 @@ tests/test_rollback_rehearsal_contract.py::test_three_boundaries_hold PASSED [ 8
 tests/test_rollback_rehearsal_contract.py::test_roll_forward_does_not_reuse_the_deleted_id PASSED [ 92%]
 tests/test_rollback_rehearsal_contract.py::test_rehearsal_does_not_dirty_the_repository PASSED [100%]
 
-============================== 14 passed in 7.85s ==============================
+============================== 14 passed in 5.85s ==============================
 판정: exit=0 · 14 passed · 실패 0 · 수집 노드 tests/test_restore_rehearsal_contract.py:: 10
