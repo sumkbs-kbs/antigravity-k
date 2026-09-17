@@ -41,6 +41,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 NX10_OUT = REPO_ROOT / "docs" / "qa" / "2026-09-16-followup" / "nx10"
+# 상시 감시(`soak_watch_loop.py`)가 쌓는 표본일 — 기준선을 찾을 때 이 파일을 읽는다(같은 사실을 두 곳에 두지 않는다).
+DEFAULT_HISTORY = NX10_OUT / "soak-watch-history.jsonl"
 
 B_PER_EVENT = 346.6  # 8시간 FAIL 실행 실측(24.4 MB / 70,431 이벤트)
 
@@ -175,6 +177,24 @@ class Watch:
             return False
         return second_rate < 0.5 * first_rate
 
+    def _rss_recent_rate(self, window_s: float = 1800.0) -> float | None:
+        """최근 구간 RSS 증가율(MB/분). 표본이 부족하거나 진행이 없으면 None(모델을 발명하지 않는다).
+
+        누적 평균이 아니라 **최근 구간**이 필요한 이유: SC-6 예산 판정은 “지금 이 속도가 남은 시간을
+        버티는가” 를 묻는다. 시작 계단을 섮은 누적 평균은 그 질문에 답하지 못한다.
+        """
+        series = self.rss_series or [(s.at, s.rss_mb) for s in self.samples if s.rss_mb is not None]
+        if len(series) < 3:
+            return None
+        end_at = series[-1][0]
+        tail = [(t, v) for t, v in series if t >= end_at - window_s]
+        if len(tail) < 3:
+            tail = series[-3:]
+        span_min = (tail[-1][0] - tail[0][0]) / 60.0
+        if span_min <= 0:
+            return None
+        return (tail[-1][1] - tail[0][1]) / span_min
+
     def verdict(self) -> tuple[int, list[str]]:
         """(exit code, 사람이 읽는 줄들). 표본이 하나뿐이면 추세 판단은 보류한다."""
         lines: list[str] = []
@@ -249,22 +269,59 @@ class Watch:
                     #  ② **감속**: 뒤 구간 증가율이 앞 구간보다 확실히 낮으면 회수가 아니라 워밍업이다.
                     warmup = max(600.0, 0.25 * self.duration)
                     decelerating = self._rss_decelerating()
-                    if projected_growth <= self.rss_limit_mb:
-                        pass
-                    elif elapsed < warmup:
+                    # 예산 분석 — 외삼(“이대로면 얼마가 되는가”)과 달리 **이 질문**에 답한다:
+                    # “지금 속도를 남은 시간 동안 유지하면 기준을 넘는가?” 남은 예산을 남은 시간으로 나눠
+                    # 허용 증가율을 내고, 그것을 실측 최근 증가율과 나란히 놓는다 — 판단을 사람의 머리
+                    # 안에 두지 않는다(이 창은 손으로 나눗셈을 해서 “기준 초과 쪽”이라고 말했다).
+                    # 기준의 모양도 적어 둔다: 하네스는 `ru_maxrss`(최고수위)를 50 op 마다 샘플해
+                    # **마지막 − 처음을** `rss_growth_mb` 로 쓴다. 첫 표본은 SC-1~5 뒤라도
+                    # 고작 ~67 MB 였다(60초 리허설 첫 표본 67.2 · 이 도구의 첫 `ps` 표본은 71.7)
+                    # — 즉 시작 계단은 **기준에 포함**되고, 이 도구의 증가는 하네스 값과 같은 것을 잔다.
+                    remaining_s = max(0.0, self.duration - elapsed)
+                    budget_left = self.rss_limit_mb - growth
+                    if remaining_s > 0 and budget_left > 0:
+                        allowed_rate = budget_left / (remaining_s / 60.0)
+                        recent_rate = self._rss_recent_rate()
                         lines.append(
-                            f"(외삼 +{projected_growth:.0f} MB 은 기준 초과지만 실행 {_hms(elapsed)} 가 워밍업 "
-                            f"{_hms(warmup)}(실행 25%) 보다 짧다 — 경보하지 않고 기다린다)"
+                            f"SC-6 예산: 증가 +{growth:.1f} / 기준 {self.rss_limit_mb:.0f} MB — 남은 {_hms(remaining_s)} "
+                            f"동안 허용 **+{allowed_rate:.3f} MB/분**"
+                            + (
+                                f" · 최근 실측 +{recent_rate:.3f} MB/분"
+                                f" ({'초과 — 이 속도면 넘는다' if recent_rate > allowed_rate else '이내'})"
+                                if recent_rate is not None
+                                else " (최근 증가율: 표본 부족)"
+                            )
                         )
+                    # 두 신호를 **따로** 본다 — 서로 다른 질문이라서다:
+                    #  ① 누적 평균 외삼(“지금까지의 평균이 계속되면 얼마가 되는가”) — 둔하지만 안정적
+                    #  ② 예산 대 최근 증가율(“지금 이 속도가 남은 시간을 버티는가”) — 기울기 변화에 빠르다
+                    # 둘 다 요구하지 않고 **하나라도 서면** 경보하되, 워밍업·감속은 위와 같이 봐준다.
+                    signals: list[str] = []
+                    if projected_growth > self.rss_limit_mb:
+                        signals.append(f"누적 평균 외삼 +{projected_growth:.0f} MB > 기준 {self.rss_limit_mb:.0f} MB")
+                    recent_now = self._rss_recent_rate()
+                    if remaining_s > 0 and budget_left > 0 and recent_now is not None and recent_now > allowed_rate:
+                        signals.append(
+                            f"최근 실측 +{recent_now:.3f} MB/분 > 허용 +{allowed_rate:.3f} MB/분"
+                            f"(증가 +{growth:.1f} / 기준 {self.rss_limit_mb:.0f} MB · 남은 {_hms(remaining_s)})"
+                        )
+                    if elapsed < warmup:
+                        if signals:
+                            lines.append(
+                                f"({' · '.join(signals)}) — 다만 실행 {_hms(elapsed)} 는 워밍업 "
+                                f"{_hms(warmup)}(실행 25%) 보다 짧다: 경보하지 않고 기다린다"
+                            )
                     elif decelerating:
-                        lines.append(
-                            f"(외삼 +{projected_growth:.0f} MB 이지만 **감속 중** — 최근 구간 증가율이 앞 구간의 "
-                            "절반 미만이다. 워밍업으로 보고 경보하지 않는다)"
-                        )
-                    else:
+                        if signals:
+                            lines.append(
+                                f"({' · '.join(signals)}) — 다만 **감속 중**이다(최근 구간 증가율이 앞 구간의 "
+                                "절반 미만). 워밍업으로 보고 경보하지 않는다"
+                            )
+                    elif signals:
                         warns.append(
-                            f"RSS 외삼 +{projected_growth:.0f} MB > SC-6 기준 {self.rss_limit_mb:.0f} MB"
-                            " — 워밍업이 지났는데도 증가세가 유지된다면 SC-6 가 빨개진다"
+                            "SC-6 추세 — "
+                            + " · ".join(signals)
+                            + " — 워밍업도 지나고 감속도 아니다. 이 추세가 유지되면 SC-6 가 빨개진다"
                         )
         for warn in warns:
             lines.append(f"경고: {warn}")
@@ -318,6 +375,46 @@ def _soak_start(workdir: Path) -> float:
     return time.time()
 
 
+def seed_baseline(watch: Watch, override_mb: float | None, history: Path | None = None) -> str:
+    """RSS 기준선을 **실행 첫 표본**에 맞춘다(돌아온 문장은 사람에게 이유를 밝힌다).
+
+    왜 필요한가: 기준선이 “이 호출의 첫 표본”이면 `--once` 의 증가는 항상 0 이고, SC-6 예산도 안 나온다
+    (실측 2026-09-17: 한 표본만 묻던 도구가 경과·저널 크기만 보여 주고 “정상”이라고 말했다).
+    기준선의 근거 순서: ① 호출자가 준 값(하네스 첫 표본을 알 때) ② 감시 루프가 쌓은 이력의 **같은 pid**
+    첫 표본(실행 시작 기준선) ③ 둘 다 없으면 이 호출의 첫 표본 — 그리고 그 사실을 문장으로 적는다.
+    """
+    if override_mb is not None:
+        watch.baseline_rss_mb = override_mb
+        watch.baseline_at = watch.soak_started
+        return f"RSS 기준선 {override_mb:.1f} MB(호출자가 준 값) — 이 값이 하네스 첫 표본이면 증가는 SC-6 와 같다"
+    path = history or DEFAULT_HISTORY
+    if path.is_file():
+        current_pid = watch.samples[-1].pid if watch.samples else None
+        rows: list[tuple[float, float]] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("rss_mb") is None or (current_pid is not None and row.get("pid") != current_pid):
+                continue
+            rows.append((float(row["at"]), float(row["rss_mb"])))
+        if rows:
+            rows.sort()
+            watch.baseline_rss_mb, watch.baseline_at = rows[0][1], rows[0][0]
+            watch.rss_series = rows
+            return (
+                f"RSS 기준선 {rows[0][1]:.1f} MB = 이 실행(pid {current_pid})의 첫 표본 — "
+                f"{path.name} 에서 읽었다(증가율·SC-6 예산의 기준)"
+            )
+    if watch.samples and watch.samples[0].rss_mb is not None:
+        watch.baseline_rss_mb, watch.baseline_at = watch.samples[0].rss_mb, watch.samples[0].at
+    return (
+        "RSS 기준선이 이 호출의 첫 표본이다(실행 시작 기준선 아님) — 실행 시작부터의 증가·SC-6 예산은 "
+        "`--rss-baseline-mb` 로 주거나 감시 루프(`soak_watch_loop.py`)를 쓴다"
+    )
+
+
 def _make_watch(args: argparse.Namespace) -> Watch | None:
     explicit = args.workdir or os.environ.get("NX10_WATCH_WORKDIR")
     workdir = Path(explicit) if explicit else _default_workdir()
@@ -345,14 +442,20 @@ def run_watch(args: argparse.Namespace) -> int:
         f"감시: {watch.workdir} · 실행 시작 {time.strftime('%H:%M:%SZ', time.gmtime(watch.soak_started))}"
         f" · 간격 {watch.interval}s · 기준 처리량 {watch.min_ops_per_sec:.0f} ops/s · cap {watch.hard_cap_mib:.0f} MiB"
     )
-    total = 1 if args.once else max(1, args.samples)
+    # `--once` 는 **표본 두 개**를 뜻한다: 분석(증가율·cap 투영·SC-6 예산)은 두 점이 있어야 성립하고,
+    # 한 점만 찍으면 운영자가 가장 자주 묻는 이 명령이 **위험을 침묵**한다(실측 2026-09-17: `--once` 가
+    # 경과·저널 크기만 보여 주고 “정상”이라고 말했다 — 그 출력에는 증가율도 예산도 없었다).
+    total = 2 if args.once else max(1, args.samples)
+    interval = 1 if args.once else watch.interval
     code = OK
     for index in range(total):
         if index:
-            time.sleep(watch.interval)
+            time.sleep(interval)
         watch.samples.append(watch.take(args.pid))
-        code, lines = watch.verdict()
         stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        if index == 0:
+            print(f"  [{stamp}] {seed_baseline(watch, args.rss_baseline_mb)}")
+        code, lines = watch.verdict()
         for line in lines:
             print(f"  [{stamp}] {line}")
         if code in (STALLED, NO_RUN):
@@ -531,6 +634,143 @@ def run_selftest() -> int:
             calm.samples.append(calm.take(str(live.pid), rss_override=133.0))
             calm.rss_series.append((now, 133.0))
             check("감속 중이면 경보하지 않는다", calm.verdict()[0], OK)
+
+            # ⑦ 이빨 — **예산 분석**: “지금 속도를 남은 시간 유지하면 넘는가”.
+            #   근거의 모양은 하네스 지표다(ru_maxrss 최고수위 · 마지막 − 처음 · 50 op 마다 샘플).
+            #   실행 4시간 · 증가 +40/기준 64 MB → 남은 4시간에 허용 +0.100 MB/분.
+            budget = Watch(
+                workdir=step,
+                soak_started=now - 14400,
+                duration=28800,
+                interval=1,
+                min_ops_per_sec=133,
+                rss_limit_mb=64,
+                hard_cap_mib=8192,
+                max_stall=600,
+                pid_pattern="sleep",
+            )
+            budget.baseline_rss_mb, budget.baseline_at = 100.0, now - 14400
+            budget.rss_series = [(now - 14400, 100.0), (now - 9000, 108.0), (now - 3600, 118.0)]
+            budget.samples.append(budget.take(str(live.pid), rss_override=100.0))
+            budget.samples.append(budget.take(str(live.pid), rss_override=120.0))
+            budget.rss_series.append((now, 120.0))
+            code7, lines7 = budget.verdict()
+            # 증가 +20 / 기준 64 → 남은 4시간에 허용 (64−20)/240분 = +0.183 MB/분.
+            check_bool(
+                "허용 증가율을 숫자로 내놓는다",
+                any("동안 허용 **+0.183 MB/분**" in line for line in lines7),
+                " | ".join(lines7),
+            )
+            check("한계 안이면 경보하지 않는다", code7, OK)
+
+            # ⑧ 이빨 — 단 시작 계단은 **기준에 포함**된다: 60초 리허설의 증가는 이미 +21.2 MB 였다.
+            #   그러면 예산은 43 MB 뿐이고 허용 증가율이 급격히 좁아진다(같은 +30 MB 라도 넘는다).
+            tight = Watch(
+                workdir=step,
+                soak_started=now - 14400,
+                duration=28800,
+                interval=1,
+                min_ops_per_sec=133,
+                rss_limit_mb=64,
+                hard_cap_mib=8192,
+                max_stall=600,
+                pid_pattern="sleep",
+            )
+            tight.baseline_rss_mb, tight.baseline_at = 100.0, now - 14400
+            # 누적 평균으로는 한계 안(증가 +20 × 2 = 외삼 +40 < 64)인데 **최근 기울기는 가파르다** —
+            # 이 경우가 예산 신호가 필요한 이유다(누적 평균은 기울기 변화에 둔하다).
+            tight.rss_series = [(now - 14400, 100.0), (now - 1700, 115.0), (now - 800, 118.0)]
+            tight.samples.append(tight.take(str(live.pid), rss_override=100.0))
+            tight.samples.append(tight.take(str(live.pid), rss_override=125.0))
+            tight.rss_series.append((now, 125.0))
+            code8, lines8 = tight.verdict()
+            check("워밍업 뒤 가파른 최근 기울기는 예산 초과로 경보", code8, WARN)
+            check_bool(
+                "경보가 두 숫자(실측·허용)를 같이 든다",
+                any("SC-6 추세" in line and "최근 실측" in line and "허용" in line for line in lines8),
+                " | ".join(lines8),
+            )
+            check_bool(
+                "외삼이 한계 안이라는 사실도 같이 밝힌다(조용히 넘기지 않는다)",
+                any("외삼 +50 MB <" in line for line in lines8),
+                " | ".join(lines8),
+            )
+
+            # ⑨ 이빨 — 워밍업(실행 25% 전)에는 **예산 수치만 정보로 남기고 경보는 보류**한다.
+            early = Watch(
+                workdir=step,
+                soak_started=now - 2700,
+                duration=28800,
+                interval=1,
+                min_ops_per_sec=133,
+                rss_limit_mb=64,
+                hard_cap_mib=8192,
+                max_stall=600,
+                pid_pattern="sleep",
+            )
+            early.baseline_rss_mb, early.baseline_at = 100.0, now - 2700
+            early.rss_series = [(now - 2700, 100.0), (now - 1800, 120.0), (now - 600, 131.0)]
+            early.samples.append(early.take(str(live.pid), rss_override=100.0))
+            early.samples.append(early.take(str(live.pid), rss_override=133.0))
+            early.rss_series.append((now, 133.0))
+            code9, lines9 = early.verdict()
+            check("워밍업 중에는 예산 초과율이어도 경보하지 않는다", code9, OK)
+            check_bool(
+                "대신 예산·허용율을 문장으로 남긴다",
+                any("SC-6 예산:" in line and "허용" in line for line in lines9)
+                and any("워밍업" in line for line in lines9),
+                " | ".join(lines9),
+            )
+
+            # ⑩ 이빨 — **기준선의 출처**. 기준선이 “이 호출의 첫 표본”이면 증가는 항상 0 이고
+            #   예산도 안 나온다(실측 2026-09-17: 한 표본만 묻는 명령이 경과·저널만 보여 주고 “정상” 이라 했다).
+            hist = step / "history.jsonl"
+            hist.write_text(
+                "\n".join(
+                    json.dumps(row)
+                    for row in (
+                        {"at": now - 3600, "pid": 111, "rss_mb": 70.0, "journal_mb": 10.0},
+                        {"at": now - 1800, "pid": 111, "rss_mb": 80.0, "journal_mb": 20.0},
+                        {"at": now - 60, "pid": 222, "rss_mb": 300.0, "journal_mb": 30.0},
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            seeded = Watch(
+                workdir=step,
+                soak_started=now - 3600,
+                duration=28800,
+                interval=1,
+                min_ops_per_sec=133,
+                rss_limit_mb=64,
+                hard_cap_mib=8192,
+                max_stall=600,
+                pid_pattern="sleep",
+            )
+            seeded.samples.append(seeded.take("111", rss_override=90.0))
+            note = seed_baseline(seeded, None, hist)
+            check_bool(
+                "기준선을 **같은 pid** 의 첫 표본으로 잡는다",
+                seeded.baseline_rss_mb == 70.0 and "첫 표본" in note,
+                f"baseline={seeded.baseline_rss_mb} note={note}",
+            )
+            check_bool(
+                "다른 pid 의 표본은 섞지 않는다",
+                all(v != 300.0 for _, v in seeded.rss_series),
+                str(seeded.rss_series),
+            )
+            override_note = seed_baseline(seeded, 66.8, hist)
+            check_bool(
+                "호출자가 준 값이 이력보다 우선한다",
+                seeded.baseline_rss_mb == 66.8 and "호출자가 준 값" in override_note,
+                f"baseline={seeded.baseline_rss_mb} note={override_note}",
+            )
+            check_bool(
+                "근거가 없으면 없다고 말한다",
+                "이 호출의 첫 표본" in seed_baseline(seeded, None, step / "none.jsonl"),
+                "기준선 출처를 밝히지 않았다",
+            )
         finally:
             live.terminate()
             live.wait(timeout=10)
@@ -542,10 +782,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="돌고 있는 8시간 soak 조기 경보(읽기 전용)")
     parser.add_argument("--workdir", default=None, help="실행 작업디렉터리(기본: 최신 /tmp/nx10-soak-work-*)")
     parser.add_argument("--pid", default=None, help="감시할 pid(기본: 패턴으로 찾기)")
-    parser.add_argument("--once", action="store_true", help="한 표본만")
+    parser.add_argument("--once", action="store_true", help="지금 한 번 판정(내부적으로 1초 간격 두 표본)")
     parser.add_argument("--samples", type=int, default=0, help="표본 수(기본: 끝날 때까지)")
     parser.add_argument("--interval", type=int, default=60, help="표본 간격(초)")
     parser.add_argument("--duration", type=int, default=28800, help="실행 전체 길이(초)")
+    parser.add_argument(
+        "--rss-baseline-mb",
+        type=float,
+        default=float(os.environ.get("NX10_WATCH_RSS_BASELINE_MB") or 0) or None,
+        help="RSS 기준선(하네스 첫 표본을 알 때 — 모르면 감시 이력의 첫 표본을 쓴다)",
+    )
     parser.add_argument("--json", action="store_true", help="마지막 표본을 JSON 한 줄로도 출력")
     parser.add_argument("--selftest", action="store_true", help="픽스처로 문을 확인")
     args = parser.parse_args()
