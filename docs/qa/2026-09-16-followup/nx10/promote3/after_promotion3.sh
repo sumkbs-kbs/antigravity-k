@@ -83,7 +83,11 @@ if [[ "$before" != "$after" ]]; then
 fi
 
 say "④ 새 지문에서 재장전(사전 점검 → 시작)"
-bash "$NX10/soak_control.sh" preflight || { say "preflight 실패 — 재장전하지 않는다(8시간을 태우지 않는다)"; exit 1; }
-bash "$NX10/soak_control.sh" run || { say "시작 실패 — soak_control.sh status 로 확인"; exit 1; }
-say "재장전 완료 — 회수: bash $NX10/soak_control.sh harvest --detach"
+# 도구는 승격을 따른다: 감시·통제 도구가 `docs/` → `scripts/` 로 옮겨졌다(3차 배치).
+# 문서 사본을 부르면 "파일 없음" 으로 죽으므로 승격 위치를 먼저 본다(2026-09-17 실측).
+CONTROL="$REPO/scripts/soak_control.sh"
+[ -f "$CONTROL" ] || CONTROL="$NX10/soak_control.sh"
+bash "$CONTROL" preflight || { say "preflight 실패 — 재장전하지 않는다(8시간을 태우지 않는다)"; exit 1; }
+bash "$CONTROL" run || { say "시작 실패 — soak_control.sh status 로 확인"; exit 1; }
+say "재장전 완료 — 회수: bash $CONTROL harvest --detach"
 say "기록 갱신: GATE_LEDGER(새 attempt) · handoff · PROMOTION_PLAN §1e · docs/19·20"

@@ -216,7 +216,11 @@ PYB
   fi
 else
   note "판정 원문이 아직 없다 — harvest 를 직접 돌린다"
-  bash "$NX10/soak_control.sh" harvest --timeout 900 || judge_rc=$?
+  # 승격 뒤에는 통제 도구가 `scripts/` 에 있다(이 체인 자신이 옮긴다) — 문서 사본 경로를 부르면
+  # 재실행이 "파일 없음" 으로 죽는다(2026-09-17 실측). 그래서 두 경로를 순서대로 본다.
+  CONTROL="$REPO/scripts/soak_control.sh"
+  [ -f "$CONTROL" ] || CONTROL="$NX10/soak_control.sh"
+  bash "$CONTROL" harvest --timeout 900 || judge_rc=$?
   latest="$(ls -t "$NX10"/soak-harvest-*.txt 2>/dev/null | head -1 || true)"
   if [ "$judge_rc" -eq 0 ]; then
     ok "harvest exit 0(판정 PASS)"
@@ -297,6 +301,9 @@ fi
 
 step "5. 커밋(커밋된 후보여야 clean-machine-runtime 이 후보 값이 된다)"
 # 명시 경로만 스테이징한다(`git add -A` 는 다른 창의 파일을 삼킬 수 있다).
+# 주의: 아래 `"$NX10/..."` 항목들은 **승격 전** 사본의 경로다 — 이 체인이 이미 돌아 승격이 끝난 뒤에는
+# 사본이 이동으로 사라지므로 `git add` 가 경고만 내고 넘어간다(경로가 없는 것은 정상이다).
+# 실질적인 후보는 위쪽 `scripts/`·`tests/` 다섯 건이다.
 git add scripts/soak_watch.py scripts/soak_watch_loop.py scripts/soak_control.sh \
   tests/test_soak_watch_contract.py tests/test_soak_control_contract.py \
   "$HERE/promotion3-applied.txt" \
@@ -369,12 +376,14 @@ fi
 
 if [ "$REARM" -eq 1 ]; then
   step "7. 재장전(--rearm)"
-  bash "$NX10/soak_control.sh" preflight || _stop "preflight 실패 — 8시간을 태우지 않는다" 7
-  bash "$NX10/soak_control.sh" run || _stop "시작 실패 — soak_control.sh status 로 확인" 7
+  CONTROL="$REPO/scripts/soak_control.sh"
+  [ -f "$CONTROL" ] || CONTROL="$NX10/soak_control.sh"
+  bash "$CONTROL" preflight || _stop "preflight 실패 — 8시간을 태우지 않는다" 7
+  bash "$CONTROL" run || _stop "시작 실패 — soak_control.sh status 로 확인" 7
   ok "재장전 완료"
 else
   step "7. 재장전은 하지 않았다(--rearm 없음)"
-  note "필요하면: bash $NX10/soak_control.sh preflight && bash $NX10/soak_control.sh run"
+  note "필요하면: bash $REPO/scripts/soak_control.sh preflight && bash $REPO/scripts/soak_control.sh run"
 fi
 
 printf '\n## 7. 종료 (%s)\n\n- 로그: `%s`\n- 다음: 기록을 GATE_LEDGER·handoff·PROMOTION_PLAN §1e·docs/19·20 에 반영\n' \

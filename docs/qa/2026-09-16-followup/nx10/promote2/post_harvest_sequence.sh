@@ -107,7 +107,10 @@ if [[ -n "$latest" ]]; then
   ok "떠 있던 감시가 판정을 남겼다(대기 ${waited}s): $(basename "$latest")"
 else
   echo "  판정 원문이 아직 없다 — harvest 를 돌린다(끝난 실행이면 곧 돌아온다)"
-  bash "$NX10/soak_control.sh" harvest --timeout 900 >/tmp/nx10-post-harvest-judge.log 2>&1 || judge_rc=$?
+  # 도구의 위치는 승격을 따른다(3차 배치가 `docs/` 사본을 `scripts/` 로 옮겼다).
+  CONTROL="$REPO/scripts/soak_control.sh"
+  [ -f "$CONTROL" ] || CONTROL="$NX10/soak_control.sh"
+  bash "$CONTROL" harvest --timeout 900 >/tmp/nx10-post-harvest-judge.log 2>&1 || judge_rc=$?
   latest="$(ls -t "$NX10"/soak-harvest-*.txt 2>/dev/null | head -1 || true)"
   if [[ "$judge_rc" -eq 0 ]]; then
     ok "harvest exit 0(판정 PASS)"
@@ -141,4 +144,4 @@ ok "게이트를 screen nx10${attempt} 에서 돌린다(약 16분)"
 echo "  확인: tail -5 '$NX10/${attempt}-runner.log' ; cat '$NX10/promote-runner-exit.txt'"
 echo
 echo "다음(게이트 뒤): 리포트·판정을 대장에 반영하고 soak 을 재장전한다 —"
-echo "  bash '$NX10/soak_control.sh' preflight && bash '$NX10/soak_control.sh' run"
+echo "  bash '$REPO/scripts/soak_control.sh' preflight && bash '$REPO/scripts/soak_control.sh' run"
