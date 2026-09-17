@@ -87,7 +87,7 @@ def test_repo_root_detection_survives_the_move():
         ({"deleted": False, "revision": 5}, "different-bytes", "refuse"),
     ],
 )
-def test_restore_plan_decisions(target: dict, fingerprint: str, expected: str):
+def test_restore_plan_decisions(target: dict[str, object], fingerprint: str, expected: str):
     """판정부의 다섯 결정 — “최신 변경 손실 방지”가 여기 있다."""
     module = _load_probe()
     export = {"revision": 5, "journal_sha256": "same-bytes" if fingerprint == "same-bytes" else "export-bytes"}

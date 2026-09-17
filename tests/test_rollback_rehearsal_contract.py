@@ -21,6 +21,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -53,7 +54,7 @@ def _probe_path() -> Path:
     )
 
 
-def _run_probe() -> tuple[int, str, dict]:
+def _run_probe() -> tuple[int, str, dict[str, Any]]:
     path = _probe_path()
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     proc = subprocess.run(

@@ -31,6 +31,7 @@ import os
 import shutil
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 
@@ -86,6 +87,19 @@ def _append(store: ConversationStore, texts: list[str]) -> int:
     return revision
 
 
+def _revision_of(record: Mapping[str, object], label: str) -> int:
+    """`revision` 을 int 로 좀힌다 — 숫자가 아니면 **판정을 진행하지 않는다**(보수적 원칙).
+
+    왜 좀히는가: 이 파일은 승격 뒤 `basedpyright` 가 `scripts/` 를 보게 되면서 처음 타입 검사를
+    받았다(“승격이 숨은 오류를 드러냈다” — 그 자체가 승격의 값이다). 판정 자체는 그대로고,
+    숫자가 아닌 값에 대해 조용히 덮어쓰기로 넘어가는 길만 막는다.
+    """
+    value = record.get("revision")
+    if not isinstance(value, int):
+        raise TypeError(f"{label}의 revision 이 정수가 아니다: {value!r} — 판정하지 않는다")
+    return value
+
+
 def restore_plan(*, export: dict[str, object], target: dict[str, object], target_sha256: str) -> tuple[str, str]:
     """운영자 복구 절차의 판정부 — 제품에 없는 안전장치는 이 함수가 담당한다.
 
@@ -96,12 +110,14 @@ def restore_plan(*, export: dict[str, object], target: dict[str, object], target
         return "refuse", "복구 대상에 삭제 표식이 있다 — 삭제를 되돌리는 것은 별도 승인 절차(NX-03)다."
     if str(export["journal_sha256"]) == target_sha256:
         return "noop", "복구 대상이 이미 export 와 바이트 동일하다 — 덮어쓸 이유가 없다."
-    if int(target["revision"]) > int(export["revision"]):
+    target_revision = _revision_of(target, "복구 대상")
+    export_revision = _revision_of(export, "export")
+    if target_revision > export_revision:
         return "refuse", (
-            f"복구 대상이 더 새롭다(revision {target['revision']} > export {export['revision']}) — "
+            f"복구 대상이 더 새롭다(revision {target_revision} > export {export_revision}) — "
             "이대로 덮어쓰면 export 이후의 원문이 조용히 사라진다."
         )
-    if int(target["revision"]) == int(export["revision"]):
+    if target_revision == export_revision:
         return "refuse", "revision 은 같은데 바이트 지문이 다르다 — 같은 revision 의 다른 이력이라 근거가 부족하다."
     return "proceed", "복구 대상이 export 보다 오래됐다 — 덮어써도 잃을 원문이 없다."
 

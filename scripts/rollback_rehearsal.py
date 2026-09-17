@@ -35,6 +35,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 
 def _repo_root() -> Path:
@@ -137,7 +138,12 @@ def _emit(label: str, **fields: object) -> None:
 
 def _run(
     tree_src: Path, mode: str, *, base: Path, workspace: Path, signal: Path, ready: Path, wait: bool = False
-) -> dict:
+) -> dict[str, Any]:
+    """자식을 돌리고 결과를 돌려준다 — `wait=False` 면 JSON 한 건, `wait=True` 면 자식 핸들(`_process`).
+
+    두 모양이 섞여 있어 `Any` 를 쓰는 것이 정직한 타입이다(승격 전에는 `dict` 였고, 그 자체가
+    `reportMissingTypeArgument` 로 드러났다).
+    """
     env = {
         **os.environ,
         "PYTHONPATH": str(tree_src),
@@ -163,7 +169,7 @@ def _run(
     return {"_process": proc}
 
 
-def _wait_loaded(ready: Path, proc: subprocess.Popen, *, timeout: float = 60.0) -> None:
+def _wait_loaded(ready: Path, proc: subprocess.Popen[str], *, timeout: float = 60.0) -> None:
     """자식이 세션을 메모리에 올렸다는 신호를 기다린다 — 이 순서가 R1/R2 의 전제다."""
     deadline = time.time() + timeout
     while time.time() < deadline:
