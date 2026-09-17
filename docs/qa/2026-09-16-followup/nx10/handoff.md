@@ -1094,3 +1094,8 @@ PYTHONPATH=src .venv/bin/python -m pytest docs/qa/2026-09-16-followup/nx10/sc6fi
 유지되는지 확인 — 셋 다 유지). 하네스가 `sample_ops`·`sample_times_s` 를 리포트에 남기면 그 모델이 필요 없어진다
 → **다음 창의 작은 배치 `SC6b`** 로 제안해 뒀다(지금 `scripts/` 를 움직이면 도는 배치 체인의 지문이 흔들린다).
 근거 전문은 대장 **§39**.
+
+**§29-7. 상태판의 두 번째 거짓말(고침 완료)** — 첫 실행에서 게이트 `python-tests` → `soak_control.sh --selftest`
+→ **진짜 `soak_control.sh harvest` 자식**이 “회수 대기(무인 작업)”로 잡혔다. `is_gate_child()` 가 부모를
+따라 올라가 `selftest`/`pytest` 를 만나면 **무인 작업에서 빼고 “시험 중(게이트가 돌린 자식)”이라고 밝힌다**.
+계약 시험 9건(부모 계보 셋 + 낡은 중단 기록 가드 포함)이 이 문장을 고정한다. 근거: 대장 **§39-5**.

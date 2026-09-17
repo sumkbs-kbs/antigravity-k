@@ -139,6 +139,28 @@ def test_the_last_soak_block_is_the_last_one(tmp_path: Path) -> None:
     assert STATUS.last_soak_block(tmp_path)["start_time"] == "new"
 
 
+def test_a_gate_child_is_not_reported_as_an_unattended_job() -> None:
+    """S-7 — 게이트가 돌리는 시험의 자식은 **무인 작업이 아니다**.
+
+    첫 실행에서 실측한 거짓말: 게이트 `python-tests` → `soak_control.sh --selftest` → **진짜
+    `soak_control.sh harvest` 자식**. 부모를 안 보면 상태판이 그것을 “회수 대기”로 보고한다.
+    """
+    tree = {
+        52743: (50573, "bash scripts/soak_control.sh harvest"),
+        50573: (47410, "bash scripts/soak_control.sh selftest"),
+        47410: (1, ".venv/bin/python -m pytest tests/"),
+    }
+    assert STATUS.is_gate_child(52743, tree.get) is True
+
+    detached = {
+        900: (899, "bash scripts/soak_control.sh harvest --detach"),
+        899: (1, "SCREEN -dmS nx10harvest caffeinate -i bash -c …"),
+    }
+    assert STATUS.is_gate_child(900, detached.get) is False
+    # 부모를 모르면 단정하지 않는다(없는 근거를 집지 않는 원칙).
+    assert STATUS.is_gate_child(1, lambda _pid: None) is False
+
+
 def test_next_action_is_computed_and_says_so_when_it_cannot(tmp_path: Path) -> None:
     """S-6 — 다음 할 일은 진행 상태에서 계산한다. 모르면 모른다고 말한다(없는 근거를 집지 않는다)."""
     states = [

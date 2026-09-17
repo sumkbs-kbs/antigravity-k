@@ -84,15 +84,58 @@ def run_readonly(command: list[str]) -> str:
 
 
 # ── 1. 살아 있는 것 ───────────────────────────────────────────────────────────────────────────
-def live_jobs() -> list[dict[str, Any]]:
+def process_lookup(pid: int) -> tuple[int, str] | None:
+    """pid → (부모 pid, 명령줄). 읽기 전용(외부 `ps`)."""
+    out = run_readonly(["ps", "-o", "ppid=,command=", "-p", str(pid)]).strip()
+    if not out:
+        return None
+    parent, _, command = out.partition(" ")
+    try:
+        return int(parent), command.strip()
+    except ValueError:
+        return None
+
+
+def is_gate_child(pid: int, lookup: Any = None, depth: int = 5) -> bool:
+    """이 프로세스가 **게이트가 돌리는 시험의 자식**인가.
+
+    왜 필요한가(첫 실행에서 실측): 게이트 `python-tests` 는 `soak_control.sh --selftest` 를 돌리고, 그
+    자기시험이 **진짜 `soak_control.sh harvest` 를 자식으로 띄운다**. 그대로 두면 상태판이 그것을
+    “회수 대기”라는 **무인 작업**으로 보고한다 — 상태판이 거짓말을 하면 안 되므로 부모를 따라 올라가
+    `pytest`/`selftest` 가 나오면 무인 작업에서 뺀다(대신 `시험 중`으로 밝힌다).
+    """
+    lookup = lookup or process_lookup
+    current = pid
+    for _ in range(depth):
+        parent = lookup(current)
+        if parent is None:
+            return False
+        parent_pid, command = parent
+        if "selftest" in command or "pytest" in command:
+            return True
+        if parent_pid <= 1 or parent_pid == current:
+            return False
+        current = parent_pid
+    return False
+
+
+def live_jobs(lookup: Any = None) -> list[dict[str, Any]]:
+    """무인 작업 목록. 게이트가 돌리는 **시험의 자식**은 무인 작업이 아니다(별도로 밝힌다)."""
+    lookup = lookup or process_lookup
     screens = run_readonly(["screen", "-ls"])
     found: list[dict[str, Any]] = []
     for label, pattern, screen_name in WATCHERS:
-        processes = run_readonly(["pgrep", "-fl", pattern]).strip().splitlines()
-        alive = bool(processes)
+        lines = run_readonly(["pgrep", "-fl", pattern]).strip().splitlines()
+        pids: list[int] = []
+        for line in lines:
+            head = line.split(" ", 1)[0]
+            pids.append(int(head)) if head.isdigit() else None
+        real = [pid for pid in pids if not is_gate_child(pid, lookup)]
         attached = screen_name in screens
-        if alive or attached:
-            found.append({"label": label, "processes": len(processes), "screen": screen_name if attached else None})
+        if real or attached:
+            found.append({"label": label, "processes": len(real), "screen": screen_name if attached else None})
+        elif pids:
+            found.append({"label": label, "processes": 0, "screen": None, "kind": "시험 중(게이트가 돌린 자식)"})
     return found
 
 
@@ -262,6 +305,9 @@ def render(state: dict[str, Any]) -> str:
     lines.append("=== 살아 있는 무인 작업 ===")
     if state["live"]:
         for job in state["live"]:
+            if job.get("kind"):
+                lines.append(f"  {job['label']}: {job['kind']} — 무인 작업으로 세지 않는다")
+                continue
             screen = f" · 화면 {job['screen']}" if job["screen"] else " · 화면 없음(프로세스만)"
             lines.append(f"  {job['label']}: 프로세스 {job['processes']}건{screen}")
     else:
