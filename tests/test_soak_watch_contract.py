@@ -14,6 +14,11 @@
   5. 워밍업(실행 25% 전)에는 경보를 보류하되 **숫자는 밝힌다**(침묵하지 않는다).
   6. **읽기 전용** — 실행 디렉터리에 아무것도 쓰지 않는다(측정을 오염시키면 그 8시간이 무효다).
   7. 실행이 없으면 **판정하지 않는다**(exit 3) — 없는 숫자를 발명하지 않는다.
+  8. **다른 workdir 의 같은 이름 프로세스는 실행이 아니다** — 하네스는 `--workdir <감시 중인 디렉터리>` 로
+     뜨므로 그 계약을 읽고 가른다(realpath 정규화). `--workdir` 선언이 없으면 이름이 같아도 후보가 아니고,
+     맞는 후보가 하나도 없으면 **아무것도 채택하지 않는다**. 이 문이 없어서 2026-09-17 에 배치 리허설의 처리량
+     프루브(5~60초짜리 하네스)가 후보의 첫 자리를 차지해 표본 한 행이 계열에 섞였고, 그 한 행이 **없는
+     급강하**를 만들었다(`GATE_LEDGER` §25-9).
 
 탐색 순서는 승격 선례를 따른다: 승격 위치(`scripts/`)를 먼저, 스테이징(`docs/qa/…/nx10/`)을 나중에.
 그래서 이 파일은 이동 전에도 초록이고 이동 뒤에도 초록이다(이빨은 미러 리허설에서 확인한다 —
@@ -23,6 +28,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -255,6 +261,120 @@ def test_no_run_means_no_verdict(tmp_path: Path):
     assert "SC-6 예산:" not in result.stdout, "실행이 없는데 예산을 계산했다"
 
 
+def test_foreign_workdir_harness_is_not_a_run(tmp_path: Path):
+    """같은 이름·같은 인터프리터라도 **감시 중인 workdir 이 아니면** 그 실행이 아니다.
+
+    외부 픽스처를 **먼저** 띄워 pid 가 앞서게 해야 한다 — 실제 사고가 정확히 그 순서로 났다
+    (`pgrep` 오름차순이 첫 후보를 먼저 내주었고, 감시가 막 시작해 붙잡은 pid 가 없을 때 그 후보가 채택됐다).
+    """
+    module = _load_watch()
+    token = f"nx10-foreign-workdir-{os.getpid()}"
+    mine_wd = tmp_path / "workdir-mine"
+    other_wd = tmp_path / "workdir-other"
+    mine_wd.mkdir()
+    other_wd.mkdir()
+
+    def _spawn(wd: Path) -> subprocess.Popen:
+        return subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)", token, "--workdir", str(wd)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    foreign = _spawn(other_wd)  # 먼저 띄운다 = pid 가 앞선다(사고의 순서를 재현)
+    mine = _spawn(mine_wd)
+    try:
+        time.sleep(0.4)
+        watch = module.Watch(
+            workdir=mine_wd,
+            soak_started=time.time() - 60,
+            duration=28800,
+            interval=1,
+            min_ops_per_sec=133,
+            rss_limit_mb=64,
+            hard_cap_mib=8192,
+            max_stall=600,
+            pid_pattern=token,
+        )
+        watch.samples.append(watch.take(None))
+        watch.samples.append(watch.take(None))
+        assert watch.rejected_foreign_workdir == [foreign.pid], (
+            f"다른 workdir 후보를 빼지 않았다: 뺀=[{watch.rejected_foreign_workdir}] 기대=[{foreign.pid}]"
+        )
+        assert watch.samples[-1].pid == mine.pid, (
+            f"남의 workdir 을 채택했다: 고른 pid={watch.samples[-1].pid} 기대={mine.pid} (외부={foreign.pid})"
+        )
+        # 이 문은 **거부**다(종전에는 관대한 되돌림이었다): 감시 중인 workdir 을 선언한 후보가 하나도 없으면
+        # 후보를 전부 남기는 대신 **아무것도 채택하지 않는다**. 2026-09-17 에 그 관대함이 리허설 프루브를
+        # 계열에 앉혔다 — 없으면 없는 대로 말하는 편이 모르는 실행의 숫자로 추세를 만드는 것보다 옳다.
+        fallback = module.Watch(
+            workdir=tmp_path / "no-such-needle",
+            soak_started=time.time() - 60,
+            duration=28800,
+            interval=1,
+            min_ops_per_sec=133,
+            rss_limit_mb=64,
+            hard_cap_mib=8192,
+            max_stall=600,
+            pid_pattern=token,
+        )
+        assert fallback._candidates() == [], f"workdir 이 하나도 안 맞는데 후보를 남겼다: {fallback._candidates()}"
+        assert sorted(fallback.rejected_foreign_workdir) == sorted([foreign.pid, mine.pid]), (
+            f"뺐다면 그 사실을 남겨야 한다: {fallback.rejected_foreign_workdir}"
+        )
+        fallback.samples.append(fallback.take(None))
+        fallback.samples.append(fallback.take(None))
+        assert all(sample.pid is None for sample in fallback.samples), (
+            f"맞는 하네스가 없는데 pid 를 채택했다: {[s.pid for s in fallback.samples]}"
+        )
+        reason = " | ".join(fallback.verdict()[1])
+        assert "찾지 못했다" in reason and "후보를 뺐다" in reason, f"없는 까닭을 밝히지 않았다: {reason}"
+    finally:
+        for process in (mine, foreign):
+            process.terminate()
+            process.wait(timeout=10)
+
+
+def test_python_without_a_workdir_declaration_is_not_the_soak(tmp_path: Path):
+    """하네스의 계약은 `--workdir` 이다 — 선언이 없으면 이름이 같아도 **다른 실행**이다.
+
+    왜 별도 시험인가: 종전 픽스처는 “진짜 하네스”를 `--workdir` 없이 띄웠고, 그래서 도구의 관대한
+    되돌림이 시험에 **고정**돼 있었다(시험이 구현의 폭을 따라간 게 아니라 넓혀 둔 셈). 계약을 시험에도
+    그대로 쓴다: 러너는 항상 `--workdir` 로 띄우므로, 그것이 없는 파이썬은 감시 대상이 아니다.
+    """
+    module = _load_watch()
+    token = f"nx10-bare-contract-{os.getpid()}"
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    bare = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)", token],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        time.sleep(0.4)
+        watch = module.Watch(
+            workdir=run_dir,
+            soak_started=time.time() - 60,
+            duration=28800,
+            interval=1,
+            min_ops_per_sec=133,
+            rss_limit_mb=64,
+            hard_cap_mib=8192,
+            max_stall=600,
+            pid_pattern=token,
+        )
+        watch.samples.append(watch.take(None))
+        watch.samples.append(watch.take(None))
+        assert watch.rejected_no_workdir == [bare.pid], (
+            f"선언 없는 프로세스를 빼지 않았다: 뺀=[{watch.rejected_no_workdir}] 기대=[{bare.pid}]"
+        )
+        assert watch.samples[-1].pid is None, f"선언 없는 프로세스를 soak 으로 채택했다: pid={watch.samples[-1].pid}"
+    finally:
+        bare.terminate()
+        bare.wait(timeout=10)
+
+
 def test_loop_writes_only_where_it_is_told(tmp_path: Path):
     """상시 감시의 **파생물 위치를 인자로 통제**할 수 있고, 화면이 실제로 그려진다."""
     run_dir = tmp_path / "run"
@@ -285,3 +405,58 @@ def test_loop_writes_only_where_it_is_told(tmp_path: Path):
     assert sorted(path.name for path in tmp_path.iterdir()) == ["history.jsonl", "live.html", "run"], (
         f"지정하지 않은 곳에 파일을 만들었다: {sorted(p.name for p in tmp_path.iterdir())}"
     )
+
+
+def test_loop_attaches_to_a_run_already_in_flight(tmp_path: Path):
+    """돌고 있는 soak 에 감시를 **나중에 붙일 수 있다** — 첫 표본의 pid 없음을 “사라졌다”로 읽지 않는다.
+
+    왜 계약인가: 감시를 재부착하는 일은 정상 운영이다(작업지시에 따라 화면을 다시 붙인다). 새 후보는 연속
+    두 표본을 봐야 채택되므로(fresh 감시는 pid 가 없는 상태로 시작한다) 첫 표본은 **반드시** pid 가 없다 —
+    종전에는 그 한 표본으로 루프가 즉사해, 돌고 있는 8시간을 아무 경보 없이 지나가게 두었다(실측 2026-09-17).
+    이 시험은 **--pid 를 주지 않고** 붙여서 실제로 붙는지, 그리고 pid 없는 표본을 이력에 남기지 않는지 본다.
+    """
+    token = f"nx10-attach-{os.getpid()}"
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "journal").write_bytes(b"x" * 4096)
+    history = tmp_path / "history.jsonl"
+    live = tmp_path / "live.html"
+    harness = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)", token, "--workdir", str(run_dir)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        time.sleep(0.4)
+        module = _load_watch()
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_loop_path()),
+                "--samples",
+                "1",
+                "--interval",
+                "1",
+                "--workdir",
+                str(run_dir),
+                "--history",
+                str(history),
+                "--out-html",
+                str(live),
+            ],
+            cwd=str(tmp_path),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "NX10_WATCH_PROC_PATTERN": token},
+        )
+        assert result.returncode != module.NO_RUN, (
+            f"돌고 있는 실행에 붙지 못했다(exit {result.returncode}):\n{result.stdout[-800:]}"
+        )
+        rows = [json.loads(line) for line in history.read_text(encoding="utf-8").splitlines() if line.strip()]
+        assert [row["pid"] for row in rows] == [harness.pid], (
+            f"붙은 실행의 표본을 남기지 않았다: {[row.get('pid') for row in rows]}"
+        )
+        assert live.is_file() and 'data-badge="status"' in live.read_text(encoding="utf-8"), "화면을 갱신하지 않았다"
+    finally:
+        harness.terminate()
+        harness.wait(timeout=10)

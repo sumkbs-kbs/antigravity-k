@@ -284,10 +284,29 @@ def run_loop(args: argparse.Namespace) -> int:
     sample_budget = 1 if args.once else args.samples
     index = 0
     seen_run = False
+    pick_tries = 0
     while True:
         if index:
             time.sleep(watch.interval)
         sample = watch.take(args.pid)
+        if sample.pid is None:
+            # **pid 를 고르는 중**과 **실행이 사라졌다**를 가른다. 새 후보는 연속 두 표본을 보여야
+            # 채택되므로(유령 차단), 갓 붙은 감시의 첫 표본은 필연적으로 pid 가 없다. 종전에는 이 한 표본을
+            # 곧바로 “실행이 사라졌다”로 읽고 끝내서 **돌고 있는 soak 에 감시를 붙일 수 없었다**(실측
+            # 2026-09-17: 작업지시에 따라 화면을 재부착했더니 첫 표본에서 즉사). 표본 두 개를 보고도
+            # 없으면 그때 없다고 말한다. pid 없는 표본은 **기록하지 않는다** — 이력에 pid 없는 행이 생기면
+            # 다음 재시작의 첫 표본과 섞여 선이 끊긴다(그 행은 계열이 아니다).
+            pick_tries += 1
+            print(
+                f"  실행을 아직 고르지 못했다 — 새 후보는 연속 두 표본을 본다"
+                f"({pick_tries}/{watch.PID_SWITCH_CONFIRMATIONS}) · 이 표본은 기록하지 않는다"
+            )
+            if pick_tries >= watch.PID_SWITCH_CONFIRMATIONS:
+                code = soak_watch.NO_RUN
+                print("  실행이 사라졌다 — 감시를 끝낸다(화면은 마지막 상태를 유지한다)")
+                break
+            continue
+        pick_tries = 0
         watch.samples.append(sample)
         if not seen_run:
             seen_run = True

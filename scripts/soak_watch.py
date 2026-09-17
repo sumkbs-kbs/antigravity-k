@@ -35,6 +35,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -92,6 +93,15 @@ class Watch:
     max_stall: int
     pid_pattern: str
     samples: list[Sample] = field(default_factory=list)
+    # 지금 보고 있는 실행의 pid — 표본마다 다시 찾아도 **계열이 흔들리지 않게** 붙잡고 있는다.
+    pid: int | None = None
+    # pid 선택의 두 규칙: ① 지금 보고 있는 실행이 살아 있으면 **갈아타지 않는다** ② 새 후보는
+    # **두 표본 연속** 보여야 채택한다. 둘 다 실측 결함(2026-09-17)에서 왔다 — 아래 `_find_pid` 참조.
+    pending_pid: int | None = None
+    rejected_pids: list[tuple[int, str]] = field(default_factory=list)
+    # 같은 이름이지만 **다른 workdir** 을 가진 프로세스(리허설의 처리량 프루브 등) — 후보에서 뺀 pid 를 남긴다.
+    rejected_foreign_workdir: list[int] = field(default_factory=list)
+    rejected_no_workdir: list[int] = field(default_factory=list)
     # RSS 기준선은 **이 프로세스가 아니라 실행 첫 표본**에 둔다 — 감시가 재시작되더라도
     # “실행 시작 이후 얼마나 자랐나”가 흔들리면 안 된다(실측: 재시작 직후 +0.0 MB 로 보였다).
     baseline_rss_mb: float | None = None
@@ -99,20 +109,155 @@ class Watch:
     # 실행 첫 표본부터의 (시각, RSS) 계열 — 회수가 **감속 여부**를 보려면 표본 두 개로는 부족하다.
     rss_series: list[tuple[float, float]] = field(default_factory=list)
 
+    # 셸·화면 래퍼는 하네스가 아니다 — 이 목록에 걸리면 후보에서 뺀다.
+    WRAPPER_COMMS = ("bash", "sh", "zsh", "screen", "caffeinate", "login", "tee", "pgrep", "ps", "grep", "ssh")
+    # 새 후보를 채택하기 전에 요구하는 연속 표본 수(유령 프로세스 차단).
+    PID_SWITCH_CONFIRMATIONS = 2
+
     # ── 측정 ────────────────────────────────────────────────────────────
-    def _find_pid(self, override: str | None) -> int | None:
-        if override:
-            try:
-                return int(override)
-            except ValueError:
-                return None
+    @staticmethod
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except (OSError, ProcessLookupError):
+            return False
+        return True
+
+    def _candidates(self) -> list[int]:
+        """`pgrep -f <패턴>` 후보 중 **감시 중인 workdir 로 뜬 하네스만** 남긴다.
+
+        왜 필요한가(실측 2026-09-17): `pgrep` 의 첫 매치를 그냥 쓰면 **패턴 문자열을 argv 에 담은 다른
+        프로세스**가 soak 으로 둔갑한다. 그날 운영자의 진단 명령(`bash -c "… pgrep -f val02_staging.py …"`)이
+        표본 5개를 차지했고, 감시 화면이 `pid 54012 · RSS 2 MB` 를 정상 실행처럼 보여 주었다.
+        더 나쁜 것은 그 표본들이 **계열을 톱니처럼** 만들어(76.0 → 103.9 → 75.5) 분석을 오염시킨 것이다 —
+        그 자료로 “30 MB 순간 최고치가 3번 있었다” 고 쓰면 **틀린 결론**이 된다. 그래서 ① 인터프리터여야 하고
+        ② 셸·화면 래퍼가 아니어야 한다. (하네스는 `.venv/bin/python scripts/val02_staging.py` 로 돈다.)
+
+        같은 부류가 하나 더 있었다(실측 2026-09-17, `GATE_LEDGER` §25-9): **리허설이 띄운 진짜 하네스**
+        (처리량 프루브, 5~60초)는 이름도 인터프리터도 같아서 첫 두 규칙을 통과했다. 게다가 그때는 workdir
+        문이 **관대**했다 — 감시 중인 workdir 을 담은 후보가 하나도 없으면 후보를 전부 남겼고, 그 틈으로
+        프루브가 들어와 표본 한 행을 차지했다(계열이 “떨어졌다가 되돌아온다” 로 보인다).
+
+        그래서 ③ 이제 **엄격하다**: 하네스는 러너(`run_nx10_soak.sh`)가 `--workdir $WORKDIR` 로 띄우므로,
+        후보의 argv 가 선언한 `--workdir` 이 **감시 중인 workdir 과 같아야** 한다(realpath 로 정규화 —
+        `/tmp` ↔ `/private/tmp`, 꼬리 슬래시, 심볼릭 링크가 판정을 흔들지 않게). 같은 이름의 다른 실행
+        (리허설 프루브)은 자기 임시 workdir 을 선언하므로 여기서 갈린다. 남는 후보가 없으면 **아무것도
+        채택하지 않는다** — 모르는 실행의 숫자로 계열을 만드느니 “찾지 못했다”고 말하는 편이 옳다(읽기 전용 도구다).
+        workdir 을 모르는 호출(빈 문자열)일 때만 종전의 이름 기반 선택으로 물러서고, 그 사실을 밝힌다.
+        """
+        self.rejected_pids = []
+        self.rejected_foreign_workdir = []
+        self.rejected_no_workdir = []
         try:
             out = subprocess.run(
                 ["pgrep", "-f", self.pid_pattern], capture_output=True, text=True, check=False
             ).stdout.split()
         except OSError:
-            return None
-        return int(out[0]) if out else None
+            return []
+        candidates: list[int] = []
+        for token in out:
+            if not token.isdigit():
+                continue
+            pid = int(token)
+            if pid == os.getpid():
+                continue
+            comm = self._ps(pid, "comm").strip().rsplit("/", 1)[-1].lower()
+            if any(comm.startswith(wrapper) for wrapper in self.WRAPPER_COMMS):
+                self.rejected_pids.append((pid, comm or "?"))
+                continue
+            if "python" not in comm:
+                self.rejected_pids.append((pid, comm or "?"))
+                continue
+            candidates.append(pid)
+        if self.rejected_pids:
+            summary = ", ".join(f"{pid}({comm})" for pid, comm in self.rejected_pids)
+            print(
+                f"감시: 패턴 `{self.pid_pattern}` 에 걸렸지만 하네스가 아니어서 무시한 후보 — {summary}",
+                file=sys.stderr,
+            )
+        needle = self._workdir_needle()
+        if needle is None:
+            if candidates:
+                print(
+                    "감시: 감시 중인 workdir 이 지정되지 않아 이름만으로 후보를 고른다 — "
+                    "`--workdir` 또는 NX10_WATCH_WORKDIR 로 지정하면 다른 실행을 뺄 수 있다",
+                    file=sys.stderr,
+                )
+            return candidates
+        kept: list[int] = []
+        for pid in candidates:
+            declared = self._declared_workdirs(pid)
+            if not declared:
+                self.rejected_no_workdir.append(pid)
+            elif needle in declared:
+                kept.append(pid)
+            else:
+                self.rejected_foreign_workdir.append(pid)
+        if self.rejected_foreign_workdir:
+            print(
+                f"감시: 패턴에 걸렸지만 **다른 workdir** 을 가진 후보를 뺐다 — "
+                f"pid {', '.join(str(pid) for pid in self.rejected_foreign_workdir)} "
+                f"(감시 중인 workdir: {self.workdir})",
+                file=sys.stderr,
+            )
+        if self.rejected_no_workdir:
+            print(
+                f"감시: 패턴에 걸렸지만 `--workdir` 선언이 없어 후보에서 뺐다 — "
+                f"pid {', '.join(str(pid) for pid in self.rejected_no_workdir)} "
+                "(하네스는 러너가 `--workdir` 로 띄운다 — 없이 뜬 실행은 이 감시의 대상이 아니다)",
+                file=sys.stderr,
+            )
+        if candidates and not kept:
+            print(
+                f"감시: 감시 중인 workdir({self.workdir})로 뜬 하네스가 없다 — 아무 pid 도 채택하지 않는다"
+                "(다른 실행의 숫자로 계열을 만들지 않는다)",
+                file=sys.stderr,
+            )
+        return kept
+
+    def _workdir_needle(self) -> str | None:
+        """감시 중인 workdir 의 realpath — 비교의 한쪽 값을 한 곳에서만 만든다."""
+        raw = str(self.workdir).strip() if self.workdir is not None else ""
+        return os.path.realpath(raw) if raw else None
+
+    def _declared_workdirs(self, pid: int) -> list[str]:
+        """후보가 argv 에서 **선언한** workdir 들(`--workdir X` · `--workdir=X`) — realpath 로 정규화한다.
+
+        왜 부분 문자열이 아니라 선언인가: 종전에는 argv 어딘가에 감시 중인 경로가 **들어 있기만** 하면
+        통과시켰다(`needle in command`). 그 검사는 우연히 같은 경로를 담은 다른 인자(`--output` 등)나
+        우리 경로를 자기 인자로 받은 셸 래퍼에도 열려 있다. 하네스의 계약은 `--workdir` 이므로 그 계약을
+        읽는 편이 좁고 정확하다. 정규화는 `/tmp` ↔ `/private/tmp`(macOS 심볼릭 링크)와 꼬리 슬래시,
+        상대 경로를 흡수한다 — 정규화가 없으면 같은 디렉터리를 가리키는 두 표기가 서로 다르다고 나온다.
+        """
+        return [
+            os.path.realpath(value) for value in re.findall(r"--workdir(?:=|\s+)([^\s]+)", self._ps(pid, "command"))
+        ]
+
+    def _find_pid(self, override: str | None) -> int | None:
+        if override:
+            try:
+                self.pid = int(override)
+            except ValueError:
+                return None
+            return self.pid
+        candidates = self._candidates()
+        if not candidates:
+            # 후보가 없으면 지금 보는 실행이 살아 있는지로 판단한다(죽었으면 실행을 못 찾은 것이다).
+            return self.pid if self.pid is not None and self._alive(self.pid) else None
+        if self.pid in candidates:
+            self.pending_pid = None
+            return self.pid
+        # 갈아타기 전에 두 번 보게 한다 — 한 번 스쳐 간 유령이 계열을 오염시키지 못하게.
+        if self.pending_pid in candidates:
+            previous, self.pid, self.pending_pid = self.pid, self.pending_pid, None
+            if previous is not None:
+                print(f"감시: 실행 pid 를 {previous} → {self.pid} 로 바꿨다(연속 두 표본 확인)", file=sys.stderr)
+            return self.pid
+        self.pending_pid = candidates[0]
+        if self.pid is not None and self._alive(self.pid):
+            self.pending_pid = None  # 보고 있는 실행이 살아 있으면 새 후보를 기다리게 두지 않는다
+            return self.pid
+        return None
 
     @staticmethod
     def _ps(pid: int, column: str) -> str:
@@ -217,7 +362,19 @@ class Watch:
         warns: list[str] = []
         last = self.samples[-1]
         if not last.alive:
-            return NO_RUN, [f"실행을 찾지 못했다(pid {last.pid}) — 패턴 `{self.pid_pattern}`"]
+            lines = [f"실행을 찾지 못했다(pid {last.pid}) — 패턴 `{self.pid_pattern}`"]
+            # 왜 못 찾았는지까지 말한다: 후보를 **뺐다면** 그 사실이 다음 사람의 첫 질문("왜 감시가 비었나")의 답이다.
+            if self.rejected_foreign_workdir:
+                lines.append(
+                    f"다른 workdir 을 선언한 후보를 뺐다 — pid "
+                    f"{', '.join(str(pid) for pid in self.rejected_foreign_workdir)}(감시 중: {self.workdir})"
+                )
+            if self.rejected_no_workdir:
+                lines.append(
+                    f"`--workdir` 선언이 없는 후보를 뺐다 — pid "
+                    f"{', '.join(str(pid) for pid in self.rejected_no_workdir)}"
+                )
+            return NO_RUN, lines
         elapsed = max(0.0, last.at - self.soak_started)
         lines.append(
             f"pid {last.pid} · 실행 경과 {_hms(elapsed)} / {_hms(self.duration)}"
@@ -787,6 +944,162 @@ def run_selftest() -> int:
                 "이 호출의 첫 표본" in seed_baseline(seeded, None, step / "none.jsonl"),
                 "기준선 출처를 밝히지 않았다",
             )
+
+            # ⑬ 유령 후보 — 패턴에 걸린 **셸**을 soak 으로 착각하지 않는다(실측 2026-09-17).
+            #    그날 진단 명령(`bash -c "… pgrep -f val02_staging.py …"`)이 표본 5개를 차지했고, 감시 화면이
+            #    `pid … · RSS 2 MB` 를 정상 실행처럼 보여 주었다. 표본이 섞여 계열이 톱니처럼 보인 것도 같은 원인이다.
+            token = f"nx10-ghost-{os.getpid()}"
+            ghost = subprocess.Popen(
+                ["bash", "-c", f"sleep 20 # {token}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            try:
+                time.sleep(0.3)
+                decoy = Watch(
+                    workdir=step,
+                    soak_started=now - 60,
+                    duration=28800,
+                    interval=1,
+                    min_ops_per_sec=133,
+                    rss_limit_mb=64,
+                    hard_cap_mib=8192,
+                    max_stall=600,
+                    pid_pattern=token,
+                )
+                decoy.samples.append(decoy.take(None))
+                decoy.samples.append(decoy.take(None))
+                check_bool(
+                    "패턴에 걸린 셸은 soak 으로 채택하지 않는다",
+                    all(sample.pid is None for sample in decoy.samples),
+                    f"고른 pid={[sample.pid for sample in decoy.samples]}",
+                )
+                # 그리고 진짜 하네스가 함께 있으면 그것을 고른다 — 새 후보는 **연속 두 표본** 확인을 거친다.
+                # 픽스처도 **계약대로** 뜬다: 하네스는 러너가 `--workdir` 로 띄우므로 여기서도 그렇게 준다.
+                # (예전에는 이 픽스처가 `--workdir` 없이 떴고, 그 관대함이 곧 workdir 문의 폭이었다.)
+                real = subprocess.Popen(
+                    [sys.executable, "-c", "import time; time.sleep(20)", token, "--workdir", str(step)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                try:
+                    time.sleep(0.3)
+                    picker = Watch(
+                        workdir=step,
+                        soak_started=now - 60,
+                        duration=28800,
+                        interval=1,
+                        min_ops_per_sec=133,
+                        rss_limit_mb=64,
+                        hard_cap_mib=8192,
+                        max_stall=600,
+                        pid_pattern=token,
+                    )
+                    picker.samples.append(picker.take(None))
+                    picker.samples.append(picker.take(None))
+                    check_bool(
+                        "셸이 섞여 있어도 진짜 하네스를 고른다",
+                        picker.samples[-1].pid == real.pid,
+                        f"고른 pid={picker.samples[-1].pid} 기대={real.pid}",
+                    )
+                finally:
+                    real.terminate()
+                    real.wait(timeout=10)
+            finally:
+                ghost.terminate()
+                ghost.wait(timeout=10)
+
+            # ⑭ workdir 필터 — **같은 이름의 다른 실행**(리허설 처리량 프루브)을 후보에서 뺐다(실측 2026-09-17).
+            #    외부 픽스처를 **먼저** 띄워 pid 가 앞서게 해야 `pgrep` 순서 함정(첫 후보 즉시 채택)까지
+            #    함께 걸린다 — 실제 사고가 정확히 그 순서로 났다.
+            workdir_token = f"nx10-workdir-{os.getpid()}"
+            mine_wd = step / "workdir-mine"
+            other_wd = step / "workdir-other"
+            mine_wd.mkdir(exist_ok=True)
+            other_wd.mkdir(exist_ok=True)
+            # `bare` 를 **맨 먼저** 띄운다: `--workdir` 선언이 없는 파이썬은 후보에서 빠져야 한다 —
+            # 종전의 관대한 문은 “맞는 후보가 하나도 없으면 전부 남긴다” 였고, 그 틈으로 pid 가 앞선
+            # 무관한 프로세스가 채택됐다. 이 픽스처가 그 틈을 직접 겨눈다(있으면 첫 후보가 된다).
+            bare = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(20)", workdir_token],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            foreign = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(20)", workdir_token, "--workdir", str(other_wd)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            mine = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(20)", workdir_token, "--workdir", str(mine_wd)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                time.sleep(0.3)
+                picker = Watch(
+                    workdir=mine_wd,
+                    soak_started=now - 60,
+                    duration=28800,
+                    interval=1,
+                    min_ops_per_sec=133,
+                    rss_limit_mb=64,
+                    hard_cap_mib=8192,
+                    max_stall=600,
+                    pid_pattern=workdir_token,
+                )
+                picker.samples.append(picker.take(None))
+                picker.samples.append(picker.take(None))
+                check_bool(
+                    "다른 workdir 의 같은 이름 프로세스는 후보에서 뺐다",
+                    picker.rejected_foreign_workdir == [foreign.pid],
+                    f"뺀 pid={picker.rejected_foreign_workdir} 기대=[{foreign.pid}] (내 실행={mine.pid})",
+                )
+                check_bool(
+                    "첫 표본에서 남의 workdir 을 채택하지 않는다",
+                    picker.samples[-1].pid == mine.pid,
+                    f"고른 pid={picker.samples[-1].pid} 기대={mine.pid} (외부={foreign.pid} 선언없음={bare.pid})",
+                )
+                check_bool(
+                    "`--workdir` 선언이 없는 같은 이름 프로세스도 후보에서 뺐다(관대한 되돌림 없음)",
+                    picker.rejected_no_workdir == [bare.pid],
+                    f"뺀 pid={picker.rejected_no_workdir} 기대=[{bare.pid}]",
+                )
+                # 이빨 — **맞는 후보가 하나도 없으면 아무것도 채택하지 않는다**(종전에는 전부 남겼다).
+                # 그 관대함이 2026-09-17 에 리허설 프루브를 계열에 앉쳤다: live soak 이 잠시 안 보이는
+                # 순간(재장전 틈)이나 감시 workdir 이 어긋난 순간에 이름만 같은 실행이 곧바로 soak 이 된다.
+                orphan = Watch(
+                    workdir=step / "no-such-workdir",
+                    soak_started=now - 60,
+                    duration=28800,
+                    interval=1,
+                    min_ops_per_sec=133,
+                    rss_limit_mb=64,
+                    hard_cap_mib=8192,
+                    max_stall=600,
+                    pid_pattern=workdir_token,
+                )
+                orphan.samples.append(orphan.take(None))
+                orphan.samples.append(orphan.take(None))
+                check_bool(
+                    "감시 workdir 로 뜬 하네스가 없으면 아무도 채택하지 않는다",
+                    all(sample.pid is None for sample in orphan.samples)
+                    and sorted(orphan.rejected_foreign_workdir + orphan.rejected_no_workdir)
+                    == sorted([bare.pid, foreign.pid, mine.pid]),
+                    f"고른 pid={[sample.pid for sample in orphan.samples]} "
+                    f"뺀 것={orphan.rejected_foreign_workdir}+{orphan.rejected_no_workdir}",
+                )
+                check_bool(
+                    "없는 까닭을 줄로 밝힌다(사람이 stderr 를 안 봐도 된다)",
+                    any("찾지 못했다" in line for line in orphan.verdict()[1])
+                    and any("후보를 뺐다" in line for line in orphan.verdict()[1]),
+                    " | ".join(orphan.verdict()[1]),
+                )
+            finally:
+                mine.terminate()
+                mine.wait(timeout=10)
+                foreign.terminate()
+                foreign.wait(timeout=10)
+                bare.terminate()
+                bare.wait(timeout=10)
         finally:
             live.terminate()
             live.wait(timeout=10)

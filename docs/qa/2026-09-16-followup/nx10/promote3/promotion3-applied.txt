@@ -1,0 +1,16 @@
+# 승격 3차 배치 실행 기록 (2026-09-17, NX-10 창)
+실행: 20260917T121211Z · 전제조건: 도는 soak 없음 · 리허설 ALL PASS
+이동표(스테이징 → 승격):
+  docs/qa/2026-09-16-followup/nx10/soak_watch.py → scripts/soak_watch.py
+  docs/qa/2026-09-16-followup/nx10/soak_watch_loop.py → scripts/soak_watch_loop.py
+  docs/qa/2026-09-16-followup/nx10/soak_control.sh → scripts/soak_control.sh
+  docs/qa/2026-09-16-followup/nx10/promote3/test_soak_watch_contract.py → tests/test_soak_watch_contract.py
+  docs/qa/2026-09-16-followup/nx10/promote3/test_soak_control_contract.py → tests/test_soak_control_contract.py
+백업: /tmp/nx10-promote3-backup-20260917T121211Z (되돌리기는 역순 mv)
+게이트: 승격 계약 시험 초록(/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/promote3/promoted-contract-tests3.txt) · 도구 직접 실행 초록 · ruff check·format 초록
+다음(필수, 순서를 지킨다):
+  1) 커밋 — 승격은 지문을 옮긴다(커밋도 옮길 수 있다)
+  2) 필수 게이트 재측정: NX10_GATE_ATTEMPT=promote3 NX10_INCLUDE_CLEAN_MACHINE=1 \
+       screen -dmS nx10promote3 bash docs/qa/2026-09-16-followup/nx10/run_promote_gates.sh
+  3) 콜드 재장전: soak_control.sh preflight && soak_control.sh run
+  (3단계를 묶은 것: bash /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/promote3/after_promotion3.sh)
