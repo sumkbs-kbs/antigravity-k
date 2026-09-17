@@ -496,3 +496,27 @@ clean-machine 창이 열리고, 타 레인의 실패 4건이 정리되고(오너
    `promoted-selftest3.txt`(생략 문장 + 76/76) · 실트리 자기시험 `selftest-attempt3.txt`(75/75).
 
 **판정 불변**: required red 1(`python-tests`, 타 레인) · CR-14 후보 재선언 없음 · owner 허용 기록 없음 = **NO-GO**.
+
+## 14. 회수 뒤 순서를 **무인으로 걸었다** (2026-09-17, 오너 요청)
+
+한 줄: `screen nx10promote3` 가 `promote3/post_harvest_sequence3.sh --wait` 를 돌린다.
+
+1. **순서**(종료 `11:25:56Z` = 20:25 KST 뒤 자동): 실행 종료 확인 → 회수 판정(기계 판독 원문
+   `soak-recovery-latest.json` 의 `verdict`·`runner.exit`·시작/종료 지문) → 감시 도구 정리(프로세스 0건 확인)
+   → 승격(`apply_promotion3.sh` · 실패 시 자동 롤백) → **커밋**(`clean-machine-runtime` 이 `--ref HEAD` 를 쓰므로
+   커밋된 트리만 후보 값이다) → **새 지문에서 필수 23개 재측정**(약 19분) → 기록
+   `promote3/post-harvest-record3.md`.
+2. **멈추는 조건을 실측했다**(`rehearse_sequence3.sh`, 미러 3경로, ALL PASS — 본 트리 쓰기 0건):
+   판정 FAIL → 멈춤·트리 무변경 · 시작 ≠ 종료 지문 → 멈춤·트리 무변경 · PASS + 지문 일치 → 승격·커밋까지 진행.
+   무릅쓰고 강행하려면 `NX10_PROMOTE_ON_FAIL=1`(기본은 멈춘다).
+3. **그 리허설이 네 번째 어긋남을 잡았다**: 계약 시험이 “도는 soak” 을 하드코딩된 이름으로 찾고 도구는
+   환경변수 이름을 받아, 이름을 바꾼 환경에서 시험과 도구가 **다른 세계를 봤다**(거짓 red → 승격 게이트 A 가
+   1 failed 로 멈춤). 고침은 하드코딩 제거(같은 이름 규칙 공유). 기존 규칙대로 “가드를 끄는” 대신
+   “대상 이름을 통제하는” 통로를 썼다. 상세: `GATE_LEDGER` §24.
+4. **재장전은 기본값이 아니다** — 밤에 두 번째 8시간을 자동으로 태우는 것은 오너 결정이라 `--rearm` 을
+   주어야 한다. 취소: `screen -S nx10promote3 -X quit`(승격 전이면 트리 무변경; 승격 뒤에는 커밋이 롤백 지점).
+5. **이 창은 20:25 KST 이후 트리를 만지지 않는다** — 옮기는 주체는 그 스크립트이고, 같은 시간에 `docs/` 밖을
+   건드리면 새 지문이 흔들려 측정이 후보 값이 되지 못한다.
+
+검증된 바이트: `post_harvest_sequence3.sh` sha256 `a429baa3cb1c…` · 리허설 기록 `sequence3-rehearsal.txt`
+`0644abf1dac9…`(이 바이트로 ALL PASS 를 받은 뒤에 걸었다).

@@ -4,6 +4,8 @@
 # 왜 동결 가드가 필요한가: `scripts/`·`tests/` 는 정적 게이트 지문의 대상이다. 8시간 soak 이 도는
 # 중에 이 스크립트를 돌리면 그 실행의 **종료 지문이 시작 지문과 갈려** 8시간이 무효가 된다.
 # 그래서 도는 soak 을 발견하면 **거절**한다(`NX10_PROMOTE3_FORCE=1` 로만 강행).
+# 식별은 `NX10_SOAK_PROC_PATTERN`(기본 `val02_staging.py`)으로 한다 — 시험·리허설은 이 이름을
+# 바꾸므로 가드를 끄지 않고도 “도는 soak 없음” 경로를 돌릴 수 있다(가드를 우회하는 옵션과는 다르다).
 #
 # 순서(회수 뒤): 이 스크립트 → **커밋**(승격은 지문을 옮긴다) → 필수 게이트 재측정
 # (`run_promote_gates.sh`, 커밋 뒤에는 `NX10_INCLUDE_CLEAN_MACHINE=1`) → soak 재장전.
@@ -35,7 +37,10 @@ if [[ "$(cd "$REPO" && git status --porcelain -- scripts tests | wc -l | tr -d '
 else
   ok "scripts/·tests/ 작업 트리 깨끗"
 fi
-soak_pid="$(pgrep -f val02_staging.py | head -1 || true)"
+# 대상은 **이름으로** 지목하고, 그 이름은 시험이 통제할 수 있다 — `soak_control.sh` 와 같은 규칙이다.
+# (기본값은 운영 경로 그대로다: 회수 뒤 무인 순서가 이 가드를 지나가야 승격이 성립한다.)
+SOAK_PATTERN="${NX10_SOAK_PROC_PATTERN:-val02_staging.py}"
+soak_pid="$(pgrep -f "$SOAK_PATTERN" | head -1 || true)"
 if [[ -n "$soak_pid" ]]; then
   if [[ "${NX10_PROMOTE3_FORCE:-0}" == "1" ]]; then
     echo "  [WARN] 도는 soak(pid $soak_pid)을 무시하고 진행한다 — NX10_PROMOTE3_FORCE=1 (그 8시간은 무효가 된다)"

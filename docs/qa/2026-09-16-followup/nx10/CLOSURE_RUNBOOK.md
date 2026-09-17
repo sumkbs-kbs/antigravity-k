@@ -152,6 +152,23 @@ python3 scripts/collect_soak_result.py --wait     # 아직 돌고 있으면 기�
 판정은 셋을 **모두** 통과해야 PASS 다: ① 지표(`all_pass`·`missing_required`) ② 실행(러너 `exit==0` **그리고**
 벽시계 ≥ 요청 시간 — 즉시 실패한 실행도 리포트는 쓴다) ③ 귀속(예약 기대 지문 == 시작 == 종료 == **지금 트리**).
 지표만 통과하면 판정은 `METRICS_PASS / 실행·귀속 INCONCLUSIVE — DONE 아님` 이다(EX-05 가 겪은 상태).
+
+### 1b. 회수 → 승격 → 게이트 재측정을 **무인으로** (3차 배치, 2026-09-17)
+
+```bash
+cd <repo>
+screen -dmS nx10promote3 caffeinate -i bash -c \
+  'bash docs/qa/2026-09-16-followup/nx10/promote3/post_harvest_sequence3.sh --wait \
+   >> docs/qa/2026-09-16-followup/nx10/promote3/post-harvest-sequence3.log 2>&1'
+# 무엇을 하는가: 종료 대기 → 회수 판정(JSON 원문) → 감시 정리 → 승격 → 커밋 → 새 지문에서 필수 23개 재측정
+# 멈추는 조건: 판정 FAIL 또는 시작 ≠ 종료 지문 → **트리 무변경으로 중단**(기록은 post-harvest-record3.md)
+# 확인: tail -20 …/promote3/post-harvest-sequence3.log · cat …/promote3/post-harvest-record3.md
+# 취소: screen -S nx10promote3 -X quit   (승격 전이면 트리 무변경 / 승격 뒤에는 커밋이 롤백 지점)
+```
+
+재장전은 기본값이 아니다 — `--rearm` 을 주어야 새 8시간을 건다(밤에 두 번째를 자동으로 태우는 것은 오너 결정).
+순서의 리허설은 `promote3/rehearse_sequence3.sh`(미러 3경로 — PASS/FAIL/지문 갈래)이고 기록은
+`promote3/sequence3-rehearsal.txt` 다.
 산출물: `soak-recovery-<실행시작>.json`(실행별 보존) · `soak-recovery-latest.json` · `soak-recovery.log`.
 판정 로직 자체는 `--selftest` 로 검증된다(**9/9** — 중단·지문불일치·지표실패·측정 후 코드변경·리포트 없음·
 예약 이력이 쌓였을 때 **마지막 예약**을 쓰는가).

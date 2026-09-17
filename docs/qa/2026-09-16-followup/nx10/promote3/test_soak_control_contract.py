@@ -85,9 +85,17 @@ def _run_ctl(*args: str, out_dir: Path | None = None, timeout: int = 300) -> sub
 
 
 def _soak_pids() -> list[str]:
+    """도는 soak 을 **도구와 같은 이름 규칙**으로 찾는다.
+
+    도구(`soak_control.sh`)는 `NX10_SOAK_PROC_PATTERN`(기본 `val02_staging.py`)으로 대상을 지목한다.
+    이 시험이 그 이름을 보지 않고 하드코딩하면, 이름을 바꿔 도는 환경(승격 뒤 순서의 리허설처럼 미러에서
+    진짜 soak 을 피해가는 경우)에서 **시험과 도구가 다른 세계를 본다** — 실측 2026-09-17: 시험은 “도는
+    실행 있음”(4를 기대)이라 했고 도구는 “없음”(3을 반환)이라 해서 계약 시험이 거짓으로 빨개졌다.
+    """
     if shutil.which("pgrep") is None:
         return []
-    result = subprocess.run(["pgrep", "-f", "val02_staging.py"], capture_output=True, text=True, check=False)
+    pattern = os.environ.get("NX10_SOAK_PROC_PATTERN", "val02_staging.py")
+    result = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True, check=False)
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
