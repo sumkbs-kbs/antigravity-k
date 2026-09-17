@@ -49,6 +49,7 @@ json.dump(
     {
         "collected_at": collected,
         "verdict": "PASS",
+        "judged_run_start": "2026-09-17T03:25:56Z",
         "runner": {"start_time": "2026-09-17T03:25:56Z", "end_time": end, "exit": "0",
                    "start_fingerprint": start_fp, "end_fingerprint": start_fp},
         "worktree_fingerprint_now": now_fp,
@@ -79,6 +80,17 @@ expect reject "$d/tree_moved.json" "판정 뒤 코드 이동"
 # ④ 필드가 없는 JSON → 받지 않는다(조용히 통과 금지 · 닫힌 방향으로 실패)
 echo '{}' >"$d/empty.json"
 expect reject "$d/empty.json" "필드 없는 JSON"
+
+# ④b 어느 실행을 판정했는지 밝히지 않는 JSON → 받지 않는다(“낡은 판정” 을 잡는 방법이 이것이다)
+write_case "$d/no_run.json" "2026-09-17T11:32:13Z" "2026-09-17T11:26:00Z" "$start_fp" "$start_fp"
+"$PY" - "$d/no_run.json" <<'PYN'
+import json, sys
+path = sys.argv[1]
+doc = json.load(open(path, encoding="utf-8"))
+doc.pop("judged_run_start", None)
+json.dump(doc, open(path, "w", encoding="utf-8"))
+PYN
+expect reject "$d/no_run.json" "판정 대상 미상(judged_run_start 없음)"
 
 # ⑤ **실제 산출물**(체인이 곧 소비할 그것) → 받고, 판정도 보여 준다
 real="$NX10/soak-recovery-latest.json"

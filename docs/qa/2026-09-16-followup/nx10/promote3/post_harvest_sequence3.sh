@@ -156,8 +156,11 @@ settle="${NX10_JUDGE_SETTLE:-900}"
 # 종전 규칙(mtime ≥ 체인 시작)은 이미 내려진 정당한 판정을 **낡은 것으로 오해**해 스스로 다시
 # 판정하게 만들었고, 그 재판정은 이 체인이 지키려는 지문 조건(측정 후 코드 무변경)을 **자기 손으로**
 # 깨뜨렸다 — 재판정 시점에는 이미 커밋/문서가 움직였을 수 있기 때문이다(2026-09-17 실측).
-# 그래서 조건 셋을 본다: ① 러너 종료시각 뒤에 수집됐다 ② 그 판정이 **실행 트리에서** 내려졌다
-# (`worktree_fingerprint_now == runner.start_fingerprint`) ③ 원문 txt 와 JSON 의 짝이 맞다.
+# 그래서 조건을 **내용으로만** 본다: ① 러너 종료시각 뒤에 수집됐다 ② 그 판정이 **실행 트리에서**
+# 내려졌다(`worktree_fingerprint_now == runner.start_fingerprint`) ③ 어느 실행을 판정했는지 밝힌다
+# (`judged_run_start`). mt–ime 은 근거로 쓰지 않는다: `git stash/restore`(프리커밋 훅)가 파일을
+# 다시 쓰면서 시각을 바꾸고, 판정기 자체 실행(`collect_soak_result.py`)은 JSON 만 새로 쓰고 텍스트를
+# 남기지 않아 “새 JSON + 옛 txt” 를 낡은 것으로 오인하게 만들었다(2026-09-17 실측).
 # 못 받으면 종전과 같이 직접 harvest 한다(닫힌 방향으로 실패한다).
 recovery="$NX10/soak-recovery-latest.json"
 verdict_is_about_the_run() {
@@ -171,6 +174,9 @@ except Exception:
 run = doc.get("runner") or {}
 end = run.get("end_time")
 collected = doc.get("collected_at")
+# 어느 실행을 판정했는지 밝히지 않는 JSON 은 근거로 쓰지 않는다(그것이 “낡은 판정” 을 잡는 방법이다).
+if not doc.get("judged_run_start"):
+    sys.exit(1)
 if not isinstance(end, str) or not isinstance(collected, str):
     sys.exit(1)
 # ① 종료 뒤에 수집(같은 ISO8601 Z 형식이므로 문자열 비교가 시각 비교다)
@@ -186,9 +192,7 @@ latest=""
 waited=0
 while [ "$waited" -lt "$settle" ]; do
   latest="$(ls -t "$NX10"/soak-harvest-*.txt 2>/dev/null | head -1 || true)"
-  # ③ 원문 txt 와 JSON 의 짝 — 새 txt 에 낡은 JSON 을 붙이지 않는다(2분 슬랙: 판정기가 연달아 쓴다).
-  if [ -n "$latest" ] && verdict_is_about_the_run \
-    && [ "$(mtime_of "$latest")" -ge "$(( $(mtime_of "$recovery") - 120 ))" ]; then
+  if [ -n "$latest" ] && verdict_is_about_the_run; then
     break
   fi
   latest=""
@@ -202,10 +206,14 @@ if [ -n "$latest" ]; then
 import json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 r = d.get("runner") or {}
-print(f"수집 {d.get('collected_at')} ≥ 종료 {r.get('end_time')} · 판정 지문 == 실행 지문 {str(r.get('start_fingerprint'))[:16]}…")
+print(f"수집 {d.get('collected_at')} ≥ 종료 {r.get('end_time')} · 판정 지문 == 실행 지문 {str(r.get('start_fingerprint'))[:16]}… · 판정 대상 {d.get('judged_run_start')}")
 PYB
 )"
   note "받아들인 근거: $basis"
+  # 텍스트 원문이 JSON 보다 옛것일 수 있다(판정기를 직접 돌린 경우). 읽는 사람이 그것을 오해하지 않게 밝힌다.
+  if [ "$(mtime_of "$recovery")" -gt "$(mtime_of "$latest")" ]; then
+    note "[참고] 원문 txt($(basename "$latest"))는 이 JSON 보다 오래됐다 — **판정의 출처는 JSON** 이고 txt 는 그 이전 판정의 글이다"
+  fi
 else
   note "판정 원문이 아직 없다 — harvest 를 직접 돌린다"
   bash "$NX10/soak_control.sh" harvest --timeout 900 || judge_rc=$?
