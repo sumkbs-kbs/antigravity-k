@@ -276,9 +276,15 @@ class ConversationJournal:
             return 0
 
     # ── write ───────────────────────────────────────────────────────────
-    def append(self, event: Mapping[str, Any]) -> JournalEvent:
-        """Commit one event (line + fsync) and return it with its assigned seq."""
-        current = self.tail()
+    def append(self, event: Mapping[str, Any], *, tail: JournalTail | None = None) -> JournalEvent:
+        """Commit one event (line + fsync) and return it with its assigned seq.
+
+        ``tail`` 는 호출자가 **같은 flock 임계 구역 안에서** 읽은 꼬리다(flush 배치 F1).
+        직전 판정에 쓴 그 값을 다시 읽지 않는다 — 종전에는 append 1회가 같은 꼬리를 3번
+        읽어 약 113 KiB 를 다시 읽었다(nx10/fsync/probe-flush-output.json). 미결 꼬리
+        (truncated)를 들고 오면 신뢰하지 않고 다시 읽는다 — seq 오부여를 막는다.
+        """
+        current = tail if tail is not None and not tail.truncated_tail else self.tail()
         seq = current.seq + 1
         payload = dict(event)
         payload.setdefault("schema", JOURNAL_SCHEMA_VERSION)

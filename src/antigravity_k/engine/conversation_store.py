@@ -285,6 +285,9 @@ class ConversationStore:
         self._legacy_paths: tuple[Path, ...] = ()
         # NX-02 retention: soft cap 경고를 대화당 한 번만 남기기 위한 기억.
         self._soft_cap_warned: set[tuple[str, str]] = set()
+        # F1(flush 배치): flock 임계 구역 안에서 읽은 저널 꼬리의 한 칸짜리 기억.
+        # 구역 **밖으로 새지 않는다** — 구역에 들어갈 때마다 비운다(`_cross_process_lock`).
+        self._tail_memo: tuple[str, Any] | None = None
 
     # ── CR-01 identity / migration state ────────────────────────────────
 
@@ -382,6 +385,8 @@ class ConversationStore:
         self._flock_owner = thread_id
         self._flock_depth = 1
         self._flock_fd = fd
+        # F1: 새 임계 구역이다 — 이전 구역의 꼬리 기억은 다른 프로세스의 쓰기 때문에 낡았을 수 있다.
+        self._tail_memo = None
         try:
             yield
         finally:
@@ -464,6 +469,20 @@ class ConversationStore:
         """Append-only original-history journal path for one conversation."""
         return self._path_for(project_id, conversation_id).with_suffix(JOURNAL_SUFFIX)
 
+    def _journal_tail(self, journal: ConversationJournal, *, fresh: bool = False) -> Any:
+        """커밋 임계 구역 안에서 저널 꼬리는 **한 번만** 읽는다(flush 배치 F1).
+
+        이 프로세스가 그 구역 안에서 저널에 쓰지 않았다면 꼬리는 변하지 않는다 — 그래서
+        같은 구역의 읽기 지점들(`_authoritative_record` · `_reconcile_view_with_journal` ·
+        `_commit_event` · `ConversationJournal.append`)이 같은 값을 나눠 쓴다. 우리가 방금
+        썼거나(`fresh=True`) 구역이 바뀌었으면(진입 시 초기화) 기억을 버린다.
+        """
+        if not fresh and self._tail_memo is not None and self._tail_memo[0] == str(journal.path):
+            return self._tail_memo[1]
+        tail = journal.tail()
+        self._tail_memo = (str(journal.path), tail)
+        return tail
+
     def _journal(self, project_id: str, conversation_id: str) -> ConversationJournal:
         return ConversationJournal(self.journal_path(project_id=project_id, conversation_id=conversation_id))
 
@@ -520,7 +539,7 @@ class ConversationStore:
     ) -> ConversationRecord:
         """Journal 이 앞서면(또는 view 가 미커밋 tail 을 포함하면) 재생성한다."""
         journal = self._journal(project_id, conversation_id)
-        if journal.tail().truncated_tail:
+        if self._journal_tail(journal).truncated_tail:
             journal.rewrite_without_truncated_tail()
         rebuilt = self._materialize_from_journal(project_id, conversation_id)
         if rebuilt is None or rebuilt.journal_seq == record.journal_seq:
@@ -602,10 +621,10 @@ class ConversationStore:
         journal = self._journal(project_id, conversation_id)
         if not journal.exists():
             return record
-        tail = journal.tail()
+        tail = self._journal_tail(journal)
         if tail.truncated_tail:
             journal.rewrite_without_truncated_tail()
-            tail = journal.tail()
+            tail = self._journal_tail(journal, fresh=True)
         if tail.deleted:
             return None
         if record is None or record.journal_seq != tail.seq:
@@ -709,11 +728,16 @@ class ConversationStore:
         journal = self._journal(record.project_id, record.conversation_id)
         self._assert_journal_capacity(record, journal)
         with self._journal_errors():
-            if journal.tail().truncated_tail:
+            tail = self._journal_tail(journal)
+            if tail.truncated_tail:
                 journal.rewrite_without_truncated_tail()
+                tail = self._journal_tail(journal, fresh=True)
             event = journal.append(
-                {**payload, "project_id": record.project_id, "conversation_id": record.conversation_id}
+                {**payload, "project_id": record.project_id, "conversation_id": record.conversation_id},
+                tail=tail,
             )
+        # F1: 방금 우리가 저널에 썼다 — 이 구역의 꼬리 기억은 낡았다.
+        self._tail_memo = None
         record.journal_seq = event.seq
         record.history_incomplete = record.history_incomplete or event.history_incomplete
         self._persist(record)
