@@ -6,7 +6,7 @@ import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Callable, ClassVar, cast, final, override
+from typing import TYPE_CHECKING, Callable, ClassVar, cast, final, override
 
 from mcp.client.session import ClientSession
 
@@ -15,7 +15,10 @@ from antigravity_k.engine.mcp_health_cache import mcp_health_cache
 
 from .base_tool import BaseTool, RiskLevel, ToolCategory
 from .mcp_session_manager import MCPSessionManager
-from .mcp_tool_result import build_outcome, error_outcome
+from .mcp_tool_result import MCPToolOutcome, build_outcome, error_outcome
+
+if TYPE_CHECKING:  # 실제 import 는 관리형 경로를 쓸 때만 한다(순환 방지 + 기동 비용)
+    from .ssak_search_runtime import SsakSearchRuntime
 from .system_tools import ReadFileTool, ReplaceFileContentTool, RunBashCommandTool
 
 logger = logging.getLogger(__name__)
@@ -97,12 +100,14 @@ class MCPTool(BaseTool):
         name: str,
         description: str,
         schema: dict[str, object],
-        mcp_client: ClientSession,
+        mcp_client: ClientSession | None = None,
         server_name: str = "",
         transport: str = "stdio",
         annotations: Mapping[str, object] | None = None,
         server_policy: Mapping[str, object] | None = None,
         session_loop: asyncio.AbstractEventLoop | None = None,
+        caller: Callable[[str, Mapping[str, object]], MCPToolOutcome] | None = None,
+        runtime_note: str = "",
     ):
         """Initialize the MCPTool.
 
@@ -117,8 +122,14 @@ class MCPTool(BaseTool):
             server_policy (Mapping[str, Any] | None): Mapping[str, Any] | None server policy.
             session_loop (asyncio.AbstractEventLoop | None): 세션을 만든 이벤트 루프.
                 anyio 스트림은 이 루프에 묶여 있어 다른 루프에서 부르면 응답이 오지 않는다.
+            caller (Callable[[str, Mapping[str, Any]], MCPToolOutcome] | None): 세션 대신
+                호출을 넘길 관리형 런타임(예: `SsakSearchRuntime.call_tool`). 런타임이 child 와
+                전용 루프를 소유하므로 이 도구는 세션/루프를 만지지 않는다.
+            runtime_note (str): 관리형 런타임 도구임을 메타데이터에 남기는 짧은 설명.
 
         """
+        self._caller = caller
+        self._runtime_note = runtime_note
         self._name = name
         self._description = description
         self._schema = schema
@@ -188,6 +199,30 @@ class MCPTool(BaseTool):
                 error_code="POLICY_DENIED",
             )
 
+        if self._caller is None and self._mcp_client is None:
+            return error_outcome(
+                f"MCP tool '{self._name}' has neither a session nor a managed runtime",
+                server_name=self._server_name,
+                tool_name=self._name,
+                transport=self._transport,
+                error_code="NO_TRANSPORT",
+            )
+
+        if self._caller is not None:
+            # 관리형 런타임 경로: child 와 전용 루프는 런타임이 소유한다(이 도구는 이벤트 루프를
+            # 만지지 않는다 — 세션 자체가 없다).
+            try:
+                return self._caller(self._name, dict(kwargs))
+            except Exception as exc:  # noqa: BLE001 — 런타임 실패도 typed 오류로 보존한다
+                logger.exception("Managed MCP tool '%s' call failed", self._name)
+                return error_outcome(
+                    f"MCP tool '{self._name}' on server '{self._server_name}' call failed: {exc}",
+                    server_name=self._server_name,
+                    tool_name=self._name,
+                    transport=self._transport,
+                    error_code="RUNTIME_ERROR",
+                )
+
         loop_problem = self._prepare_call_loop()
         if isinstance(loop_problem, str):
             return error_outcome(
@@ -199,8 +234,20 @@ class MCPTool(BaseTool):
             )
         loop = loop_problem
 
+        # 관리형 런타임 경로가 아니면 세션 경로다 — 위 NO_TRANSPORT 검사가 둘 다 None 인 경우를
+        # 이미 돌려보냈지만, 타입 좁히기를 위해 여기서 한 번 더 명시한다(동작 변화 없음).
+        client = self._mcp_client
+        if client is None:  # pragma: no cover — 위 검사가 먼저 잡는다
+            return error_outcome(
+                f"MCP tool '{self._name}' has neither a session nor a managed runtime",
+                server_name=self._server_name,
+                tool_name=self._name,
+                transport=self._transport,
+                error_code="NO_TRANSPORT",
+            )
+
         try:
-            result = loop.run_until_complete(self._mcp_client.call_tool(self._name, arguments=kwargs))
+            result = loop.run_until_complete(client.call_tool(self._name, arguments=kwargs))
         except Exception as exc:  # noqa: BLE001 — 전송/프로토콜 실패도 typed 오류로 보존한다
             logger.exception("MCP tool '%s' call failed", self._name)
             return error_outcome(
@@ -259,7 +306,7 @@ class MCPTool(BaseTool):
 
         """
         metadata = super().to_metadata()
-        metadata["mcp"] = {
+        mcp_metadata: dict[str, object] = {
             "server": self._server_name,
             "transport": self._transport,
             "annotations": self._annotations,
@@ -268,6 +315,10 @@ class MCPTool(BaseTool):
             "authenticated": bool(self._server_policy.get("authenticated")),
             "timeout_ms": self._server_policy.get("timeout_ms"),
         }
+        if self._runtime_note:
+            # 관리형 런타임 도구에만 붙인다 — 세션 기반 도구의 메타데이터 표면은 그대로 둔다.
+            mcp_metadata["managed_runtime"] = self._runtime_note
+        metadata["mcp"] = mcp_metadata
         return metadata
 
 
@@ -302,6 +353,63 @@ class MCPToolLoader:
         self.session_manager = MCPSessionManager()
         # 스키마 계약 위반으로 **등록하지 않은** 도구 기록(서버는 살아 있어도 그 도구는 못 쓴다).
         self.schema_errors: list[dict[str, str]] = []
+
+    def load_bundled_search_tools(self, runtime: "SsakSearchRuntime") -> list[BaseTool]:
+        """관리형 런타임이 소유한 번들 검색 child 의 도구를 등록한다.
+
+        세션의 소유자는 런타임 하나다(전용 루프). 이 로더는 목록만 받아 도구를 만들고, 호출은
+        `runtime.call_tool` 로 넘긴다 — 그래서 child 의 stdin/stdout 을 읽는 곳이 둘이 되지 않는다.
+        실패(미준비·스키마 위반)는 `schema_errors` 와 health cache 에 남긴다.
+        """
+        from .ssak_search_runtime import SsakSearchRuntime
+
+        if not isinstance(runtime, SsakSearchRuntime):  # pragma: no cover — 배선 실수 방지
+            raise TypeError("load_bundled_search_tools expects a SsakSearchRuntime")
+        server_name = runtime.config.server_name
+        transport = "bundled_stdio"
+        listings = runtime.list_tools()
+        if not listings:
+            reason = "child advertised no tools (not ready, or the artifact was rejected)"
+            self.schema_errors.append({"server": server_name, "tool": "", "reason": reason})
+            mcp_health_cache.record_failure(
+                server_name,
+                str(runtime.status().get("last_error") or reason),
+                transport=transport,
+                source="bundled-runtime",
+                command=str(runtime.config.launch_command or ""),
+            )
+            return []
+        registered: list[BaseTool] = []
+        names: list[str] = []
+        for entry in listings:
+            name = str(entry.get("name") or "")
+            schema = entry.get("inputSchema")
+            problem = _schema_problem(schema) if name else "tool advertises no name"
+            if problem is not None:
+                logger.error("Skipping managed search tool '%s': %s", name or "(unnamed)", problem)
+                self.schema_errors.append({"server": server_name, "tool": name, "reason": problem})
+                continue
+            tool = MCPTool(
+                name=name,
+                description=str(entry.get("description") or ""),
+                schema=cast(dict[str, object], schema),
+                server_name=server_name,
+                transport=transport,
+                caller=runtime.call_tool,
+                runtime_note=f"managed by {type(runtime).__name__} (one child per host)",
+            )
+            self.tools.append(tool)
+            registered.append(tool)
+            names.append(name)
+            logger.info("Registered managed search tool: %s from %s", name, server_name)
+        mcp_health_cache.record_success(
+            server_name,
+            transport=transport,
+            tools=names,
+            source="bundled-runtime",
+            command=str(runtime.config.launch_command or ""),
+        )
+        return registered
 
     def load_tools(self) -> list[BaseTool]:
         """MCP 서버와 통신하여 사용 가능한 도구 목록을 조회하고 로드합니다.

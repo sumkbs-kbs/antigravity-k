@@ -211,6 +211,22 @@ async def lifespan(app: FastAPI):
     if tasks:
         _ = await asyncio.gather(*tasks, return_exceptions=True)
 
+    # 번들 검색 child 종료 — 호스트가 소유한 child 는 호스트가 닫는다.
+    # 아직 만든 적이 없으면 아무것도 하지 않는다(종료 경로에서 새 child 를 만들지 않는다).
+    try:
+        from antigravity_k.tools.ssak_search_runtime import shutdown_ssak_search_runtime
+
+        search_shutdown = shutdown_ssak_search_runtime()
+        if search_shutdown is not None:
+            logger.info(
+                "[Shutdown] bundled search child: state=%s child_pids=%s clean=%s",
+                search_shutdown.get("state"),
+                search_shutdown.get("child_pids"),
+                search_shutdown.get("shutdown_clean"),
+            )
+    except Exception:
+        logger.exception("[Shutdown] bundled search child shutdown skipped")
+
     # Sidabari 서브시스템 정리
     try:
         from antigravity_k.engine.hook_event_bus import get_hook_event_bus
