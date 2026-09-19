@@ -14,6 +14,8 @@ import remarkBreaks from 'remark-breaks';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { preprocessContent, sanitizeMarkdown } from '../../utils/formatContent';
+// task 14: 도구 실패 봉투가 정상 답변처럼 보이지 않게 — 실패는 실패로 그린다.
+import { searchFailureNotice } from '../../utils/searchFailure';
 // CR-09(F05): mermaid는 CDN 전역이 아니라 다이어그램을 그릴 때 로컬에서 지연 로드한다.
 import { loadMermaid } from '../../utils/mermaidRuntime';
 
@@ -327,6 +329,8 @@ function ChatMessageComponent({ message }: Props) {
   if (!content) return null;
 
   const avatar = role === 'user' ? '👤' : '🤖';
+  // 사용자 발화는 절대 실패로 재해석하지 않는다(사용자가 "Search Error:" 를 인용할 수 있다).
+  const failure = role === 'user' ? null : searchFailureNotice(content);
 
   const displayContent = role === 'assistant'
     ? preprocessContent(sanitizeMarkdown(content))
@@ -378,6 +382,31 @@ function ChatMessageComponent({ message }: Props) {
         )}
         {role === 'user' ? (
           <span className="user-message-text">{content}</span>
+        ) : failure ? (
+          <div
+            role="alert"
+            data-testid="chat-error-notice"
+            data-error-code={failure.code}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              borderInlineStart: '3px solid var(--error-color)',
+              paddingInlineStart: 10,
+            }}
+          >
+            <span style={{ fontSize: 12, color: 'var(--error-color)', fontWeight: 600 }}>
+              ⚠ 이 응답은 실패했습니다 ({failure.code})
+            </span>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{failure.detail}</span>
+            {/* 원문은 접어 둔다 — 진단에는 필요하고, 답변처럼 읽히면 안 된다. */}
+            <details>
+              <summary style={{ fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}>원문 보기</summary>
+              <pre style={{ margin: '6px 0 0', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                {failure.raw}
+              </pre>
+            </details>
+          </div>
         ) : (
           <div className="antigravity-markdown-body">
             <ReactMarkdown
@@ -431,7 +460,7 @@ function ChatMessageComponent({ message }: Props) {
             </ReactMarkdown>
           </div>
         )}
-        {role === 'assistant' && content && (
+        {role === 'assistant' && content && !failure && (
           <MessageActions content={content} />
         )}
       </div>

@@ -21,7 +21,11 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Final
 
-#: 설정 화면에서 다룰 수 있는 provider 비밀 키(정확한 이름만 허용).
+#: 설정 화면에서 다룰 수 있는 비밀 키(정확한 이름만 허용 — 와일드카드는 없다).
+#:
+#: `AGK_SEARCH_ENGINE_TOKEN` 은 원격 검색 백엔드의 bearer 다(task 10 의 `tools/search_auth.py`).
+#: provider 키와 성질이 같다: 값이 결과·로그·화면 어디에도 남지 않아야 하고, 존재 여부만 상태로
+#: 노출한다 → secret 목록에 넣는 것이 곧 "입력은 password, 응답은 불리언" 규칙을 적용한다는 뜻이다.
 SECRET_ENV_KEYS: Final[tuple[str, ...]] = (
     "OPENROUTER_API_KEY",
     "NVIDIA_API_KEY",
@@ -29,12 +33,21 @@ SECRET_ENV_KEYS: Final[tuple[str, ...]] = (
     "GEMINI_API_KEY",
     "ZAI_API_KEY",
     "ANTHROPIC_API_KEY",
+    "AGK_SEARCH_ENGINE_TOKEN",
 )
 
 #: 비밀이 아닌 설정 키.
+#:
+#: `search.ssak.*` (task 13) 는 설정 화면이 켜고/끄고/경로를 지정하는 **결정**이다 — 비밀이 아니다.
+#: 이 키들은 환경변수 > yaml 우선순위를 이미 갖고 있어(`AGK_SEARCH_SSAK_*`), 화면이 `.env`에 쓰면
+#: 다음 로드부터 곧바로 반영된다. 경로는 비밀값이 아니라 사용자가 스스로 입력해 스스로 보는 값이다.
 PLAIN_ENV_KEYS: Final[tuple[str, ...]] = (
     "AGK_DAILY_BUDGET_USD",
     "AGK_HOURLY_ACTION_LIMIT",
+    "AGK_SEARCH_SSAK_ENABLED",
+    "AGK_SEARCH_SSAK_MODE",
+    "AGK_SEARCH_SSAK_FALLBACK",
+    "AGK_SEARCH_SSAK_ARTIFACT_PATH",
 )
 
 ALLOWED_ENV_KEYS: Final[tuple[str, ...]] = SECRET_ENV_KEYS + PLAIN_ENV_KEYS

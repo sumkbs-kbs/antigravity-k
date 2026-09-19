@@ -252,6 +252,125 @@ export const SettingsDeleteResponseSchema = z.object({
   message: z.string().optional(),
 });
 
+/* ─── 통합 검색 상태·증거 (task 14) ────────────────────────────────────────────
+ *
+ * `availability` 는 계약 문자열이고, `label`/`tone`/`detail` 은 **서버가 옮긴 사용자 의미**다.
+ * 화면이 `state`(ready/degraded/…)를 직접 해석하지 않는 이유: 번역이 두 곳에 생기면 갈라지고,
+ * 그 순간 사용자는 서버가 생각하는 상태가 아니라 화면이 추측한 상태를 읽게 된다.
+ *
+ * `artifact_name` 만 온다 — 절대 경로는 응답에 없다(비밀·경로 위생).
+ */
+export const SearchAvailabilitySchema = z.enum([
+  'disabled',
+  'misconfigured',
+  'idle',
+  'starting',
+  'available',
+  'unavailable',
+]);
+
+export const SearchSettingsViewSchema = z.object({
+  enabled: z.boolean(),
+  mode: z.string(),
+  mode_supported: z.boolean(),
+  fallback: z.string(),
+  artifact_configured: z.boolean(),
+  artifact_name: z.string().nullable().optional(),
+  artifact_trusted: z.boolean(),
+  problem: z.string().nullable().optional(),
+});
+
+export const SearchRuntimeViewSchema = z.object({
+  present: z.boolean(),
+  state: z.string().nullable().optional(),
+  circuit_open: z.boolean(),
+  last_error: z.string().nullable().optional(),
+  child_count: z.number().int(),
+  start_attempts: z.number().int().optional(),
+  spawn_attempts: z.number().int().optional(),
+  restart_required: z.boolean(),
+});
+
+export const SearchSourceSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+  snippet: z.string().default(''),
+  score: z.number().nullable().optional(),
+  provider: z.string().nullable().optional(),
+  authority_boost: z.boolean().default(false),
+  security_warning: z.string().nullable().optional(),
+});
+
+export const SearchBudgetSchema = z.object({
+  bytes: z.number().nullable().optional(),
+  tokens: z.number().nullable().optional(),
+  exceeded: z.string().nullable().optional(),
+  trimmed_items: z.number().int().default(0),
+  truncated: z.boolean().default(false),
+});
+
+export const SearchEvidenceSchema = z.object({
+  query: z.string(),
+  ok: z.boolean(),
+  route: z.string(),
+  error_code: z.string().nullable().optional(),
+  failure_class: z.string().default('ok'),
+  message: z.string().default(''),
+  engine: z.string().optional(),
+  sources: z.array(SearchSourceSchema).default([]),
+  retrieved_at: z.string().nullable().optional(),
+  took_ms: z.number().nullable().optional(),
+  from_cache: z.boolean().default(false),
+  cache_age_ms: z.number().nullable().optional(),
+  aborted_backends: z.array(z.string()).default([]),
+  signal_confidence: z.string().nullable().optional(),
+  decomposed_subqueries: z.array(z.string()).default([]),
+  phishing_filtered: z.number().nullable().optional(),
+  partial: z.boolean().default(false),
+  budget: SearchBudgetSchema.nullable().optional(),
+  artifact_name: z.string().nullable().optional(),
+});
+
+export const SearchStatusSchema = z.object({
+  ok: z.boolean().default(true),
+  availability: SearchAvailabilitySchema,
+  label: z.string(),
+  tone: z.string(),
+  detail: z.string(),
+  recoverable: z.boolean(),
+  settings: SearchSettingsViewSchema,
+  runtime: SearchRuntimeViewSchema,
+  evidence: z.array(SearchEvidenceSchema).optional(),
+  // 재시도 응답에만 오는 필드들.
+  retried: z.boolean().optional(),
+  ready: z.boolean().optional(),
+  saved: z.array(z.string()).optional(),
+});
+
+export const SearchEvidenceResponseSchema = z.object({
+  ok: z.boolean().default(true),
+  count: z.number().int(),
+  evidence: z.array(SearchEvidenceSchema),
+});
+
+export const SearchProbeResponseSchema = z.object({
+  ok: z.boolean(),
+  query: z.string(),
+  evidence: SearchEvidenceSchema.nullable().optional(),
+  error_code: z.string().nullable().optional(),
+  failure_class: z.string().optional(),
+});
+
+export type SearchAvailability = z.infer<typeof SearchAvailabilitySchema>;
+export type SearchSettingsView = z.infer<typeof SearchSettingsViewSchema>;
+export type SearchRuntimeView = z.infer<typeof SearchRuntimeViewSchema>;
+export type SearchSource = z.infer<typeof SearchSourceSchema>;
+export type SearchBudget = z.infer<typeof SearchBudgetSchema>;
+export type SearchEvidence = z.infer<typeof SearchEvidenceSchema>;
+export type SearchStatus = z.infer<typeof SearchStatusSchema>;
+export type SearchEvidenceResponse = z.infer<typeof SearchEvidenceResponseSchema>;
+export type SearchProbeResponse = z.infer<typeof SearchProbeResponseSchema>;
+
 export const ChatCompletionChunkSchema = z.object({
   choices: z.array(z.object({
     delta: z.object({

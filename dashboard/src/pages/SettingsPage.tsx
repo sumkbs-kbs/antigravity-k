@@ -13,6 +13,7 @@ import McpHealthCachePanel from '../components/shared/McpHealthCachePanel';
 import McpOAuthPanel from '../components/shared/McpOAuthPanel';
 import ModelOperationsPanel from '../components/shared/ModelOperationsPanel';
 import SessionDisclosurePanel from '../components/shared/SessionDisclosurePanel';
+import SearchIntegrationPanel from '../components/Search/SearchIntegrationPanel';
 import {
   changeAccessPin,
   deleteSettingsKeys,
@@ -237,6 +238,23 @@ const SettingsPage: React.FC = () => {
       dispatch({ type: 'loadError' });
     }
   }, [hydrateFromServer]);
+
+  /**
+   * provider별 '설정됨' 상태만 다시 읽는다(task 14).
+   *
+   * 통합 검색 패널이 토큰을 저장한 뒤 부른다 — 그 패널이 자기만의 `/api/settings` 를 갖지 않게
+   * 하려고(왕복 중복 + 두 시점의 진실) 이 페이지가 계속 소유한다.
+   */
+  const refreshConfiguredKeys = useCallback(() => {
+    void (async () => {
+      try {
+        const refreshed = await fetchSettings();
+        dispatch({ type: 'setConfiguredKeys', value: refreshed.api_keys_configured ?? {} });
+      } catch {
+        // 토큰 상태를 못 읽는다고 방금 성공한 저장을 실패로 바꾸지 않는다.
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     void loadSettings();
@@ -580,6 +598,18 @@ const SettingsPage: React.FC = () => {
             ))}
           </div>
         </GlassPanel>
+
+        {/*
+         * 03B. 통합 검색 (task 14) — 번들 provider 의 켜기/끄기·상태·증거.
+         *
+         * 별도 컴포넌트인 이유: 이 패널의 진실은 `/api/search/*`(설정 스냅숏 + 런타임 상태)이고
+         * 이 페이지의 폼 상태(apiKeys/모델/비용)와 수명이 다르다 — 한 reducer 에 섞으면 저장
+         * 단위가 달라지는 순간 둘이 서로를 덮어쓴다.
+         */}
+        <SearchIntegrationPanel
+          engineTokenConfigured={configuredKeys.AGK_SEARCH_ENGINE_TOKEN === true}
+          onEngineTokenSaved={refreshConfiguredKeys}
+        />
 
         {/* 4. Cost Control */}
         <GlassPanel title={<><span className="section-index">04</span> 비용 제어</>} variant="section" className="settings-section">

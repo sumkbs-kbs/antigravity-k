@@ -534,3 +534,40 @@ describe('ChatMessage code block', () => {
     expect(metaContainer?.textContent).toContain('1.2s');
   });
 });
+
+/* ─── task 14: 실패 봉투는 답변처럼 보이지 않는다 ───────────── */
+
+describe('ChatMessage 실패 봉투', () => {
+  it('Search Error: 접두어는 오류 블록으로 그린다(마크다운 산문이 아니다)', () => {
+    render(<ChatMessage message={createMessage({ content: 'Search Error: 결과를 가져오지 못했습니다' })} />);
+
+    const notice = screen.getByTestId('chat-error-notice');
+    expect(notice).toHaveAttribute('role', 'alert');
+    expect(notice).toHaveAttribute('data-error-code', 'SEARCH_FAILED');
+    expect(notice).toHaveTextContent('결과를 가져오지 못했습니다');
+    // 답변용 액션(복사 등)을 붙이지 않는다 — 실패를 답변으로 대접하지 않는다.
+    expect(screen.queryByRole('group', { name: /assistant markdown/i })).toBeNull();
+  });
+
+  it('오류 봉투 JSON 은 코드를 보여준다', () => {
+    render(<ChatMessage message={createMessage({ content: '{"error":{"code":"AUTH_REQUIRED","detail":"자격 증명 필요"}}' })} />);
+
+    const notice = screen.getByTestId('chat-error-notice');
+    expect(notice).toHaveAttribute('data-error-code', 'AUTH_REQUIRED');
+    expect(notice).toHaveTextContent('자격 증명 필요');
+  });
+
+  it('사용자가 쓴 메시지는 실패로 재해석하지 않는다', () => {
+    render(<ChatMessage message={createMessage({ role: 'user', content: 'Search Error: 라고 나왔어' })} />);
+
+    expect(screen.queryByTestId('chat-error-notice')).toBeNull();
+    expect(screen.getByText('Search Error: 라고 나왔어')).toBeInTheDocument();
+  });
+
+  it('error 라는 단어가 있는 정상 답변은 그대로 산문으로 그린다', () => {
+    render(<ChatMessage message={createMessage({ content: '이 함수는 error 를 반환하지 않습니다.' })} />);
+
+    expect(screen.queryByTestId('chat-error-notice')).toBeNull();
+    expect(screen.getByText(/error 를 반환하지 않습니다/)).toBeInTheDocument();
+  });
+});

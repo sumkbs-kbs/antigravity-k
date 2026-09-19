@@ -32,6 +32,7 @@ from .operational_alerts import router as operational_alerts_router
 from .recipes_api import router as recipes_router
 from .remote_pairing_api import router as remote_pairing_router
 from .responses_api import router as responses_router
+from .search_api import router as search_router
 from .security_api import router as security_router
 from .system_api import router as system_api_router
 from .task_api import router as task_api_router
@@ -55,6 +56,7 @@ api_router.include_router(conversation_router, tags=["conversation"])
 api_router.include_router(events_router, tags=["events"])
 api_router.include_router(filesystem_router, tags=["filesystem"])
 api_router.include_router(system_api_router, tags=["system"])
+api_router.include_router(search_router, tags=["search"])
 api_router.include_router(vault_privacy_router, tags=["memory"])
 api_router.include_router(task_api_router, tags=["tasks"])
 api_router.include_router(artifact_api.router, tags=["artifacts"])

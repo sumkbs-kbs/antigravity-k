@@ -22,6 +22,9 @@ import {
   SettingsResponseSchema,
   SettingsDeleteResponseSchema,
   SettingsSaveResponseSchema,
+  SearchEvidenceResponseSchema,
+  SearchProbeResponseSchema,
+  SearchStatusSchema,
   SessionDisclosureSchema,
   SystemMetricsSchema,
   LocalModelsResponseSchema,
@@ -59,6 +62,9 @@ import type {
   SettingsData,
   SettingsDeleteResponse,
   SettingsSaveResponse,
+  SearchEvidenceResponse,
+  SearchProbeResponse,
+  SearchStatus,
   SessionDisclosure,
   DisclosureLevel,
   LimitDisclosure,
@@ -98,6 +104,19 @@ export type {
   SettingsDeleteResponse,
   SettingsSaveResponse,
 };
+
+// 통합 검색(task 14)의 wire 타입 — 화면이 상태·증거를 직접 그릴 때 쓴다.
+export type {
+  SearchAvailability,
+  SearchBudget,
+  SearchEvidence,
+  SearchEvidenceResponse,
+  SearchProbeResponse,
+  SearchRuntimeView,
+  SearchSettingsView,
+  SearchSource,
+  SearchStatus,
+} from './clientSchema';
 
 const API_BASE = '/v1';
 
@@ -699,6 +718,51 @@ export async function fetchNetworkAccessInfo(): Promise<NetworkAccessInfo> {
     throw new Error('Unexpected network access-info response.');
   }
   return raw as NetworkAccessInfo;
+}
+
+/* ─── 통합 검색 상태·증거 (task 14) ────────────────────────────────────────────
+ *
+ * 설정 저장만 `POST` 이고 나머지는 읽기다. "연결 확인"(probe)은 번들 provider 로 **한 번** 실제
+ * 검색을 돌리는 명시적 행동이므로, 이 함수가 곧 사용자가 누른 버튼이다(자동 폴링에 쓰지 않는다).
+ */
+export async function fetchSearchStatus(includeEvidence = true): Promise<SearchStatus> {
+  const query = includeEvidence ? '?include_evidence=true' : '?include_evidence=false';
+  const raw = await requestJson(`/api/search/status${query}`, '/api/search/status');
+  return SearchStatusSchema.parse(raw);
+}
+
+/** 검색 설정 부분 갱신. `artifact_path: ''` 는 **지우기**이고 누락은 유지다(서버 계약). */
+export type SearchSettingsUpdate = {
+  enabled?: boolean;
+  mode?: string;
+  fallback?: string;
+  artifact_path?: string;
+};
+
+export async function saveSearchSettings(update: SearchSettingsUpdate): Promise<SearchStatus> {
+  const raw = await requestJson('/api/search/settings', '/api/search/settings', {
+    method: 'POST',
+    body: JSON.stringify(update),
+  });
+  return SearchStatusSchema.parse(raw);
+}
+
+export async function retrySearch(): Promise<SearchStatus> {
+  const raw = await requestJson('/api/search/retry', '/api/search/retry', { method: 'POST', body: '{}' });
+  return SearchStatusSchema.parse(raw);
+}
+
+export async function probeSearch(query: string, maxResults = 5): Promise<SearchProbeResponse> {
+  const raw = await requestJson('/api/search/probe', '/api/search/probe', {
+    method: 'POST',
+    body: JSON.stringify({ query, max_results: maxResults }),
+  });
+  return SearchProbeResponseSchema.parse(raw);
+}
+
+export async function fetchSearchEvidence(limit = 5): Promise<SearchEvidenceResponse> {
+  const raw = await requestJson(`/api/search/evidence?limit=${limit}`, '/api/search/evidence');
+  return SearchEvidenceResponseSchema.parse(raw);
 }
 
 export async function fetchSettings(): Promise<SettingsData> {

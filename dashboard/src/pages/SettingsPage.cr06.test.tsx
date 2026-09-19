@@ -24,10 +24,17 @@ const apiMocks = vi.hoisted(() => ({
   setLogLevel: vi.fn(),
   setAllLogLevels: vi.fn(),
   setDebugMode: vi.fn(),
+  // task 14: 통합 검색 패널이 쓰는 문. 이 테스트들은 그 패널을 검증하지 않으므로 꺼진 상태만 준다.
+  fetchSearchStatus: vi.fn(async () => searchStatusFixture()),
+  saveSearchSettings: vi.fn(),
+  retrySearch: vi.fn(),
+  probeSearch: vi.fn(),
+  fetchSearchEvidence: vi.fn(),
   isAuthRequiredError: vi.fn(() => false),
 }));
 
 vi.mock('../api/client', () => apiMocks);
+import { searchStatus as searchStatusFixture } from '../tests/searchStatusFixture';
 vi.mock('../components/shared/CacheStatsPanel', () => ({ default: () => <div /> }));
 vi.mock('../components/shared/McpHealthCachePanel', () => ({ default: () => <div /> }));
 vi.mock('../components/shared/McpOAuthPanel', () => ({ default: () => <div /> }));

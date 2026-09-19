@@ -1070,6 +1070,70 @@ def get_ssak_search_runtime(config: SearchRuntimeConfig | None = None) -> SsakSe
         return _host_runtime
 
 
+def resolve_ssak_search_runtime(
+    config: SearchRuntimeConfig,
+    *,
+    replace_when_idle: bool = False,
+) -> SsakSearchRuntime:
+    """설정과 어긋나는 싱글턴을 **child 가 없을 때만** 교체해 돌려준다.
+
+    왜 필요한가: 싱글턴은 처음 만들어질 때의 설정을 붙들므로, 설정 화면에서 artifact 경로를
+    바꿔도 살아 있는 싱글턴은 옛 경로를 계속 쓴다. 그렇다고 **child 를 거둬내고 교체하면**
+    진행 중인 검색이 죽는다(그리고 task 15 가 "실행 중 child binary 직접 교체 금지"를 요구한다).
+    그래서:
+
+    - `replace_when_idle=True` 이고 관측된 child 가 0 이면 → 기존 싱글턴을 정리하고 새로 만든다.
+    - child 가 살아 있으면 → 손대지 않고 그대로 돌려준다(`restart_required` 는 별도 판정).
+    - `replace_when_idle=False`(기본) → `get_ssak_search_runtime` 과 같은 동작(동일성 보장).
+
+    기본값이 False 인 이유: task 12 의 "한 host instance = 한 런타임" 동일성 계약을 깨지 않기
+    위해, 교체는 **명시적으로 요청한 경로**(상태 확인·재시도·연결 확인)에서만 일어나야 한다.
+    """
+    if not replace_when_idle:
+        return get_ssak_search_runtime(config)
+    global _host_runtime
+    with _HOST_RUNTIME_LOCK:
+        current = _host_runtime
+    if current is not None and _runtime_config_matches(current.config, config):
+        return current
+    if current is not None and current.child_pids():
+        # 살아 있는 child 를 거둬내지 않는다 — 교체 대신 그대로 쓴다.
+        logger.warning("ssak search runtime is serving a live child; not replacing it for new settings")
+        return current
+    with _HOST_RUNTIME_LOCK:
+        if _host_runtime is current:
+            _host_runtime = None
+    if current is not None:
+        with contextlib.suppress(Exception):  # noqa: BLE001 — 교체가 실패해도 새 런타임은 만든다
+            current.shutdown(timeout=10.0)
+    return get_ssak_search_runtime(config)
+
+
+def _runtime_config_matches(left: SearchRuntimeConfig, right: SearchRuntimeConfig) -> bool:
+    """두 설정이 **같은 child 를 가리키는가**(경로·활성 여부·server 이름).
+
+    backoff/타임아웃 같은 튜닝 값은 교체 사유가 아니다 — 교체는 "다른 것을 실행하려 한다"일 때만 한다.
+    """
+    return (
+        left.enabled == right.enabled
+        and left.server_name == right.server_name
+        and _same_path(left.artifact_path, right.artifact_path)
+        and _same_path(left.manifest_path, right.manifest_path)
+    )
+
+
+def _same_path(left: str | None, right: str | None) -> bool:
+    left_text = str(left or "").strip()
+    right_text = str(right or "").strip()
+    if not left_text or not right_text:
+        # 빈 문자열과 None 은 같은 뜻이다 — 여기서 갈라지면 매 호출마다 교체가 일어난다.
+        return not left_text and not right_text
+    try:
+        return Path(left_text).expanduser().resolve() == Path(right_text).expanduser().resolve()
+    except OSError:  # pragma: no cover — 해석 불가 경로는 문자열 비교로 물러선다
+        return left_text == right_text
+
+
 def runtime_config_from_env(env: Mapping[str, str] | None = None) -> SearchRuntimeConfig:
     """환경 변수에서 설정을 읽는다(task 13 이 config 스키마를 확장하기 전의 최소 표면).
 
@@ -1108,6 +1172,7 @@ __all__ = [
     "SearchRuntimeState",
     "SsakSearchRuntime",
     "get_ssak_search_runtime",
+    "resolve_ssak_search_runtime",
     "runtime_config_from_env",
     "shutdown_ssak_search_runtime",
     "verify_bundled_artifact",

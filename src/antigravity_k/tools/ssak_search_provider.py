@@ -25,8 +25,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -118,12 +121,132 @@ class ProviderAttempt:
     results: list[tuple[str, str, str]] = field(default_factory=list)
     error_code: str | None = None
     engine: str = "SsakBundle"
+    evidence: SearchEvidence | None = None
 
     @property
     def failure_class(self) -> str:
         if self.ok:
             return "ok"
         return "transient" if self.transient else "permanent"
+
+
+# ── 증거(evidence) — UI 가 사용자에게 보여줄 수 있는 형태 ─────────────────────
+#
+# 번들 응답은 텍스트 안에 JSON 봉투로 온다(W `AgentSearchResult`):
+# ``{query, took_ms, hits[{title,url,snippet,score,source,authority_boost,security_warning}],
+#   aborted_backends[], signal_confidence, decomposed_subqueries?, cached?, cache_age_ms?,
+#   phishing_filtered?}`` 그리고 상한을 넘겨 항목이 잘린 경우에만 ``budget`` 이 붙는다.
+# 여기서 그 필드들을 **버리지 않고** 보존한다 — UI 가 출처·수집시각·부분 수집·상한 초과를
+# 사용자에게 그대로 보여주려면 이 값들이 필요하고, 문자열을 다시 파싱하게 두면 두 계층이 갈라진다.
+
+#: 보관하는 최근 시도 수(링 버퍼). 메모리 사용을 유계로 두기 위한 값이며,
+#: 자격 증명·질의 원문 외에는 아무것도 담지 않는다(결과 본문만).
+EVIDENCE_HISTORY_LIMIT = 5
+
+
+@dataclass(frozen=True)
+class SearchSource:
+    """출처 한 건 — 원문 링크와 (가능하면) 수집시각을 함께 나른다."""
+
+    title: str
+    url: str
+    snippet: str = ""
+    score: float | None = None
+    provider: str | None = None
+    authority_boost: bool = False
+    security_warning: str | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "title": self.title,
+            "url": self.url,
+            "snippet": self.snippet,
+            "score": self.score,
+            "provider": self.provider,
+            "authority_boost": self.authority_boost,
+            "security_warning": self.security_warning,
+        }
+
+
+@dataclass(frozen=True)
+class SearchBudget:
+    """응답 상한 때문에 항목을 잘라낸 사실(잘린 게 없으면 UI 는 아무것도 표시하지 않는다)."""
+
+    bytes: int | None = None
+    tokens: int | None = None
+    exceeded: str | None = None
+    trimmed_items: int = 0
+
+    @property
+    def truncated(self) -> bool:
+        return self.trimmed_items > 0 or self.exceeded is not None
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "bytes": self.bytes,
+            "tokens": self.tokens,
+            "exceeded": self.exceeded,
+            "trimmed_items": self.trimmed_items,
+            "truncated": self.truncated,
+        }
+
+
+@dataclass(frozen=True)
+class SearchEvidence:
+    """검색 시도 한 건의 관측 가능한 사실 전부(성공·실패·부분 수집을 한 모양으로)."""
+
+    query: str
+    ok: bool
+    route: str
+    error_code: str | None = None
+    failure_class: str = "ok"
+    message: str = ""
+    engine: str = "SsakBundle"
+    sources: tuple[SearchSource, ...] = ()
+    #: 결과가 실제로 수집된 시각(ISO-8601 UTC). 캐시 응답이면 캐시가 담긴 시점이다.
+    retrieved_at: str | None = None
+    #: 검색에 걸린 시간(ms). 캐시 응답은 그 실행의 시간이 아니다.
+    took_ms: int | None = None
+    from_cache: bool = False
+    cache_age_ms: int | None = None
+    #: 응답하지 않은 백엔드 — "일부 소스만 수집됨"의 근거다(추측이 아니라 보고된 값).
+    aborted_backends: tuple[str, ...] = ()
+    signal_confidence: str | None = None
+    decomposed_subqueries: tuple[str, ...] = ()
+    phishing_filtered: int | None = None
+    budget: SearchBudget | None = None
+    #: 어떤 artifact 가 이 결과를 만들었는지(파일명만 — 경로는 노출하지 않는다).
+    artifact_name: str | None = None
+
+    @property
+    def partial(self) -> bool:
+        """부분 수집인가 — 백엔드가 빠졌거나 신뢰도가 HIGH 가 아닐 때."""
+        if self.aborted_backends:
+            return True
+        return self.signal_confidence in {"LOW", "MEDIUM"}
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "query": self.query,
+            "ok": self.ok,
+            "route": self.route,
+            "error_code": self.error_code,
+            "failure_class": self.failure_class,
+            "message": self.message,
+            "engine": self.engine,
+            "sources": [source.as_dict() for source in self.sources],
+            "retrieved_at": self.retrieved_at,
+            "took_ms": self.took_ms,
+            "from_cache": self.from_cache,
+            "cache_age_ms": self.cache_age_ms,
+            "aborted_backends": list(self.aborted_backends),
+            "signal_confidence": self.signal_confidence,
+            "decomposed_subqueries": list(self.decomposed_subqueries),
+            "phishing_filtered": self.phishing_filtered,
+            "partial": self.partial,
+            "budget": self.budget.as_dict() if self.budget is not None else None,
+            "artifact_name": self.artifact_name,
+        }
 
 
 def classify_error_code(code: str | None) -> str:
@@ -286,7 +409,7 @@ def resolve_manifest_path(artifact: str | os.PathLike[str] | None, explicit: str
 # ── 호출 ─────────────────────────────────────────────────────────────────────
 
 
-def _runtime_config(settings: SsakSearchSettings) -> SearchRuntimeConfig:
+def bundled_runtime_config(settings: SsakSearchSettings) -> SearchRuntimeConfig:
     from antigravity_k.tools.ssak_search_runtime import SearchRuntimeConfig
 
     manifest = resolve_manifest_path(settings.artifact_path, settings.manifest_path)
@@ -299,34 +422,246 @@ def _runtime_config(settings: SsakSearchSettings) -> SearchRuntimeConfig:
 
 
 def _hits_from_outcome(outcome: MCPToolOutcome) -> list[tuple[str, str, str]]:
-    """MCP 결과에서 (title, url, snippet) 을 꺼낸다 — structuredContent 우선, 없으면 본문 JSON."""
-    structured = getattr(outcome, "structured_content", None)
-    payload: object = structured if isinstance(structured, Mapping) else None
+    """MCP 결과에서 (title, url, snippet) 을 꺼낸다 — `_sources_from_payload` 와 같은 파서를 쓴다.
+
+    같은 봉투를 두 번 다르게 읽으면 두 소비자가 갈라진다(한쪽만 `description` 폴백을 알아챈다).
+    """
+    payload = _payload_from_outcome(outcome)
     if payload is None:
-        text = str(outcome)
-        start = text.find("{")
-        if start >= 0:
-            try:
-                payload = json.loads(text[start:])
-            except json.JSONDecodeError:
-                payload = None
-    if not isinstance(payload, Mapping):
         return []
-    mapping = cast(Mapping[str, object], payload)
-    raw_hits = mapping.get("hits", mapping.get("results", []))
-    if not isinstance(raw_hits, list):
-        return []
-    hits: list[tuple[str, str, str]] = []
-    for item in cast(list[object], raw_hits):
+    return [(source.title, source.url, source.snippet) for source in _sources_from_payload(payload)]
+
+
+def _payload_from_outcome(outcome: MCPToolOutcome) -> Mapping[str, object] | None:
+    """MCP 결과에서 JSON 봉투를 꺼낸다 — structuredContent 우선, 없으면 본문 JSON."""
+    structured = getattr(outcome, "structured_content", None)
+    if isinstance(structured, Mapping):
+        return cast(Mapping[str, object], structured)
+    text = str(outcome)
+    start = text.find("{")
+    if start < 0:
+        return None
+    try:
+        parsed: object = json.loads(text[start:])
+    except json.JSONDecodeError:
+        return None
+    return cast(Mapping[str, object], parsed) if isinstance(parsed, Mapping) else None
+
+
+def _text(value: object) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def _int_or_none(value: object) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value: object) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _string_tuple(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(text for text in (_text(item) for item in cast(list[object], value)) if text)
+
+
+def _is_true(value: object) -> bool:
+    """JSON 불리언만 참으로 본다 — `"false"` 문자열을 참으로 읽지 않는다."""
+    return value is True
+
+
+def _sources_from_payload(payload: Mapping[str, object]) -> tuple[SearchSource, ...]:
+    raw = payload.get("hits", payload.get("results", []))
+    if not isinstance(raw, list):
+        return ()
+    sources: list[SearchSource] = []
+    for item in cast(list[object], raw):
         if not isinstance(item, Mapping):
             continue
         entry = cast(Mapping[str, object], item)
-        title = str(entry.get("title") or "").strip()
-        url = str(entry.get("url") or "").strip()
-        snippet = str(entry.get("snippet") or entry.get("description") or "").strip()
-        if title or url:
-            hits.append((title or url, url, snippet))
-    return hits
+        title = _text(entry.get("title"))
+        url = _text(entry.get("url"))
+        if not title and not url:
+            continue
+        warning: str | None = None
+        raw_warning = entry.get("security_warning")
+        if isinstance(raw_warning, Mapping):
+            warning_entry = cast(Mapping[str, object], raw_warning)
+            warning = _text(warning_entry.get("detail")) or _text(warning_entry.get("code")) or None
+        elif raw_warning is not None:
+            warning = _text(raw_warning) or None
+        sources.append(
+            SearchSource(
+                title=title or url,
+                url=url,
+                snippet=_text(entry.get("snippet", entry.get("description"))),
+                score=_float_or_none(entry.get("score")),
+                provider=_text(entry.get("source")) or None,
+                authority_boost=_is_true(entry.get("authority_boost")),
+                security_warning=warning,
+            )
+        )
+    return tuple(sources)
+
+
+def _budget_from_payload(payload: Mapping[str, object]) -> SearchBudget | None:
+    raw = payload.get("budget")
+    if not isinstance(raw, Mapping):
+        return None
+    entry = cast(Mapping[str, object], raw)
+    return SearchBudget(
+        bytes=_int_or_none(entry.get("bytes")),
+        tokens=_int_or_none(entry.get("tokens")),
+        exceeded=_text(entry.get("exceeded")) or None,
+        trimmed_items=_int_or_none(entry.get("trimmed_items")) or 0,
+    )
+
+
+def _retrieved_at(now: datetime, from_cache: bool, cache_age_ms: int | None) -> str:
+    """결과가 실제로 수집된 시각.
+
+    캐시 응답은 **지금** 수집한 게 아니다 — 그 사실을 숨기면 UI 가 오래된 결과를 "방금 수집"으로
+    표시하게 된다. 캐시 나이가 있으면 그만큼 되돌린다.
+    """
+    if from_cache and cache_age_ms and cache_age_ms > 0:
+        now = now - timedelta(milliseconds=cache_age_ms)
+    return now.isoformat().replace("+00:00", "Z")
+
+
+def _artifact_name(path: str | None) -> str | None:
+    if not path:
+        return None
+    try:
+        return Path(path).name or None
+    except (OSError, ValueError):  # pragma: no cover — 비정상 경로는 이름을 만들지 않는다
+        return None
+
+
+def _evidence_from_outcome(
+    outcome: MCPToolOutcome,
+    *,
+    query: str,
+    settings: SsakSearchSettings,
+    route: str,
+    fallback_used: bool = False,
+) -> SearchEvidence:
+    """성공·실패 결과를 **같은 모양의** 증거로 만든다(UI 가 분기 없이 그릴 수 있게)."""
+    now = datetime.now(timezone.utc)
+    artifact = _artifact_name(settings.artifact_path)
+    is_error = bool(getattr(outcome, "is_error", False))
+    if is_error:
+        code = getattr(outcome, "error_code", None)
+        code_text = str(code) if code else None
+        failure = classify_error_code(code_text)
+        return SearchEvidence(
+            query=query,
+            ok=False,
+            route=route,
+            error_code=code_text or "UNKNOWN_ERROR",
+            failure_class=failure,
+            message=str(outcome),
+            retrieved_at=now.isoformat().replace("+00:00", "Z"),
+            artifact_name=artifact,
+        )
+    payload = _payload_from_outcome(outcome)
+    if payload is None:
+        return SearchEvidence(
+            query=query,
+            ok=True,
+            route=route,
+            message=str(outcome),
+            engine="SsakBundle(0 hits)",
+            retrieved_at=now.isoformat().replace("+00:00", "Z"),
+            artifact_name=artifact,
+        )
+    from_cache = _is_true(payload.get("cached"))
+    cache_age_ms = _int_or_none(payload.get("cache_age_ms"))
+    sources = _sources_from_payload(payload)
+    return SearchEvidence(
+        query=query,
+        ok=True,
+        route=route,
+        message=str(outcome),
+        engine="SsakBundle(0 hits)" if not sources else "SsakBundle",
+        sources=sources,
+        retrieved_at=_retrieved_at(now, from_cache, cache_age_ms),
+        took_ms=_int_or_none(payload.get("took_ms")),
+        from_cache=from_cache,
+        cache_age_ms=cache_age_ms,
+        aborted_backends=_string_tuple(payload.get("aborted_backends")),
+        signal_confidence=_text(payload.get("signal_confidence")) or None,
+        decomposed_subqueries=_string_tuple(payload.get("decomposed_subqueries")),
+        phishing_filtered=_int_or_none(payload.get("phishing_filtered")),
+        budget=_budget_from_payload(payload),
+        artifact_name=artifact,
+    )
+
+
+def _refused_evidence(
+    query: str,
+    *,
+    code: str,
+    message: str,
+    settings: SsakSearchSettings,
+) -> SearchEvidence:
+    """라우팅 **이전에** 거절한 경우(설정 오류·신뢰 경로 밖·정책 거절)의 증거."""
+    return SearchEvidence(
+        query=query,
+        ok=False,
+        route=f"blocked ({code})",
+        error_code=code,
+        failure_class=classify_error_code(code),
+        message=message,
+        retrieved_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        artifact_name=_artifact_name(settings.artifact_path),
+    )
+
+
+# ── 증거 링 버퍼(호스트 전역) ────────────────────────────────────────────────
+
+_EVIDENCE_LOCK = threading.Lock()
+_EVIDENCE_RING: deque[SearchEvidence] = deque(maxlen=EVIDENCE_HISTORY_LIMIT)
+
+
+def record_search_evidence(evidence: SearchEvidence) -> SearchEvidence:
+    """최근 시도에 기록한다(최신이 뒤). 기록 실패가 검색을 깨면 안 되므로 예외를 내지 않는다."""
+    try:
+        with _EVIDENCE_LOCK:
+            _EVIDENCE_RING.append(evidence)
+    except Exception:  # noqa: BLE001 — 증거는 부가 정보지 검색의 결과가 아니다
+        logger.debug("검색 증거 기록 실패", exc_info=True)
+    return evidence
+
+
+def latest_search_evidence(limit: int = EVIDENCE_HISTORY_LIMIT) -> list[SearchEvidence]:
+    """최근 시도들을 **최신이 앞**으로 돌려준다."""
+    with _EVIDENCE_LOCK:
+        items = list(_EVIDENCE_RING)
+    items.reverse()
+    return items[: max(0, limit)]
+
+
+def clear_search_evidence() -> None:
+    """링을 비운다(시험 전용 — 운영 경로에서 부르지 않는다)."""
+    with _EVIDENCE_LOCK:
+        _EVIDENCE_RING.clear()
 
 
 def search_with_bundled_provider(
@@ -342,58 +677,86 @@ def search_with_bundled_provider(
     "한 host instance 가 한 child 를 관리한다"를 여기서도 깨지 않는다.
     """
     if settings.problem:
-        return ProviderAttempt(False, False, settings.problem, error_code="INVALID_ARGUMENT")
-    if not is_trusted_artifact_path(settings.artifact_path, settings.extra_trusted_roots):
+        evidence = _refused_evidence(query, code="INVALID_ARGUMENT", message=settings.problem, settings=settings)
         return ProviderAttempt(
-            False,
-            False,
-            f"artifact_path is outside the trusted roots (set {TRUSTED_ROOTS_ENV} to add one): {settings.artifact_path}",
-            error_code="UNTRUSTED_ARTIFACT_PATH",
+            False, False, settings.problem, error_code="INVALID_ARGUMENT", evidence=record_search_evidence(evidence)
+        )
+    if not is_trusted_artifact_path(settings.artifact_path, settings.extra_trusted_roots):
+        message = (
+            f"artifact_path is outside the trusted roots (set {TRUSTED_ROOTS_ENV} to add one): {settings.artifact_path}"
+        )
+        evidence = _refused_evidence(query, code="UNTRUSTED_ARTIFACT_PATH", message=message, settings=settings)
+        return ProviderAttempt(
+            False, False, message, error_code="UNTRUSTED_ARTIFACT_PATH", evidence=record_search_evidence(evidence)
         )
     denial = mcp_server_policy_denial(BUNDLED_TOOL_NAME, BUNDLED_SERVER_NAME)
     if denial is not None:
         # 사용자가 이 요청에서 검색을 껐다 — legacy 로 대체하면 그 결정을 뒤집게 된다.
-        return ProviderAttempt(False, False, denial, error_code="POLICY_DENIED")
+        evidence = _refused_evidence(query, code="POLICY_DENIED", message=denial, settings=settings)
+        return ProviderAttempt(
+            False, False, denial, error_code="POLICY_DENIED", evidence=record_search_evidence(evidence)
+        )
     try:
         if runtime is None:
-            from antigravity_k.tools.ssak_search_runtime import get_ssak_search_runtime
+            from antigravity_k.tools.ssak_search_runtime import resolve_ssak_search_runtime
 
-            runtime = get_ssak_search_runtime(_runtime_config(settings))
+            # 설정이 바뀌었고 child 가 없으면 교체한다 — 아니면 설정 화면이 바꿔도 옛 경로를 계속 쓴다.
+            runtime = resolve_ssak_search_runtime(bundled_runtime_config(settings), replace_when_idle=True)
         call_tool = getattr(runtime, "call_tool")
         outcome = cast("MCPToolOutcome", call_tool(BUNDLED_TOOL_NAME, {"query": query, "max_results": max_results}))
     except Exception as exc:  # noqa: BLE001 — 알 수 없는 예외는 대체하지 않는다(모르면 드러낸다)
         logger.warning("번들 검색 provider 호출이 예외로 끝났습니다: %s", exc, exc_info=True)
-        return ProviderAttempt(False, False, f"bundled provider raised: {exc}", error_code="UNKNOWN_ERROR")
+        evidence = _refused_evidence(
+            query,
+            code="UNKNOWN_ERROR",
+            message=f"bundled provider raised: {exc}",
+            settings=settings,
+        )
+        return ProviderAttempt(
+            False, False, evidence.message, error_code="UNKNOWN_ERROR", evidence=record_search_evidence(evidence)
+        )
     is_error = bool(getattr(outcome, "is_error", False))
     if is_error:
         code = getattr(outcome, "error_code", None)
         code_text = str(code) if code else None
+        evidence = _evidence_from_outcome(outcome, query=query, settings=settings, route="bundled (error)")
         return ProviderAttempt(
             False,
             classify_error_code(code_text) == "transient",
             str(outcome),
             error_code=code_text or "UNKNOWN_ERROR",
+            evidence=record_search_evidence(evidence),
         )
-    hits = _hits_from_outcome(outcome)
+    evidence = _evidence_from_outcome(outcome, query=query, settings=settings, route="bundled")
+    record_search_evidence(evidence)
+    hits = [(source.title, source.url, source.snippet) for source in evidence.sources]
     if not hits:
         # 응답은 성공인데 쓸 수 있는 결과가 없다 — 그건 검색 결과 0건이지 장애가 아니다.
-        return ProviderAttempt(True, False, str(outcome), results=[], engine="SsakBundle(0 hits)")
-    return ProviderAttempt(True, False, str(outcome), results=hits)
+        return ProviderAttempt(True, False, str(outcome), results=[], engine="SsakBundle(0 hits)", evidence=evidence)
+    return ProviderAttempt(True, False, str(outcome), results=hits, evidence=evidence)
 
 
 __all__ = [
     "BUNDLED_SERVER_NAME",
     "BUNDLED_TOOL_NAME",
     "DEFAULT_MANIFEST_NAME",
+    "EVIDENCE_HISTORY_LIMIT",
     "PERMANENT_ERROR_CODES",
     "SUPPORTED_MODES",
     "TRANSIENT_ERROR_CODES",
     "TRUSTED_ROOTS_ENV",
     "ProviderAttempt",
+    "SearchBudget",
+    "SearchEvidence",
+    "SearchSource",
     "SsakSearchSettings",
+    "bundled_runtime_config",
     "classify_error_code",
+    "clear_search_evidence",
     "extra_trusted_roots",
     "is_trusted_artifact_path",
+    "latest_search_evidence",
+    "record_search_evidence",
     "resolve_manifest_path",
     "search_with_bundled_provider",
     "settings_snapshot",
