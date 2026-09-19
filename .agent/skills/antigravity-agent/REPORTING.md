@@ -1,6 +1,6 @@
 ---
 name: antigravity-agent-reporting
-description: Antigravity-K의 보고 채널 설정 — Telegram/Slack 연동, 리포트 형식, 알림 규칙
+description: Ssak-Ai의 보고 채널 설정 — Telegram/Slack 연동, 리포트 형식, 알림 규칙
 version: "1.0.0"
 tags: [reporting, telegram, slack, notification]
 triggers: ["보고", "채널", "연동", "알림"]
@@ -48,7 +48,7 @@ triggers: ["보고", "채널", "연동", "알림"]
   2. [출처] 뉴스 요약
   3. [출처] 뉴스 요약
 
-◆ Antigravity-K 관련성:
+◆ Ssak-Ai 관련성:
   - [관련성 설명]
 
 ◆ Wiki 상태:

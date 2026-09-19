@@ -192,7 +192,7 @@ def write_project_alias_schema(memory_dir: Path, schema: ProjectAliasSchema) -> 
         )
         _ = temporary.replace(path)
     except OSError:
-        _ = temporary.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
         raise ProjectAliasConfigError(path) from None
     return path
 

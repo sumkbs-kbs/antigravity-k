@@ -1,4 +1,4 @@
-"""Antigravity-K: 구조화된 JSON 로거 (Structured JSON Logger).
+"""Ssak-Ai: 구조화된 JSON 로거 (Structured JSON Logger).
 
 ======================================================
 에이전트 시스템 전체의 이벤트를 JSON 형태로 포맷팅하여 저장합니다.
@@ -10,13 +10,21 @@ import json
 import logging
 import traceback
 from datetime import datetime
-from typing import Any
+from typing import Protocol, override
+
+
+class _LogRecordFields(Protocol):
+    __dict__: dict[str, object]
+
+
+def _extra_fields(record: _LogRecordFields) -> dict[str, object]:
+    return record.__dict__
 
 
 class JSONFormatter(logging.Formatter):
     """표준 로깅을 구조화된 JSON으로 변환하는 커스텀 포매터."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: object) -> None:
         """Initialize the JSONFormatter.
 
         Args:
@@ -24,8 +32,9 @@ class JSONFormatter(logging.Formatter):
 
         """
         super().__init__()
-        self.static_fields = kwargs
+        self.static_fields: dict[str, object] = kwargs
 
+    @override
     def format(self, record: logging.LogRecord) -> str:
         """Format.
 
@@ -36,7 +45,7 @@ class JSONFormatter(logging.Formatter):
             str: The str result.
 
         """
-        log_data: dict[str, Any] = {
+        log_data: dict[str, object] = {
             "timestamp": datetime.fromtimestamp(record.created).isoformat() + "Z",
             "level": record.levelname,
             "logger": record.name,
@@ -52,7 +61,7 @@ class JSONFormatter(logging.Formatter):
             log_data["stack_trace"] = traceback.format_exc()
 
         # extra로 주입된 추가 필드 (예: logger.info("msg", extra={"tool": "search"}))
-        for key, value in record.__dict__.items():
+        for key, value in _extra_fields(record).items():
             if key not in [
                 "args",
                 "asctime",
@@ -79,7 +88,10 @@ class JSONFormatter(logging.Formatter):
                 "taskName",
                 "color_message",
             ]:
-                log_data[key] = value
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    log_data[key] = value
+                else:
+                    log_data[key] = str(value)
 
         return json.dumps(log_data, ensure_ascii=False)
 

@@ -45,8 +45,8 @@ const CommitRow: React.FC<CommitRowProps> = React.memo(({ commit, isSelected, on
         </div>
         {refs.length > 0 && (
           <div className="git-log-refs">
-            {refs.filter(r => !r.startsWith('HEAD')).map((ref, i) => (
-              <span key={i} className={`git-ref-badge ${ref.startsWith('tag:') ? 'tag' : 'branch'}`}>
+            {refs.filter(r => !r.startsWith('HEAD')).map(ref => (
+              <span key={ref} className={`git-ref-badge ${ref.startsWith('tag:') ? 'tag' : 'branch'}`}>
                 {ref.replace('tag: ', '').replace('origin/', '')}
               </span>
             ))}

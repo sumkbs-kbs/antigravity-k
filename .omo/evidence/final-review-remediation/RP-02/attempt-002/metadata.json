@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-02",
+  "attempt": 2,
+  "status": "INCOMPLETE",
+  "owner": "rp02_retry",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "source_import_contract": "All attempt-002 pytest/manual invocations set PYTHONPATH=src because uv otherwise imports the installed antigravity_k distribution.",
+  "changed_files": [
+    "src/antigravity_k/tools/tool_path.py",
+    "tests/test_fr02_shell_execution_boundary.py"
+  ],
+  "artifacts": {
+    "implementation": "implementation.md",
+    "commands": "commands.jsonl",
+    "manual_qa": "logs/manual-qa-seatbelt.txt",
+    "handoff": "handoff.md"
+  },
+  "required_scenarios": [
+    {
+      "id": "R02-01",
+      "verdict": "PASS",
+      "observable": "The live terminal wrote only under its captured project root after the parent cwd changed.",
+      "artifact": "logs/manual-qa-seatbelt.txt"
+    },
+    {
+      "id": "R02-02-R02-08",
+      "verdict": "PASS",
+      "observable": "40 source-imported targeted regressions passed; attached absolute, HOME, append, fd, and input redirections now deny before execution.",
+      "artifact": "logs/regression-rp02-source-pytest.txt"
+    },
+    {
+      "id": "R02-03",
+      "verdict": "PASS",
+      "observable": "The targeted regression suite covers explicit refusal when the sandbox is disabled.",
+      "artifact": "logs/regression-rp02-source-pytest.txt"
+    },
+    {
+      "id": "R02-09",
+      "verdict": "PASS",
+      "observable": "A live terminal kept writing to project-a after the parent cwd switched to project-b.",
+      "artifact": "logs/manual-qa-seatbelt.txt"
+    },
+    {
+      "id": "R02-10",
+      "verdict": "BLOCKED",
+      "observable": "Independent review is deferred to the assigned independent review wave; source-level shared sandbox regression currently has one RP-01-owned failure.",
+      "artifact": "logs/regression-source-pytest.txt"
+    }
+  ],
+  "blockers": [
+    {
+      "scope": "RP-01-owned src/antigravity_k/engine/sandbox.py",
+      "failure": "tests/test_sandbox_isolation.py::TestDockerCwdConfinement::test_cwd_inside_project_root_is_accepted",
+      "observable": "A source-imported run returns 'Working directory must remain inside the project root.' for /tmp/proj/sub under project root /tmp/proj on macOS.",
+      "artifact": "logs/regression-source-pytest.txt"
+    }
+  ]
+}

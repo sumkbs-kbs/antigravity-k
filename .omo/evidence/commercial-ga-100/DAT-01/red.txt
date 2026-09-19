@@ -1,0 +1,15 @@
+DAT-01 red / audit reproduction (pre-fix)
+========================================
+Finding: TaskStateStore.transition used read-then-write without CAS.
+- SELECT status, then unconditional UPDATE by task_id.
+- cancel vs completion race: both threads could observe status=running and both
+  commit different terminals; loser could overwrite winner output/error.
+- No version column; affected-row 0 was ignored (always returned True after UPDATE).
+- UI event projection could show completed after cancelled (or reverse) when
+  domain events arrived out of order relative to store terminal.
+
+Expected after DAT-01:
+- Conditional UPDATE WHERE status=? AND version=?
+- affected 0 → TaskTransitionConflictError
+- cancel/completion race → exactly one winner; terminal fields immutable
+- store status authoritative for UI terminals; optional task.status event with CAS

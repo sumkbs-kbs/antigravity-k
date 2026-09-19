@@ -11,9 +11,86 @@ These handlers access ``self._session_manager``, ``self._context_shaper``,
 from __future__ import annotations
 
 import logging
-from typing import Any, ClassVar
+from typing import Callable, ClassVar, Protocol, TypedDict, cast
+
+from antigravity_k.engine.slash_commands_base import SlashCommand
 
 logger = logging.getLogger(__name__)
+
+
+class _Usage(TypedDict):
+    usage_pct: float
+    total_tokens: int
+    max_tokens: int
+    budget_remaining: int
+    by_role: dict[str, int]
+
+
+class _SessionInfo(TypedDict):
+    id: str
+    turn_count: int
+    message_count: int
+    memory_keys: list[str]
+
+
+class _SessionLike(Protocol):
+    _current_session: dict[str, object]
+
+    def get_messages(self) -> list[dict[str, object]]: ...
+
+    def get_memory(self, key: str) -> object | None: ...
+
+    def get_all_memory(self) -> dict[str, object]: ...
+
+    def get_session_info(self) -> _SessionInfo | None: ...
+
+    def list_sessions(self) -> list[dict[str, object]]: ...
+
+    def save(self) -> None: ...
+
+    def load_session(self, session_id: str) -> bool: ...
+
+    def start_session(self, *, project_path: str, resume: bool) -> None: ...
+
+
+class _ContextShaperLike(Protocol):
+    def get_token_usage(self, messages: list[dict[str, object]]) -> _Usage: ...
+
+    def get_stats(self) -> dict[str, int]: ...
+
+    def shape(self, messages: list[dict[str, object]]) -> list[dict[str, object]]: ...
+
+    def _estimate_tokens(self, messages: list[dict[str, object]]) -> int: ...
+
+
+class _ModelManagerLike(Protocol):
+    def set_model(self, model_name: str) -> None: ...
+
+    def get_model_info(self) -> object: ...
+
+
+class _ValueLike(Protocol):
+    value: str
+
+
+class _ToolLike(Protocol):
+    category: _ValueLike
+    risk_level: _ValueLike
+    icon: str
+    name: str
+    description: str
+
+
+class _ToolRegistryLike(Protocol):
+    def get_all(self) -> list[_ToolLike]: ...
+
+    def set_project_root(self, path: str) -> None: ...
+
+    def __len__(self) -> int: ...
+
+
+ModelManagerProtocol = _ModelManagerLike
+ToolRegistryProtocol = _ToolRegistryLike
 
 
 class SlashCommandSessionMixin:
@@ -24,17 +101,17 @@ class SlashCommandSessionMixin:
     """
 
     # Mixin-required attributes (resolved via MRO at runtime)
-    _commands: ClassVar[dict[str, Any]]
-    _tool_registry: ClassVar[Any]
-    _session_manager: ClassVar[Any]
-    _context_shaper: ClassVar[Any]
-    _model_manager: ClassVar[Any]
+    _commands: ClassVar[dict[str, SlashCommand]]
+    _tool_registry: ClassVar[_ToolRegistryLike | None]
+    _session_manager: ClassVar[_SessionLike | None]
+    _context_shaper: ClassVar[_ContextShaperLike | None]
+    _model_manager: ClassVar[_ModelManagerLike | None]
 
-    def _cmd_help(self, args: list[str]) -> str:
+    def _cmd_help(self, _args: list[str]) -> str:
         """도움말 표시."""
-        lines = ["📚 **Antigravity-K 슬래시 커맨드**", ""]
+        lines = ["📚 **Ssak-Ai 슬래시 커맨드**", ""]
 
-        categories: dict[str, list[Any]] = {}
+        categories: dict[str, list[SlashCommand]] = {}
         for cmd in self._commands.values():
             categories.setdefault(cmd.category, []).append(cmd)
 
@@ -70,7 +147,7 @@ class SlashCommandSessionMixin:
         lines.append(f"\n총 {len(tools)}개 도구 등록됨")
         return "\n".join(lines)
 
-    def _cmd_context(self, args: list[str]) -> str:
+    def _cmd_context(self, _args: list[str]) -> str:
         """컨텍스트 토큰 사용량 분석."""
         if not self._context_shaper:
             return "Context shaper not connected."
@@ -149,9 +226,9 @@ class SlashCommandSessionMixin:
             logger.exception("Unhandled exception")
             return "모델 정보를 가져올 수 없습니다."
 
-    def _cmd_status(self, args: list[str]) -> str:
+    def _cmd_status(self, _args: list[str]) -> str:
         """전체 상태 요약."""
-        lines = ["⚡ **Antigravity-K 상태**", ""]
+        lines = ["⚡ **Ssak-Ai 상태**", ""]
 
         if self._session_manager:
             info = self._session_manager.get_session_info()
@@ -181,8 +258,9 @@ class SlashCommandSessionMixin:
             if callable(readiness_fn):
                 readiness = readiness_fn()
                 if isinstance(readiness, dict):
-                    status = str(readiness.get("status", "unknown"))
-                    score = readiness.get("score", 0)
+                    readiness_data = cast(dict[str, object], readiness)
+                    status = str(readiness_data.get("status", "unknown"))
+                    score = readiness_data.get("score", 0)
                     status_emoji = "🟢" if status == "ready" else "🟡" if status == "degraded" else "🔴"
                     lines.append(
                         f"  {status_emoji} **시스템 준비도(Readiness):** {score}/100 ({status})",
@@ -192,22 +270,89 @@ class SlashCommandSessionMixin:
 
         return "\n".join(lines)
 
-    def _cmd_compact(self, args: list[str]) -> str:
-        """수동 컨텍스트 압축."""
+    def _cmd_compact(self, _args: list[str]) -> str:
+        """수동 컨텍스트 압축 — CTX-01 revision CAS when conversation binding is known."""
+        # Prefer authoritative conversation store when project/conversation are bound.
+        # F1/F3: CAS failures must NOT fall through to session_manager success path;
+        # always CAS against client expected revision (ctx.conversation_revision).
+        ctx = None
+        try:
+            from antigravity_k.api.contracts.errors import StaleConversationRevisionError
+            from antigravity_k.api.project_binding import get_bound_request_execution_context
+            from antigravity_k.engine.conversation_store import get_conversation_store
+
+            ctx = get_bound_request_execution_context()
+            if ctx is not None:
+                store = get_conversation_store()
+                before = store.get(project_id=ctx.project_id, conversation_id=ctx.conversation_id)
+                tokens_before = before.estimate_tokens() if before else 0
+                try:
+                    snap = store.compact(
+                        project_id=ctx.project_id,
+                        conversation_id=ctx.conversation_id,
+                        expected_revision=ctx.conversation_revision,
+                        retain_tail=6,
+                    )
+                except StaleConversationRevisionError as exc:
+                    current = exc.context.get("current_revision", "?")
+                    return (
+                        "❌ 압축 충돌 (stale_conversation_revision)\n"
+                        f"  conversation: `{ctx.conversation_id}`\n"
+                        f"  expected_revision: {ctx.conversation_revision}\n"
+                        f"  current_revision: {current}\n"
+                        "  다른 탭/요청에서 이미 변경됨 — refresh 후 재시도하세요."
+                    )
+                after = store.get(project_id=ctx.project_id, conversation_id=ctx.conversation_id)
+                tokens_after = after.estimate_tokens() if after else 0
+                retained = ", ".join(snap.retained_message_ids[:12]) or "(none)"
+                summary_preview = (snap.summary or "")[:200]
+                # One-way store → session projection only after successful CAS.
+                if self._session_manager and after is not None:
+                    current_session = cast(
+                        dict[str, object], getattr(self._session_manager, "_current_session", {}) or {}
+                    )
+                    if current_session is not None:
+                        current_session["messages"] = after.prompt_messages()
+                        try:
+                            self._session_manager.save()
+                        except Exception:
+                            logger.exception("session_manager.save after compact failed")
+                return (
+                    "✅ 컨텍스트 압축 완료! (authoritative store CAS)\n"
+                    f"  conversation: `{snap.conversation_id}`\n"
+                    f"  revision: {ctx.conversation_revision} → {snap.revision}\n"
+                    f"  messages: {(len(before.messages) if before else 0)} → {snap.message_count}\n"
+                    f"  tokens: {tokens_before} → {tokens_after} (−{max(0, tokens_before - tokens_after)})\n"
+                    f"  retained IDs: {retained}\n"
+                    f"  summary: {summary_preview}"
+                )
+        except Exception as exc:
+            if ctx is not None:
+                # Bound protocol path: never mutate session_manager as a success fallback.
+                logger.exception("authoritative compact failed (no legacy fallback)")
+                return f"❌ 압축 실패 (authoritative store): {exc}"
+            logger.exception("authoritative compact unavailable; using session shaper")
+            _ = exc
+
         if not self._context_shaper or not self._session_manager:
             return "Context shaper or session manager not connected."
 
         messages = self._session_manager.get_messages()
         original_count = len(messages)
         shaped = self._context_shaper.shape(messages)
-        self._session_manager._current_session["messages"] = shaped
+        current_session = cast(dict[str, object], getattr(self._session_manager, "_current_session"))
+        current_session["messages"] = shaped
         self._session_manager.save()
+
+        estimate_tokens = cast(
+            Callable[[list[dict[str, object]]], int], getattr(self._context_shaper, "_estimate_tokens")
+        )
 
         return (
             f"✅ 컨텍스트 압축 완료!\n"
             f"  메시지: {original_count} → {len(shaped)}\n"
-            f"  토큰: {self._context_shaper._estimate_tokens(messages)} → "
-            f"{self._context_shaper._estimate_tokens(shaped)}"
+            f"  토큰: {estimate_tokens(messages)} → "
+            f"{estimate_tokens(shaped)}"
         )
 
     def _cmd_session(self, args: list[str]) -> str:
@@ -261,7 +406,7 @@ class SlashCommandSessionMixin:
                     )
                 else:
                     cursor = conn.execute("SELECT * FROM checkpoints ORDER BY timestamp DESC LIMIT 1")
-                row = cursor.fetchone()
+                row = cast(tuple[object, ...] | None, cursor.fetchone())
 
             if not row:
                 return "❌ 복구할 수 있는 체크포인트를 찾지 못했습니다."
@@ -270,11 +415,15 @@ class SlashCommandSessionMixin:
             label = row[1]
             state = row[2]
             task_type = row[3]
-            context_json = json.loads(row[5])
+            context_json = cast(dict[str, object], json.loads(str(row[5])))
 
             if self._session_manager and "messages" in context_json:
-                self._session_manager._current_session["messages"] = context_json["messages"]
+                current_session = cast(dict[str, object], getattr(self._session_manager, "_current_session"))
+                current_session["messages"] = context_json["messages"]
                 self._session_manager.save()
+
+            recovered_messages = context_json.get("messages", [])
+            message_count = len(cast(list[object], recovered_messages)) if isinstance(recovered_messages, list) else 0
 
             return (
                 f"✅ **[Durable Recovery 성공]**\n\n"
@@ -282,7 +431,7 @@ class SlashCommandSessionMixin:
                 f"- **Checkpoint**: `{label}`\n"
                 f"- **State**: `{state}`\n"
                 f"- **Task Type**: `{task_type}`\n"
-                f"- **Messages**: {len(context_json.get('messages', []))}개 복원됨\n\n"
+                f"- **Messages**: {message_count}개 복원됨\n\n"
                 f"컨텍스트가 성공적으로 복원되었습니다. 작업을 이어서 진행할 수 있습니다."
             )
         except sqlite3.OperationalError:
@@ -327,7 +476,7 @@ class SlashCommandSessionMixin:
             if not os.path.exists(fpath):
                 try:
                     with open(fpath, "w", encoding="utf-8") as f:
-                        f.write(content)
+                        _ = f.write(content)
                 except Exception:
                     logger.exception("Failed to create scaffolding file %s", fpath)
 

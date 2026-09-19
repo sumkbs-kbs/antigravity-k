@@ -16,12 +16,13 @@ import os
 import re
 import select
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 import pytest
 import requests
+
+from tests._cli_subprocess import python_invocation
 
 # ─── 설정 ───────────────────────────────────────────────────────────
 
@@ -66,9 +67,9 @@ def test_health_returns_version():
     resp = requests.get(health_url, timeout=10, headers=HEADERS)
     data = resp.json()
     # version 필드 또는 model 필드가 있어야 함
-    assert any(
-        k in data for k in ("version", "model", "engine")
-    ), f"Missing version info in health response: {data.keys()}"
+    assert any(k in data for k in ("version", "model", "engine")), (
+        f"Missing version info in health response: {data.keys()}"
+    )
 
 
 # ─── API 라우트 검증 ────────────────────────────────────────────────
@@ -167,7 +168,7 @@ def server_process():
 
     proc = subprocess.Popen(
         [
-            sys.executable,
+            *python_invocation(project=True),
             "-m",
             "uvicorn",
             "antigravity_k.api.server:app",

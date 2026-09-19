@@ -1,4 +1,4 @@
-# Antigravity-K — Production Docker Image
+# Ssak-Ai — Production Docker Image
 #
 # Multi-stage build:
 #   1. Base: Python 3.12 slim (pinned digest)
@@ -23,9 +23,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install only essential runtime utilities.
-# git is not included in the runtime image to reduce attack surface.
+# git: Vault(위키 저장소) create/commit/read 기능이 런타임에 git을 실행한다 (REL-02).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Stage 2: Builder (all deps, used for building artifacts only) ──
@@ -41,12 +42,28 @@ RUN pip install --upgrade pip \
     && pip install --target="/install" ".[rag]"
 
 # ─── Stage 3: Dashboard Build ───────────────────────────────────
-FROM node:20-alpine AS dashboard-builder
+# REL-02: 단일 package manager = pnpm (pnpm-lock.yaml이 단일 진실원).
+# frozen install로 lockfile과 package.json의 불일치를 빌드 시점에 차단한다.
+# CR-11: pnpm@11.3.0은 node:sqlite builtin을 쓰므로 engines가 `node >=22.13`이다.
+#        `node:22`(플로팅 메이저) 태그는 22.13 미만으로 해석될 수 있어 마이너까지 고정한다
+#        (dashboard/package.json `engines.node`와 동일 값 — CI도 같은 값을 쓴다).
+FROM node:22.13-alpine AS dashboard-builder
+
+# CR-14 F-05: `pnpm run build` 는 `tsc -b && vite build` 이고, `tsc -b` 는 대시보드 전체를
+# 콜드 타입체크한다. node 이미지의 기본 V8 힙 상한은 **실측 2096MB**(컨테이너 메모리와
+# 무관하게 고정 — `--memory=4g`/`12g` 모두 2096MB)이고, 그 지점에서 heap OOM 으로 죽어
+# required gate `docker-build` 가 실패했다(14.5s, 재현 2/2). 로컬에서는 같은 입력이
+# 기본 힙으로도 통과하므로 musl/node 조합의 여유가 더 필요하다.
+# 빌드 단계에서만 힙을 올린다 — 런타임 이미지에는 영향이 없다.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 WORKDIR /app/dashboard
+RUN npm install -g pnpm@11.3.0 && pnpm --version
+COPY dashboard/pnpm-lock.yaml dashboard/package.json dashboard/pnpm-workspace.yaml ./
+# CI=true: 비 TTY 환경에서 pnpm의 모듈 디렉터리 퍼지 확인 프롬프트 방지
+RUN CI=true pnpm install --frozen-lockfile
 COPY dashboard/ ./
-
-RUN npm ci && npm run build
+RUN pnpm run build
 
 # ─── Stage 4: Runtime ───────────────────────────────────────────
 FROM base AS runtime
@@ -68,7 +85,8 @@ RUN pip install --no-deps "." \
     && rm -rf /root/.cache
 
 # Copy dashboard build from builder
-COPY --from=dashboard-builder /app/dashboard/dist/ ./dashboard/dist/
+# REL-02: Vite outDir === wheel package-data === 이 COPY 경로 (src/antigravity_k/dashboard_dist)
+COPY --from=dashboard-builder /app/src/antigravity_k/dashboard_dist/ ./src/antigravity_k/dashboard_dist/
 
 # Create data directories owned by the non-root user.
 RUN mkdir -p vault_data logs data \
@@ -88,4 +106,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 EXPOSE 8000
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["uvicorn", "antigravity_k.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["agk", "serve", "--host", "0.0.0.0", "--port", "8000"]

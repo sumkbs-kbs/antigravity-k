@@ -1,0 +1,31 @@
+{
+  "task_id": "CTX-02",
+  "title": "final prompt budget and deterministic compression pipeline",
+  "owner": "ctx_02_budget",
+  "reviewer": "ctx_02_verify",
+  "status": "DONE",
+  "baseline_sha": "3d6f045a8a8628801c53e5750bf6257f935dd680",
+  "branch": "codex/ctx-02-prompt-budget",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-02",
+  "started_at": "2026-09-06T12:00:00+09:00",
+  "completed_at": "2026-09-06T12:30:00+09:00",
+  "environment": {
+    "os": "macOS",
+    "pytest_verify_r2_f1f3": "14 passed",
+    "pytest_verify_r2_related": "156 passed (3 pre-existing unrelated deselected)",
+    "ruff_verify_r2": "All checks passed",
+    "adversarial_verify_r2": "F1/F2/F3/F5 fail-closed PASS"
+  },
+  "notes": "Independent r2 APPROVE by ctx_02_verify. Prior r1 REJECT preserved in review.md. F1–F3 closed. CTX-03 not started by reviewer.",
+  "verdict": "APPROVE",
+  "result_sha_pending": false,
+  "updated_at": "2026-09-06T12:33:00+09:00",
+  "result_sha": "16db3b65e74275f433563d9b6c83721d956e3ba2",
+  "impl_sha": "16db3b65e74275f433563d9b6c83721d956e3ba2",
+  "prior_impl_sha": "d04748cafe8879b9afaf310bdb6aab4f47ffb06a",
+  "prior_reject_tip": "15cccd7de34b75db6f7d44535706c8d5ca1d109d",
+  "tip_reviewed": "81e5f98a9b9b5e368581e3170179b77a20f04682",
+  "tip_sha": "43f2f525262c6d355983c8fe9419da2a265e759c",
+  "review_r2": ".omo/evidence/commercial-ga-100/CTX-02/review-r2.md",
+  "confidence": 0.95
+}

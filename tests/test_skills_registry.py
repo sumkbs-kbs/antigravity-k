@@ -1,7 +1,11 @@
+from pathlib import Path
+
+import pytest
+
 from antigravity_k.agents.skills_registry import SkillsRegistry
 
 
-def test_skills_registry_initialization(tmp_path):
+def test_skills_registry_initialization(tmp_path: Path) -> None:
     skills_dir = tmp_path / ".agent" / "skills"
     registry = SkillsRegistry(skills_dir=str(skills_dir))
 
@@ -12,13 +16,13 @@ def test_skills_registry_initialization(tmp_path):
     assert "FRONTEND" in profiles
 
 
-def test_skills_registry_dynamic_load(tmp_path):
+def test_skills_registry_dynamic_load(tmp_path: Path) -> None:
     skills_dir = tmp_path / ".agent" / "skills"
 
     # 미리 임의의 스킬 파일 작성
     test_skill_dir = skills_dir / "testskill"
     test_skill_dir.mkdir(parents=True)
-    (test_skill_dir / "SKILL.md").write_text("Test Skill Description")
+    _ = (test_skill_dir / "SKILL.md").write_text("Test Skill Description")
 
     registry = SkillsRegistry(skills_dir=str(skills_dir))
     profiles = registry.list_profiles()
@@ -29,7 +33,7 @@ def test_skills_registry_dynamic_load(tmp_path):
     assert profile.system_prompt == "Test Skill Description"
 
 
-def test_skills_registry_save_skill(tmp_path):
+def test_skills_registry_save_skill(tmp_path: Path) -> None:
     skills_dir = tmp_path / ".agent" / "skills"
     registry = SkillsRegistry(skills_dir=str(skills_dir))
 
@@ -42,11 +46,8 @@ def test_skills_registry_save_skill(tmp_path):
     assert profile.system_prompt == "This is a dynamically created skill"
 
 
-def test_skills_registry_get_invalid_profile(tmp_path):
+def test_skills_registry_get_invalid_profile(tmp_path: Path) -> None:
     skills_dir = tmp_path / ".agent" / "skills"
     registry = SkillsRegistry(skills_dir=str(skills_dir))
-    try:
-        registry.get_profile("NON_EXISTENT")
-        assert False, "Should raise ValueError"
-    except ValueError:
-        pass
+    with pytest.raises(ValueError, match="not found"):
+        _ = registry.get_profile("NON_EXISTENT")

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { MetricsData } from './types';
-import { MetricItem, MetricDivider } from './Common';
+import { MetricItem } from './Common';
 
 interface Props {
   metrics: MetricsData | null;
@@ -13,26 +13,15 @@ interface Props {
 
 const MetricsBar: React.FC<Props> = ({ metrics }) => {
   return (
-    <div className="dex-metrics-bar" style={{
-      display: 'flex', alignItems: 'center', gap: 8,
-      padding: '8px 24px',
-      background: 'linear-gradient(135deg, rgba(16,185,129,0.05), rgba(124,106,239,0.05))',
-      borderBottom: '1px solid var(--glass-border)',
-      fontSize: 12, overflowX: 'auto',
-    }}>
+    <div className="dex-metrics-bar">
       {metrics ? (
         <>
           <MetricItem icon="📊" value={metrics.total_calls?.toLocaleString() || '0'} label="전체 호출" />
-          <MetricDivider />
           <MetricItem icon="🎯" value={`${metrics.success_rates?.overall || 0}%`} label="정확도"
             color={metrics.success_rates?.overall && metrics.success_rates.overall >= 80 ? '#10b981' : '#f59e0b'} />
-          <MetricDivider />
           <MetricItem icon="📈" value={`${metrics.stock_success || 0}/${metrics.stock_attempts || 0}`} label={`주식 ${metrics.success_rates?.stock || 0}%`} />
-          <MetricDivider />
           <MetricItem icon="☀️" value={`${metrics.weather_success || 0}/${metrics.weather_attempts || 0}`} label={`날씨 ${metrics.success_rates?.weather || 0}%`} />
-          <MetricDivider />
           <MetricItem icon="💱" value={`${metrics.exchange_success || 0}/${metrics.exchange_attempts || 0}`} label={`환율 ${metrics.success_rates?.exchange || 0}%`} />
-          <MetricDivider />
           <MetricItem icon="🛡️" value={String(metrics.speculative_filtered || 0)} label="필터링" />
         </>
       ) : (

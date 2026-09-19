@@ -1,0 +1,23 @@
+
+AC-1 임의 보호 URL에서 PBKDF2 미실행
+  [PASS] verify_pin 호출처가 rate-limited login/token route뿐 — hits=['src/antigravity_k/api/auth_routes.py']
+  [PASS] X-Access-Pin 헤더 → 거부 + PBKDF2 미실행 — authenticated=False, pbkdf2_calls=0
+  [PASS] WS ?pin= → 4401 close + PBKDF2 미실행 — closed=True, code=(4401, 'Unauthorized'), pbkdf2_calls=0
+
+AC-2 burst/sustained limit과 lockout
+  [PASS] burst 5회 실패 → lockout 시작 — 5th=lockout
+  [PASS] lockout 중 register → 즉시 거절 — retry_after=300.0s
+  [PASS] sustained 누적 10회 → lockout — last=lockout
+  [PASS] 다른 계정 key는 독립 판정
+  [PASS] record_success가 lockout 해제
+
+AC-3 secret-free audit
+  [PASS] 성공/실패/lockout 이벤트 기록 — events=['login_failed', 'login_success', 'lockout']
+  [PASS] credential 값이 어떤 필드에도 없음
+
+AC-4 부하 — lockout 중 PBKDF2 차단
+  [PASS] lockout 중 모든 register 거절
+  [PASS] 공격자가 유발한 CPU < 정상 인증 1회 × 시도수의 1% — attack_total=0.3ms vs equivalent=8439ms (pbkdf2_once=42ms, gate_only=0.3ms)
+
+============================================================
+SEC-02 reviewer acceptance: 12 PASS / 0 FAIL

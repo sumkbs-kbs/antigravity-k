@@ -10,7 +10,7 @@ def test_self_healing_doctor_run():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
         (root / "src").mkdir()
-        (root / "src" / "valid.py").write_text("def test(): pass\n", encoding="utf-8")
+        _ = (root / "src" / "valid.py").write_text("def test(): pass\n", encoding="utf-8")
 
         doctor = SelfHealingDoctor(root)
         report = doctor.run_health_check(auto_heal=True)

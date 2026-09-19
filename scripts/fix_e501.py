@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 E501 (line-too-long) auto-fixer: Break lines exceeding max_length.
 
@@ -18,6 +20,22 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from typing import Protocol, TypedDict, cast
+
+
+class RuffLocation(TypedDict):
+    row: int
+
+
+class RuffViolation(TypedDict):
+    filename: str
+    location: RuffLocation
+
+
+class ParsedArgs(Protocol):
+    path: str
+    dry_run: bool
+    max_length: int
 
 
 def get_e501_violations(path: str, max_length: int = 120) -> list[tuple[str, int]]:
@@ -34,8 +52,8 @@ def get_e501_violations(path: str, max_length: int = 120) -> list[tuple[str, int
         return []
 
     try:
-        data = json.loads(result.stdout)
-        violations = []
+        data = cast(list[RuffViolation], cast(object, json.loads(result.stdout)))
+        violations: list[tuple[str, int]] = []
         for v in data:
             violations.append((v["filename"], v["location"]["row"]))
         # Sort by file then line (descending for safe editing)
@@ -64,6 +82,7 @@ def break_long_string(line: str, max_len: int = 100) -> str | None:
 
     Returns the modified line or None if can't break.
     """
+    _ = max_len
     # Find string boundaries
     # Match: variable = "..." continuation
     # or just "..."
@@ -74,7 +93,7 @@ def break_long_string(line: str, max_len: int = 100) -> str | None:
         if re.search(r"\{[^}]+\}", line):
             # Has format specifiers or conversions - skip f-strings
             # except simple variable references
-            braces = re.findall(r"\{([^}]+)\}", line)
+            braces: list[str] = re.findall(r"\{([^}]+)\}", line)
             simple = all(
                 re.match(r"^[a-zA-Z_][a-zA-Z0-9_.]*$", b) or re.match(r"^[a-zA-Z_][a-zA-Z0-9_.]*\[[^\]]+\]$", b)
                 for b in braces
@@ -162,6 +181,7 @@ def break_long_string(line: str, max_len: int = 100) -> str | None:
 
 def break_long_call(line: str, max_len: int = 100) -> str | None:
     """Break a long function/method call by adding line breaks at commas."""
+    _ = max_len
     # Check if line has parenthesized arguments
     if "(" not in line or ")" not in line:
         return None
@@ -200,8 +220,8 @@ def break_long_call(line: str, max_len: int = 100) -> str | None:
 
     indent = " " * (open_pos + 5)  # indent past the call start + 4
 
-    parts = []
-    current = []
+    parts: list[str] = []
+    current: list[str] = []
     for c in content:
         current.append(c)
         if c == ",":
@@ -229,6 +249,13 @@ def is_docstring_or_comment(line: str) -> bool:
     return stripped.startswith("#") or stripped.startswith('"""') or stripped.startswith("'''")
 
 
+def _display_path(filepath: Path) -> str:
+    try:
+        return str(filepath.relative_to(Path.cwd()))
+    except ValueError:
+        return str(filepath)
+
+
 def fix_file(filepath: Path, dry_run: bool = False, max_length: int = 120) -> bool:
     """Fix E501 violations in a single file."""
     try:
@@ -240,7 +267,7 @@ def fix_file(filepath: Path, dry_run: bool = False, max_length: int = 120) -> bo
 
     lines = original.split("\n")
     modified = False
-    changes = []
+    changes: list[tuple[int, str, str]] = []
 
     for i in range(len(lines)):
         line = lines[i]
@@ -271,7 +298,7 @@ def fix_file(filepath: Path, dry_run: bool = False, max_length: int = 120) -> bo
     new_content = "\n".join(lines)
 
     if dry_run:
-        print(f"\n📄 {filepath.relative_to(Path.cwd())}")
+        print(f"\n📄 {_display_path(filepath)}")
         for idx, old, new in changes[:10]:
             print(f"  L{idx + 1}: {old[:80]}...")
             new_first_line = new.split("\n")[0]
@@ -280,18 +307,18 @@ def fix_file(filepath: Path, dry_run: bool = False, max_length: int = 120) -> bo
             print(f"    ... and {len(changes) - 10} more changes")
         return True
 
-    filepath.write_text(new_content, encoding="utf-8")
-    print(f"📄 {filepath.relative_to(Path.cwd())}: {len(changes)} lines fixed")
+    _ = filepath.write_text(new_content, encoding="utf-8")
+    print(f"📄 {_display_path(filepath)}: {len(changes)} lines fixed")
     return True
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Fix E501 (line-too-long) violations")
-    parser.add_argument("--path", default="src/", help="Target path")
-    parser.add_argument("--dry-run", action="store_true", help="Preview only")
-    parser.add_argument("--max-length", type=int, default=120, help="Maximum line length")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Show details")
-    args = parser.parse_args()
+    _ = parser.add_argument("--path", default="src/", help="Target path")
+    _ = parser.add_argument("--dry-run", action="store_true", help="Preview only")
+    _ = parser.add_argument("--max-length", type=int, default=120, help="Maximum line length")
+    _ = parser.add_argument("--verbose", "-v", action="store_true", help="Show details")
+    args = cast(ParsedArgs, cast(object, parser.parse_args(argv)))
 
     target = Path(args.path)
     if not target.exists():
@@ -305,8 +332,8 @@ def main():
         sys.exit(0)
 
     # Group by file
-    files_to_fix = {}
-    for fpath, lineno in violations:
+    files_to_fix: dict[Path, bool] = {}
+    for fpath, _ in violations:
         p = Path(fpath)
         if p.is_absolute():
             files_to_fix[p] = True

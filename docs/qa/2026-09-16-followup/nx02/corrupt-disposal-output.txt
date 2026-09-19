@@ -1,0 +1,25 @@
+임시 디렉터리: /var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/nx02-quarantine-probe-loacynf2
+
+=== 1. view 만 손상 (journal 은 정상) ===
+  read(get): ConversationIntegrityError(Conversation record is not valid JSON)
+  history_state: ConversationIntegrityError(Conversation record is not valid JSON)
+  product delete: ConversationIntegrityError(Conversation record is not valid JSON)
+
+=== 2. journal 손상 (중간 줄에 쓰레기) ===
+  original_history: ConversationHistoryCorruptError(Committed conversation history is corrupt (line/offset reported))
+  read(get): ConversationHistoryCorruptError(Committed conversation history is corrupt (line/offset reported))
+  product delete: ConversationHistoryCorruptError(Committed conversation history is corrupt (line/offset reported))
+
+=== 3. 제안한 운영 절차: 격리 이동 + 삭제 표식 (코드 변경 없음) ===
+  격리 이동: ['view → fa92724b500c077fae5587f50ddab412b05c0dbc86ecd3e6d49cc0e37d923ffa.json', 'journal → fa92724b500c077fae5587f50ddab412b05c0dbc86ecd3e6d49cc0e37d923ffa.jsonl']
+  표식 파일: True
+  history_state: ok → {'exists': False, 'deleted': True, 'content_erased': True, 'journal_seq': 0, 'revision': 0, 'original_message_count': 0, 'view_message_count': 0, 'history_incomplete': False, 'truncated_tail': False}
+  read(get): ok → None
+  id 재생성 시도(append rev0): ConversationNotFoundError(Conversation was deleted and its id is not reused)
+  격리본 보존: ['fa92724b500c077fae5587f50ddab412b05c0dbc86ecd3e6d49cc0e37d923ffa.json', 'fa92724b500c077fae5587f50ddab412b05c0dbc86ecd3e6d49cc0e37d923ffa.jsonl']
+
+=== 4. 함정: 격리 디렉터리를 저장소 **안**에 두면 ===
+  storage_layout_state: ok → 'legacy_requires_migration'
+  무관한 정상 대화 읽기: ConversationStorageMigrationRequiredError(Legacy conversation files require the one-time v2 migration before rea)
+
+(임시 디렉터리 정리 완료)

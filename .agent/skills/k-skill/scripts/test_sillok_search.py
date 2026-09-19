@@ -1,24 +1,114 @@
+from __future__ import annotations
+
 import contextlib
+import importlib
 import io
 import ssl
 import types
 import unittest
+from typing import TYPE_CHECKING, Callable, Protocol, cast, final
 from unittest import mock
 
-from scripts.sillok_search import (
-    ArticleDetail,
-    SearchReport,
-    SearchResult,
-    build_http_client,
-    build_opener,
-    fetch_text,
-    filter_results,
-    parse_args,
-    parse_detail_page,
-    parse_result_title_metadata,
-    parse_search_results,
-    search_sillok,
-)
+if TYPE_CHECKING:
+    from scripts.sillok_search import (
+        Arguments as ArgumentsType,
+    )
+    from scripts.sillok_search import (
+        ArticleDetail as ArticleDetailType,
+    )
+    from scripts.sillok_search import (
+        ResultTitleMetadata,
+        SearchPayload,
+    )
+    from scripts.sillok_search import (
+        SearchReport as SearchReportType,
+    )
+    from scripts.sillok_search import (
+        SearchResult as SearchResultType,
+    )
+
+
+class SillokModule(Protocol):
+    ArticleDetail: type[ArticleDetailType]
+    SearchReport: type[SearchReportType]
+    SearchResult: type[SearchResultType]
+    build_http_client: Callable[[], object]
+    build_opener: Callable[[], object]
+    fetch_text: Callable[..., str]
+    filter_results: Callable[..., list[SearchResultType]]
+    parse_args: Callable[..., ArgumentsType]
+    parse_detail_page: Callable[..., ArticleDetailType]
+    parse_result_title_metadata: Callable[[str], ResultTitleMetadata]
+    parse_search_results: Callable[..., SearchReportType]
+    search_sillok: Callable[..., SearchPayload]
+
+
+sillok_search = cast(SillokModule, cast(object, importlib.import_module("scripts.sillok_search")))
+ArticleDetail = sillok_search.ArticleDetail
+SearchReport = sillok_search.SearchReport
+SearchResult = sillok_search.SearchResult
+build_http_client = sillok_search.build_http_client
+build_opener = sillok_search.build_opener
+fetch_text = sillok_search.fetch_text
+filter_results = sillok_search.filter_results
+parse_args = sillok_search.parse_args
+parse_detail_page = sillok_search.parse_detail_page
+parse_result_title_metadata = sillok_search.parse_result_title_metadata
+parse_search_results = sillok_search.parse_search_results
+search_sillok = sillok_search.search_sillok
+
+
+@final
+class ResponseDouble:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+@final
+class RequestsDouble:
+    def __init__(self, response: object, failure: Exception | None = None) -> None:
+        self.response = response
+        self.failure = failure
+        self.last_post_kwargs: dict[str, object] | None = None
+        self.exceptions: object = types.SimpleNamespace()
+
+    def post(self, url: str, **kwargs: object) -> object:
+        _ = url
+        self.last_post_kwargs = kwargs
+        if self.failure is not None:
+            raise self.failure
+        return self.response
+
+
+@final
+class FallbackResponse:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    def read(self) -> bytes:
+        return self.body
+
+    def __enter__(self) -> "FallbackResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        _ = args
+
+
+@final
+class OpenerDouble:
+    def __init__(self, response: FallbackResponse) -> None:
+        self.response = response
+        self.open_count = 0
+
+    def open(self, request: object, *, timeout: int) -> FallbackResponse:
+        _ = (request, timeout)
+        self.open_count += 1
+        return self.response
+
 
 SAMPLE_SEARCH_HTML = """<!DOCTYPE html>
 <html lang=\"ko\">
@@ -202,9 +292,12 @@ class NetworkingRegressionTest(unittest.TestCase):
         build_opener_mock.assert_called_once_with()
 
     def test_build_opener_keeps_default_tls_verification(self):
-        fake_context = mock.Mock()
+        fake_context = ssl.create_default_context()
         fake_context.check_hostname = True
         fake_context.verify_mode = ssl.CERT_REQUIRED
+
+        def https_handler(*, context: ssl.SSLContext) -> tuple[str, ssl.SSLContext]:
+            return ("https-handler", context)
 
         with (
             mock.patch(
@@ -217,7 +310,7 @@ class NetworkingRegressionTest(unittest.TestCase):
             ),
             mock.patch(
                 "scripts.sillok_search.urllib.request.HTTPSHandler",
-                side_effect=lambda *, context: ("https-handler", context),
+                side_effect=https_handler,
             ),
             mock.patch(
                 "scripts.sillok_search.urllib.request.build_opener",
@@ -232,11 +325,7 @@ class NetworkingRegressionTest(unittest.TestCase):
         build_opener_mock.assert_called_once_with("cookie-processor", ("https-handler", fake_context))
 
     def test_fetch_text_keeps_requests_tls_verification_enabled(self):
-        response = mock.Mock()
-        response.text = "<html></html>"
-        response.raise_for_status.return_value = None
-        fake_requests = mock.Mock()
-        fake_requests.post.return_value = response
+        fake_requests = RequestsDouble(ResponseDouble("<html></html>"))
 
         with mock.patch("scripts.sillok_search.requests", fake_requests):
             html_text = fetch_text(
@@ -246,7 +335,8 @@ class NetworkingRegressionTest(unittest.TestCase):
             )
 
         self.assertEqual(html_text, "<html></html>")
-        self.assertNotIn("verify", fake_requests.post.call_args.kwargs)
+        assert fake_requests.last_post_kwargs is not None
+        self.assertNotIn("verify", fake_requests.last_post_kwargs)
 
     def test_fetch_text_falls_back_to_urllib_when_requests_transport_fails(self):
         class TransportError(Exception):
@@ -255,14 +345,10 @@ class NetworkingRegressionTest(unittest.TestCase):
         class HttpError(TransportError):
             pass
 
-        response = mock.MagicMock()
-        response.read.return_value = "<html>fallback</html>".encode("utf-8")
-        response.__enter__.return_value = response
-        opener = mock.Mock()
-        opener.open.return_value = response
+        response = FallbackResponse("<html>fallback</html>".encode("utf-8"))
+        opener = OpenerDouble(response)
 
-        fake_requests = mock.Mock()
-        fake_requests.post.side_effect = TransportError("Connection aborted")
+        fake_requests = RequestsDouble(object(), TransportError("Connection aborted"))
         fake_requests.exceptions = types.SimpleNamespace(RequestException=TransportError, HTTPError=HttpError)
 
         with mock.patch("scripts.sillok_search.requests", fake_requests):
@@ -274,7 +360,7 @@ class NetworkingRegressionTest(unittest.TestCase):
             )
 
         self.assertEqual(html_text, "<html>fallback</html>")
-        opener.open.assert_called_once()
+        self.assertEqual(opener.open_count, 1)
 
 
 class SearchSillokRegressionTest(unittest.TestCase):
@@ -331,7 +417,15 @@ class SearchSillokRegressionTest(unittest.TestCase):
         )
         page_calls: list[int] = []
 
-        def fake_fetch_search_page(_opener, *, query, search_type, page_index, timeout):
+        def fake_fetch_search_page(
+            _opener: object,
+            *,
+            query: str,
+            search_type: str,
+            page_index: int,
+            timeout: int,
+        ) -> SearchReportType:
+            _ = _opener
             self.assertEqual(query, "훈민정음")
             self.assertEqual(search_type, "k")
             self.assertEqual(timeout, 7)
@@ -368,8 +462,8 @@ class ParseArgsTest(unittest.TestCase):
         stderr = io.StringIO()
 
         with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
-            parse_args(["--query", "훈민정음", "--year", "0"])
+            _ = parse_args(["--query", "훈민정음", "--year", "0"])
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

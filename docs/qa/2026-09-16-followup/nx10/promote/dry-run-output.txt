@@ -1,0 +1,80 @@
+
+=== 0. 동결 무해성 — 본 트리에서 읽기만 한다 (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai) ===
+  미러: /tmp/nx10-promote-dryrun-20260916T094534Z
+  [OK  ] 음성 대조군: 현재 .gitignore 는 백업 사본을 가리지 않는다(무시되지 않은 채 untracked = WARN 의 원인)
+  [OK  ] 양성: data/auth_hash.bak* 규칙을 넣으면 그 사본이 가려진다
+  이 스크립트는 본 트리에 **쓰지 않는다** — 지문은 예약 soak 의 기대값 그대로 남는다.
+  (지문의 정본은 이 스크립트가 아니라 예약 실행기·`collect_soak_result.py` 가 읽는 러너 기록이다.
+   여기서 다시 재면 두 번째 지문 정의가 생겨 §fingerprint-drift 판정이 갈라진다.)
+
+=== 1. 미러 트리 구성 (src·scripts·docs·tests 는 **그대로 복사**, 나머지 최상위 항목은 심볼릭) ===
+  [OK  ] 미러 준비 완료 (pyproject·src·scripts·docs·tests 전체)
+
+=== 2. A단계 — 이동 전: 스테이징본이 도구를 찾아 초록인가 (탐색 경로 = docs/) ===
+............xxxxxxxxxxxxxxxxxxxx.........s.........                      [100%]
+30 passed, 1 skipped, 20 xfailed in 0.28s
+  [OK  ] A단계 초록 (이동 전 기준선)
+
+=== 3. B단계 — 이동 실행(미러 안). 본 트리와 **같은 명령**을 쓴다 ===
+  [OK  ] mv nx10/verify_docs_commands.py → scripts/verify_docs_commands.py
+  [OK  ] mv nx10/collect_soak_result.py → scripts/collect_soak_result.py
+  [OK  ] mv nx01/cue_lexicon_probe.py → scripts/cue_lexicon_probe.py
+  [OK  ] mv nx10/promote/test_docs_toolchain_contract.py → tests/test_docs_toolchain_contract.py
+  [OK  ] mv nx10/promote/test_soak_recovery_judge.py → tests/test_soak_recovery_judge.py
+  [OK  ] mv nx10/promote/test_cue_lexicon_contract.py → tests/test_cue_lexicon_contract.py
+  [OK  ] 스테이징에 도구 사본 0건(두 주인 없음)
+
+=== 4. B단계 — 이동 뒤 승격 위치에서 초록인가 (탐색 경로 = scripts/) ===
+.........s.....................xxxxxxxxxxxxxxxxxxxx                      [100%]
+30 passed, 1 skipped, 20 xfailed in 0.40s
+  [OK  ] B단계 초록 (승격 위치 scripts/ 에서 해석)
+  skip: SKIPPED [1] ../../../Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_docs_toolchain_contract.py:148: git 작업 트리가 아니다(승격 리허설의 미러 트리) — 스캔 대상(dirty+untracked)이 정의되지 않는다.
+
+=== 5. 승격 게이트 전체 — 본실행과 ** 같은 함수**(gates.sh)를 미러에서 돌린다 ===
+
+  === 승격 게이트 (root=/tmp/nx10-promote-dryrun-20260916T094534Z) ===
+
+    [1] ruff check (6개 파일) — 승격 위치가 정적 게이트에 들어왔는가
+        OK: All checks passed!
+
+    [2] ruff format --check — CI 의 정적 게이트 두 번째
+        OK: 6 files already formatted
+
+    [3] 계약 시험 3파일 — 도구를 승격 위치에서 찾아 해석하는가
+        OK: 30 passed, 1 skipped, 20 xfailed in 0.37s
+
+    [4] verify_docs_commands.py 자체 실행 — 자기 파일 위치의 깊이에 의존하지 않는가
+        OK: 결과: ALL OK
+
+    [5] collect_soak_result.py --selftest + 회수 기록 경로가 증거 디렉터리인가
+        OK: 6개 자기시험 통과
+        OK: OUT = /private/tmp/nx10-promote-dryrun-20260916T094534Z/docs/qa/2026-09-16-followup/nx10
+
+    [6] cue_lexicon_probe.py 자체 실행 — 승격 위치에서 antigravity_k 를 찾고 돈다
+        OK: === 1~3. 메시지 → kind 판정 (합성 코퍼스) ===
+
+    [7] 승격 파일 6종이 대상 위치에 있다(사본·누락 0건)
+        OK: 6개 확인
+
+    PROMOTION_GATES: 7/7 passed
+  [OK  ] 승격 게이트 전건 통과(미러)
+
+=== 6. C단계(이빨) — 도구를 치우면 그 시험이 **실패**하는가 ===
+  [OK  ] verify_docs_commands.py 제거 → tests/test_docs_toolchain_contract.py 실패(정상)
+  [OK  ] 같은 조건에서 나머지 시험 실패 목록 불변( — 이빨이 옆 시험으로 번지지 않는다)
+  [OK  ] collect_soak_result.py 제거 → tests/test_soak_recovery_judge.py 실패(정상)
+  [OK  ] 같은 조건에서 나머지 시험 실패 목록 불변( — 이빨이 옆 시험으로 번지지 않는다)
+  [OK  ] cue_lexicon_probe.py 제거 → tests/test_cue_lexicon_contract.py 실패(정상)
+  [OK  ] 같은 조건에서 나머지 시험 실패 목록 불변( — 이빨이 옆 시험으로 번지지 않는다)
+  [OK  ] 도구 3종 복원(해시 앞 8자: b26f8772 7cc6c92f 40eab36d )
+
+=== 6b. 본실행 스크립트와 같은 표를 쓰는가(경로 일치 · 문법) ===
+  [OK  ] 본실행의 STAGING_ROOT 가 실제 스테이징 위치와 일치한다(docs/qa/2026-09-16-followup)
+  [OK  ] 본실행 스크립트 문법 OK
+  [OK  ] 이동표 6건이 본실행이 보는 위치에 있다
+
+=== 7. 결과 ===
+  [OK  ] 리허설 로그에 bash 진단 0건(자기 점검)
+  ALL PASS — 승격 절차가 미러에서 재현됐다. 본 트리 쓰기 0건.
+  이동 뒤 실행할 실제 명령: bash docs/qa/2026-09-16-followup/nx10/promote/apply_promotion.sh
+  미러 트리는 감사용으로 남긴다: /tmp/nx10-promote-dryrun-20260916T094534Z

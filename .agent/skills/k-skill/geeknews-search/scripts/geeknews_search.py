@@ -10,8 +10,23 @@ from dataclasses import asdict, dataclass
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Protocol, cast, override
 
 GEEKNEWS_FEED_URL = "https://feeds.feedburner.com/geeknews-feed"
+
+
+class _ResponseHeaders(Protocol):
+    def get_content_charset(self) -> str | None: ...
+
+
+class _Response(Protocol):
+    headers: _ResponseHeaders
+
+    def read(self) -> bytes: ...
+
+    def __enter__(self) -> _Response: ...
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None: ...
 
 
 class _TextExtractor(HTMLParser):
@@ -19,6 +34,7 @@ class _TextExtractor(HTMLParser):
         super().__init__()
         self.parts: list[str] = []
 
+    @override
     def handle_data(self, data: str) -> None:
         self.parts.append(data)
 
@@ -142,7 +158,7 @@ def _validate_limit(limit: int) -> int:
 
 def load_feed(xml_text: str) -> GeekNewsFeed:
     prefix = _feed_prefix(xml_text)
-    items = []
+    items: list[GeekNewsItem] = []
     for entry in _entry_blocks(xml_text):
         author_block_match = re.search(r"<author\b[^>]*>(.*?)</author>", entry, re.DOTALL)
         author_block = author_block_match.group(1) if author_block_match else ""
@@ -182,7 +198,7 @@ def search_items(feed: GeekNewsFeed, query: str, limit: int = 10) -> list[GeekNe
         raise ValueError("query is required")
     limit = _validate_limit(limit)
     needle = query.casefold()
-    matches = []
+    matches: list[GeekNewsItem] = []
     for item in feed.items:
         haystack = "\n".join(
             part
@@ -245,39 +261,59 @@ def build_detail_payload(feed: GeekNewsFeed, lookup: str) -> dict[str, object]:
 
 def fetch_feed(url: str = GEEKNEWS_FEED_URL, timeout: int = 20) -> str:
     request = urllib.request.Request(url, headers={"User-Agent": "k-skill-geeknews/1.0"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with cast(_Response, urllib.request.urlopen(request, timeout=timeout)) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read().decode(charset, errors="replace")
 
 
 def _add_feed_source_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--feed-url", default=GEEKNEWS_FEED_URL, help="기본값: GeekNews public feed URL")
-    parser.add_argument("--feed-file", help="테스트/오프라인 검증용 로컬 Atom XML 파일")
+    _ = parser.add_argument("--feed-url", default=GEEKNEWS_FEED_URL, help="기본값: GeekNews public feed URL")
+    _ = parser.add_argument("--feed-file", help="테스트/오프라인 검증용 로컬 Atom XML 파일")
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+@dataclass(frozen=True)
+class CliArgs:
+    command: str
+    feed_url: str
+    feed_file: str | None
+    limit: int
+    query: str
+    id: str
+
+
+def parse_args(argv: list[str] | None = None) -> CliArgs:
     parser = argparse.ArgumentParser(description="Read GeekNews entries from the public RSS/Atom feed.")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="최신 GeekNews 항목 목록")
     _add_feed_source_args(list_parser)
-    list_parser.add_argument("--limit", type=int, default=10)
+    _ = list_parser.add_argument("--limit", type=int, default=10)
 
     search_parser = subparsers.add_parser("search", help="제목/요약/작성자 기준 검색")
     _add_feed_source_args(search_parser)
-    search_parser.add_argument("--query", required=True)
-    search_parser.add_argument("--limit", type=int, default=10)
+    _ = search_parser.add_argument("--query", required=True)
+    _ = search_parser.add_argument("--limit", type=int, default=10)
 
     detail_parser = subparsers.add_parser("detail", help="항목 상세 확인")
     _add_feed_source_args(detail_parser)
-    detail_parser.add_argument("--id", required=True, help="entry id/link/topic id 일부")
+    _ = detail_parser.add_argument("--id", required=True, help="entry id/link/topic id 일부")
 
-    return parser.parse_args(argv)
+    namespace = parser.parse_args(argv)
+    raw_feed_file = cast(object, getattr(namespace, "feed_file", None))
+    raw_limit = cast(object, getattr(namespace, "limit", 10))
+    return CliArgs(
+        command=str(cast(object, getattr(namespace, "command", ""))),
+        feed_url=str(cast(object, getattr(namespace, "feed_url", GEEKNEWS_FEED_URL))),
+        feed_file=raw_feed_file if isinstance(raw_feed_file, str) else None,
+        limit=raw_limit if isinstance(raw_limit, int) else 10,
+        query=str(cast(object, getattr(namespace, "query", ""))),
+        id=str(cast(object, getattr(namespace, "id", ""))),
+    )
 
 
-def _load_feed_text(args: argparse.Namespace) -> str:
-    if args.feed_file:
+def _load_feed_text(args: CliArgs) -> str:
+    if args.feed_file is not None:
         return Path(args.feed_file).read_text(encoding="utf-8")
     return fetch_feed(url=args.feed_url)
 

@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from antigravity_k.engine.artifact_engine import ArtifactEngine
 from antigravity_k.engine.execution_mode import ExecutionMode
 from antigravity_k.engine.mode_manager import ModeManager
 from antigravity_k.engine.quality_gate import QualityGate
+from antigravity_k.engine.skill_publisher import PublishValidation
 
 # ═══════════════════════════════════════════════════════════════════════
 # D8-D10: SkillMarketRegistry (통합)
@@ -96,44 +99,50 @@ class TestD9_SkillInstaller:
         """패키지명 → 스킬 짧은 이름 파싱."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
-        assert SkillInstaller._parse_skill_name("@antigravity-k/skill-code-review") == "code-review"
-        assert SkillInstaller._parse_skill_name("code-review") == "code-review"
-        assert SkillInstaller._parse_skill_name("@antigravity-k/skill-data-pipeline") == "data-pipeline"
+        parse_skill_name = cast(Callable[[str], str], getattr(SkillInstaller, "_parse_skill_name"))
+        assert parse_skill_name("@antigravity-k/skill-code-review") == "code-review"
+        assert parse_skill_name("code-review") == "code-review"
+        assert parse_skill_name("@antigravity-k/skill-data-pipeline") == "data-pipeline"
 
     def test_version_compare(self):
         """semver 비교."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
-        assert SkillInstaller._version_gte("1.2.3", "1.0.0") is True
-        assert SkillInstaller._version_gte("1.0.0", "1.0.0") is True
-        assert SkillInstaller._version_gte("0.9.0", "1.0.0") is False
-        assert SkillInstaller._version_gte("2.0.0", "1.9.9") is True
+        version_gte = cast(Callable[[str, str], bool], getattr(SkillInstaller, "_version_gte"))
+        assert version_gte("1.2.3", "1.0.0") is True
+        assert version_gte("1.0.0", "1.0.0") is True
+        assert version_gte("0.9.0", "1.0.0") is False
+        assert version_gte("2.0.0", "1.9.9") is True
 
-    def test_security_scan_safe_content(self, tmp_path):
+    def test_security_scan_safe_content(self, tmp_path: Path) -> None:
         """안전한 SKILL.md → 보안 통과."""
-        from antigravity_k.engine.skill_installer import SkillInstaller
+        from antigravity_k.engine.skill_installer import SecurityReport, SkillInstaller
 
         skill_dir = tmp_path / "node_modules" / "skill"
         skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text("# Safe skill\n\nUseful instructions.")
+        _ = (skill_dir / "SKILL.md").write_text("# Safe skill\n\nUseful instructions.")
 
-        report = SkillInstaller._security_scan(None, skill_dir, "test-skill")
+        installer = SkillInstaller()
+        security_scan = cast(Callable[[Path, str], SecurityReport], getattr(installer, "_security_scan"))
+        report = security_scan(skill_dir, "test-skill")
         assert report.passed is True
         assert len(report.errors) == 0
 
-    def test_security_scan_suspicious(self, tmp_path):
+    def test_security_scan_suspicious(self, tmp_path: Path) -> None:
         """의심스러운 패턴 → 보안 경고."""
-        from antigravity_k.engine.skill_installer import SkillInstaller
+        from antigravity_k.engine.skill_installer import SecurityReport, SkillInstaller
 
         skill_dir = tmp_path / "node_modules" / "skill"
         skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text("# Suspicious\n\nRun: rm -rf /\n")
+        _ = (skill_dir / "SKILL.md").write_text("# Suspicious\n\nRun: rm -rf /\n")
 
-        report = SkillInstaller._security_scan(None, skill_dir, "test-skill")
+        installer = SkillInstaller()
+        security_scan = cast(Callable[[Path, str], SecurityReport], getattr(installer, "_security_scan"))
+        report = security_scan(skill_dir, "test-skill")
         # rm -rf / should be detected as error level
         assert len(report.errors) >= 1
 
-    def test_write_meta(self, tmp_path):
+    def test_write_meta(self, tmp_path: Path) -> None:
         """메타데이터 파일 작성 검증."""
         from antigravity_k.engine.skill_installer import InstallValidation, SecurityReport, SkillInstaller
 
@@ -149,10 +158,14 @@ class TestD9_SkillInstaller:
         )
         security = SecurityReport(passed=True)
 
-        SkillInstaller._write_meta(None, dest_dir, "@antigravity-k/skill-test", validation, security)
+        installer = SkillInstaller()
+        write_meta = cast(
+            Callable[[Path, str, InstallValidation, SecurityReport], None], getattr(installer, "_write_meta")
+        )
+        write_meta(dest_dir, "@antigravity-k/skill-test", validation, security)
         meta_path = dest_dir / ".agk_meta.json"
         assert meta_path.exists()
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta = cast(dict[str, object], json.loads(meta_path.read_text(encoding="utf-8")))
         assert meta["name"] == "@antigravity-k/skill-test"
         assert meta["version"] == "1.0.0"
         assert meta["security_passed"] is True
@@ -188,7 +201,7 @@ class TestD11_MCPServerRegistry:
         from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
 
         registry = MCPServerRegistry()
-        registry.register_skill_mcp(
+        _ = registry.register_skill_mcp(
             "another-skill",
             {
                 "serverId": "skill-server-1",
@@ -205,7 +218,7 @@ class TestD11_MCPServerRegistry:
         from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
 
         registry = MCPServerRegistry()
-        registry.register_skill_mcp(
+        _ = registry.register_skill_mcp(
             "removable",
             {
                 "serverId": "rem-server",
@@ -220,11 +233,11 @@ class TestD11_MCPServerRegistry:
         from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
 
         registry = MCPServerRegistry()
-        registry.register_skill_mcp(
+        _ = registry.register_skill_mcp(
             "skill-a",
             {"serverId": "srv-a", "command": "cmd"},
         )
-        registry.register_skill_mcp(
+        _ = registry.register_skill_mcp(
             "skill-b",
             {"serverId": "srv-b", "command": "cmd"},
         )
@@ -256,7 +269,7 @@ class TestD11_MCPServerRegistry:
             output = Path(tmpdir) / ".mcp.json"
 
             registry = MCPServerRegistry()
-            registry.register_skill_mcp(
+            _ = registry.register_skill_mcp(
                 "skill-with-mcp",
                 {
                     "serverId": "my-skill-server",
@@ -264,11 +277,12 @@ class TestD11_MCPServerRegistry:
                     "args": ["-m", "skill_server"],
                 },
             )
-            registry.generate_config_with_skills(str(output), server_ids=["filesystem"])
+            _ = registry.generate_config_with_skills(str(output), server_ids=["filesystem"])
 
-            config = json.loads(output.read_text(encoding="utf-8"))
-            assert "filesystem" in config["mcpServers"]
-            assert "my-skill-server" in config["mcpServers"]
+            config = cast(dict[str, object], json.loads(output.read_text(encoding="utf-8")))
+            servers_config = cast(dict[str, object], config["mcpServers"])
+            assert "filesystem" in servers_config
+            assert "my-skill-server" in servers_config
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -279,21 +293,21 @@ class TestD11_MCPServerRegistry:
 class TestD13_SkillLoader_Market:
     """SkillLoader — .agent/skills/market/ 디렉토리 스캔 검증."""
 
-    def test_market_dir_property(self, tmp_path):
+    def test_market_dir_property(self, tmp_path: Path) -> None:
         """market_dir 속성 확인."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
         assert loader.market_dir == tmp_path / ".agent" / "skills" / "market"
 
-    def test_load_market_skills(self, tmp_path):
+    def test_load_market_skills(self, tmp_path: Path) -> None:
         """market/ 디렉토리에서 SKILL.md 로드."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
         market_dir = tmp_path / ".agent" / "skills" / "market"
         skill_dir = market_dir / "test-skill"
         skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
+        _ = (skill_dir / "SKILL.md").write_text(
             "---\nname: Test Skill\ndescription: A test market skill\n---\n\n# Instructions\n\nDo something."
         )
 
@@ -304,33 +318,33 @@ class TestD13_SkillLoader_Market:
         assert skill["description"] == "A test market skill"
         assert skill["source"] == "market"
 
-    def test_list_skills_by_source_market(self, tmp_path):
+    def test_list_skills_by_source_market(self, tmp_path: Path) -> None:
         """list_skills_by_source('market') 필터링."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
         market_dir = tmp_path / ".agent" / "skills" / "market"
         skill_dir = market_dir / "mkt-skill"
         skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text("# Market skill")
+        _ = (skill_dir / "SKILL.md").write_text("# Market skill")
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
         market_skills = loader.list_skills_by_source("market")
         assert len(market_skills) >= 1
         assert any(s["id"] == "mkt-skill" for s in market_skills)
 
-    def test_load_order_prefers_market(self, tmp_path):
+    def test_load_order_prefers_market(self, tmp_path: Path) -> None:
         """로컬과 마켓에 동일 ID → 마켓이 최종 우선."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
         # 로컬 스킬
         local_dir = tmp_path / ".agent" / "skills" / "overlap"
         local_dir.mkdir(parents=True)
-        (local_dir / "SKILL.md").write_text("---\nname: Local Version\n---\n\nLocal content.")
+        _ = (local_dir / "SKILL.md").write_text("---\nname: Local Version\n---\n\nLocal content.")
 
         # 마켓 스킬 (동일 ID = "overlap")
         market_dir = tmp_path / ".agent" / "skills" / "market" / "overlap"
         market_dir.mkdir(parents=True)
-        (market_dir / "SKILL.md").write_text("---\nname: Market Version\n---\n\nMarket content.")
+        _ = (market_dir / "SKILL.md").write_text("---\nname: Market Version\n---\n\nMarket content.")
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
         skill = loader.get_skill("overlap")
@@ -338,13 +352,13 @@ class TestD13_SkillLoader_Market:
         assert skill["source"] == "market"  # market wins
         assert skill["name"] == "Market Version"
 
-    def test_include_market_false(self, tmp_path):
+    def test_include_market_false(self, tmp_path: Path) -> None:
         """include_market=False → market 스킬 미로드."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
         market_dir = tmp_path / ".agent" / "skills" / "market" / "hidden"
         market_dir.mkdir(parents=True)
-        (market_dir / "SKILL.md").write_text("# Should not load")
+        _ = (market_dir / "SKILL.md").write_text("# Should not load")
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=False)
         assert loader.get_skill("hidden") is None
@@ -358,14 +372,14 @@ class TestD13_SkillLoader_Market:
 class TestD13_SkillsRegistry_Market:
     """SkillsRegistry — .agent/skills/market/ 스캔 검증."""
 
-    def test_market_skill_loaded_by_registry(self, tmp_path):
+    def test_market_skill_loaded_by_registry(self, tmp_path: Path) -> None:
         """SkillsRegistry가 market/ 스킬 로드."""
         from antigravity_k.agents.skills_registry import SkillsRegistry
 
         skills_dir = tmp_path / ".agent" / "skills"
         market_skill_dir = skills_dir / "market" / "market-skill"
         market_skill_dir.mkdir(parents=True)
-        (market_skill_dir / "SKILL.md").write_text(
+        _ = (market_skill_dir / "SKILL.md").write_text(
             "---\nname: MARKET_SKILL\ndescription: A market skill\ntools:\n  - read_file\n---\n\n# Instructions"
         )
 
@@ -407,18 +421,20 @@ class TestD17_SkillPublisher_E2E:
         tool_pool = ["read_file", "write_file", "grep_search", "glob_search", "list_directory"]
         selected = tool_pool[: min(tool_count, len(tool_pool))]
         tools_yaml = "\n  - ".join(selected)
-        (skill_dir / "SKILL.md").write_text(
-            f"---\n"
-            f"name: {name}\n"
-            f"version: {version}\n"
-            f"description: {name} skill description\n"
-            f"allowed-tools:\n"
-            f"  - {tools_yaml}\n"
-            f"risk_level: low\n"
-            f"trust_level: verified\n"
-            f"---\n\n"
-            f"# {name.title()}\n\n"
-            f"{name} instructions.",
+        _ = (skill_dir / "SKILL.md").write_text(
+            f"""---
+name: {name}
+version: {version}
+description: {name} skill description
+allowed-tools:
+  - {tools_yaml}
+risk_level: low
+trust_level: verified
+---
+
+# {name.title()}
+
+{name} instructions.""",
             encoding="utf-8",
         )
 
@@ -435,7 +451,7 @@ class TestD17_SkillPublisher_E2E:
         }
         if mcp_server_id:
             meta["mcp_server_id"] = mcp_server_id
-        (skill_dir / ".agk_meta.json").write_text(
+        _ = (skill_dir / ".agk_meta.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -443,21 +459,25 @@ class TestD17_SkillPublisher_E2E:
         # references/ 디렉토리 (스킬 문서)
         ref_dir = skill_dir / "references"
         ref_dir.mkdir(exist_ok=True)
-        (ref_dir / "guide.md").write_text("# User Guide\n\nHow to use this skill.", encoding="utf-8")
+        _ = (ref_dir / "guide.md").write_text("# User Guide\n\nHow to use this skill.", encoding="utf-8")
 
         return skill_dir
 
     # ─── Validation E2E ───────────────────────────────────────────
 
-    def test_e2e_validate_full_market_skill(self, tmp_path):
+    def test_e2e_validate_full_market_skill(self, tmp_path: Path) -> None:
         """market/ 스킬 → _validate_for_publish 전체 검증."""
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
-        self._create_market_skill(tmp_path, "my-skill", "2.1.0", tool_count=3)
+        _ = self._create_market_skill(tmp_path, "my-skill", "2.1.0", tool_count=3)
         publisher = SkillPublisher(project_root=str(tmp_path))
 
         skill_dir = publisher.market_dir / "my-skill"
-        validation = publisher._validate_for_publish(skill_dir, "my-skill")
+        validate_for_publish = cast(
+            Callable[[Path, str], PublishValidation], getattr(publisher, "_validate_for_publish")
+        )
+        validation = validate_for_publish(skill_dir, "my-skill")
+        assert hasattr(validation, "valid")
 
         assert validation.valid, f"Expected valid, got: {validation.reason}"
         assert validation.skill_name == "my-skill"
@@ -468,7 +488,7 @@ class TestD17_SkillPublisher_E2E:
         assert validation.has_agk_meta is True
         assert len(validation.warnings) >= 1  # README 부재 warning
 
-    def test_e2e_validate_no_skill_dir(self, tmp_path):
+    def test_e2e_validate_no_skill_dir(self, tmp_path: Path) -> None:
         """존재하지 않는 스킬 → PublishResult 실패."""
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
@@ -477,7 +497,7 @@ class TestD17_SkillPublisher_E2E:
         assert not result.success
         assert any("찾을 수 없습니다" in e for e in result.errors)
 
-    def test_e2e_validate_invalid_name(self, tmp_path):
+    def test_e2e_validate_invalid_name(self, tmp_path: Path) -> None:
         """잘못된 패키지명 → publish 실패."""
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
@@ -488,7 +508,7 @@ class TestD17_SkillPublisher_E2E:
 
     # ─── npm publish E2E (mocked subprocess) ─────────────────────
 
-    def test_e2e_npm_publish_full_pipeline(self, tmp_path):
+    def test_e2e_npm_publish_full_pipeline(self, tmp_path: Path) -> None:
         """npm publish 전체 파이프라인 (subprocess.run mock).
 
         mock 없이 validate → prepare → publish 시뮬레이션:
@@ -499,7 +519,7 @@ class TestD17_SkillPublisher_E2E:
 
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
-        self._create_market_skill(tmp_path, "publish-skill", "1.0.0")
+        _ = self._create_market_skill(tmp_path, "publish-skill", "1.0.0")
         publisher = SkillPublisher(project_root=str(tmp_path))
 
         # Mock subprocess.run → npm publish 성공
@@ -525,10 +545,10 @@ class TestD17_SkillPublisher_E2E:
 
         # subprocess.run이 npm publish로 호출되었는지 확인
         assert mock_run.called
-        call_args = mock_run.call_args[0][0]
+        call_args = cast(tuple[list[str]], mock_run.call_args[0])[0]
         assert "npm" in call_args and "publish" in call_args
 
-    def test_e2e_npm_publish_prepare_artifact(self, tmp_path):
+    def test_e2e_npm_publish_prepare_artifact(self, tmp_path: Path) -> None:
         """npm publish 준비 단계에서 생성된 패키지 아티팩트 검증.
 
         _prepare_package가 생성한 package.json, SKILL.md, README.md,
@@ -536,19 +556,26 @@ class TestD17_SkillPublisher_E2E:
         """
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
-        self._create_market_skill(tmp_path, "artifact-skill", "3.0.0", tool_count=2)
+        _ = self._create_market_skill(tmp_path, "artifact-skill", "3.0.0", tool_count=2)
         publisher = SkillPublisher(project_root=str(tmp_path))
 
         # prepare 단계 직접 호출
         skill_dir = publisher.market_dir / "artifact-skill"
-        validation = publisher._validate_for_publish(skill_dir, "artifact-skill")
+        validate_for_publish = cast(
+            Callable[[Path, str], PublishValidation], getattr(publisher, "_validate_for_publish")
+        )
+        validation = validate_for_publish(skill_dir, "artifact-skill")
         assert validation.valid
 
         import tempfile
 
         pkg_dir = Path(tempfile.mkdtemp(prefix="agk-test-pkg-"))
         try:
-            ok, err = publisher._prepare_package(
+            prepare_package = cast(
+                Callable[[Path, Path, str, str, PublishValidation], tuple[bool, str]],
+                getattr(publisher, "_prepare_package"),
+            )
+            ok, err = prepare_package(
                 skill_dir,
                 pkg_dir,
                 "@antigravity-k/skill-artifact-skill",
@@ -560,17 +587,19 @@ class TestD17_SkillPublisher_E2E:
             # ── package.json 검증 ──
             pkg_json = pkg_dir / "package.json"
             assert pkg_json.exists()
-            pkg = json.loads(pkg_json.read_text(encoding="utf-8"))
+            pkg = cast(dict[str, object], json.loads(pkg_json.read_text(encoding="utf-8")))
+            agk_meta = cast(dict[str, object], pkg["antigravityK"])
+            keywords = cast(list[str], pkg["keywords"])
             assert pkg["name"] == "@antigravity-k/skill-artifact-skill"
             assert pkg["version"] == "3.0.0"
             assert pkg["private"] is False
-            assert pkg["antigravityK"]["skill"] is True
-            assert pkg["antigravityK"]["displayName"] == "Artifact Skill"
-            assert pkg["antigravityK"]["requiredTools"] == ["read_file", "write_file"]
-            assert pkg["antigravityK"]["riskLevel"] == "safe"
-            assert pkg["antigravityK"]["trustLevel"] == "experimental"
-            assert "antigravity-k" in pkg["keywords"]
-            assert "skill" in pkg["keywords"]
+            assert agk_meta["skill"] is True
+            assert agk_meta["displayName"] == "Artifact Skill"
+            assert agk_meta["requiredTools"] == ["read_file", "write_file"]
+            assert agk_meta["riskLevel"] == "safe"
+            assert agk_meta["trustLevel"] == "experimental"
+            assert "antigravity-k" in keywords
+            assert "skill" in keywords
 
             # ── SKILL.md 검증 ──
             skill_md = pkg_dir / "SKILL.md"
@@ -604,13 +633,13 @@ class TestD17_SkillPublisher_E2E:
 
             shutil.rmtree(pkg_dir, ignore_errors=True)
 
-    def test_e2e_npm_publish_failure_handling(self, tmp_path):
+    def test_e2e_npm_publish_failure_handling(self, tmp_path: Path) -> None:
         """npm publish 실패 → PublishResult.errors에 에러 기록."""
         from unittest.mock import patch
 
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
-        self._create_market_skill(tmp_path, "failing-skill")
+        _ = self._create_market_skill(tmp_path, "failing-skill")
         publisher = SkillPublisher(project_root=str(tmp_path))
 
         # Mock subprocess.run → npm publish 실패 (401)
@@ -631,13 +660,13 @@ class TestD17_SkillPublisher_E2E:
         assert not result.success
         assert any("인증" in e for e in result.errors)
 
-    def test_e2e_npm_publish_already_published(self, tmp_path):
+    def test_e2e_npm_publish_already_published(self, tmp_path: Path) -> None:
         """이미 publish된 버전 → graceful 에러 메시지."""
         from unittest.mock import patch
 
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
-        self._create_market_skill(tmp_path, "already-published")
+        _ = self._create_market_skill(tmp_path, "already-published")
         publisher = SkillPublisher(project_root=str(tmp_path))
 
         with patch("antigravity_k.engine.skill_publisher.subprocess.run") as mock_run:
@@ -659,7 +688,7 @@ class TestD17_SkillPublisher_E2E:
 
     # ─── GitHub PR E2E (mocked subprocess) ───────────────────────
 
-    def test_e2e_github_pr_full_pipeline(self, tmp_path):
+    def test_e2e_github_pr_full_pipeline(self, tmp_path: Path) -> None:
         """GitHub PR 전체 파이프라인 (gh CLI mock).
 
         validate → prepare → clone → branch → commit → push → PR create.
@@ -669,14 +698,15 @@ class TestD17_SkillPublisher_E2E:
 
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
-        self._create_market_skill(tmp_path, "pr-skill")
+        _ = self._create_market_skill(tmp_path, "pr-skill")
         publisher = SkillPublisher(project_root=str(tmp_path))
 
         # Mock subprocess.run → 모든 gh/git 명령어 성공
-        call_log = []
+        call_log: list[str] = []
 
-        def mock_subprocess(args, **kwargs):
-            cmd = args[0] if isinstance(args, list) else str(args)
+        def mock_subprocess(args: list[str], **kwargs: object) -> object:
+            _ = kwargs
+            cmd = args[0]
             call_log.append(cmd)
 
             # gh --version → OK
@@ -722,14 +752,14 @@ class TestD17_SkillPublisher_E2E:
         assert result.pr_url == "https://github.com/org/skills-repo/pull/42"
 
         # gh pr create가 호출되었는지 확인
-        pr_calls = [c for c in call_log if c == "gh"]
+        pr_calls: list[str] = [c for c in call_log if c == "gh"]
         assert len(pr_calls) >= 1
 
-    def test_e2e_github_pr_dry_run(self, tmp_path):
+    def test_e2e_github_pr_dry_run(self, tmp_path: Path) -> None:
         """GitHub PR dry-run → 검증만 수행, URL 반환 없음."""
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
-        self._create_market_skill(tmp_path, "dry-run-skill")
+        _ = self._create_market_skill(tmp_path, "dry-run-skill")
         publisher = SkillPublisher(project_root=str(tmp_path))
 
         result = publisher.publish_to_github(
@@ -746,7 +776,7 @@ class TestD17_SkillPublisher_E2E:
 
     # ─── D17 + D8-D14 통합 E2E ───────────────────────────────────
 
-    def test_e2e_market_to_publisher_integration(self, tmp_path):
+    def test_e2e_market_to_publisher_integration(self, tmp_path: Path) -> None:
         """SkillLoader → SkillMarketRegistry → SkillPublisher 통합 E2E.
 
         전체 플로우:
@@ -763,7 +793,7 @@ class TestD17_SkillPublisher_E2E:
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
         # ── Step 1-3: D8-D14 마켓 스킬 셋업 ──
-        self._create_market_skill(tmp_path, "integrated-skill", "1.5.0", tool_count=3)
+        _ = self._create_market_skill(tmp_path, "integrated-skill", "1.5.0", tool_count=3)
 
         # SkillLoader 로드
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
@@ -792,7 +822,10 @@ class TestD17_SkillPublisher_E2E:
 
         # 유효성 검증
         skill_dir = publisher.market_dir / "integrated-skill"
-        validation = publisher._validate_for_publish(skill_dir, "integrated-skill")
+        validate_for_publish = cast(
+            Callable[[Path, str], PublishValidation], getattr(publisher, "_validate_for_publish")
+        )
+        validation = validate_for_publish(skill_dir, "integrated-skill")
         assert validation.valid
         assert validation.version == "1.5.0"
         assert validation.tool_count == 3
@@ -802,7 +835,11 @@ class TestD17_SkillPublisher_E2E:
 
         pkg_dir = Path(tempfile.mkdtemp(prefix="agk-e2e-"))
         try:
-            ok, err = publisher._prepare_package(
+            prepare_package = cast(
+                Callable[[Path, Path, str, str, PublishValidation], tuple[bool, str]],
+                getattr(publisher, "_prepare_package"),
+            )
+            ok, err = prepare_package(
                 skill_dir,
                 pkg_dir,
                 "@antigravity-k/skill-integrated-skill",
@@ -811,11 +848,12 @@ class TestD17_SkillPublisher_E2E:
             )
             assert ok, f"Prepare failed: {err}"
 
-            pkg = json.loads((pkg_dir / "package.json").read_text(encoding="utf-8"))
+            pkg = cast(dict[str, object], json.loads((pkg_dir / "package.json").read_text(encoding="utf-8")))
+            agk_meta = cast(dict[str, object], pkg["antigravityK"])
             assert pkg["name"] == "@antigravity-k/skill-integrated-skill"
             assert pkg["version"] == "1.5.0"
-            assert pkg["antigravityK"]["requiredTools"] == ["read_file", "write_file", "grep_search"]
-            assert pkg["antigravityK"]["minAgentVersion"] == "0.1.0"
+            assert agk_meta["requiredTools"] == ["read_file", "write_file", "grep_search"]
+            assert agk_meta["minAgentVersion"] == "0.1.0"
 
             # README 자동 생성 확인
             readme = (pkg_dir / "README.md").read_text(encoding="utf-8")
@@ -826,7 +864,7 @@ class TestD17_SkillPublisher_E2E:
 
             shutil.rmtree(pkg_dir, ignore_errors=True)
 
-    def test_e2e_publisher_result_summary(self, tmp_path):
+    def test_e2e_publisher_result_summary(self) -> None:
         """PublishResult.summary() 출력 검증."""
         from antigravity_k.engine.skill_publisher import PublishResult
 
@@ -866,7 +904,7 @@ class TestD17_SkillPublisher_E2E:
         assert "broken" in s3
         assert "npm publish failed" in s3
 
-    def test_e2e_publisher_readme_generation(self, tmp_path):
+    def test_e2e_publisher_readme_generation(self, tmp_path: Path) -> None:
         """README.md 자동 생성 포맷 검증."""
         from antigravity_k.engine.skill_publisher import PublishValidation, SkillPublisher
 
@@ -882,7 +920,8 @@ class TestD17_SkillPublisher_E2E:
                 tool_count=4,
                 has_skill_md=True,
             )
-            publisher._generate_readme(dest, validation)
+            generate_readme = cast(Callable[[Path, PublishValidation], None], getattr(publisher, "_generate_readme"))
+            generate_readme(dest, validation)
 
             readme = dest / "README.md"
             assert readme.exists()
@@ -906,7 +945,7 @@ class TestD17_SkillPublisher_E2E:
 class TestPhase1_E2E_FullIntegration:
     """D1~D13 전체 통합 시나리오 — Plan/Build 모드 + Skills Marketplace."""
 
-    def test_full_phase1_lifecycle(self, tmp_path):
+    def test_full_phase1_lifecycle(self, tmp_path: Path) -> None:
         """Phase 1 전체 라이프사이클 E2E 검증.
 
         시나리오:
@@ -929,11 +968,11 @@ class TestPhase1_E2E_FullIntegration:
         market_dir = tmp_path / ".agent" / "skills" / "market"
         skill_dir = market_dir / "code-review"
         skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
-            "---\nname: Code Review\ndescription: Automated code review skill\n"  # noqa: E501
-            "risk_level: low\ntrust_level: verified\n---\n\n"
-            "# Code Review Instructions\n\n"
-            "Review code for bugs and style issues."
+        _ = (skill_dir / "SKILL.md").write_text(
+            "---\nname: Code Review\ndescription: Automated code review skill\n"
+            + "risk_level: low\ntrust_level: verified\n---\n\n"
+            + "# Code Review Instructions\n\n"
+            + "Review code for bugs and style issues."
         )
 
         # ── Phase 1: Interactive 시작 ──
@@ -942,7 +981,7 @@ class TestPhase1_E2E_FullIntegration:
         assert mgr.current_mode == ExecutionMode.INTERACTIVE
 
         # ── Phase 2: PLAN 모드 전환 ──
-        mgr.switch_to_plan("Complex refactoring needed")
+        _ = mgr.switch_to_plan("Complex refactoring needed")
         assert mgr.is_plan is True
 
         # PLAN 모드 권한 검증
@@ -960,7 +999,7 @@ class TestPhase1_E2E_FullIntegration:
             "## Tasks\n\n- [ ] Task 1\n- [ ] Task 2\n- [ ] Task 3\n\n"
             "## Timeline\n\nWeek 1.\n\n"
         )
-        ae.write_artifact("implementation_plan.md", plan_content)
+        _ = ae.write_artifact("implementation_plan.md", plan_content)
 
         # Plan 검증
         validation = ae.validate_plan_complete()
@@ -1014,7 +1053,7 @@ class TestPhase1_E2E_FullIntegration:
 
         # ── Phase 7: MCPServerRegistry 스킬 MCP 등록 ──
         mcp_registry = MCPServerRegistry()
-        mcp_registry.register_skill_mcp(
+        _ = mcp_registry.register_skill_mcp(
             "code-review",
             {
                 "serverId": "review-server",
@@ -1041,7 +1080,7 @@ class TestPhase1_E2E_FullIntegration:
         assert isinstance(formatted, str)
 
         # ── Phase 9: Interactive 복귀 ──
-        mgr.switch_to_interactive("Phase 1 E2E complete")
+        _ = mgr.switch_to_interactive("Phase 1 E2E complete")
         assert mgr.is_interactive is True
 
         # 최종 상태 확인

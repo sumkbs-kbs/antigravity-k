@@ -24,6 +24,31 @@ class ApprovalResponse(BaseModel):
     decision: str  # approve / deny / always_allow
 
 
+class AlwaysAllowGrantPayload(BaseModel):
+    """'항상 허용' 부여 한 건의 API 표현."""
+
+    tool_name: str
+    granted_at: float
+    granted_for: str
+    auto_approved_count: int
+    last_auto_approved_at: float | None
+
+
+class AlwaysAllowListPayload(BaseModel):
+    """'항상 허용' 목록 응답."""
+
+    grants: list[AlwaysAllowGrantPayload]
+    count: int
+
+
+class ResetAlwaysAllowedPayload(BaseModel):
+    """'항상 허용' 해제 응답."""
+
+    ok: bool
+    revoked: list[str]
+    message: str
+
+
 @router.get("/pending")
 async def list_pending_approvals():
     """대기 중인 승인 요청 목록을 반환합니다."""
@@ -32,6 +57,24 @@ async def list_pending_approvals():
     return {
         "pending": [req.to_dict() for req in pending],
         "count": len(pending),
+    }
+
+
+@router.get("/always-allowed", response_model=AlwaysAllowListPayload)
+async def list_always_allowed():
+    """'항상 허용' 부여 목록을 반환합니다.
+
+    부여는 **도구 단위**이고 프로세스 수명 동안 유지되므로, 사용자가 그것을 **읽고 되돌릴 수**
+    있어야 한다(F-33). 각 항목은 언제·무엇에 대해 주어졌는지와 **동의 없이 실행된 횟수**(#)를 낸다.
+
+    경로가 `/{request_id}` 보다 **먼저** 선언되어야 한다 — 그렇지 않으면 `always-allowed` 가
+    요청 ID 로 해석되어 404 가 된다(실측: attempt-025).
+    """
+    manager = get_approval_manager()
+    grants = manager.always_allowed_grants()
+    return {
+        "grants": [grant.to_dict() for grant in grants],
+        "count": len(grants),
     }
 
 
@@ -73,9 +116,13 @@ async def resolve_approval(request_id: str, response: ApprovalResponse):
     }
 
 
-@router.post("/reset-always-allowed")
+@router.post("/reset-always-allowed", response_model=ResetAlwaysAllowedPayload)
 async def reset_always_allowed():
     """'항상 허용' 목록을 초기화합니다 (모든 도구를 다시 승인 필요로)."""
     manager = get_approval_manager()
-    manager.reset_always_allowed()
-    return {"ok": True, "message": "'항상 허용' 목록이 초기화되었습니다"}
+    revoked = manager.reset_always_allowed()
+    return {
+        "ok": True,
+        "revoked": revoked,
+        "message": f"'항상 허용' 목록이 초기화되었습니다 ({len(revoked)}건)",
+    }

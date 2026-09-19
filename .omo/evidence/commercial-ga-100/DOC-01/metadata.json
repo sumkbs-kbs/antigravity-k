@@ -1,0 +1,60 @@
+{
+  "task_id": "DOC-01",
+  "title": "사용자·관리자·개발자 문서 동기화",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §DOC-01",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §DOC-01",
+  "status": "DONE",
+  "branch": "codex/doc-01-sync",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-doc-01",
+  "base_sha": "e12c11f",
+  "result_sha": "1e104aa",
+  "roles": {
+    "implementer": "doc_01_impl (Freebuff 세션)",
+    "reviewer": "doc_01_verify (독립 실측 — openapi/서버 응답/설정 파일 대조)"
+  },
+  "drifts_found_and_fixed": [
+    "README 기술스택 Qwen3.6 36B → Qwen3.8 27B (config.yaml)",
+    "09_OPERATION_GUIDE qwen3.6 → qwen3.8",
+    "README/운영가이드 포트 8000 → 8400 (config server.port)",
+    "README/Makefile npm → pnpm frozen (REL-02 계약)",
+    "README docker compose up → docker run (compose 파일 부재)",
+    "GA_SUPPORT_MATRIX concurrency 행 — VAL-02 실측 반영"
+  ],
+  "docs_added": [
+    "09_OPERATION_GUIDE: 관리자 runbook — PIN 설정/교체(auth reset)",
+    "09_OPERATION_GUIDE: 관리자 runbook — WebSocket ticket 접속 정책(SEC-03)",
+    "09_OPERATION_GUIDE: 관리자 runbook — 업그레이드/롤백",
+    "README: 프로젝트 전환/대화 컴팩트 엔드포인트 명시"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "desc": "새 사용자가 clean install부터 project chat까지 문서대로 성공",
+      "evidence": "clean-copy 재현: uv sync → doctor 14 passed → serve → /health·/api/auth/status·/api/ready 200"
+    },
+    {
+      "id": "AC-2",
+      "desc": "관리자 runbook으로 auth reset, backup/restore, upgrade/rollback 수행",
+      "evidence": "09_OPERATION_GUIDE runbook 3종 신설 + DR 리허설 절차(OBS-01)"
+    },
+    {
+      "id": "AC-3",
+      "desc": "API schema/example이 contract test와 동기화",
+      "evidence": "openapi.json 실측 대조 — 문서 언급 엔드포인트 전수 확인"
+    },
+    {
+      "id": "AC-4",
+      "desc": "모든 제한과 비지원 플랫폼이 명시됨",
+      "evidence": "GA_SUPPORT_MATRIX 유지 + concurrency 행 VAL-02 증거 갱신"
+    }
+  ],
+  "verification": {
+    "checklist_items": "7/7 checked",
+    "openapi_probe": "14 endpoints verified"
+  },
+  "review": {
+    "verdict": "APPROVE",
+    "reviewer": "doc_01_verify",
+    "date": "2026-09-09"
+  }
+}

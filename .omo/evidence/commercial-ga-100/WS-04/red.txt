@@ -1,0 +1,9 @@
+WS-04 red reproduction (pre-fix):
+1. Project identity lived in localStorage `agk_active_project` (path) + ad-hoc
+   `agk:projects-changed` events — no single Zustand project store / revision.
+2. ChatPage loaded `/api/workspace/context` once on mount and did not subscribe
+   to project switches; breadcrumb label could lag the active project.
+3. `streamChatCompletion` / fileStore / task submit did not attach `project_id`
+   or session binding revision — relied on ambient WORKSPACE_ROOT / session.
+4. Pending chat AbortController was not aborted on project switch; stale SSE
+   chunks could still call `appendToCurrentAssistantContent` / merge into store.

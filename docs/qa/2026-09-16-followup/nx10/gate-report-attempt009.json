@@ -1,0 +1,102 @@
+{
+  "dependency_locks": [
+    {
+      "path": "uv.lock",
+      "sha256": "cd6b8281a7efe3c0c8e24a71f1621e17d9b041d1c3f77e001308da401d1aed23"
+    },
+    {
+      "path": "dashboard/pnpm-lock.yaml",
+      "sha256": "38427bbca3cfbb89da921ffb515b456840b6bb1938c449827215470f7b229a06"
+    },
+    {
+      "path": "dashboard/package-lock.json",
+      "sha256": "662596899ebc407c2699ce2dc3e92b8ddeb13ce6fb9dcd6a2c6aa1dffc976d98"
+    }
+  ],
+  "gates": [
+    {
+      "category": "supply_chain",
+      "command": [
+        "pnpm",
+        "audit",
+        "--prod",
+        "--audit-level",
+        "high"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 0.458053,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-05"
+      ],
+      "finished_at": "2026-09-16T05:59:30.089894+00:00",
+      "id": "dependency-audit-dashboard",
+      "required": true,
+      "started_at": "2026-09-16T05:59:29.631868+00:00",
+      "status": "passed",
+      "stderr": "",
+      "stdout": "No known vulnerabilities found\n",
+      "task_ids": [
+        "REL-03"
+      ]
+    },
+    {
+      "category": "accessibility",
+      "command": [
+        "pnpm",
+        "exec",
+        "playwright",
+        "test",
+        "e2e/tests/accessibility.spec.ts"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 9.819786,
+      "exit_code": 0,
+      "finding_ids": [
+        "UI-01",
+        "UI-02"
+      ],
+      "finished_at": "2026-09-16T05:59:40.132983+00:00",
+      "id": "accessibility-e2e",
+      "required": true,
+      "started_at": "2026-09-16T05:59:30.313160+00:00",
+      "status": "passed",
+      "stderr": "",
+      "stdout": "Already up to date\nDone in 132ms using pnpm v11.3.0\n\nRunning 35 tests using 9 workers\n\n  \u2713   1 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /studio \u00b7 desktop \u2014 marker + axe critical/serious 0 (2.2s)\n  \u2713   4 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /start \u00b7 desktop \u2014 marker + axe critical/serious 0 (2.2s)\n  \u2713   2 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /chat \u00b7 desktop \u2014 marker + axe critical/serious 0 (2.3s)\n  \u2713   6 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /wiki \u00b7 desktop \u2014 marker + axe critical/serious 0 (2.9s)\n  \u2713   7 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] / \u00b7 desktop \u2014 marker + axe critical/serious 0 (2.9s)\n  \u2713   3 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /models \u00b7 desktop \u2014 marker + axe critical/serious 0 (3.0s)\n  \u2713   9 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /agent \u00b7 desktop \u2014 marker + axe critical/serious 0 (3.0s)\n  \u2713   8 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /settings \u00b7 desktop \u2014 marker + axe critical/serious 0 (3.2s)\n  \u2713   5 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /skills \u00b7 desktop \u2014 marker + axe critical/serious 0 (3.7s)\n  \u2713  10 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /data-extraction \u00b7 desktop \u2014 marker + axe critical/serious 0 (1.8s)\n  \u2713  13 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /plugins \u00b7 desktop \u2014 marker + axe critical/serious 0 (1.8s)\n  \u2713  12 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /history \u00b7 desktop \u2014 marker + axe critical/serious 0 (2.5s)\n  \u2713  11 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /git \u00b7 desktop \u2014 marker + axe critical/serious 0 (2.6s)\n  \u2713  15 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /plugins/hello-world \u00b7 desktop \u2014 marker + axe critical/serious 0 (1.8s)\n  \u2713  14 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /plugins/job-operations \u00b7 desktop \u2014 marker + axe critical/serious 0 (2.0s)\n  \u2713  16 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /mutation \u00b7 desktop \u2014 marker + axe critical/serious 0 (1.9s)\n  \u2713  17 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 desktop \u203a [UI-01] /cr08-unknown-route \u00b7 desktop \u2014 marker + axe critical/serious 0 (1.8s)\n  \u2713  18 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] / \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.7s)\n  \u2713  19 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /chat \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.7s)\n  \u2713  20 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /studio \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.6s)\n  \u2713  22 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /start \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.8s)\n  \u2713  23 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /wiki \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.8s)\n  \u2713  21 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /models \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.0s)\n  \u2713  24 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /agent \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.0s)\n  \u2713  27 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /data-extraction \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.7s)\n  \u2713  25 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /settings \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.2s)\n  \u2713  35 [chromium] \u203a e2e/tests/accessibility.spec.ts:188:1 \u203a [UI-01] gate \uc2a4\ud399 \u2014 17 route \u00d7 2 viewport \ub9e4\ud2b8\ub9ad\uc2a4 \uace0\uc815 (8ms)\n  \u2713  26 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /skills \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.6s)\n  \u2713  29 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /history \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.6s)\n  \u2713  28 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /git \u00b7 mobile \u2014 marker + axe critical/serious 0 (2.2s)\n  \u2713  30 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /plugins \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.7s)\n  \u2713  32 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /plugins/hello-world \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.6s)\n  \u2713  31 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /plugins/job-operations \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.8s)\n  \u2713  33 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /mutation \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.7s)\n  \u2713  34 [chromium] \u203a e2e/tests/accessibility.spec.ts:120:7 \u203a UI-01 route gate \u00b7 mobile \u203a [UI-01] /cr08-unknown-route \u00b7 mobile \u2014 marker + axe critical/serious 0 (1.6s)\n\n  35 passed (9.3s)\n",
+      "task_ids": [
+        "UI-01",
+        "UI-02"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-16T05:59:29.500618+00:00",
+  "git": {
+    "dirty": true,
+    "sha": "20d529fc1f17c8ff580eaf0d853dcd1ce92172d5",
+    "tree_fingerprint": "da54e07b5284f00116901609a7873e2eb206b0a5b7bd9d0f1f607f4e78207cb8",
+    "tree_fingerprint_scope": "code (docs/ and .omo/ excluded)"
+  },
+  "manifest": {
+    "path": "scripts/commercial_ga_gates.json",
+    "sha256": "a40867c743a9df5ba5854548476fcc53913e5364968a01e30e00c3e03b2eadb7"
+  },
+  "merged": false,
+  "output_decoding": {
+    "encoding": "utf-8",
+    "errors": "backslashreplace"
+  },
+  "platform": {
+    "machine": "arm64",
+    "python_implementation": "CPython",
+    "python_version": "3.13.12",
+    "release": "25.6.0",
+    "system": "Darwin"
+  },
+  "schema_version": 1,
+  "summary": {
+    "failed": 0,
+    "passed": 2,
+    "required_failed": 0,
+    "total": 2
+  }
+}

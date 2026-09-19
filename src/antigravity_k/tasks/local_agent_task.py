@@ -4,7 +4,7 @@ import logging
 import threading
 import traceback
 from collections.abc import Callable
-from typing import Any
+from typing import override
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +18,10 @@ class LocalAgentTask(threading.Thread):
     def __init__(
         self,
         name: str,
-        target: Callable[..., Any],
-        args: tuple[Any, ...] = (),
-        kwargs: dict[str, Any] | None = None,
-    ):
+        target: Callable[..., object],
+        args: tuple[object, ...] = (),
+        kwargs: dict[str, object] | None = None,
+    ) -> None:
         """Initialize the LocalAgentTask.
 
         Args:
@@ -32,13 +32,14 @@ class LocalAgentTask(threading.Thread):
 
         """
         super().__init__(name=name)
-        self.target = target
-        self.args = args
-        self.kwargs = kwargs or {}
-        self.result: Any = None
+        self.target: Callable[..., object] = target
+        self.args: tuple[object, ...] = args
+        self.kwargs: dict[str, object] = kwargs or {}
+        self.result: object = None
         self.error: str | None = None
         self.status: str = "PENDING"  # PENDING, RUNNING, COMPLETED, FAILED
 
+    @override
     def run(self) -> None:
         """Execute the local agent task and return the result."""
         self.status = "RUNNING"

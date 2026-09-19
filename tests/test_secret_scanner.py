@@ -6,6 +6,8 @@ detect common credential patterns without false positives on normal code.
 
 from __future__ import annotations
 
+from typing import cast
+
 from antigravity_k.engine.secret_scanner import (
     is_credential_field,
     is_memory_path,
@@ -164,8 +166,8 @@ class TestRedact:
         assert redact(text) == text
 
     def test_non_string_passthrough(self):
-        assert redact(12345) == 12345
-        assert redact(None) is None
+        assert redact(cast(str, cast(object, 12345))) == 12345
+        assert redact(cast(str, cast(object, None))) is None
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +226,7 @@ class TestRedactUrl:
         assert redact_url("") is None
 
     def test_non_string_returns_none(self):
-        assert redact_url(12345) is None
+        assert redact_url(cast(str, cast(object, 12345))) is None
 
 
 # ---------------------------------------------------------------------------
@@ -363,5 +365,5 @@ class TestStripCredentials:
         assert is_memory_path("/var/log/app.log") is False
 
     def test_non_string_input_scan(self):
-        assert scan_for_secrets(12345) == []
-        assert scan_for_secrets(None) == []
+        assert scan_for_secrets(cast(str, cast(object, 12345))) == []
+        assert scan_for_secrets(cast(str, cast(object, None))) == []

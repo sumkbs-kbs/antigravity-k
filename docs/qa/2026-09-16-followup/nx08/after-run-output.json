@@ -1,0 +1,214 @@
+{
+  "check": "nx08_vault_persistence",
+  "label": "after",
+  "owner_vault_touched": false,
+  "scratch_root": "/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/nx08-after-tyvn7orb",
+  "verdict_tally": {
+    "NOT_REPRODUCED": 12,
+    "CONFIRMED": 1,
+    "INCONCLUSIVE": 2
+  },
+  "checks": [
+    {
+      "id": "A1-fsync-failure",
+      "question": "fsync 가 실패하면 이전 bytes 가 보존되는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "previous_sha256": "018bcda3f3423591e01f088d5fce7e2c70a200df20696bf9f72d245c9e3d8a4e",
+        "after_sha256": "018bcda3f3423591e01f088d5fce7e2c70a200df20696bf9f72d245c9e3d8a4e",
+        "previous_bytes": "---\ntitle: v1\n---\nBODY-V1\n",
+        "after_bytes": "---\ntitle: v1\n---\nBODY-V1\n",
+        "error_surfaced": "VaultCommitError: Vault bytes could not be persisted: /private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/nx08-after-tyvn7orb/fsync/note.md",
+        "git_head_before": "5908ab242b0e2d061a80537b3a52fcf0348294bd",
+        "git_head_after": "5908ab242b0e2d061a80537b3a52fcf0348294bd",
+        "git_still_has_previous": true,
+        "note": "fsync 실패 시 이전 bytes 보존 = False 이면 CONFIRMED(비원자적 저장)."
+      }
+    },
+    {
+      "id": "A2-crash-mid-write",
+      "question": "쓰기 도중 프로세스가 죽으면 이전 bytes 가 보존되는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "previous_sha256": "018bcda3f3423591e01f088d5fce7e2c70a200df20696bf9f72d245c9e3d8a4e",
+        "after_sha256": "018bcda3f3423591e01f088d5fce7e2c70a200df20696bf9f72d245c9e3d8a4e",
+        "after_bytes": "---\ntitle: v1\n---\nBODY-V1\n",
+        "git_commits": "9ad2ee5 v1",
+        "child_exit": 9,
+        "child_stdout": "",
+        "child_stderr": "",
+        "elapsed_s": 0.41
+      }
+    },
+    {
+      "id": "B1-lock-after-sigkill",
+      "question": "프로세스가 죽은 뒤 lock 이 영구 방해하는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "child_exit": 9,
+        "child_stderr": "",
+        "lock_file_left_behind": true,
+        "lock_file_bytes": 29,
+        "product_lock_timeout_s": 30.0,
+        "blocked_after_3s": false,
+        "blocked_attempt_outcome": "wrote",
+        "self_healed": true,
+        "after_manual_unlink": "wrote",
+        "recovery_procedure": "`.git/.agk_vault.lock` 수동 제거 후 재시도",
+        "note_bytes_after_crash": "---\ntitle: v2\n---\nv2\n",
+        "filelock_version": "3.29.0"
+      }
+    },
+    {
+      "id": "C1-lf",
+      "question": "frontmatter 구분자·EOF·CRLF 를 올바르게 처리하는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "exception": "",
+        "metadata": {
+          "title": "T"
+        },
+        "body_head": "body\n---\nrule\n",
+        "body_is_whole_input": false
+      }
+    },
+    {
+      "id": "C1-crlf",
+      "question": "frontmatter 구분자·EOF·CRLF 를 올바르게 처리하는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "exception": "",
+        "metadata": {
+          "title": "T",
+          "tags": [
+            "a"
+          ]
+        },
+        "body_head": "body\r\n",
+        "body_is_whole_input": false
+      }
+    },
+    {
+      "id": "C2-eof-no-newline",
+      "question": "frontmatter 구분자·EOF·CRLF 를 올바르게 처리하는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "exception": "",
+        "metadata": {
+          "title": "T"
+        },
+        "body_head": "",
+        "body_is_whole_input": false
+      }
+    },
+    {
+      "id": "C2-eof-with-newline",
+      "question": "frontmatter 구분자·EOF·CRLF 를 올바르게 처리하는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "exception": "",
+        "metadata": {
+          "title": "T"
+        },
+        "body_head": "",
+        "body_is_whole_input": false
+      }
+    },
+    {
+      "id": "C3-malformed-yaml",
+      "question": "frontmatter 구분자·EOF·CRLF 를 올바르게 처리하는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "exception": "",
+        "metadata": {},
+        "body_head": "body\n",
+        "body_is_whole_input": false
+      }
+    },
+    {
+      "id": "C3-non-mapping",
+      "question": "frontmatter 구분자·EOF·CRLF 를 올바르게 처리하는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "exception": "",
+        "metadata": {},
+        "body_head": "body\n",
+        "body_is_whole_input": false
+      }
+    },
+    {
+      "id": "C4-writer-reader-roundtrip",
+      "question": "format_markdown → parse_markdown 왕복이 frontmatter 를 보존하는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "formatted": "---\ntitle: RT\ntags:\n- x\n---\nbody\n---\nrule\n",
+        "parsed_metadata": {
+          "title": "RT",
+          "tags": [
+            "x"
+          ]
+        },
+        "parsed_body": "body\n---\nrule\n"
+      }
+    },
+    {
+      "id": "D1-snapshot-restore",
+      "question": "백업/복구가 내용·schema 와 권한을 보존하는가?",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "restore_returned": true,
+        "snapshot_commit": "be5ed5ac3ce993f82b127bdb34711b9f25963144",
+        "mutated_sha256": "3098fc9269b9f7aade6164aa51848ea966b720f834d1701bb37c1b2d4bcf0c48",
+        "content_preserved": true,
+        "schema_preserved": true,
+        "original_mode": "0o600",
+        "after_mode": "0o600",
+        "permissions_preserved": true
+      }
+    },
+    {
+      "id": "E1-redact-lock",
+      "question": "마스킹(redact) 경로가 잠금 없이 파일을 덮어쓰는가? (NX-03 잔여 의혹 3)",
+      "verdict": "NOT_REPRODUCED",
+      "observed": {
+        "lock_calls": [
+          "enter",
+          "exit"
+        ],
+        "replacement_count": 1,
+        "content_after": "---\ntitle: S\n---\ntoken = <REDACTED>\n",
+        "secret_removed": true
+      }
+    },
+    {
+      "id": "F2-foreign-host-stale-lock",
+      "question": "다른 호스트가 남긴 lock 은 자동으로 깨지는가? (NX-03 잔여 의혹 4 의 측정 가능한 부분)",
+      "verdict": "CONFIRMED",
+      "observed": {
+        "blocked_after_3s": true,
+        "outcome_after_manual_unlink": "wrote",
+        "only_same_host_dead_pid_is_broken": "filelock 3.29 `SoftFileLock._try_break_stale_lock`: `hostname != socket.gethostname()` 면 return(깨지 않음)",
+        "nfs_mounted": false,
+        "reason": "공유 파일시스템에서 다른 호스트가 죽으면 잔존 lock 이 유지될 수 있다 — 로컬에서 호스트명 위조로 코드 경로를 재현했다"
+      }
+    },
+    {
+      "id": "F1-nfs-flock-fsync",
+      "question": "NFS 등 비로컬 파일시스템에서 flock/fsync 가 신뢰할 수 있는가?",
+      "verdict": "INCONCLUSIVE",
+      "observed": {
+        "df_device": "/dev/disk3s5   3.6Ti   1.6Ti   2.0Ti    46%    8.7M   21G    0%   /System/Volumes/Data",
+        "reason": "NFS 마운트가 이 호스트에 없다 — 로컬 파일시스템 관측을 다른 파일시스템으로 일반화하지 않는다(F2 가 코드상의 기대를 대신 쪼다)"
+      }
+    },
+    {
+      "id": "G1-tombstone-gc",
+      "question": "tombstone 누적에 GC 경로가 있는가? (NX-03 잔여 의혹 1)",
+      "verdict": "INCONCLUSIVE",
+      "observed": {
+        "gc_symbol_search": "(없음)",
+        "reason": "GC 심볼이 없다는 사실만 관측했다 — 정책 결정은 NX-03 후속/NX-08-F 로 남긴다"
+      }
+    }
+  ]
+}

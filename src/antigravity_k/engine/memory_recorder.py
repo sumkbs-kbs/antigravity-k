@@ -1,4 +1,4 @@
-"""Antigravity-K: 에이전트 기억 기록기 (MemoryRecorder).
+"""Ssak-Ai: 에이전트 기억 기록기 (MemoryRecorder).
 
 =====================================================
 에이전트의 작업 결과를 LLM Wiki(Vault)에 자동 기록합니다.
@@ -16,12 +16,32 @@
 import datetime
 import logging
 import re
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Iterator
+from typing import Protocol, cast
 
 logger = logging.getLogger(__name__)
 
 # 기억 기록 대상 태스크 유형
 RECORDABLE_TASK_TYPES = frozenset({"complex", "debate", "reasoning", "coding"})
+
+
+class _VaultLike(Protocol):
+    sync_rag: bool
+
+
+class _ModelManagerLike(Protocol):
+    pass
+
+
+class _ModelGenerator(Protocol):
+    def stream_generate(
+        self,
+        *,
+        prompt: str,
+        target: str,
+        raw_messages: list[dict[str, str]],
+        system_prompt: str,
+    ) -> Iterator[str]: ...
 
 
 class MemoryRecorder:
@@ -32,7 +52,16 @@ class MemoryRecorder:
         yield from recorder.record(user_message, agent_output, task_type)
     """
 
-    def __init__(self, vault_engine, model_manager, get_model_for_role_fn):
+    vault_engine: _VaultLike | None
+    manager: _ModelManagerLike | None
+    _get_model: Callable[[str], str]
+
+    def __init__(
+        self,
+        vault_engine: _VaultLike | None,
+        model_manager: _ModelManagerLike | None,
+        get_model_for_role_fn: Callable[[str], str],
+    ) -> None:
         """Initialize the MemoryRecorder.
 
         Args:
@@ -49,7 +78,7 @@ class MemoryRecorder:
         """이 태스크 유형이 기억 기록 대상인지 확인합니다."""
         if not self.vault_engine:
             return False
-        if not getattr(self.vault_engine, "sync_rag", False):
+        if not self.vault_engine.sync_rag:
             return False
         return task_type in RECORDABLE_TASK_TYPES
 
@@ -74,7 +103,9 @@ class MemoryRecorder:
             진행 상태 메시지 (UI에 표시)
 
         """
-        if not self.should_record(task_type):
+        vault_engine = self.vault_engine
+        manager = self.manager
+        if vault_engine is None or manager is None or not self.should_record(task_type):
             return
 
         try:
@@ -92,7 +123,7 @@ class MemoryRecorder:
             )
 
             summarizer_model = preferred_model or self._get_model("default")
-            response_gen = self.manager.stream_generate(
+            response_gen = cast(_ModelGenerator, manager).stream_generate(
                 prompt=summary_prompt,
                 target=summarizer_model,
                 raw_messages=[{"role": "user", "content": summary_prompt}],
@@ -118,7 +149,10 @@ class MemoryRecorder:
                 f"## Raw Decision\n\n<details>\n<summary>자세히 보기</summary>\n\n{agent_output}\n\n</details>"
             )
 
-            self.vault_engine.write_note(
+            write_note = getattr(vault_engine, "write_note", None)
+            if not callable(write_note):
+                raise AttributeError("Vault engine does not provide write_note")
+            _ = write_note(
                 relative_path=filename,
                 metadata={
                     "type": "agent_memory",
@@ -130,6 +164,6 @@ class MemoryRecorder:
                 commit_message=f"Agent memory recorded and consolidated for {task_type}",
             )
             yield f"💾 **[Agent Memory]** 정제 완료! LLM Wiki(`{filename}`)에 영구 기록되었습니다.\n"
-        except Exception as e:
+        except (OSError, RuntimeError, TypeError, ValueError, KeyError) as e:
             logger.exception("Failed to record agent memory")
             yield f"⚠️ **[Agent Memory]** 기록 중 오류가 발생했습니다: {e}\n"

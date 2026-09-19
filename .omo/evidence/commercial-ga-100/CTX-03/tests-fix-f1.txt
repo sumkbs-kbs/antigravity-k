@@ -1,0 +1,6 @@
+=== suite A: ctx03 + ctx02 reject + final budget ===
+.....................                                                    [100%]
+21 passed in 0.60s
+=== suite B: tool_loop compress ===
+......                                                                   [100%]
+6 passed, 93 deselected in 0.56s

@@ -8,7 +8,6 @@
 
 import { create } from 'zustand';
 import type {
-  PluginDefinition,
   PluginEntry,
   PluginRegistryState,
   PanelRegistration,
@@ -19,11 +18,12 @@ import type {
 
 /* ─── Storage key ──────────────────────────────────────────── */
 
-const ENABLED_KEY = 'agk_plugins_enabled';
+const ENABLED_KEY = 'agk_plugins_enabled:v1';
+const LEGACY_ENABLED_KEY = ENABLED_KEY.replace(':v1', '');
 
 function loadEnabled(): Record<string, boolean> {
   try {
-    const raw = localStorage.getItem(ENABLED_KEY);
+    const raw = localStorage.getItem(LEGACY_ENABLED_KEY) ?? localStorage.getItem(ENABLED_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
   return {};
@@ -32,6 +32,7 @@ function loadEnabled(): Record<string, boolean> {
 function saveEnabled(enabled: Record<string, boolean>) {
   try {
     localStorage.setItem(ENABLED_KEY, JSON.stringify(enabled));
+    localStorage.setItem(LEGACY_ENABLED_KEY, JSON.stringify(enabled));
   } catch { /* ignore */ }
 }
 
@@ -191,7 +192,7 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
  */
 import type { HookType } from './pluginTypes';
 
-export function firePluginHook(hook: HookType, data?: any) {
+export function firePluginHook(hook: HookType, data?: unknown) {
   const state = usePluginRegistry.getState();
   for (const reg of state.hooks) {
     if (reg.hook === hook) {

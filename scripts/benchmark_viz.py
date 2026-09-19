@@ -17,16 +17,151 @@ JSON 벤치마크 결과를 읽어 matplotlib 기반 차트를 생성합니다.
 """
 
 import argparse
+import importlib
 import json
 import os
 import sys
+from collections.abc import Mapping, Sequence
+from typing import Protocol, TypedDict, cast
 
-import matplotlib
 
-matplotlib.use("Agg")  # GUI 없는 환경 지원
+class _Axis(Protocol):
+    def set_major_formatter(self, formatter: object) -> None: ...
 
-import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
+
+class _Bar(Protocol):
+    def get_height(self) -> float: ...
+
+    def get_width(self) -> float: ...
+
+    def get_x(self) -> float: ...
+
+    def get_y(self) -> float: ...
+
+
+class _Cell(Protocol):
+    def set_facecolor(self, color: str) -> None: ...
+
+    def set_text_props(self, **kwargs: object) -> None: ...
+
+
+class _Table(Protocol):
+    def auto_set_font_size(self, value: bool) -> None: ...
+
+    def get_celld(self) -> Mapping[tuple[int, int], _Cell]: ...
+
+    def scale(self, x: float, y: float) -> None: ...
+
+    def set_fontsize(self, size: float) -> None: ...
+
+
+class _Axes(Protocol):
+    xaxis: _Axis
+    yaxis: _Axis
+
+    def annotate(self, *args: object, **kwargs: object) -> None: ...
+
+    def axhline(self, *args: object, **kwargs: object) -> None: ...
+
+    def axis(self, *args: object, **kwargs: object) -> None: ...
+
+    def bar(self, *args: object, **kwargs: object) -> Sequence[_Bar]: ...
+
+    def barh(self, *args: object, **kwargs: object) -> Sequence[_Bar]: ...
+
+    def errorbar(self, *args: object, **kwargs: object) -> None: ...
+
+    def fill_between(self, *args: object, **kwargs: object) -> None: ...
+
+    def imshow(self, *args: object, **kwargs: object) -> object: ...
+
+    def legend(self, *args: object, **kwargs: object) -> None: ...
+
+    def margins(self, *args: object, **kwargs: object) -> None: ...
+
+    def plot(self, *args: object, **kwargs: object) -> None: ...
+
+    def scatter(self, *args: object, **kwargs: object) -> None: ...
+
+    def set_title(self, *args: object, **kwargs: object) -> None: ...
+
+    def set_xlabel(self, *args: object, **kwargs: object) -> None: ...
+
+    def set_ylabel(self, *args: object, **kwargs: object) -> None: ...
+
+    def set_xticklabels(self, *args: object, **kwargs: object) -> None: ...
+
+    def set_xticks(self, *args: object, **kwargs: object) -> None: ...
+
+    def set_yticklabels(self, *args: object, **kwargs: object) -> None: ...
+
+    def set_yticks(self, *args: object, **kwargs: object) -> None: ...
+
+    def table(self, *args: object, **kwargs: object) -> _Table: ...
+
+    def text(self, *args: object, **kwargs: object) -> None: ...
+
+
+class _Figure(Protocol):
+    def savefig(self, path: str) -> None: ...
+
+    def suptitle(self, *args: object, **kwargs: object) -> None: ...
+
+
+class _Style(Protocol):
+    def use(self, style: str) -> None: ...
+
+
+class _FontManager(Protocol):
+    def findfont(self, font_name: str, *, fallback_to_default: bool) -> str: ...
+
+
+class _MatplotlibModule(Protocol):
+    font_manager: _FontManager
+
+    def use(self, backend: str) -> None: ...
+
+
+class _PyplotModule(Protocol):
+    rcParams: dict[str, object]
+    style: _Style
+
+    def close(self, figure: _Figure) -> None: ...
+
+    def colorbar(self, *args: object, **kwargs: object) -> None: ...
+
+    def show(self) -> None: ...
+
+    def subplots(self, *args: object, **kwargs: object) -> tuple[_Figure, _Axes | Sequence[_Axes]]: ...
+
+    def tight_layout(self) -> None: ...
+
+
+class _TickerModule(Protocol):
+    def FormatStrFormatter(self, format_string: str) -> object: ...
+
+
+class _SampleData(TypedDict):
+    iteration: int
+    elapsed_ms: float
+    metadata: dict[str, object]
+
+
+class _StageData(TypedDict):
+    stage: str
+    samples: list[_SampleData]
+    stats: dict[str, float]
+
+
+BenchmarkData = dict[str, _StageData]
+
+try:
+    matplotlib = cast(_MatplotlibModule, cast(object, importlib.import_module("matplotlib")))
+    matplotlib.use("Agg")
+    plt = cast(_PyplotModule, cast(object, importlib.import_module("matplotlib.pyplot")))
+    mticker = cast(_TickerModule, cast(object, importlib.import_module("matplotlib.ticker")))
+except ImportError as exc:
+    raise SystemExit("benchmark_viz.py requires matplotlib; install it with `uv pip install matplotlib`") from exc
 import numpy as np
 
 # ─── 스타일 설정 ──────────────────────────────────────────────────
@@ -43,7 +178,7 @@ COLORS = {
 # 한국어 폰트 설정 (Apple SD Gothic Neo / 나눔고딕)
 for font_name in ["Apple SD Gothic Neo", "NanumGothic", "Noto Sans CJK KR"]:
     try:
-        matplotlib.font_manager.findfont(font_name, fallback_to_default=False)
+        _ = matplotlib.font_manager.findfont(font_name, fallback_to_default=False)
         plt.rcParams["font.family"] = font_name
         break
     except Exception:
@@ -58,10 +193,62 @@ plt.rcParams["savefig.bbox"] = "tight"
 # ─── 데이터 로드 ──────────────────────────────────────────────────
 
 
-def load_benchmark(path: str) -> dict:
+_REQUIRED_STATS = ("avg_ms", "median_ms", "min_ms", "max_ms", "p95_ms", "stddev_ms", "n")
+
+
+def _validate_benchmark_data(data: object, path: str) -> BenchmarkData:
+    if not isinstance(data, dict) or not data:
+        raise ValueError(f"{path}: expected a non-empty stage mapping")
+
+    raw_mapping: dict[str, object] = cast(dict[str, object], data)
+    for stage, payload in raw_mapping.items():
+        if not isinstance(payload, dict):
+            raise ValueError(f"{path}: each stage must map to an object")
+        payload_mapping = cast(dict[str, object], payload)
+        stats = payload_mapping.get("stats")
+        samples = payload_mapping.get("samples")
+        if not isinstance(stats, dict) or not isinstance(samples, list) or not samples:
+            raise ValueError(f"{path}: stage '{stage}' needs non-empty 'stats' and 'samples'")
+        stats_mapping = cast(dict[str, object], stats)
+        samples_list = cast(list[object], samples)
+        missing_stats = [key for key in _REQUIRED_STATS if key not in stats]
+        if missing_stats:
+            missing = ", ".join(missing_stats)
+            raise ValueError(f"{path}: stage '{stage}' is missing stats: {missing}")
+        if any(not isinstance(stats_mapping[key], (int, float)) for key in _REQUIRED_STATS):
+            raise ValueError(f"{path}: stage '{stage}' stats must be numeric")
+        for sample_index, sample in enumerate(samples_list):
+            if not isinstance(sample, dict):
+                raise ValueError(f"{path}: stage '{stage}' sample {sample_index} must be an object")
+            sample_mapping = cast(dict[str, object], sample)
+            if not isinstance(sample_mapping.get("iteration"), int) or isinstance(
+                sample_mapping.get("iteration"), bool
+            ):
+                raise ValueError(f"{path}: stage '{stage}' sample {sample_index} has invalid iteration")
+            if not isinstance(sample_mapping.get("elapsed_ms"), (int, float)):
+                raise ValueError(f"{path}: stage '{stage}' sample {sample_index} has invalid elapsed_ms")
+            if not isinstance(sample_mapping.get("metadata"), dict):
+                raise ValueError(f"{path}: stage '{stage}' sample {sample_index} needs metadata")
+
+    return cast(BenchmarkData, data)
+
+
+def load_benchmark(path: str) -> BenchmarkData:
     """JSON 벤치마크 파일을 로드합니다."""
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw_data = cast(object, json.load(f))
+    except OSError as exc:
+        raise ValueError(f"{path}: unable to read input ({exc})") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: invalid JSON at line {exc.lineno}, column {exc.colno}") from exc
+
+    return _validate_benchmark_data(raw_data, path)
+
+
+def _metric(values: Mapping[str, object], key: str) -> float:
+    value = values.get(key)
+    return float(value) if isinstance(value, (int, float)) else 0.0
 
 
 # ─── 색상 / 레이블 헬퍼 ──────────────────────────────────────────
@@ -84,13 +271,14 @@ def _stage_label(stage: str) -> str:
 # ─── 차트 1: 개요 대시보드 ────────────────────────────────────────
 
 
-def plot_overview(data: dict, output_dir: str, fmt: str):
+def plot_overview(data: BenchmarkData, output_dir: str, fmt: str):
     """스테이지별 평균/최소/최대/P95 latency 비교 대시보드."""
     stages = list(data.keys())
     if not stages:
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes_result = plt.subplots(1, 2, figsize=(14, 6))
+    axes = cast(Sequence[_Axes], axes_result)
 
     # --- Bar Chart: Avg + P95 ---
     ax = axes[0]
@@ -140,7 +328,7 @@ def plot_overview(data: dict, output_dir: str, fmt: str):
     )
 
     # 막대 위 값 표시
-    for bar, val, p95 in zip(bars_avg, avg_vals, p95_vals):
+    for bar, val, _p95 in zip(bars_avg, avg_vals, p95_vals):
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + max_vals[0] * 0.02,
@@ -162,8 +350,8 @@ def plot_overview(data: dict, output_dir: str, fmt: str):
     ax2 = axes[1]
     ax2.axis("off")
 
-    table_data = []
-    row_labels = []
+    table_data: list[list[str]] = []
+    row_labels: list[str] = []
     for s in stages:
         stats = data[s]["stats"]
         table_data.append(
@@ -218,16 +406,18 @@ def plot_overview(data: dict, output_dir: str, fmt: str):
 # ─── 차트 2: 스테이지별 Latency Trend ─────────────────────────────
 
 
-def plot_trends(data: dict, output_dir: str, fmt: str):
+def plot_trends(data: BenchmarkData, output_dir: str, fmt: str):
     """각 스테이지의 반복 횟수별 지연시간 추이."""
     stages = list(data.keys())
     if not stages:
         return
 
     n_stages = len(stages)
-    fig, axes = plt.subplots(1, n_stages, figsize=(6 * n_stages, 5))
+    fig, axes_result = plt.subplots(1, n_stages, figsize=(6 * n_stages, 5))
     if n_stages == 1:
-        axes = [axes]
+        axes: Sequence[_Axes] = [cast(_Axes, axes_result)]
+    else:
+        axes = cast(Sequence[_Axes], axes_result)
 
     for ax, stage in zip(axes, stages):
         samples = data[stage]["samples"]
@@ -310,7 +500,7 @@ def plot_trends(data: dict, output_dir: str, fmt: str):
 # ─── 차트 3: 세부 컴포넌트 분석 ───────────────────────────────────
 
 
-def plot_breakdown(data: dict, output_dir: str, fmt: str):
+def plot_breakdown(data: BenchmarkData, output_dir: str, fmt: str):
     """각 스테이지의 서브 컴포넌트별 Latency Breakdown."""
     stages = list(data.keys())
     if not stages:
@@ -318,13 +508,14 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
 
     # context_enrich 서브 항목
     if "context_enrich" in data:
-        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        fig, ax_result = plt.subplots(1, 1, figsize=(8, 5))
+        ax = cast(_Axes, ax_result)
         sample = data["context_enrich"]["samples"][0]
         meta = sample["metadata"]
 
         components = ["build_first_ms", "search_avg_ms", "summarize_ms"]
         labels = ["build_tree (최초)", "search (평균)", "summarize_files"]
-        values = [meta.get(c, 0) for c in components]
+        values = [_metric(meta, c) for c in components]
         colors_ce = ["#1565C0", "#42A5F5", "#90CAF9"]
 
         bars = ax.barh(labels, values, color=colors_ce, edgecolor="white", height=0.6)
@@ -340,8 +531,7 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
 
         ax.set_xlabel("Latency (ms)", fontsize=11)
         ax.set_title(
-            f"Context Enrich — 세부 Breakdown\n"
-            f"({meta.get('files_indexed', '?')} files, {meta.get('tree_size_kb', '?')} KB tree)",
+            f"Context Enrich — 세부 Breakdown\n({meta.get('files_indexed', '?')} files, {meta.get('tree_size_kb', '?')} KB tree)",
             fontsize=12,
             fontweight="bold",
         )
@@ -356,13 +546,14 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
 
     # code_review 서브 항목
     if "code_review" in data:
-        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        fig, ax_result = plt.subplots(1, 1, figsize=(8, 5))
+        ax = cast(_Axes, ax_result)
         sample = data["code_review"]["samples"][0]
         meta = sample["metadata"]
 
         components = ["diff_stat_ms", "diff_detail_ms", "llm_mock_ms"]
         labels = ["git diff --stat", "git diff (상세)", "LLM Mock 호출"]
-        values = [meta.get(c, 0) for c in components]
+        values = [_metric(meta, c) for c in components]
         colors_cr = ["#E65100", "#FF9800", "#FFCC80"]
 
         bars = ax.barh(labels, values, color=colors_cr, edgecolor="white", height=0.6)
@@ -378,8 +569,7 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
 
         ax.set_xlabel("Latency (ms)", fontsize=11)
         ax.set_title(
-            f"Code Review — 세부 Breakdown\n"
-            f"({meta.get('changed_files', '?')} files, {meta.get('diff_size_bytes', '?')} bytes diff)",
+            f"Code Review — 세부 Breakdown\n({meta.get('changed_files', '?')} files, {meta.get('diff_size_bytes', '?')} bytes diff)",
             fontsize=12,
             fontweight="bold",
         )
@@ -394,7 +584,8 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
 
     # rag_indexing 서브 항목
     if "rag_indexing" in data:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+        fig, axes_result = plt.subplots(1, 2, figsize=(14, 5))
+        axes = cast(Sequence[_Axes], axes_result)
 
         sample = data["rag_indexing"]["samples"][0]
         meta = sample["metadata"]
@@ -403,7 +594,7 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
         ax = axes[0]
         components = ["index_project_ms", "search_unified_ms", "format_context_ms"]
         labels = ["index_project\n(전체 인덱싱)", "search (hybrid)", "format_context"]
-        values = [meta.get(c, 0) for c in components]
+        values = [_metric(meta, c) for c in components]
         colors_rag_main = ["#7B1FA2", "#AB47BC", "#CE93D8"]
 
         bars = ax.barh(labels, values, color=colors_rag_main, edgecolor="white", height=0.5)
@@ -429,7 +620,7 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
         ax = axes[1]
         search_modes = ["search_semantic_ms", "search_keyword_ms", "search_hybrid_ms"]
         search_labels = ["Semantic\n(VectorStore)", "Keyword\n(식별자 매칭)", "Hybrid\n(RRF Fusion)"]
-        search_vals = [meta.get(k, 0) for k in search_modes]
+        search_vals = [_metric(meta, k) for k in search_modes]
         search_colors = ["#9C27B0", "#E040FB", "#7C4DFF"]
 
         bars = ax.bar(search_labels, search_vals, color=search_colors, edgecolor="white", width=0.5)
@@ -459,7 +650,8 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
 
     # max_engine 서브 항목
     if "max_engine" in data:
-        fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+        fig, axes_result = plt.subplots(1, 3, figsize=(16, 5))
+        axes = cast(Sequence[_Axes], axes_result)
 
         sample = data["max_engine"]["samples"][0]
         meta = sample["metadata"]
@@ -468,8 +660,8 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
         ax = axes[0]
         config_keys = ["config_1_model_ms", "config_2_models_ms", "config_3_models_ms"]
         config_labels = ["1 model", "2 models", "3 models"]
-        config_vals = [meta.get(k, 0) for k in config_keys]
-        ax.bar(config_labels, config_vals, color=["#66BB6A", "#4CAF50", "#2E7D32"], edgecolor="white")
+        config_vals = [_metric(meta, k) for k in config_keys]
+        _ = ax.bar(config_labels, config_vals, color=["#66BB6A", "#4CAF50", "#2E7D32"], edgecolor="white")
         for i, v in enumerate(config_vals):
             ax.text(i, v + 0.001, f"{v:.3f} ms", ha="center", fontsize=8, fontweight="bold")
         ax.set_title("Worker Config", fontsize=11, fontweight="bold")
@@ -479,8 +671,8 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
         ax = axes[1]
         prompt_keys = ["prompt_default_ms", "prompt_creative_ms", "prompt_safe_ms", "prompt_balanced_ms"]
         prompt_labels = ["default", "creative", "safe", "balanced"]
-        prompt_vals = [meta.get(k, 0) for k in prompt_keys]
-        ax.bar(
+        prompt_vals = [_metric(meta, k) for k in prompt_keys]
+        _ = ax.bar(
             prompt_labels,
             prompt_vals,
             color=["#A5D6A7", "#81C784", "#66BB6A", "#4CAF50"],
@@ -494,9 +686,9 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
         ax = axes[2]
         select_keys = ["select_2_candidates_ms", "select_3_candidates_ms", "trace_format_ms"]
         select_labels = ["2 candidates", "3 candidates", "Format trace"]
-        select_vals = [meta.get(k, 0) for k in select_keys]
+        select_vals = [_metric(meta, k) for k in select_keys]
         colors_sl = ["#43A047", "#2E7D32", "#1B5E20"]
-        ax.bar(select_labels, select_vals, color=colors_sl, edgecolor="white")
+        _ = ax.bar(select_labels, select_vals, color=colors_sl, edgecolor="white")
         for i, v in enumerate(select_vals):
             ax.text(i, v + 0.001, f"{v:.3f} ms", ha="center", fontsize=8, fontweight="bold")
         ax.set_title("Selector + Trace", fontsize=11, fontweight="bold")
@@ -517,7 +709,7 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
 # ─── 차트 4: 통계 히트맵 ─────────────────────────────────────────
 
 
-def plot_heatmap(data: dict, output_dir: str, fmt: str):
+def plot_heatmap(data: BenchmarkData, output_dir: str, fmt: str):
     """스테이지별 통계를 컬러 히트맵으로 표시."""
     stages = list(data.keys())
     if not stages:
@@ -528,7 +720,8 @@ def plot_heatmap(data: dict, output_dir: str, fmt: str):
 
     matrix = np.array([[data[s]["stats"][m] for m in metrics] for s in stages])
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 4 + len(stages) * 0.8))
+    fig, ax_result = plt.subplots(1, 1, figsize=(10, 4 + len(stages) * 0.8))
+    ax = cast(_Axes, ax_result)
 
     # 로그 스케일 히트맵 (값 차이가 크므로)
     log_matrix = np.log10(np.maximum(matrix, 0.01))
@@ -538,7 +731,7 @@ def plot_heatmap(data: dict, output_dir: str, fmt: str):
     # 값 표시
     for i in range(len(stages)):
         for j in range(len(metrics)):
-            val = matrix[i, j]
+            val = data[stages[i]]["stats"][metrics[j]]
             text_color = "white" if log_matrix[i, j] > log_matrix.max() * 0.6 else "black"
             ax.text(
                 j,
@@ -569,55 +762,56 @@ def plot_heatmap(data: dict, output_dir: str, fmt: str):
 #  ─── 차트 5: 서브 컴포넌트 그룹 비교 (모든 스테이지) ──────────────
 
 
-def plot_subcomponent_comparison(data: dict, output_dir: str, fmt: str):
+def plot_subcomponent_comparison(data: BenchmarkData, output_dir: str, fmt: str):
     """모든 스테이지의 주요 서브 컴포넌트를 하나의 차트에 그룹 비교."""
     stages = list(data.keys())
     if len(stages) < 2:
         return
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    fig, ax_result = plt.subplots(1, 1, figsize=(10, 6))
+    ax = cast(_Axes, ax_result)
 
     # 각 스테이지의 첫 번째 샘플 metadata 기반 서브항목 추출
-    stage_groups = {}
+    stage_groups: dict[str, dict[str, float]] = {}
     for s in stages:
         meta = data[s]["samples"][0]["metadata"]
         group = {}
 
         if s == "context_enrich":
-            group["build_tree"] = meta.get("build_first_ms", 0)
-            group["search"] = meta.get("search_avg_ms", 0)
-            group["summarize"] = meta.get("summarize_ms", 0)
+            group["build_tree"] = _metric(meta, "build_first_ms")
+            group["search"] = _metric(meta, "search_avg_ms")
+            group["summarize"] = _metric(meta, "summarize_ms")
         elif s == "code_review":
-            group["git diff\n(stat)"] = meta.get("diff_stat_ms", 0)
-            group["git diff\n(detail)"] = meta.get("diff_detail_ms", 0)
-            group["LLM mock"] = meta.get("llm_mock_ms", 0)
+            group["git diff\n(stat)"] = _metric(meta, "diff_stat_ms")
+            group["git diff\n(detail)"] = _metric(meta, "diff_detail_ms")
+            group["LLM mock"] = _metric(meta, "llm_mock_ms")
         elif s == "max_engine":
-            group["config\nbuild"] = meta.get("config_3_models_ms", 0)
-            group["prompt\nbuild"] = meta.get("prompt_default_ms", 0)
-            group["selector"] = meta.get("select_3_candidates_ms", 0)
+            group["config\nbuild"] = _metric(meta, "config_3_models_ms")
+            group["prompt\nbuild"] = _metric(meta, "prompt_default_ms")
+            group["selector"] = _metric(meta, "select_3_candidates_ms")
         elif s == "rag_indexing":
-            group["index\nproject"] = meta.get("index_project_ms", 0)
-            group["chunk\npython"] = meta.get("chunk_python_ms", 0)
-            group["chunk\nmd"] = meta.get("chunk_markdown_ms", 0)
-            group["search\nhybrid"] = meta.get("search_hybrid_ms", 0)
-            group["format\nctx"] = meta.get("format_context_ms", 0)
+            group["index\nproject"] = _metric(meta, "index_project_ms")
+            group["chunk\npython"] = _metric(meta, "chunk_python_ms")
+            group["chunk\nmd"] = _metric(meta, "chunk_markdown_ms")
+            group["search\nhybrid"] = _metric(meta, "search_hybrid_ms")
+            group["format\nctx"] = _metric(meta, "format_context_ms")
 
         stage_groups[s] = group
 
     # 그룹 바 차트
     n_groups = len(stage_groups)
-    group_labels = list(stage_groups.keys())
-    [_stage_color(g) for g in group_labels]
+    group_labels: list[str] = list(stage_groups.keys())
+    _ = [_stage_color(g) for g in group_labels]
 
     # 각 스테이지의 서브 컴포넌트
-    all_sub_labels = sorted({k for g in stage_groups.values() for k in g})
+    all_sub_labels: list[str] = sorted({k for g in stage_groups.values() for k in g})
     x = np.arange(len(all_sub_labels))
     width = 0.8 / n_groups
 
     for i, (stage, subs) in enumerate(stage_groups.items()):
         offsets = x + (i - n_groups / 2 + 0.5) * width
         vals = [subs.get(label, 0) for label in all_sub_labels]
-        ax.bar(
+        _ = ax.bar(
             offsets,
             vals,
             width,
@@ -648,72 +842,80 @@ def main():
     parser = argparse.ArgumentParser(
         description="Freebuff-Style Proactive Pipeline — 벤치마크 시각화",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "input",
         help="JSON 벤치마크 결과 파일 경로",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--output-dir",
         default="charts",
         help="차트 출력 디렉토리 (기본: ./charts)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--format",
         default="png",
         choices=["png", "svg", "pdf"],
         help="출력 이미지 포맷 (기본: png)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--show",
         action="store_true",
         help="GUI로 차트 표시 (png 저장 안 함)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--skip-charts",
         nargs="*",
         choices=["overview", "trends", "breakdown", "heatmap", "subcomponent"],
         help="건너뛸 차트",
     )
-    args = parser.parse_args()
+    parsed_args = cast(dict[str, object], cast(object, vars(parser.parse_args())))
+    input_path = cast(str, parsed_args["input"])
+    output_dir = cast(str, parsed_args["output_dir"])
+    output_format = cast(str, parsed_args["format"])
+    show = cast(bool, parsed_args["show"])
+    skip_charts = cast(list[str] | None, parsed_args["skip_charts"])
 
-    if not os.path.exists(args.input):
-        print(f"❌ 입력 파일 없음: {args.input}")
+    if not os.path.exists(input_path):
+        print(f"❌ 입력 파일 없음: {input_path}")
         sys.exit(1)
 
-    if args.show:
+    if show:
         matplotlib.use("TkAgg")
 
     print("📊 Proactive Pipeline Benchmark Visualization")
-    print(f"   입력: {args.input}")
-    print(f"   포맷: {args.format}")
-    print(f"   출력: {args.output_dir}/")
+    print(f"   입력: {input_path}")
+    print(f"   포맷: {output_format}")
+    print(f"   출력: {output_dir}/")
     print()
 
-    data = load_benchmark(args.input)
+    try:
+        data = load_benchmark(input_path)
+    except ValueError as exc:
+        parser.error(str(exc))
     stages = list(data.keys())
 
     print(f"   로드된 스테이지: {', '.join(stages)}")
     print()
 
-    skip = set(args.skip_charts or [])
+    skip = set(skip_charts or [])
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     if "overview" not in skip:
-        plot_overview(data, args.output_dir, args.format)
+        plot_overview(data, output_dir, output_format)
     if "trends" not in skip:
-        plot_trends(data, args.output_dir, args.format)
+        plot_trends(data, output_dir, output_format)
     if "breakdown" not in skip:
-        plot_breakdown(data, args.output_dir, args.format)
+        plot_breakdown(data, output_dir, output_format)
     if "heatmap" not in skip:
-        plot_heatmap(data, args.output_dir, args.format)
+        plot_heatmap(data, output_dir, output_format)
     if "subcomponent" not in skip:
-        plot_subcomponent_comparison(data, args.output_dir, args.format)
+        plot_subcomponent_comparison(data, output_dir, output_format)
 
     print()
-    print(f"✅ 모든 차트 생성 완료 → {os.path.abspath(args.output_dir)}/")
+    print(f"✅ 모든 차트 생성 완료 → {os.path.abspath(output_dir)}/")
 
-    if args.show:
+    if show:
         plt.show()
 
 

@@ -54,8 +54,25 @@ def mock_httpx(monkeypatch):
     class MockAsyncResponse:
         status_code = 200
         def json(self): return {"status": "ok"}
-    # Mock AsyncClient
-    pass
+        text = '{"status": "ok"}'
+
+        def raise_for_status(self):
+            return None
+
+    class MockAsyncClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            return None
+
+        async def get(self, *args, **kwargs):
+            return MockAsyncResponse()
+
+        async def post(self, *args, **kwargs):
+            return MockAsyncResponse()
+
+    monkeypatch.setattr("httpx.AsyncClient", MockAsyncClient)
 """,
                     fixture_decorator="@pytest.fixture(autouse=True)",
                 )

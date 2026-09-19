@@ -4,10 +4,13 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useUiStore } from '../../stores/uiStore';
+import { loginWithAccessPin } from '../../utils/accessPinCredential';
 
 const PinModal: React.FC = () => {
   const visible = useUiStore(state => state.pinModalVisible);
   const setVisible = useUiStore(state => state.setPinModalVisible);
+  const notice = useUiStore(state => state.pinModalNotice);
+  const setNotice = useUiStore(state => state.setPinModalNotice);
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -22,21 +25,11 @@ const PinModal: React.FC = () => {
     const trimmedPin = pin.trim();
     if (!trimmedPin) return;
 
-    localStorage.setItem('ag_access_pin', trimmedPin);
-
-    const isHttps = window.location.protocol === 'https:';
-    document.cookie = `ag_access_pin=${trimmedPin}; path=/; max-age=31536000; SameSite=Strict${isHttps ? '; Secure' : ''}`;
-
     try {
-      const res = await fetch('/api/session/info', {
-        headers: { 'X-Access-Pin': trimmedPin },
-      });
-      if (res.ok) {
-        setVisible(false);
-        window.location.reload();
-      } else {
-        setError('PIN 번호가 올바르지 않습니다.');
-      }
+      await loginWithAccessPin(trimmedPin);
+      // 로그인에 성공하면 이유는 더 이상 유효하지 않다 — 다음 잠금이 낡은 문구를 물려받지 않게 지운다.
+      setNotice('');
+      setVisible(false);
     } catch {
       setError('PIN 번호가 올바르지 않습니다.');
     }
@@ -60,9 +53,20 @@ const PinModal: React.FC = () => {
         style={{ padding: 32, borderRadius: 16, textAlign: 'center', maxWidth: 300, width: '90%' }}
       >
         <h2 style={{ marginTop: 0 }}>🔒 시스템 잠금</h2>
-        <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: 13 }}>
+        <p
+          style={{ color: 'var(--text-secondary)', marginBottom: notice ? 12 : 24, fontSize: 'var(--text-md)', wordBreak: 'keep-all' }}
+        >
           외부 접속 보안을 위해 PIN 번호를 입력하세요.
         </p>
+        {notice && (
+          <p
+            role="status"
+            data-testid="pin-modal-notice"
+            style={{ color: 'var(--accent-color, #7c6aef)', marginBottom: 24, fontSize: 13, wordBreak: 'keep-all' }}
+          >
+            {notice}
+          </p>
+        )}
         <input
           ref={inputRef}
           type="password"
@@ -80,7 +84,7 @@ const PinModal: React.FC = () => {
         />
         <button
           onClick={handleSubmit}
-          className="glow-btn"
+          className="glow-btn pin-unlock-button"
           style={{ width: '100%', padding: 12, borderRadius: 8, fontSize: 15, fontWeight: 'bold' }}
         >
           잠금 해제

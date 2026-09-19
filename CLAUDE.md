@@ -1,4 +1,4 @@
-# Antigravity-K Agentic Instructions
+# Ssak-Ai Agentic Instructions
 
 This repository follows the **Tolaria** philosophy.
 As an AI interacting with this repository, adhere to the following rules:

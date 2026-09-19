@@ -1,0 +1,183 @@
+# Ssak-Ai code index
+/.antigravity/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs and databases
+*.log
+logs/
+.chroma/
+vault_data/.chroma/
+artifacts/
+demo_artifacts/
+*.sqlite3
+*.db
+
+# IDEs
+.vscode/
+.idea/
+.continue/
+
+# Tool configs
+.pytest_cache/
+.mypy_cache/
+.tox/
+node_modules/
+
+# Coverage reports
+coverage_html/
+.coverage
+.coverage.*
+nosetests.xml
+*.cover
+*.py,cover
+
+# Docker
+docker-compose*.yml
+*.pid
+
+# Ruff cache
+.ruff_cache/
+
+# Dashboard build
+dashboard/dist/
+dashboard/node_modules/
+
+# build 잔재 — 추적하지 않는다 (재빌드시마다 유동 hash)
+dashboard/tsconfig.tsbuildinfo
+.artifacts/
+
+# Vault/secret storage
+.agk_vault/
+
+# LFS large file (will be migrated)
+.agent/skills/gstack/bin/gstack-global-discover.exe
+
+# Config files with secrets (copy from .example files)
+# 루트 config.yaml만 무시 — src/antigravity_k/config.yaml은 패키지 기본 config로
+# 추적 대상이며 번들 일치 테스트(test_model_registry)가 fresh checkout에서 요구한다.
+/config.yaml
+
+# Editor temp files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+### Stryker mutation testing ###
+dashboard/stryker-tmp/
+dashboard/reports/
+
+### Vitest coverage report ###
+dashboard/coverage/
+
+# ─────────────────────────────────────────────────────────────
+# Phase 0 청소 (2026-08-17): untracked 오염물 실측 기반 등록
+# ─────────────────────────────────────────────────────────────
+.ag_worktrees/
+.agent/scratch/
+.agk_checkpoint.json
+.backup/
+.gstack/
+.omo/
+.tmp/
+.vite/
+.zcode/
+C:/
+MagicMock/
+vault_data/
+dashboard-vanilla/
+dashboard/.omo/
+demo_fastapi_project/
+sessions/
+data/audits/
+data/*.lock
+data/benchmarks/*
+!data/benchmarks/held_out_v1.jsonl
+!data/benchmarks/held_out_v1.freeze.json
+!data/benchmarks/held_out_v2.jsonl
+!data/benchmarks/held_out_v2.freeze.json
+data/ki_entries/
+data/search_cache/
+data/wiki_entries/
+data/auth_hash
+data/token_secret
+data/usage.json
+*.bak
+coverage_report*.txt
+mypy_report*.txt
+transcript*.json
+transcript*.txt
+transcript_clean.md
+scratch_test_*.py
+self_improvement_history.json
+
+# ─────────────────────────────────────────────────────────────
+# 보강 (2026-08-17): 잔여 누락 무대상
+# ─────────────────────────────────────────────────────────────
+data/.tmp/
+data/.backup/
+htmlcov/
+.codebase-memory/
+.playwright-mcp/
+
+# ─────────────────────────────────────────────────────────────
+# 위생 (2026-08-25): 루트 폐기물 재발 방지
+# - 스크래치 스크립트/산출물은 scratch/ 아래에서만 작업
+# - 버그로 생성된 이상 경로(C:/, MagicMock/) 차단
+# ─────────────────────────────────────────────────────────────
+scratch_*.py
+scratch_*.json
+C:/
+MagicMock/
+*_output.txt
+test_output.json
+test-results/
+artifacts_*.png
+data/dpo_out/
+data/lora_e2e_out/
+data/lora_harvest/
+data/projects.json
+# 런타임 상태 — 프로젝트 레지스트리의 기본 저장 경로는 **상대경로**(`data/projects.json`)라
+# cwd 에 따라 저장소 안 어디에나 생긴다(잠금 파일은 `<저장경로>.lock` — `project_registry.py`).
+# cwd 가 `src/` 인 프로세스(패키지를 소스 트리에서 직접 실행할 때 자연스럽다)가 만드는 사본을
+# **코드 스코프 밖**에 둔다: 들어오면 코드 지문이 움직여 "게이트가 측정한 트리 == 후보 트리"가
+# 조용히 깨지고, 그 사실은 마감 검사에서야 드러난다(CR-14 F-44 · 계약
+# `tests/test_cr14_runtime_state_scope_contract.py`).
+src/data/projects.json
+src/data/projects.json.lock

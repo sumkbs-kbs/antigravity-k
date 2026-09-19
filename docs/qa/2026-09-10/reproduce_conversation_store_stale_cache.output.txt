@@ -1,0 +1,9 @@
+Command: uv run python docs/qa/2026-09-10/reproduce_conversation_store_stale_cache.py
+Commit: 8794aaecabf5664a7ee560b104e0115d915aabb7
+
+initial_reader_revision=1
+cached_reader_revision_after_remote_append=1
+cached_reader_message_count_after_remote_append=1
+stale_get_or_create_accepted_revision=1
+fresh_reader_revision=2
+fresh_reader_message_count=2

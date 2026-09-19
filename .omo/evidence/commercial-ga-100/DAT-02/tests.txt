@@ -1,0 +1,33 @@
+# DAT-02 검증 결과
+
+## 신규 회귀 시험 (10개)
+명령: uv run --no-sync pytest tests/test_vault_task_isolation.py -q
+결과: 10 passed
+
+## 기존 task/vault/worktree 관련 시험 (회귀 확인)
+명령: uv run --no-sync pytest tests/test_task_runner_outcome.py tests/test_task_runner_resume.py tests/test_worktree_manager.py -q
+결과: 47 passed (신규 포함)
+
+## 선택된 전체 하위 집합
+명령: uv run --no-sync pytest tests/ -q -k "task or vault or worktree" --ignore=tests/test_agent_runtime.py --ignore=tests/test_runtime_benchmark_binding.py --ignore=tests/test_task_api.py
+결과: 347 passed, 0 failed
+
+## 사전 기존 실패 (베이스 SHA에서도 동일 — 본 task와 무관)
+- tests/test_agent_runtime.py 3건 (test_chat_stream_*, test_background_task_route_uses_canonical_runtime)
+- tests/test_runtime_benchmark_binding.py 3건 (canonical runtime 관련)
+- tests/test_task_api.py::test_submit_task_uses_typed_canonical_runtime_contract
+확인 방법: git stash 후 base 상태에서 재실행 → 6 failed (동일)
+해당 실패는 WS-01/WS-03 구현 이후 상속된 픽스처 정합성 문제로 보이며
+DAT-02 소유 범위가 아님 (project binding 계약은 WS lane 소유).
+
+## 독립 리뷰 재검증 (r1, 2026-09-06)
+명령: uv run --no-sync pytest tests/test_worktree_orphan_sweep.py tests/test_worktree_manager.py tests/test_vault_task_isolation.py tests/test_task_runner_outcome.py tests/test_tool_sandbox_coverage.py -q
+결과: 59 passed
+
+전체: 5466 passed / 21 failed — 21건은 base 5688332와 동일 (WS lane 소유, DAT-02 신규 회귀 0건)
+신규 리허설: tests/test_worktree_orphan_sweep.py 10건 (실 git repo에서 orphan sweep end-to-end)
+
+## 품질 진단
+- uv run ruff check (대상 4파일): All checks passed!
+- uv run ruff format (대상 4파일): 적용 완료
+- uv run mypy src/antigravity_k/engine/task_runner.py src/antigravity_k/engine/vault.py: Success

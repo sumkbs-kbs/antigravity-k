@@ -8,21 +8,38 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable, Mapping
 from html import unescape
-from typing import Any
+from typing import Protocol, cast
 
 PROXY_BASE_URL_ENV_VAR = "KSKILL_PROXY_BASE_URL"
 DEFAULT_PROXY_BASE_URL = "https://k-skill-proxy.nomadamas.org"
+
+Payload = dict[str, object]
+RequestJson = Callable[[urllib.request.Request | str], Payload]
+
+
+def _as_mapping(value: object) -> Payload:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+class _HTTPResponse(Protocol):
+    def read(self) -> bytes: ...
+
+    def close(self) -> None: ...
 
 
 class ApiError(RuntimeError):
     def __init__(self, message: str, *, status_code: int | None = None, url: str | None = None):
         super().__init__(message)
-        self.status_code = status_code
-        self.url = url
+        self.status_code: int | None = status_code
+        self.url: str | None = url
 
 
-def summarize_text(value: Any) -> str:
+def summarize_text(value: object) -> str:
     if value is None:
         return ""
     text = unescape(str(value))
@@ -31,9 +48,9 @@ def summarize_text(value: Any) -> str:
     return text
 
 
-def resolve_proxy_base_url(explicit_base_url: str | None = None, env: dict[str, str] | None = None) -> str:
-    env = env or os.environ
-    candidate = summarize_text(explicit_base_url or env.get(PROXY_BASE_URL_ENV_VAR))
+def resolve_proxy_base_url(explicit_base_url: str | None = None, env: Mapping[str, str] | None = None) -> str:
+    environment = env or os.environ
+    candidate = summarize_text(explicit_base_url or environment.get(PROXY_BASE_URL_ENV_VAR))
     if candidate.casefold() in {"off", "false", "0", "disable", "disabled", "none"}:
         raise ValueError("KSKILL_PROXY_BASE_URL 가 비활성화되어 있습니다.")
     if candidate and candidate != "replace-me":
@@ -41,7 +58,7 @@ def resolve_proxy_base_url(explicit_base_url: str | None = None, env: dict[str, 
     return DEFAULT_PROXY_BASE_URL
 
 
-def build_food_interview(question: str | None = None, symptoms: str | None = None) -> dict[str, Any]:
+def build_food_interview(question: str | None = None, symptoms: str | None = None) -> Payload:
     return {
         "domain": "food",
         "question": summarize_text(question),
@@ -64,7 +81,7 @@ def build_food_interview(question: str | None = None, symptoms: str | None = Non
     }
 
 
-def normalize_food_recall_row(row: dict[str, Any]) -> dict[str, Any]:
+def normalize_food_recall_row(row: Payload) -> Payload:
     return {
         "source": "foodsafetykorea_recall",
         "product_name": summarize_text(row.get("product_name") or row.get("PRDLST_NM") or row.get("PRDTNM")),
@@ -76,7 +93,7 @@ def normalize_food_recall_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def normalize_improper_food_item(item: dict[str, Any]) -> dict[str, Any]:
+def normalize_improper_food_item(item: Payload) -> Payload:
     reason_parts = [
         summarize_text(item.get("reason") or item.get("IMPROPT_ITM")),
         summarize_text(item.get("INSPCT_RESULT")),
@@ -91,7 +108,7 @@ def normalize_improper_food_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def filter_food_items(items: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+def filter_food_items(items: list[Payload], query: str) -> list[Payload]:
     needle = summarize_text(query).casefold()
     if not needle:
         return items
@@ -107,20 +124,24 @@ def filter_food_items(items: list[dict[str, Any]], query: str) -> list[dict[str,
     return [item for item in items if needle in summarize_text(item.get("reason")).casefold()]
 
 
-def read_json_response(request: urllib.request.Request | str) -> dict[str, Any]:
+def read_json_response(request: urllib.request.Request | str) -> Payload:
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
+        response = cast(_HTTPResponse, urllib.request.urlopen(request, timeout=30))
+        try:
+            return _as_mapping(cast(object, json.loads(response.read().decode("utf-8"))))
+        finally:
+            response.close()
     except urllib.error.HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
         try:
-            payload = json.loads(body)
+            payload = cast(object, json.loads(body))
         except json.JSONDecodeError:
-            payload = None
+            payload = {}
 
-        if isinstance(payload, dict) and payload.get("message"):
+        payload_mapping = _as_mapping(cast(object, payload))
+        if payload_mapping.get("message"):
             raise ApiError(
-                str(payload["message"]),
+                summarize_text(payload_mapping["message"]),
                 status_code=error.code,
                 url=getattr(error, "url", None),
             ) from error
@@ -138,8 +159,8 @@ def search_food_safety(
     *,
     limit: int = 10,
     base_url: str | None = None,
-    request_json: Any = read_json_response,
-) -> dict[str, Any]:
+    request_json: RequestJson = read_json_response,
+) -> Payload:
     resolved_base_url = resolve_proxy_base_url(base_url)
     url = f"{resolved_base_url}/v1/mfds/food-safety/search"
     params = urllib.parse.urlencode({"query": query, "limit": str(limit)})
@@ -155,8 +176,8 @@ def search_health_food_ingredient(
     *,
     limit: int = 10,
     base_url: str | None = None,
-    request_json: Any = read_json_response,
-) -> dict[str, Any]:
+    request_json: RequestJson = read_json_response,
+) -> Payload:
     resolved_base_url = resolve_proxy_base_url(base_url)
     url = f"{resolved_base_url}/v1/mfds/food-safety/health-food-ingredient"
     params = urllib.parse.urlencode({"query": query, "limit": str(limit)})
@@ -172,8 +193,8 @@ def search_product_report(
     *,
     limit: int = 10,
     base_url: str | None = None,
-    request_json: Any = read_json_response,
-) -> dict[str, Any]:
+    request_json: RequestJson = read_json_response,
+) -> Payload:
     resolved_base_url = resolve_proxy_base_url(base_url)
     url = f"{resolved_base_url}/v1/mfds/food-safety/product-report"
     params = urllib.parse.urlencode({"query": query, "limit": str(limit)})
@@ -189,8 +210,8 @@ def search_inspection_fail(
     *,
     limit: int = 10,
     base_url: str | None = None,
-    request_json: Any = read_json_response,
-) -> dict[str, Any]:
+    request_json: RequestJson = read_json_response,
+) -> Payload:
     resolved_base_url = resolve_proxy_base_url(base_url)
     url = f"{resolved_base_url}/v1/mfds/food-safety/inspection-fail"
     params = urllib.parse.urlencode({"query": query, "limit": str(limit)})
@@ -206,50 +227,56 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     interview = subparsers.add_parser("interview", help="print the mandatory symptom follow-up interview")
-    interview.add_argument("--question", default="")
-    interview.add_argument("--symptoms", default="")
+    _ = interview.add_argument("--question", default="")
+    _ = interview.add_argument("--symptoms", default="")
 
     search = subparsers.add_parser("search", help="search official food-safety records through k-skill-proxy")
-    search.add_argument("--query", required=True)
-    search.add_argument("--limit", type=int, default=10)
-    search.add_argument("--proxy-base-url")
+    _ = search.add_argument("--query", required=True)
+    _ = search.add_argument("--limit", type=int, default=10)
+    _ = search.add_argument("--proxy-base-url")
 
     product_report = subparsers.add_parser("product-report", help="search health food product manufacturing reports")
-    product_report.add_argument("--query", required=True)
-    product_report.add_argument("--limit", type=int, default=10)
-    product_report.add_argument("--proxy-base-url")
+    _ = product_report.add_argument("--query", required=True)
+    _ = product_report.add_argument("--limit", type=int, default=10)
+    _ = product_report.add_argument("--proxy-base-url")
 
     ingredient = subparsers.add_parser(
         "health-food-ingredient",
         help="search health food ingredient recognition status",
     )
-    ingredient.add_argument("--query", required=True)
-    ingredient.add_argument("--limit", type=int, default=10)
-    ingredient.add_argument("--proxy-base-url")
+    _ = ingredient.add_argument("--query", required=True)
+    _ = ingredient.add_argument("--limit", type=int, default=10)
+    _ = ingredient.add_argument("--proxy-base-url")
 
     inspection = subparsers.add_parser("inspection-fail", help="search domestic inspection failure records")
-    inspection.add_argument("--query", required=True)
-    inspection.add_argument("--limit", type=int, default=10)
-    inspection.add_argument("--proxy-base-url")
+    _ = inspection.add_argument("--query", required=True)
+    _ = inspection.add_argument("--limit", type=int, default=10)
+    _ = inspection.add_argument("--proxy-base-url")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    command = cast(str, getattr(args, "command", ""))
 
-    if args.command == "interview":
+    if command == "interview":
+        question = cast(str, getattr(args, "question", ""))
+        symptoms = cast(str, getattr(args, "symptoms", ""))
         print(
             json.dumps(
-                build_food_interview(question=args.question, symptoms=args.symptoms),
+                build_food_interview(question=question, symptoms=symptoms),
                 ensure_ascii=False,
                 indent=2,
             )
         )
         return 0
 
-    if args.command == "search":
+    if command == "search":
+        query = cast(str, getattr(args, "query", ""))
+        limit = cast(int, getattr(args, "limit", 10))
+        proxy_base_url = cast(str | None, getattr(args, "proxy_base_url", None))
         try:
-            payload = search_food_safety(args.query, limit=args.limit, base_url=args.proxy_base_url)
+            payload = search_food_safety(query, limit=limit, base_url=proxy_base_url)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         except (ValueError, ApiError) as error:
@@ -259,9 +286,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
-    if args.command == "product-report":
+    if command == "product-report":
+        query = cast(str, getattr(args, "query", ""))
+        limit = cast(int, getattr(args, "limit", 10))
+        proxy_base_url = cast(str | None, getattr(args, "proxy_base_url", None))
         try:
-            payload = search_product_report(args.query, limit=args.limit, base_url=args.proxy_base_url)
+            payload = search_product_report(query, limit=limit, base_url=proxy_base_url)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         except (ValueError, ApiError) as error:
@@ -271,9 +301,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
-    if args.command == "health-food-ingredient":
+    if command == "health-food-ingredient":
+        query = cast(str, getattr(args, "query", ""))
+        limit = cast(int, getattr(args, "limit", 10))
+        proxy_base_url = cast(str | None, getattr(args, "proxy_base_url", None))
         try:
-            payload = search_health_food_ingredient(args.query, limit=args.limit, base_url=args.proxy_base_url)
+            payload = search_health_food_ingredient(query, limit=limit, base_url=proxy_base_url)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         except (ValueError, ApiError) as error:
@@ -283,9 +316,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
-    if args.command == "inspection-fail":
+    if command == "inspection-fail":
+        query = cast(str, getattr(args, "query", ""))
+        limit = cast(int, getattr(args, "limit", 10))
+        proxy_base_url = cast(str | None, getattr(args, "proxy_base_url", None))
         try:
-            payload = search_inspection_fail(args.query, limit=args.limit, base_url=args.proxy_base_url)
+            payload = search_inspection_fail(query, limit=limit, base_url=proxy_base_url)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         except (ValueError, ApiError) as error:

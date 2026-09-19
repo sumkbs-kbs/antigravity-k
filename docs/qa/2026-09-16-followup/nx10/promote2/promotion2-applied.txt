@@ -1,0 +1,13 @@
+# 승격 2차 배치 실행 기록 (2026-09-17, NX-10 창)
+실행: 20260917T022426Z · 전제조건: 도는 soak 없음 · 리허설 ALL PASS
+이동표(스테이징 → 승격):
+  docs/qa/2026-09-16-followup/nx01/restore_rehearsal.py → scripts/restore_rehearsal.py
+  docs/qa/2026-09-16-followup/nx03/rollback_rehearsal.py → scripts/rollback_rehearsal.py
+  docs/qa/2026-09-16-followup/nx10/promote2/test_restore_rehearsal_contract.py → tests/test_restore_rehearsal_contract.py
+  docs/qa/2026-09-16-followup/nx10/promote2/test_rollback_rehearsal_contract.py → tests/test_rollback_rehearsal_contract.py
+백업: /tmp/nx10-promote2-backup-20260917T022426Z (되돌리기는 역순 mv)
+게이트: 승격 계약 시험 초록 · 도구 직접 실행 초록 · ruff check·format 초록
+다음(필수): 지문이 이동했다 — 필수 게이트를 새 지문에서 재측정하고 soak 을 재장전한다
+  bash docs/qa/2026-09-16-followup/nx10/soak_control.sh preflight
+  bash docs/qa/2026-09-16-followup/nx10/soak_control.sh run
+  기록 갱신: GATE_LEDGER · handoff · PROMOTION_PLAN §1b · docs/19·20

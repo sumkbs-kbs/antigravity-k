@@ -87,7 +87,7 @@ class TestToolCallSignature:
     def test_frozen_dataclass(self):
         sig = ToolCallSignature(tool_name="t", args_hash="h")
         with pytest.raises(AttributeError):
-            sig.tool_name = "other"  # type: ignore[misc]
+            setattr(sig, "tool_name", "other")
 
 
 # ---------------------------------------------------------------------------

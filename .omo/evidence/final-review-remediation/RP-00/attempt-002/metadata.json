@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-00",
+  "attempt": 2,
+  "status": "REVIEW",
+  "owner": "codex-root-orchestrator",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "tree_clean_before_run": false,
+  "environment": {
+    "host_os": "Darwin arm64, kernel 25.6.0",
+    "system_python": "3.9.6",
+    "uv_python": "3.13.12",
+    "uv": "0.11.8",
+    "node": "v22.23.1",
+    "pnpm": "11.3.0",
+    "sandbox_backend": "/usr/bin/sandbox-exec",
+    "docker_client": "29.7.2",
+    "docker_server": "29.7.2"
+  },
+  "observed_user_progress": {
+    "rp_01_through_rp_05": "Self-reported evidence exists with REVIEW status; independent verification pending",
+    "rp_06": "scripts/val01_staging.py and tests/test_fr07_staging_verdicts.py changed; evidence metadata absent",
+    "rp_07": "No source/bundled config synchronization change observed",
+    "product_files_dirty": true,
+    "vault_data_preserved": true
+  },
+  "assignments": [
+    {"task_id": "RP-01", "owner": "zcode-remediation-agent", "owned_files": ["src/antigravity_k/engine/sandbox.py", "src/antigravity_k/engine/unified_agent.py", "tests/test_fr01_agent_execution_isolation.py"], "predecessor": "RP-00", "state": "REVIEW"},
+    {"task_id": "RP-02", "owner": "zcode-remediation-agent", "owned_files": ["src/antigravity_k/tools/tool_path.py", "src/antigravity_k/tools/permission_gate.py", "src/antigravity_k/tools/terminal_tools.py", "src/antigravity_k/tools/system_tools.py", "tests/test_fr02_shell_execution_boundary.py", "tests/test_terminal_sandbox_routing.py", "tests/test_command_execution_boundary.py"], "predecessor": "RP-01", "state": "REVIEW"},
+    {"task_id": "RP-03", "owner": "zcode-remediation-agent", "owned_files": ["src/antigravity_k/engine/atomic_transaction_engine.py", "tests/test_fr03_transaction_containment.py"], "predecessor": "RP-02", "state": "REVIEW"},
+    {"task_id": "RP-04", "owner": "zcode-remediation-agent", "owned_files": ["src/antigravity_k/engine/rsi_sandbox.py", "src/antigravity_k/engine/meta_architect.py", "tests/test_fr04_mutation_rollback_isolation.py"], "predecessor": "RP-03", "state": "REVIEW"},
+    {"task_id": "RP-05", "owner": "zcode-remediation-agent", "owned_files": ["src/antigravity_k/engine/conversation_store.py", "tests/test_fr05_conversation_authoritative_reads.py"], "predecessor": "RP-04; coordinator-approved independent verification lane", "state": "REVIEW"},
+    {"task_id": "RP-06", "owner": "existing-user-change", "owned_files": ["scripts/val01_staging.py", "tests/test_fr07_staging_verdicts.py"], "predecessor": "RP-05; coordinator-approved independent verification lane", "state": "IN_PROGRESS"}
+  ],
+  "required_scenarios": [
+    {
+      "id": "R00-01",
+      "required": true,
+      "expected": "Review and original VAL/RC criteria are available",
+      "observed": "docs/qa/2026-09-10/FINAL_REVIEW.md and docs/11, docs/14, docs/15 are present",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-02",
+      "required": true,
+      "expected": "HEAD, dirty work, and vault_data are recorded and preserved",
+      "observed": "HEAD is the reviewed SHA; existing product, test, evidence, documentation, and vault_data changes remain unstaged and unmodified by baseline setup",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-03",
+      "required": true,
+      "expected": "Work since the previous review is classified",
+      "observed": "RP-01 through RP-05 have self-reported REVIEW artifacts; RP-06 has code/test changes without complete evidence; no task is independently DONE",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-04",
+      "required": true,
+      "expected": "Runtime and sandbox environment is recorded",
+      "observed": "See environment block; system Python and uv-managed Python are recorded separately",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-05",
+      "required": true,
+      "expected": "Execution mirror and Boulder state select this remediation",
+      "observed": ".omo/plans/final-review-remediation.md and active Boulder work final-review-remediation-20260910 exist",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-06",
+      "required": true,
+      "expected": "Evidence and secret handling rules are defined",
+      "observed": "docs/14 section 6 defines metadata, commands, raw logs, manual QA, review, and handoff; synthetic data and redaction are required",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-07",
+      "required": true,
+      "expected": "Independent reviewer confirms current baseline",
+      "observed": "Reviewer dispatched as rp00_verify; attempt-001 was rejected and attempt-002 re-review is pending",
+      "verdict": "PENDING"
+    }
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": "rp00_verify",
+  "review_verdict": null,
+  "blocked_reason": null
+}

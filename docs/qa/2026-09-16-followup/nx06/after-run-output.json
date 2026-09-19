@@ -1,0 +1,33 @@
+{
+  "tree": "after",
+  "manifest_dir": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/deploy/k8s",
+  "readiness_probe_path": "/api/ready",
+  "liveness_probe_path": "/health",
+  "startup_probe_path": "/health",
+  "readiness_probe_port_is_named": true,
+  "readiness_reports_dependencies": true,
+  "liveness_is_process_alive_only": true,
+  "report_keys": [
+    "checked_at",
+    "checks",
+    "status",
+    "traffic"
+  ],
+  "has_dependency_kind": true,
+  "has_traffic_verdict": true,
+  "initial_status": "degraded",
+  "missing_project_root_status": "degraded",
+  "missing_project_root_detail": "storage: configured project root missing (/nonexistent/nx06-configured-root)",
+  "false_ready_on_missing_root": false,
+  "required_failure_status": "not_ready",
+  "required_failure_traffic": "reject",
+  "required_failure_rejected": true,
+  "optional_failure_status": "degraded",
+  "optional_failure_traffic": "accept",
+  "optional_failure_served": true,
+  "degraded_is_accepted": true,
+  "kube_contexts": [],
+  "runtime_observation": "BLOCKED (no kube context)",
+  "defects": [],
+  "contract_met": true
+}

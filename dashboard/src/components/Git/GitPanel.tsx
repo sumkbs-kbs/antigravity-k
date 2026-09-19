@@ -87,6 +87,7 @@ const BranchesView: React.FC = () => {
               onClick={() => handleCheckout(b.name)}
               role="button"
               tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCheckout(b.name); } }}
             >
               <span className="git-branch-indicator">
                 {b.is_current ? <span className="git-current-dot" /> : '  '}
@@ -116,6 +117,7 @@ const BranchesView: React.FC = () => {
                   onClick={() => handleCheckout(b.name)}
                   role="button"
                   tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCheckout(b.name); } }}
                 >
                   <span className="git-branch-indicator"> </span>
                   <span className="git-branch-row-name">{b.name.replace('remotes/', '')}</span>
@@ -160,7 +162,7 @@ const GraphView: React.FC = () => {
         <span className="git-section-title">🔀 Branch Graph</span>
         <div className="git-section-actions">
           <span className="git-count-badge">{nodes.length} commits</span>
-          <button className="git-action-btn-sm" onClick={handleRefresh}>🔄</button>
+          <button className="git-action-btn-sm" onClick={handleRefresh} aria-label="브랜치 그래프 새로고침">🔄</button>
         </div>
       </div>
 
@@ -168,12 +170,12 @@ const GraphView: React.FC = () => {
         <div className="git-empty"><span>No commits in graph</span></div>
       ) : (
         <div className="git-graph-list">
-          {nodes.map((node, i) => {
+          {nodes.map(node => {
             // Convert graph characters to colored spans
             const graphHtml = node.graph.replace(/\*/g, '●').replace(/[|/\\_\-.]/g, c => c);
             const date = node.date ? new Date(node.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }) : '';
             return (
-              <div key={i} className="git-graph-row">
+              <div key={node.short_hash} className="git-graph-row">
                 <span className="git-graph-visual" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'pre' }}>
                   {graphHtml}
                 </span>

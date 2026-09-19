@@ -1,17 +1,19 @@
 """Tests for EvolutionManager (evolution.py)."""
 
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from antigravity_k.engine.evolution import EvolutionManager
+from antigravity_k.engine.vault import VaultEngine
 
 
 class TestEvolutionManager:
     def test_init_requires_vault_engine(self):
         model_manager = MagicMock()
         with pytest.raises(ValueError, match="requires a valid VaultEngine"):
-            EvolutionManager(model_manager, None)
+            EvolutionManager(model_manager, cast(VaultEngine, cast(object, None)))
 
     def test_gather_failures_no_rag(self):
         model_manager = MagicMock()

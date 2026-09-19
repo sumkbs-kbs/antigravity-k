@@ -1,0 +1,19 @@
+^D/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py:56:14 - warning: Type annotation for attribute `raw_path` is required because this class is not decorated with `@final` (reportUnannotatedClassAttribute)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py:57:14 - warning: Type annotation for attribute `project_root` is required because this class is not decorated with `@final` (reportUnannotatedClassAttribute)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py:77:31 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py:80:51 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py:94:47 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py:99:43 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py:108:53 - warning: Argument type is Any
+    Argument corresponds to parameter "kwargs" in function "publish" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py:152:8 - warning: Condition will always evaluate to False since the types "str" and "None" have no overlap (reportUnnecessaryComparison)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/tool_path.py:357:9 - warning: Result of call expression is of type "str" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr02_shell_execution_boundary.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr02_shell_execution_boundary.py:22:49 - warning: "Permission" is not exported from module "antigravity_k.tools.permission_gate"
+    Import from "antigravity_k.tools.tool_contracts" instead (reportPrivateLocalImportUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr02_shell_execution_boundary.py:40:5 - warning: Result of call expression is of type "int" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr02_shell_execution_boundary.py:50:5 - warning: Result of call expression is of type "int" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr02_shell_execution_boundary.py:191:9 - warning: Result of call expression is of type "int" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr02_shell_execution_boundary.py:226:70 - warning: "sentinel" is not accessed (reportUnusedParameter)
+0 errors, 14 warnings, 0 notes

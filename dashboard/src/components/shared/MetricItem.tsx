@@ -14,11 +14,11 @@ interface MetricItemProps {
 }
 
 const MetricItem: React.FC<MetricItemProps> = ({ icon, value, label, color }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-    <span style={{ fontSize: 14 }}>{icon}</span>
-    <div>
+  <div className="metric-item">
+    <span className="metric-item-icon" aria-hidden="true">{icon}</span>
+    <div className="metric-item-copy">
       <div style={{ fontSize: 13, fontWeight: 600, color: color || 'var(--text-primary)' }}>{value}</div>
-      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{label}</div>
+      <div className="metric-item-label">{label}</div>
     </div>
   </div>
 );

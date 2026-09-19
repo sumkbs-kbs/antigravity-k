@@ -5,7 +5,7 @@
 
 ## A. 프로젝트 이해
 
-Antigravity-K는 Apple Silicon에서 `qwen3.6:latest`를 우선 사용하는 로컬 중심 범용 에이전트다. 사용자의 요청을 모델 라우팅, 계획/검증 루프, 도구 실행, 메모리/RAG, 장기 작업 상태 저장으로 연결한다. 웹 검색은 SearXNG, Tavily, Jina, DuckDuckGo와 로컬 캐시를 조합한다.
+Ssak-Ai는 Apple Silicon에서 `qwen3.6:latest`를 우선 사용하는 로컬 중심 범용 에이전트다. 사용자의 요청을 모델 라우팅, 계획/검증 루프, 도구 실행, 메모리/RAG, 장기 작업 상태 저장으로 연결한다. 웹 검색은 SearXNG, Tavily, Jina, DuckDuckGo와 로컬 캐시를 조합한다.
 
 핵심 성공 기준은 다음과 같다.
 

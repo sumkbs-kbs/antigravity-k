@@ -1,0 +1,51 @@
+{
+  "contract": "ssak-web",
+  "schema_version": "1.0",
+  "contract_major": 1,
+  "source_of_truth": {
+    "repo": "S",
+    "path": "contracts/ssak-web/v1/",
+    "note": "Ssak-Ai가 소유한다. W의 같은 경로는 동일 bytes의 버전 고정 사본이며, 이 manifest의 sha256과 일치해야 한다."
+  },
+  "mirror": {
+    "repo": "W",
+    "path": "contracts/ssak-web/v1/",
+    "root_env": "SSAK_WEB_W_ROOT",
+    "default_root": "/Users/mr.k/Downloads/webapp",
+    "rule": "사본이 존재하면 bytes가 같아야 한다(sha256). 다르면 소비자는 그 사본을 쓰지 않는다."
+  },
+  "compatibility": {
+    "major_rule": "required field 추가 또는 기존 필드 의미 변경은 major를 올린다. 소비자는 알 수 없는 major를 거절한다.",
+    "minor_rule": "선택 필드 추가만 minor를 올린다. minor는 거절하지 않는다.",
+    "accepted_majors": [1]
+  },
+  "files": {
+    "envelope.schema.json": "e34dec3e3803b17e8c7b46337f9f0b62cde0d42c33afaf27bf25a5a06a130c5a",
+    "search.schema.json": "fb558742f6fcb6a9a1e3fb52dcf36c9ab47cb1dee585f1e5ce7e8166aec0c6e7",
+    "extract.schema.json": "8e35031ec11d92e024c732a2927fff380dd30877025ef05296ec7fa3aaa2cd11",
+    "deep-research.schema.json": "9b1bfc5a1d37d94ad46690944c69fedb544165ba0f6a07bcda42dd1b7e755058",
+    "fixtures/search.ok.json": "2a9e66ff835dee29708689ebee3e453af3d9821521b7e384f6fa5df125afc878",
+    "fixtures/search.partial.json": "cace91746387a6e5cb3fec5b36f9ac31209d4d02b8e22287d38de487802e2eaf",
+    "fixtures/extract.ok.json": "4186013551f11c9db95a6be91c2151ad0910ec9ed7bdc823c85068640352c703",
+    "fixtures/extract.blocked.policy-denied.json": "586513684430241c4c8e35deb40516eecbdb432fcdb25d415bacb81cfd612e97",
+    "fixtures/deep-research.cancelled.json": "32c3c9c11bf3f0073ac2e779485cd7491096dbe4447e069456a2972f4d85cfc1",
+    "fixtures/deep-research.error.upstream-unavailable.json": "6bd95d2b45ea1e57b4b536ed99aaab59e23b78e3f6fcb2657c7e1ae9e78fd539",
+    "fixtures/blocked.unsupported-capability.json": "16df2823de359801230d451ccb64e14b43af0d280c34b704622247b07c2b1439",
+    "fixtures/legacy.text-fallback.wire.json": "e2b54ccfc6aafe852a33b5c4258298a5fdf3dd3e5e3659121b489773d79dff23",
+    "fixtures/legacy.text-fallback.expected.json": "ee3dcbb893f95d3f79bb0a6394e790962d04cc276cce67dd967b504405e9f61e"
+  },
+  "consumer_rules": {
+    "status_ok": "error=null, data!=null, 모든 소스 성공",
+    "status_partial": "error=null, data.source_failures 비어 있지 않음, isError=false",
+    "status_blocked_error_cancelled": "error!=null, 성공 소스 0개",
+    "policy_denied_auth_required": "retryable=false 이고 fallback으로 우회하지 않는다",
+    "unmeasured_usage": "측정하지 못한 값은 null 이며 0으로 채우지 않는다",
+    "confidence": "retrieval_score(랭킹)와 claim_verification(검증된 주장 일치)을 서로 대체하지 않는다",
+    "legacy_text_fallback": "structuredContent 미지원 버전에서는 text JSON을 canonical fallback으로 읽는다. 이 서비스로 확인된 schema에만 적용하고 무관한 MCP 도구 문자열을 해석하지 않는다."
+  },
+  "known_deviations_from_canonical_in_W_at_task2": [
+    "W mcp-standalone.ts 는 provider 원문 payload를 text 로 그대로 반환한다(schema_version/request_id/status/evidence/usage 없음).",
+    "W 오류 코드는 INVALID_TOOL_ARGS / UNKNOWN_TOOL 이며 canonical 코드 집합과 다르다 → task 3/5에서 매핑한다.",
+    "W 검색 payload 필드는 hits[].score, aborted_backends, signal_confidence 로 canonical 의 retrieval_score, source_failures, status 매핑이 필요하다."
+  ]
+}

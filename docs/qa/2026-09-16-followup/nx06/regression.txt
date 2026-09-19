@@ -1,0 +1,51 @@
+=== NX-06 focused regression (working tree, uncommitted) ===
+
+$ pytest tests/test_nx06_deploy_readiness.py -q -p no:cacheprovider --override-ini addopts=''
+14 passed, 1 warning in 1.72s
+
+$ pytest tests/test_nx06_deploy_readiness.py tests/test_obs01_operational_metrics.py \
+        tests/test_startup_security.py tests/test_api_forwarder_security.py \
+        tests/test_auth_policy_truth_table.py tests/test_nx05_auth_epoch_revocation.py \
+        -q -p no:cacheprovider --override-ini addopts=''
+86 passed, 1 warning in 9.28s
+
+=== 드라이버 (before/after) ===
+$ NX06_TREE=before NX06_MANIFEST_DIR=/tmp/nx06-before/deploy/k8s PYTHONPATH=/tmp/nx06-before/src \
+    .venv/bin/python docs/qa/2026-09-16-followup/nx06/repro_nx06_readiness_probe.py   → exit 3
+$ NX06_TREE=after PYTHONPATH=src \
+    .venv/bin/python docs/qa/2026-09-16-followup/nx06/repro_nx06_readiness_probe.py   → exit 0
+→ before-run-output.json / after-run-output.json
+
+=== ruff / mypy ===
+$ .venv/bin/ruff check src/antigravity_k/api/server.py src/antigravity_k/engine/operational_metrics.py \
+    tests/test_nx06_deploy_readiness.py                                   → All checks passed!
+$ .venv/bin/python -m mypy src/antigravity_k/engine/operational_metrics.py src/antigravity_k/api/server.py
+                                                                          → Success: no issues found
+
+=== 전체 스위트 (NX-04/05 와 같은 플래그, 두 절반 분할) ===
+$ pytest <halfA 86 files> -q -p no:randomly --ignore=tests/test_benchmark_performance.py \
+    --deselect tests/test_cr14_fence_movement_detection.py               → 1106 passed, 2 skipped (50.20s)
+$ pytest <halfB 379 files> -q -p no:randomly --ignore=tests/test_benchmark_performance.py \
+    --deselect tests/test_cr14_fence_movement_detection.py               → 5393 passed, 7 skipped, 13 deselected (554.23s)
+합계: 6499 passed / 9 skipped / 13 deselected / 0 failed
+수집: pytest tests --collect-only = 6516 (NX-05 시점 6502 → +14 = 신규 NX-06 시험)
+
+제외한 두 파일은 작업 트리와 무관한 기존 사유:
+  --ignore=tests/test_benchmark_performance.py            (wall-clock 민감, NX-03 handoff 참조)
+  --deselect tests/test_cr14_fence_movement_detection.py  (git history 만 읽는 fence 검사, 후보 커밋 이동)
+
+=== 대시보드 ===
+이 카드는 UI 파일을 수정하지 않았다 → pnpm typecheck/test/build 미실시(변경 없음).
+NX-05 에서 마지막 확인값: 87 files / 880 passed, typecheck·build exit 0.
+
+=== cluster / 런타임 관측 ===
+$ kubectl config get-contexts -o name        → 빈 출력 (context 없음)
+$ kubectl apply --dry-run=client --validate=false -f deploy/k8s/
+  → unable to recognize "deploy/k8s/deployment.yaml": the server could not find the requested resource
+따라서 다음 항목은 **BLOCKED** 로 남는다(카드: cluster 가 없으면 runtime 은 BLOCKED, 정적 수정은 REVIEW):
+  - 실제 Pod readiness / NotReady 전환 관측
+  - EndpointSlice 에서 파드 제외/복귀 관측
+  - 필수 의존성 실패 시 트래픽이 실제로 끊기는지
+  - CNI 별 kubelet probe 허용 여부(NetworkPolicy 와의 상호작용)
+  - namespace 생성 → secret → apply 순서의 실제 실행(README 에 문서화만)
+어떤 cluster 에도 접속하지 않았고 어떤 자원도 생성·변경·삭제하지 않았다.

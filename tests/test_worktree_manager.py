@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from typing import cast
 from unittest import mock
 
 import pytest
@@ -59,7 +60,7 @@ class TestInit:
         wt_dir = os.path.join(tmp_repo, ".ag_worktrees")
         os.makedirs(wt_dir)
 
-        WorktreeManager(base_repo_path=tmp_repo, worktrees_dir=".ag_worktrees")
+        _ = WorktreeManager(base_repo_path=tmp_repo, worktrees_dir=".ag_worktrees")
 
         assert os.path.isdir(wt_dir)
 
@@ -87,7 +88,7 @@ class TestCreateWorktree:
         expected_path = os.path.join(manager.worktrees_dir, "feature/test")
         assert path == expected_path
         mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
+        args = cast(list[str], cast(object, mock_run.call_args[0][0]))
         assert args[:4] == ["git", "-C", manager.base_repo_path, "worktree"]
         assert "add" in args
         assert "-b" in args
@@ -124,7 +125,7 @@ class TestCreateWorktree:
         assert mock_run.call_count == 2
 
         # Second call should be without -b
-        second_args = mock_run.call_args_list[1].args[0]
+        second_args = cast(list[str], cast(object, mock_run.call_args_list[1].args[0]))
         assert "-b" not in second_args
 
     @mock.patch("antigravity_k.engine.worktree_manager.subprocess.run")
@@ -133,7 +134,7 @@ class TestCreateWorktree:
         mock_run.side_effect = subprocess.CalledProcessError(128, ["git"], stderr="some git error")
 
         with pytest.raises(RuntimeError, match="Worktree creation failed"):
-            manager.create_worktree(branch_name="fail_branch", base_branch="main")
+            _ = manager.create_worktree(branch_name="fail_branch", base_branch="main")
 
         assert mock_run.call_count == 2
 
@@ -152,7 +153,7 @@ class TestRemoveWorktree:
         manager.remove_worktree("/some/worktree/path")
 
         mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
+        args = cast(list[str], cast(object, mock_run.call_args[0][0]))
         assert args[:4] == ["git", "-C", manager.base_repo_path, "worktree"]
         assert "remove" in args
         assert "/some/worktree/path" in args
@@ -164,7 +165,7 @@ class TestRemoveWorktree:
 
         manager.remove_worktree("/some/worktree/path", force=True)
 
-        args = mock_run.call_args[0][0]
+        args = cast(list[str], cast(object, mock_run.call_args[0][0]))
         assert "--force" in args
 
     @mock.patch("antigravity_k.engine.worktree_manager.os.path.exists", return_value=True)
@@ -178,6 +179,7 @@ class TestRemoveWorktree:
         manager: WorktreeManager,  # noqa: ARG002
     ):
         """When force=True and git remove fails, it should fall back to shutil.rmtree."""
+        _ = mock_exists
         mock_run.side_effect = subprocess.CalledProcessError(128, ["git"], stderr="git error")
 
         manager.remove_worktree("/some/worktree/path", force=True)
@@ -233,7 +235,7 @@ class TestGetWorktreePath:
 
         assert path == "/path/to/feature/x"
         mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
+        args = cast(list[str], cast(object, mock_run.call_args[0][0]))
         assert args[:4] == ["git", "-C", manager.base_repo_path, "worktree"]
         assert "list" in args
         assert "--porcelain" in args

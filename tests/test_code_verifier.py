@@ -35,3 +35,11 @@ def test_verify_valid_yaml():
     yaml_str = "models:\n  - name: qwen\n    role: worker\n"
     res = DeterministicCodeVerifier.verify_file("config.yaml", content=yaml_str)
     assert res.is_valid is True
+
+
+def test_verify_invalid_yaml_reports_line():
+    yaml_str = "models: [qwen\n"
+    res = DeterministicCodeVerifier.verify_file("config.yaml", content=yaml_str)
+    assert res.is_valid is False
+    assert res.error_type == "YAMLParseError"
+    assert res.line_number == 2

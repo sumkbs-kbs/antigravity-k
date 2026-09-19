@@ -1,19 +1,30 @@
-# Antigravity-K Kubernetes deployment manifests.
-#
-# Apply with: kubectl apply -f deploy/k8s/
+# Ssak-Ai Kubernetes deployment manifests.
 #
 # These manifests provide a production-ready baseline: non-root security
-# context, resource requests/limits, liveness/readiness probes, a ClusterIP
-# service, and an Ingress. Secrets (JWT signing secret, PIN hash) should be
-# provided via a Kubernetes Secret — not encoded in these manifests.
+# context, resource requests/limits, liveness/readiness/startup probes, a
+# ClusterIP service, and an Ingress. Secrets (auth PIN, provider keys) are
+# provided via Kubernetes Secrets — not encoded in these manifests.
 #
-# Before applying:
-#   1. Create the namespace (this file does it).
-#   2. Create a Secret with the auth credentials:
-#        kubectl create secret generic antigravity-k-auth \
-#          --namespace=antigravity-k \
-#          --from-literal=AGK_SEC_ACCESS_PIN='<your-pin>'
-#   3. Create a Secret for provider API keys as needed.
+# ── 설치 순서 (NX-06) ──────────────────────────────────────────────
+# Secret 은 namespace 가 **존재한 뒤에만** 만들 수 있다. 전체 디렉터리를 한 번에
+# apply 하면 namespace 생성과 Secret 생성의 순서가 보장되지 않으므로,
+# 1) namespace → 2) Secret → 3) 나머지 순으로 나눠 실행한다:
+#
+#   1. kubectl apply -f deploy/k8s/namespace.yaml
+#   2. kubectl create secret generic antigravity-k-auth \
+#        --namespace=antigravity-k \
+#        --from-literal=AGK_SEC_ACCESS_PIN='<your-strong-pin>'
+#      (provider API 키가 필요하면 별도 Secret 으로 추가)
+#   3. kubectl apply -f deploy/k8s/
+#
+# Secret 이 없으면 파드는 ContainerCreating 에 머물지 않고 CreateContainerConfigError
+# 로 실패한다 — 이는 의도된 fail-closed 이며, "CrashLoopBackOff" 와 원인이 다르다.
+# production/non-loopback 기동은 8자 이상 PIN 또는 유효한 저장 hash 가 없으면
+# StartupSecurityError 로 즉시 종료한다(잘못된 secret 은 안전하게 실패한다).
+#
+# 제거(rollback): 이 디렉터리가 만든 것만 지운다.
+#   kubectl delete -f deploy/k8s/
+#   (namespace 는 다른 자원을 함께 지우므로 별도로 판단: kubectl delete ns antigravity-k)
 ---
 apiVersion: v1
 kind: Namespace

@@ -9,9 +9,10 @@ IronClaw permissions.rs 패턴 이식:
 """
 
 import logging
+from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import yaml
 
@@ -138,13 +139,13 @@ class SecurityPolicyEngine:
         _policy_path = Path(policy_file)
         if not _policy_path.is_absolute():
             _policy_path = Path(__file__).resolve().parent.parent.parent.parent / policy_file
-        self.policy_file = _policy_path
-        self.policy: dict[str, Any] = {
+        self.policy_file: Path = _policy_path
+        self.policy: dict[str, object] = {
             "network": {"allowed_domains": [], "blocked_domains": []},
             "filesystem": {"allowed_paths": [], "read_only_paths": []},
             "process": {"blocked_commands": []},
         }
-        self._load_failed = False  # Fail-Closed 플래그
+        self._load_failed: bool = False  # Fail-Closed 플래그
         self._tool_permission_overrides: dict[str, PermissionState] = {}
         self.load_policy()
 
@@ -157,9 +158,10 @@ class SecurityPolicyEngine:
         if self.policy_file.exists():
             try:
                 with open(self.policy_file) as f:
-                    loaded = yaml.safe_load(f)
-                    if loaded:
-                        self.policy.update(loaded)
+                    loaded = cast(object, yaml.safe_load(f))
+                    if isinstance(loaded, Mapping):
+                        loaded_mapping = cast(Mapping[object, object], loaded)
+                        self.policy.update({str(key): value for key, value in loaded_mapping.items()})
                 self._load_failed = False
             except Exception:
                 logger.exception("보안 정책 로드 실패 (fail-closed 적용)")
@@ -171,8 +173,8 @@ class SecurityPolicyEngine:
         if self._load_failed:
             return False
 
-        blocked = self.policy.get("process", {}).get("blocked_commands", [])
-        for b in blocked:
+        process = self._section("process")
+        for b in self._string_list(process.get("blocked_commands")):
             if b in command:
                 return False
         return True
@@ -183,9 +185,9 @@ class SecurityPolicyEngine:
         if self._load_failed:
             return False
 
-        network = self.policy.get("network", {})
-        allowed = network.get("allowed_domains", [])
-        blocked = network.get("blocked_domains", [])
+        network = self._section("network")
+        allowed = self._string_list(network.get("allowed_domains"))
+        blocked = self._string_list(network.get("blocked_domains"))
 
         for b in blocked:
             if b in domain:
@@ -199,6 +201,20 @@ class SecurityPolicyEngine:
             return False
 
         return True
+
+    def _section(self, name: str) -> dict[str, object]:
+        value = self.policy.get(name)
+        if not isinstance(value, Mapping):
+            return {}
+        value_mapping = cast(Mapping[object, object], value)
+        return {str(key): item for key, item in value_mapping.items()}
+
+    @staticmethod
+    def _string_list(value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        values = cast(list[object], value)
+        return [item for item in values if isinstance(item, str)]
 
     def get_tool_permission(self, tool_name: str) -> PermissionState:
         """도구의 실효 권한을 반환합니다 (IronClaw effective_permission 이식)."""

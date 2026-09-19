@@ -6,8 +6,9 @@ and CPU swap slowdowns.
 """
 
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Final
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +28,8 @@ class MemorySnapshot:
 class VRAMKVThrottler:
     """Manages memory bounds and prunes excess context to prevent OOM."""
 
-    def __init__(self, warn_threshold: float = _DEFAULT_VRAM_WARN_THRESHOLD):
-        self.warn_threshold = warn_threshold
+    def __init__(self, warn_threshold: float = _DEFAULT_VRAM_WARN_THRESHOLD) -> None:
+        self.warn_threshold: float = warn_threshold
 
     def inspect_memory(self, simulated_used_ratio: float | None = None) -> MemorySnapshot:
         """Inspect memory utilization ratio."""
@@ -48,16 +49,16 @@ class VRAMKVThrottler:
 
     def prune_messages_if_needed(
         self,
-        messages: list[dict[str, Any]],
+        messages: Sequence[Mapping[str, object]],
         simulated_used_ratio: float | None = None,
-    ) -> tuple[list[dict[str, Any]], bool]:
+    ) -> tuple[list[dict[str, object]], bool]:
         """Prune older intermediate tool messages if memory threshold is exceeded.
 
         Preserves the first system prompt, initial user prompt, and the last 3 turns.
         """
         snapshot = self.inspect_memory(simulated_used_ratio)
         if not snapshot.is_throttled or len(messages) <= 6:
-            return messages, False
+            return [dict(message) for message in messages], False
 
         logger.warning(
             "VRAM pressure high (%.1f%%). Pruning older intermediate tool turns.",
@@ -65,12 +66,12 @@ class VRAMKVThrottler:
         )
 
         # Keep system prompt (idx 0), first user goal (idx 1), and last 4 messages
-        pruned = [messages[0], messages[1]]
+        pruned = [dict(messages[0]), dict(messages[1])]
         pruned.append(
             {
                 "role": "system",
                 "content": f"<!-- [VRAM Throttler: Pruned {len(messages) - 6} older turns to preserve KV-Cache] -->",
             }
         )
-        pruned.extend(messages[-4:])
+        pruned.extend(dict(message) for message in messages[-4:])
         return pruned, True

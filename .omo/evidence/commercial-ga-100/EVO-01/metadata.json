@@ -1,0 +1,49 @@
+{
+  "task_id": "EVO-01",
+  "title": "자기 진화 sandbox fail-closed — mutation 차단·rollback·event ledger",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §EVO-01",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §EVO-01",
+  "status": "IMPLEMENTATION_DONE_REVIEW_PENDING",
+  "branch": "codex/evo-01-mutation-fail-closed",
+  "base_sha": "a222306",
+  "implementer": "evo_01_impl (Freebuff 세션, 2026-09-08)",
+  "reviewer": "evo_01_verify (할당 대기)",
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "sandbox init 예외 fixture에서 mutation call 0회, 파일 diff 0이다",
+      "evidence": "test_sandbox_init_failure_blocks_mutation (skipped+fail-closed 사유, blocked event), test_sandbox_none_never_runs_unsandboxed_mutation (unsandboxed else 분기 제거 검증 — exploding sandbox 경로로만 시도)"
+    },
+    {
+      "id": "AC-2",
+      "text": "validation 실패와 timeout에서 정확한 task-owned rollback이 실행된다",
+      "evidence": "test_validation_failure_triggers_rollback — sandbox validate fail → RuntimeError → safe_mutation 컨텍스트 rollback → rolled_back=True + applied/validation_failed/rolled_back event 순서 검증"
+    },
+    {
+      "id": "AC-3",
+      "text": "unsafe fallback flag가 기본/production 설정에 존재하지 않는다",
+      "evidence": "test_no_unsafe_fallback_flag_in_production_config (config 소스에 allow_unsandboxed_mutation/UNSAFE_FALLBACK 부재) + test_no_unsandboxed_branch_in_coordinator (auto_evolve 소스에 sandbox 없는 분기 부재)"
+    },
+    {
+      "id": "AC-4",
+      "text": "승인, 적용, 검증, rollback 단계가 event ledger에 남는다",
+      "evidence": "test_events_record_full_lifecycle — applied/validated/approved 단계가 get_event_ledger와 EvolutionResult.events에 기록. blocked/rolled_back 포함 최근 200건 유지"
+    }
+  ],
+  "implementation": {
+    "modified_files": [
+      "src/antigravity_k/engine/self_evolution_coordinator.py"
+    ],
+    "new_files": [
+      "tests/test_evo01_mutation_fail_closed.py"
+    ],
+    "design": "fail-closed 3층: (1) _ensure_deps가 sandbox 초기화 실패를 _deps_init_failed로 기록 — auto_evolve 진입 전 차단 (2) sandbox 없는 mutation else 분기 삭제 — 모든 mutation은 safe_mutation 내부 (3) validation 실패/timeout은 RuntimeError로 safe_mutation rollback 트리거 + event 기록. EvolutionResult에 events 필드 추가로 감사 경로 제공."
+  },
+  "verification": {
+    "target_suite": "uv run --no-sync pytest tests/test_evo01_mutation_fail_closed.py -q → 6 passed",
+    "adjacent_suites": "tests/test_self_evolution_coordinator.py 34 passed (기존 계약 유지)",
+    "full_regression": "uv run --no-sync pytest tests/ -q -m 'not slow and not benchmark' → 5594 passed, 0 failed (test_desktop_context 1건은 worktree projects.json 환경 아티팩트 — align 후 43 passed 확인)",
+    "lint": "ruff check/format clean",
+    "typecheck": "mypy self_evolution_coordinator.py → no issues"
+  }
+}

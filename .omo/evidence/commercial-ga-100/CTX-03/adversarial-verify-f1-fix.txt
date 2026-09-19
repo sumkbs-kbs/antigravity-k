@@ -1,0 +1,5 @@
+=== F1 UI mapping after fix ===
+context.compress.succeeded: got=completed want=completed PASS=true | substring success-in-succeeded=false
+context.compress.degraded: got=degraded want=degraded PASS=true | substring success-in-succeeded=false
+context.compress.halted: got=failed want=failed PASS=true | substring success-in-succeeded=false
+F1 CLOSED: succeeded→completed

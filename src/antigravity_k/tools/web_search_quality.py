@@ -11,6 +11,7 @@ import socket
 from collections.abc import Sequence
 from dataclasses import replace
 from functools import partial
+from typing import Final
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .web_search_models import SearchResult
@@ -24,6 +25,15 @@ _VERSION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _AUTHORITATIVE_INTENT_PATTERN = re.compile(r"\b(?:official|docs?|documentation|rfc|standard)\b", re.IGNORECASE)
+_QUERY_ALIASES: Final[dict[str, tuple[str, ...]]] = {
+    "citation": ("reference", "evidence", "source"),
+    "compaction": ("compress", "compression", "compact"),
+    "freshness": ("updated", "latest", "current"),
+    "latency": ("delay", "response", "speed"),
+    "provenance": ("citation", "evidence", "source"),
+    "recall": ("retrieve", "retrieval"),
+    "runtime": ("server", "inference", "execution"),
+}
 
 
 def canonicalize_url(url: str) -> str:
@@ -40,7 +50,9 @@ def canonicalize_url(url: str) -> str:
     scheme = parsed.scheme.lower()
     host = hostname.lower().rstrip(".")
     default_port = (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
-    netloc = host if port is None or default_port else f"{host}:{port}"
+    # IPv6 literals must keep brackets in netloc (urlunsplit / urlsplit contract).
+    host_netloc = f"[{host}]" if ":" in host else host
+    netloc = host_netloc if port is None or default_port else f"{host_netloc}:{port}"
     path = re.sub(r"/{2,}", "/", parsed.path or "/")
     if path != "/":
         path = path.rstrip("/") or "/"
@@ -167,15 +179,16 @@ def rank_search_results(
 
 
 def _query_relevance(query: str, result: SearchResult) -> float:
-    query_tokens = set(_TOKEN_PATTERN.findall(query.casefold()))
+    query_tokens: set[str] = set(_TOKEN_PATTERN.findall(query.casefold()))
     if not query_tokens:
         return 0.0
-    title_tokens = set(_TOKEN_PATTERN.findall(result.title.casefold()))
-    result_tokens = title_tokens | set(_TOKEN_PATTERN.findall(result.snippet.casefold()))
-    coverage = len(query_tokens & result_tokens) / len(query_tokens)
-    title_coverage = len(query_tokens & title_tokens) / len(query_tokens)
+    title_tokens: set[str] = set(_TOKEN_PATTERN.findall(result.title.casefold()))
+    result_tokens: set[str] = title_tokens | set(_TOKEN_PATTERN.findall(result.snippet.casefold()))
+    alias_tokens = {alias for token in query_tokens for alias in _QUERY_ALIASES.get(token, ())}
+    coverage = (len(query_tokens & result_tokens) + (0.5 * len(alias_tokens & result_tokens))) / len(query_tokens)
+    title_coverage = (len(query_tokens & title_tokens) + (0.5 * len(alias_tokens & title_tokens))) / len(query_tokens)
     score = min(1.0, (coverage * 0.7) + (title_coverage * 0.3))
-    specific_terms = _VERSION_PATTERN.findall(query.casefold())
+    specific_terms: list[str] = _VERSION_PATTERN.findall(query.casefold())
     if specific_terms:
         compact_result = re.sub(r"[\W_]+", "", f"{result.title} {result.snippet}".casefold())
         exact_matches = sum(1 for term in specific_terms if re.sub(r"[\W_]+", "", term) in compact_result)
@@ -213,6 +226,37 @@ def sanitize_untrusted_text(text: str, max_chars: int = 1200, *, wrap: bool = Tr
     return f"[untrusted_web_content]\n{html.escape(clean, quote=False)}\n[/untrusted_web_content]"
 
 
+_NUMERIC_HOST_RE = re.compile(
+    r"^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+))*$",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_numeric_host(hostname: str) -> bool:
+    """True for decimal/short/hex/octal IPv4 spellings (not DNS names)."""
+    return bool(_NUMERIC_HOST_RE.fullmatch(hostname))
+
+
+def _coerce_ip_hostname(hostname: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse a hostname as an IP, including ambiguous IPv4 encodings.
+
+    ``ipaddress`` rejects decimal (``2130706433``), short (``127.1``), hex
+    (``0x7f.0.0.1``), and octal-leading (``0177.0.0.1``) forms, but
+    ``socket.inet_aton`` / some HTTP stacks accept them — often as loopback.
+    Prefer the strict parser; fall back to ``inet_aton`` for numeric hosts.
+    """
+    try:
+        return ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    if not hostname or ":" in hostname or not _looks_like_numeric_host(hostname):
+        return None
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(hostname))
+    except OSError:
+        return None
+
+
 def is_public_http_url(url: str) -> bool:
     """Reject non-HTTP, credential-bearing, local, and private-network URLs."""
     canonical = canonicalize_url(url)
@@ -220,13 +264,17 @@ def is_public_http_url(url: str) -> bool:
         return False
     parsed = urlsplit(canonical)
     hostname = parsed.hostname or ""
+    if not hostname:
+        return False
     if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith((".local", ".internal", ".localhost")):
         return False
-    try:
-        address = ipaddress.ip_address(hostname)
-    except ValueError:
-        return True
-    return _is_public_address(address)
+    address = _coerce_ip_hostname(hostname)
+    if address is not None:
+        return _is_public_address(address)
+    # Ambiguous numeric hosts that no parser accepted are not "public DNS names".
+    if _looks_like_numeric_host(hostname):
+        return False
+    return True
 
 
 def _is_public_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -255,9 +303,8 @@ def resolve_public_http_url_sync(url: str) -> tuple[str, tuple[str, ...]] | None
         return None
     parsed = urlsplit(canonical)
     hostname = parsed.hostname or ""
-    try:
-        literal = ipaddress.ip_address(hostname)
-    except ValueError:
+    literal = _coerce_ip_hostname(hostname)
+    if literal is None:
         resolver = partial(
             socket.getaddrinfo,
             hostname,

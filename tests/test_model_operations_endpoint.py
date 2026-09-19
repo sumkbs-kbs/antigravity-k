@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 
 def test_model_operations_status_exposes_provider_capabilities_and_task_metrics() -> None:
-    from antigravity_k.api.routes.legacy import model_operations_status
+    from antigravity_k.api.routes.models_api import model_operations_status
 
     manager = MagicMock()
     manager.provider_capabilities.return_value = {

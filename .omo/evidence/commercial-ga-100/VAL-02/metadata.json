@@ -1,0 +1,40 @@
+{
+  "task_id": "VAL-02",
+  "title": "동시성·장시간·장애 주입 staging",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §VAL-02",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §VAL-02",
+  "status": "DONE",
+  "branch": "codex/val-02-resilience",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-val-02",
+  "base_sha": "b57317a",
+  "result_sha": "74271a9",
+  "roles": {
+    "implementer": "val_02_impl (Freebuff 세션)",
+    "reviewer": "val_02_verify (독립 세션 — review.md r1 APPROVE)"
+  },
+  "acceptance_criteria": [
+    {"id": "AC-1", "desc": "정의된 concurrency에서 데이터 손실·cross-project leak·terminal contradiction 0", "evidence": "SC-1/2/3 PASS (staging-report.json)"},
+    {"id": "AC-2", "desc": "kill -9/restart 후 durable task와 event replay 정확히 복구", "evidence": "SC-4 PASS — 13 events monotonic+unique, prepare_resume OK"},
+    {"id": "AC-3", "desc": "P95/P99 latency, error rate, memory/FD leak이 release threshold 안", "evidence": "SC-5 PASS — P95 3.14ms / P99 3.92ms / err 0 / FD +0"},
+    {"id": "AC-4", "desc": "soak 후 orphan process/worktree/DB lock·지속 memory growth 없음", "evidence": "SC-6 PASS — 41,636 ops, RSS +0.4MB, orphan 0"}
+  ],
+  "defects_found_and_fixed": [
+    {"id": "F1", "desc": "conversation_store._persist 결정론적 tmp 파일명 — 동시 writer tmp 경합으로 append 유실", "fix": "프로세스 고유 tmp + os.replace", "commit": "74271a9"},
+    {"id": "F2", "desc": "프로세스별 메모리 캐시 CAS — 타 프로세스 append 미관찰로 침묵 덮어쓰기", "fix": "flock + 디스크 재적재 (CTX-01 계약 프로세스 경계 유지)", "commit": "74271a9"}
+  ],
+  "regression_tests": [
+    "tests/test_val02_conversation_multiprocess.py (3 tests)"
+  ],
+  "verification": {
+    "full_suite": "5,695 passed, 13 skipped (not slow/benchmark)",
+    "mypy": "470 files, 0 errors",
+    "staging": "scripts/val02_staging.py — SC-1~6 all PASS",
+    "staging_report": ".omo/evidence/commercial-ga-100/VAL-02/staging-report.json"
+  },
+  "review": {
+    "verdict": "APPROVE",
+    "reviewer": "val_02_verify",
+    "date": "2026-09-09",
+    "artifact": ".omo/evidence/commercial-ga-100/VAL-02/review.md"
+  }
+}

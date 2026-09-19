@@ -2,43 +2,60 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict, List
+from typing import TypedDict
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("team_coordinator")
 
 
+class TaskHistoryEntry(TypedDict):
+    status: str
+    message: str
+    time: float
+
+
+class AgentTaskData(TypedDict):
+    id: str
+    title: str
+    description: str
+    assigned_to: str
+    status: str
+    history: list[TaskHistoryEntry]
+    created_at: float
+    tokens_used: int
+
+
 class AgentRole:
-    CEO = "CEO"
-    DESIGNER = "Designer"
-    DEVELOPER = "Developer"
-    QA = "QA"
+    CEO: str = "CEO"
+    DESIGNER: str = "Designer"
+    DEVELOPER: str = "Developer"
+    QA: str = "QA"
 
 
 class TaskStatus:
-    BACKLOG = "BACKLOG"
-    IN_PROGRESS = "IN_PROGRESS"
-    REVIEW = "REVIEW"
-    DONE = "DONE"
+    BACKLOG: str = "BACKLOG"
+    IN_PROGRESS: str = "IN_PROGRESS"
+    REVIEW: str = "REVIEW"
+    DONE: str = "DONE"
 
 
 class AgentTask:
     def __init__(self, title: str, description: str, assigned_to: str):
-        self.id = str(uuid.uuid4())[:8]
-        self.title = title
-        self.description = description
-        self.assigned_to = assigned_to
-        self.status = TaskStatus.BACKLOG
-        self.history = []
-        self.created_at = time.time()
-        self.tokens_used = 0
+        self.id: str = str(uuid.uuid4())[:8]
+        self.title: str = title
+        self.description: str = description
+        self.assigned_to: str = assigned_to
+        self.status: str = TaskStatus.BACKLOG
+        self.history: list[TaskHistoryEntry] = []
+        self.created_at: float = time.time()
+        self.tokens_used: int = 0
 
-    def update_status(self, new_status: str, message: str = ""):
+    def update_status(self, new_status: str, message: str = "") -> None:
         self.status = new_status
         self.history.append({"status": new_status, "message": message, "time": time.time()})
         logger.info(f"Task {self.id} status updated to {new_status} - {message}")
 
-    def to_dict(self):
+    def to_dict(self) -> AgentTaskData:
         return {
             "id": self.id,
             "title": self.title,
@@ -55,8 +72,8 @@ class TeamCoordinator:
     """gstack 및 claude_agent_teams_ui에서 영감을 받은 멀티 에이전트 코디네이터."""
 
     def __init__(self):
-        self.tasks: Dict[str, AgentTask] = {}
-        self.agents = [AgentRole.CEO, AgentRole.DESIGNER, AgentRole.DEVELOPER, AgentRole.QA]
+        self.tasks: dict[str, AgentTask] = {}
+        self.agents: list[str] = [AgentRole.CEO, AgentRole.DESIGNER, AgentRole.DEVELOPER, AgentRole.QA]
 
     def create_task(self, title: str, description: str, role: str) -> str:
         if role not in self.agents:
@@ -67,10 +84,10 @@ class TeamCoordinator:
         logger.info(f"New task created: {title} assigned to {role}")
         return task.id
 
-    def get_all_tasks(self) -> List[Dict[str, Any]]:
+    def get_all_tasks(self) -> list[AgentTaskData]:
         return [t.to_dict() for t in self.tasks.values()]
 
-    def execute_task_step(self, task_id: str, tokens: int = 150):
+    def execute_task_step(self, task_id: str, tokens: int = 150) -> AgentTaskData | None:
         """에이전트가 작업을 수행하는 시뮬레이션 (상태 전이)"""
         if task_id not in self.tasks:
             return None
@@ -96,7 +113,7 @@ coordinator = TeamCoordinator()
 
 if __name__ == "__main__":
     t_id = coordinator.create_task("Implement Authentication", "Add JWT auth using FastAPI", AgentRole.DEVELOPER)
-    coordinator.execute_task_step(t_id, 230)
-    coordinator.execute_task_step(t_id, 410)
-    coordinator.execute_task_step(t_id, 120)
+    _ = coordinator.execute_task_step(t_id, 230)
+    _ = coordinator.execute_task_step(t_id, 410)
+    _ = coordinator.execute_task_step(t_id, 120)
     print(json.dumps(coordinator.get_all_tasks(), indent=2))

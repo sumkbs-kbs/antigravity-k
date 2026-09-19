@@ -1,0 +1,7 @@
+{
+  "verdict": "FAIL",
+  "problems": [
+    "missing_required: required gates not executed: clean-machine-runtime",
+    "required_red: required gates failed: python-tests"
+  ]
+}

@@ -7,7 +7,7 @@
 
 import React from 'react';
 import type { WikiDocument } from '../../stores/wikiStore';
-import { renderMarkdown } from './MarkdownRenderer';
+import { WikiMarkdown } from './MarkdownRenderer';
 
 interface Props {
   currentDoc: WikiDocument | null;
@@ -25,22 +25,31 @@ const ContentPanel: React.FC<Props> = ({
   onEdit, onSave, onCancel, onChatRef, onEditContentChange,
 }) => {
   // Render metadata block
+  const title = currentDoc && typeof currentDoc.metadata.title === 'string'
+    ? currentDoc.metadata.title
+    : null;
+  const date = currentDoc && typeof currentDoc.metadata.date === 'string'
+    ? currentDoc.metadata.date
+    : null;
+  const tags = currentDoc && Array.isArray(currentDoc.metadata.tags)
+    ? currentDoc.metadata.tags.filter((tag): tag is string => typeof tag === 'string')
+    : [];
   const metaHtml = currentDoc && Object.keys(currentDoc.metadata).length > 0 ? (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--glass-border)' }}>
-      {currentDoc.metadata.title && (
+      {title && (
         <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-secondary)' }}>
-          📝 {currentDoc.metadata.title as string}
+          📝 {title}
         </span>
       )}
-      {currentDoc.metadata.date && (
+      {date && (
         <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>
-          {currentDoc.metadata.date as string}
+          {date}
         </span>
       )}
-      {(currentDoc.metadata.tags as string[] | undefined)?.length ? (
+      {tags.length ? (
         <div style={{ display: 'flex', gap: 4, marginBottom: 12, width: '100%' }}>
-          {(currentDoc.metadata.tags as string[]).map((t, i) => (
-            <span key={i} className="status-badge" style={{ background: 'rgba(124,106,239,0.1)', color: 'var(--accent-color)', fontSize: 11, padding: '2px 8px', borderRadius: 4 }}>
+          {tags.map(t => (
+            <span key={t} className="status-badge" style={{ background: 'rgba(124,106,239,0.1)', color: 'var(--accent-color)', fontSize: 11, padding: '2px 8px', borderRadius: 4 }}>
               #{t}
             </span>
           ))}
@@ -95,7 +104,7 @@ const ContentPanel: React.FC<Props> = ({
         ) : (
           <>
             {metaHtml}
-            <div dangerouslySetInnerHTML={{ __html: renderMarkdown(currentDoc.content) }} />
+            <WikiMarkdown content={currentDoc.content} />
           </>
         )}
       </div>

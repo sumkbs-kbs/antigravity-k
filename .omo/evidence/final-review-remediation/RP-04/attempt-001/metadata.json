@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-04",
+  "attempt": 1,
+  "status": "REVIEW",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "changed_files": [
+    "src/antigravity_k/engine/rsi_sandbox.py",
+    "src/antigravity_k/engine/meta_architect.py",
+    "tests/test_fr04_mutation_rollback_isolation.py (new)"
+  ],
+  "required_scenarios": [
+    {"id": "owned-only-restore", "required": true, "expected": "failing mutation restores A only; dirty B + untracked C byte-identical", "observed": "temp git repo scenario passes; git status still shows M B.py / ?? C.py", "verdict": "PASS"},
+    {"id": "new-owned-file-removed", "required": true, "expected": "newly created owned file removed on failure", "observed": "prompt_draft.md absent after failure", "verdict": "PASS"},
+    {"id": "empty-owned-file-kept", "required": true, "expected": "originally empty owned file restored empty", "observed": "exists and is empty", "verdict": "PASS"},
+    {"id": "foreign-edit-conflict-preserved", "required": true, "expected": "concurrent edit to owned file preserved + reported", "observed": "foreign-edit content kept", "verdict": "PASS"},
+    {"id": "unowned-change-never-rolled-back", "required": true, "expected": "non-owned changes untouched", "observed": "changed-during-mutation B preserved", "verdict": "PASS"},
+    {"id": "success-applies-owned-only", "required": true, "expected": "success keeps A change, B/C intact", "observed": "asserted", "verdict": "PASS"},
+    {"id": "duplicate-rollback-safe", "required": true, "expected": "second rollback call harmless", "observed": "returns True, no corruption", "verdict": "PASS"},
+    {"id": "no-whole-tree-commands", "required": true, "expected": "git checkout/reset/clean never invoked", "observed": "subprocess guard asserts forbidden git subcommands absent during rollback", "verdict": "PASS"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "Design: ownership-based transaction (plan RP-04 option 4) instead of a dedicated worktree. Ownable writes go through sandbox.write_owned(); meta_architect migrated. SEC delegates to PromptEvolver/EvolutionManager/SelfImprovement components whose internal writes are not yet routed through write_owned — their writes are therefore NOT auto-rolled-back (fail-safe direction: no foreign overwrite, but incomplete restore coverage). Routing those remains follow-up work tracked for RP-14 review.",
+    "rollback_to on a legacy snapshot with empty owned_preimages is a no-op returning True (whole-tree restore removed by design).",
+    "R04-03 (setup failure => 0 mutations) — take_snapshot has no failing setup path in current code; recorded as N/A-in-code.",
+    "Independent review (R04-10) deferred to RP-14."
+  ]
+}

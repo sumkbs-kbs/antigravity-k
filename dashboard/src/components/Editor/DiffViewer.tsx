@@ -6,10 +6,14 @@
  * Supports inline accept/reject actions.
  */
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import type { DiffOnMount } from '@monaco-editor/react';
-import { useChangeStore, ProposedChange } from '../../stores/changeStore';
+// CR-09: diff 편집기도 로컬 Monaco/워커를 쓴다(CDN 로더 기본값 제거).
+import { configureLocalMonacoRuntime } from '../../utils/monacoRuntime';
+
+configureLocalMonacoRuntime();
+import type { ProposedChange } from '../../stores/changeStore';
 import { useUiStore } from '../../stores/uiStore';
 
 /* ─── Custom Theme ─────────────────────────────────────────── */
@@ -57,29 +61,75 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
   showActions = true,
   height = '100%',
 }) => {
-  const editorRef = useRef<any>(null);
   const { addToast } = useUiStore();
+  const mountCleanupRef = useRef<(() => void) | null>(null);
 
   const handleMount: DiffOnMount = useCallback((diffEditor, monaco) => {
-    const editor = diffEditor.getModifiedEditor();
-    editorRef.current = editor;
+    mountCleanupRef.current?.();
+    const originalLabel = `${change.fileName} 변경 전`;
+    const modifiedLabel = `${change.fileName} 변경 후`;
+    diffEditor.getOriginalEditor().updateOptions({ ariaLabel: originalLabel });
+    diffEditor.getModifiedEditor().updateOptions({ ariaLabel: modifiedLabel });
+    // CR-14 attempt-036: Monaco native-edit-context 는 updateOptions(ariaLabel) 만으로는
+    // aria-label="" 빈 문자열을 남긴다(axe aria-input-field-name). DOM 에도 같은 라벨을 심는다.
+    const stampAria = (editor: { getDomNode: () => HTMLElement | null }, label: string) => {
+      const root = editor.getDomNode();
+      if (!root) return;
+      for (const node of root.querySelectorAll<HTMLElement>('[role="textbox"]')) {
+        if (!node.getAttribute('aria-label')?.trim()) {
+          node.setAttribute('aria-label', label);
+        }
+      }
+    };
+    const stampBoth = () => {
+      stampAria(diffEditor.getOriginalEditor(), originalLabel);
+      stampAria(diffEditor.getModifiedEditor(), modifiedLabel);
+    };
+    stampBoth();
     monaco.editor.defineTheme('diff-theme', DIFF_THEME);
     monaco.editor.setTheme('diff-theme');
 
-    // Auto-layout on mount
+    let disposed = false;
     const layout = () => {
+      if (disposed) return;
       try { diffEditor?.layout?.(); } catch { /* ignore */ }
     };
-    setTimeout(layout, 50);
+    const timeoutId = window.setTimeout(layout, 50);
 
-    // ResizeObserver
     const container = diffEditor.getContainerDomNode();
+    let resizeObserver: ResizeObserver | null = null;
+    let ariaObserver: MutationObserver | null = null;
     if (container) {
-      const observer = new ResizeObserver(() => {
+      resizeObserver = new ResizeObserver(() => {
+        if (disposed) return;
         try { layout(); } catch { /* ignore */ }
       });
-      observer.observe(container);
+      resizeObserver.observe(container);
+      // native-edit-context 노드가 나중에 붙거나 aria-label 이 빈 문자열로 덮이면 다시 찍는다
+      ariaObserver = new MutationObserver(() => {
+        if (disposed) return;
+        stampBoth();
+      });
+      ariaObserver.observe(container, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['aria-label'],
+      });
+      stampBoth();
     }
+
+    mountCleanupRef.current = () => {
+      disposed = true;
+      window.clearTimeout(timeoutId);
+      resizeObserver?.disconnect();
+      ariaObserver?.disconnect();
+    };
+  }, [change.fileName]);
+
+  useEffect(() => () => {
+    mountCleanupRef.current?.();
+    mountCleanupRef.current = null;
   }, []);
 
   const handleApprove = useCallback(() => {
@@ -133,8 +183,12 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
           modified={change.newContent}
           language={change.language || 'plaintext'}
           theme="diff-theme"
+          keepCurrentOriginalModel
+          keepCurrentModifiedModel
           onMount={handleMount}
           options={{
+            originalAriaLabel: `${change.fileName} 변경 전`,
+            modifiedAriaLabel: `${change.fileName} 변경 후`,
             fontSize: 13,
             fontFamily: "'JetBrains Mono', monospace",
             lineNumbers: 'on',

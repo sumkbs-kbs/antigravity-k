@@ -1,4 +1,4 @@
-# Antigravity-K 핵심 아키텍처 정밀 분석
+# Ssak-Ai 핵심 아키텍처 정밀 분석
 
 > 분석 대상 버전 기준 파일 라인 수 합계: 5,679 LOC (target 9 files)
 > 분석 대상: engine/ 모듈 내 38,766 LOC 중 핵심 9 파일

@@ -12,12 +12,130 @@ import logging
 import sys
 from abc import ABC, abstractmethod
 from importlib import import_module
-from typing import Any
+from typing import Literal, Protocol, final, overload, override
 
 logger = logging.getLogger(__name__)
 
 
-def _load_optional_module(name: str) -> Any:
+class _ScreenshotImage(Protocol):
+    def save(self, target: object, *, format: str) -> None: ...
+
+
+class _PyAutoGUI(Protocol):
+    FAILSAFE: bool
+    PAUSE: float
+
+    def moveTo(self, x: int, y: int, *, duration: float = 0.0) -> None: ...
+
+    def click(self, x: int, y: int, *, button: str) -> None: ...
+
+    def doubleClick(self, x: int, y: int) -> None: ...
+
+    def drag(self, x: int, y: int, *, duration: float) -> None: ...
+
+    def hscroll(self, amount: int) -> None: ...
+
+    def scroll(self, amount: int) -> None: ...
+
+    def write(self, text: str, *, interval: float) -> None: ...
+
+    def press(self, key: str) -> None: ...
+
+    def hotkey(self, *keys: str) -> None: ...
+
+    def keyDown(self, key: str) -> None: ...
+
+    def keyUp(self, key: str) -> None: ...
+
+    def screenshot(self, *, region: tuple[int, int, int, int] | None) -> _ScreenshotImage: ...
+
+    def size(self) -> tuple[int, int]: ...
+
+
+class _BitmapImageRep(Protocol):
+    def initWithCGImage_(self, image: object) -> "_BitmapImageRep": ...
+
+    def representationUsingType_properties_(self, image_type: int, properties: object) -> bytes: ...
+
+
+class _BitmapImageRepFactory(Protocol):
+    def alloc(self) -> _BitmapImageRep: ...
+
+
+class _Quartz(Protocol):
+    kCGEventMouseMoved: object
+    kCGMouseButtonLeft: object
+    kCGMouseButtonRight: object
+    kCGEventLeftMouseDown: object
+    kCGEventRightMouseDown: object
+    kCGEventLeftMouseUp: object
+    kCGEventRightMouseUp: object
+    kCGEventLeftMouseDragged: object
+    kCGHIDEventTap: object
+    kCGMouseEventClickState: object
+    kCGScrollEventUnitLine: object
+    kCGWindowListOptionOnScreenOnly: object
+    kCGNullWindowID: object
+    kCGWindowImageDefault: object
+    CGRectInfinite: object
+    NSPNGFileType: int
+    NSBitmapImageRep: _BitmapImageRepFactory
+
+    def CGEventCreateMouseEvent(
+        self,
+        source: object,
+        event_type: object,
+        point: object,
+        button: object,
+    ) -> object: ...
+
+    def CGPointMake(self, x: float, y: float) -> object: ...
+
+    def CGEventPost(self, tap: object, event: object) -> None: ...
+
+    def CGEventSetIntegerValueField(self, event: object, field: object, value: int) -> None: ...
+
+    def CGEventCreateScrollWheelEvent(
+        self,
+        source: object,
+        unit: object,
+        wheel_count: int,
+        delta_y: int,
+        delta_x: int,
+    ) -> object: ...
+
+    def CGEventCreateKeyboardEvent(self, source: object, keycode: int, keydown: bool) -> object: ...
+
+    def CGEventKeyboardSetUnicodeString(self, event: object, length: int, text: str) -> None: ...
+
+    def CGEventSetFlags(self, event: object, flags: int) -> None: ...
+
+    def CGRectMake(self, x: int, y: int, width: int, height: int) -> object: ...
+
+    def CGWindowListCreateImage(
+        self,
+        rect: object,
+        option: object,
+        window_id: object,
+        image_default: object,
+    ) -> object | None: ...
+
+    def CGMainDisplayID(self) -> object: ...
+
+    def CGDisplayPixelsWide(self, display: object) -> int: ...
+
+    def CGDisplayPixelsHigh(self, display: object) -> int: ...
+
+
+@overload
+def _load_optional_module(name: Literal["pyautogui"]) -> _PyAutoGUI: ...
+
+
+@overload
+def _load_optional_module(name: Literal["Quartz"]) -> _Quartz: ...
+
+
+def _load_optional_module(name: str) -> object:
     return import_module(name)
 
 
@@ -99,14 +217,15 @@ class DriverSet:
             screen (ScreenDriver): ScreenDriver screen.
 
         """
-        self.mouse = mouse
-        self.keyboard = keyboard
-        self.screen = screen
+        self.mouse: MouseDriver = mouse
+        self.keyboard: KeyboardDriver = keyboard
+        self.screen: ScreenDriver = screen
 
 
 # ───────────────────── Windows 구현 (PyAutoGUI) ─────────────────────
 
 
+@final
 class WindowsMouseDriver(MouseDriver):
     """Windows PyAutoGUI 기반 마우스 드라이버."""
 
@@ -118,6 +237,7 @@ class WindowsMouseDriver(MouseDriver):
         pyautogui.PAUSE = 0.05
         self._pag = pyautogui
 
+    @override
     def move(self, x: int, y: int, duration: float = 0.3) -> None:
         """Move.
 
@@ -129,6 +249,7 @@ class WindowsMouseDriver(MouseDriver):
         """
         self._pag.moveTo(x, y, duration=duration)
 
+    @override
     def click(self, x: int, y: int, button: str = "left") -> None:
         """Click.
 
@@ -140,6 +261,7 @@ class WindowsMouseDriver(MouseDriver):
         """
         self._pag.click(x, y, button=button)
 
+    @override
     def double_click(self, x: int, y: int) -> None:
         """Double Click.
 
@@ -150,6 +272,7 @@ class WindowsMouseDriver(MouseDriver):
         """
         self._pag.doubleClick(x, y)
 
+    @override
     def drag(
         self,
         start_x: int,
@@ -171,6 +294,7 @@ class WindowsMouseDriver(MouseDriver):
         self._pag.moveTo(start_x, start_y)
         self._pag.drag(end_x - start_x, end_y - start_y, duration=duration)
 
+    @override
     def scroll(self, x: int, y: int, direction: str = "down", amount: int = 3) -> None:
         """Scroll.
 
@@ -189,6 +313,7 @@ class WindowsMouseDriver(MouseDriver):
             self._pag.scroll(scroll_amount)
 
 
+@final
 class WindowsKeyboardDriver(KeyboardDriver):
     """Windows PyAutoGUI 기반 키보드 드라이버."""
 
@@ -198,6 +323,7 @@ class WindowsKeyboardDriver(KeyboardDriver):
 
         self._pag = pyautogui
 
+    @override
     def type_text(self, text: str, interval: float = 0.02) -> None:
         """Type Text.
 
@@ -208,6 +334,7 @@ class WindowsKeyboardDriver(KeyboardDriver):
         """
         self._pag.write(text, interval=interval)
 
+    @override
     def press_key(self, key: str) -> None:
         """Press Key.
 
@@ -217,6 +344,7 @@ class WindowsKeyboardDriver(KeyboardDriver):
         """
         self._pag.press(key)
 
+    @override
     def hotkey(self, *keys: str) -> None:
         """Hotkey.
 
@@ -226,6 +354,7 @@ class WindowsKeyboardDriver(KeyboardDriver):
         """
         self._pag.hotkey(*keys)
 
+    @override
     def hold_key(self, key: str, duration: float = 1.0) -> None:
         """Hold Key.
 
@@ -241,6 +370,7 @@ class WindowsKeyboardDriver(KeyboardDriver):
         self._pag.keyUp(key)
 
 
+@final
 class WindowsScreenDriver(ScreenDriver):
     """Windows PyAutoGUI 기반 화면 캡처 드라이버."""
 
@@ -250,6 +380,7 @@ class WindowsScreenDriver(ScreenDriver):
 
         self._pag = pyautogui
 
+    @override
     def screenshot(self, region: tuple[int, int, int, int] | None = None) -> str:
         """화면 캡처 → base64 PNG 문자열 반환."""
         img = self._pag.screenshot(region=region)
@@ -257,6 +388,7 @@ class WindowsScreenDriver(ScreenDriver):
         img.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
+    @override
     def get_screen_size(self) -> tuple[int, int]:
         """Retrieve screen size.
 
@@ -270,6 +402,7 @@ class WindowsScreenDriver(ScreenDriver):
 # ─────────────────────── Stub 구현 (테스트/비대화 환경용) ────────────
 
 
+@final
 class StubMouseDriver(MouseDriver):
     """테스트용 마우스 드라이버 (실제 조작 없음)."""
 
@@ -277,6 +410,7 @@ class StubMouseDriver(MouseDriver):
         """Initialize the StubMouseDriver."""
         self.last_action = None
 
+    @override
     def move(self, x: int, y: int, duration: float = 0.3) -> None:
         """Move.
 
@@ -288,6 +422,7 @@ class StubMouseDriver(MouseDriver):
         """
         self.last_action = ("move", x, y)
 
+    @override
     def click(self, x: int, y: int, button: str = "left") -> None:
         """Click.
 
@@ -299,6 +434,7 @@ class StubMouseDriver(MouseDriver):
         """
         self.last_action = ("click", x, y, button)
 
+    @override
     def double_click(self, x: int, y: int) -> None:
         """Double Click.
 
@@ -309,6 +445,7 @@ class StubMouseDriver(MouseDriver):
         """
         self.last_action = ("double_click", x, y)
 
+    @override
     def drag(
         self,
         start_x: int,
@@ -329,6 +466,7 @@ class StubMouseDriver(MouseDriver):
         """
         self.last_action = ("drag", start_x, start_y, end_x, end_y)
 
+    @override
     def scroll(self, x: int, y: int, direction: str = "down", amount: int = 3) -> None:
         """Scroll.
 
@@ -342,6 +480,7 @@ class StubMouseDriver(MouseDriver):
         self.last_action = ("scroll", x, y, direction, amount)
 
 
+@final
 class StubKeyboardDriver(KeyboardDriver):
     """테스트용 키보드 드라이버 (실제 입력 없음)."""
 
@@ -349,6 +488,7 @@ class StubKeyboardDriver(KeyboardDriver):
         """Initialize the StubKeyboardDriver."""
         self.last_action = None
 
+    @override
     def type_text(self, text: str, interval: float = 0.02) -> None:
         """Type Text.
 
@@ -359,6 +499,7 @@ class StubKeyboardDriver(KeyboardDriver):
         """
         self.last_action = ("type", text)
 
+    @override
     def press_key(self, key: str) -> None:
         """Press Key.
 
@@ -368,6 +509,7 @@ class StubKeyboardDriver(KeyboardDriver):
         """
         self.last_action = ("press", key)
 
+    @override
     def hotkey(self, *keys: str) -> None:
         """Hotkey.
 
@@ -377,6 +519,7 @@ class StubKeyboardDriver(KeyboardDriver):
         """
         self.last_action = ("hotkey", keys)
 
+    @override
     def hold_key(self, key: str, duration: float = 1.0) -> None:
         """Hold Key.
 
@@ -391,6 +534,7 @@ class StubKeyboardDriver(KeyboardDriver):
 class StubScreenDriver(ScreenDriver):
     """테스트용 화면 드라이버 (1x1 투명 PNG 반환)."""
 
+    @override
     def screenshot(self, region: tuple[int, int, int, int] | None = None) -> str:
         """Screenshot.
 
@@ -408,6 +552,7 @@ class StubScreenDriver(ScreenDriver):
         )
         return _TINY_PNG
 
+    @override
     def get_screen_size(self) -> tuple[int, int]:
         """Retrieve screen size.
 
@@ -424,6 +569,7 @@ class StubScreenDriver(ScreenDriver):
 class MacOSMouseDriver(MouseDriver):
     """macOS Quartz 기반 마우스 드라이버."""
 
+    @override
     def move(self, x: int, y: int, duration: float = 0.3) -> None:
         """Move.
 
@@ -443,6 +589,7 @@ class MacOSMouseDriver(MouseDriver):
         )
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
+    @override
     def click(self, x: int, y: int, button: str = "left") -> None:
         """Click.
 
@@ -467,6 +614,7 @@ class MacOSMouseDriver(MouseDriver):
         time.sleep(0.05)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
+    @override
     def double_click(self, x: int, y: int) -> None:
         """Double Click.
 
@@ -491,6 +639,7 @@ class MacOSMouseDriver(MouseDriver):
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
             time.sleep(0.05)
 
+    @override
     def drag(
         self,
         start_x: int,
@@ -537,6 +686,7 @@ class MacOSMouseDriver(MouseDriver):
         up = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, end, btn)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
+    @override
     def scroll(self, x: int, y: int, direction: str = "down", amount: int = 3) -> None:
         """Scroll.
 
@@ -556,6 +706,7 @@ class MacOSMouseDriver(MouseDriver):
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 
+@final
 class MacOSKeyboardDriver(KeyboardDriver):
     """macOS Quartz 기반 키보드 드라이버."""
 
@@ -615,6 +766,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
             return ord(key.lower())  # CGEventKeyboardSetUnicodeString 사용 시
         return 0
 
+    @override
     def type_text(self, text: str, interval: float = 0.02) -> None:
         """Type Text.
 
@@ -637,6 +789,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, event_up)
             time.sleep(interval)
 
+    @override
     def press_key(self, key: str) -> None:
         """Press Key.
 
@@ -652,6 +805,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
+    @override
     def hotkey(self, *keys: str) -> None:
         """Hotkey.
 
@@ -665,7 +819,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
 
         # 수정 키와 일반 키 분리
         mod_flags = 0
-        normal_keys = []
+        normal_keys: list[str] = []
         for k in keys:
             k_lower = k.lower()
             if k_lower in self._MOD_FLAGS:
@@ -684,6 +838,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
             time.sleep(0.02)
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
+    @override
     def hold_key(self, key: str, duration: float = 1.0) -> None:
         """Hold Key.
 
@@ -707,6 +862,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
 class MacOSScreenDriver(ScreenDriver):
     """macOS Quartz 기반 화면 캡처 드라이버."""
 
+    @override
     def screenshot(self, region: tuple[int, int, int, int] | None = None) -> str:
         """CGWindowListCreateImage로 화면을 캡처하고 base64 PNG로 반환합니다."""
         Quartz = _load_optional_module("Quartz")
@@ -749,7 +905,7 @@ class MacOSScreenDriver(ScreenDriver):
                 x, y, w, h = region
                 cmd.extend(["-R", f"{x},{y},{w},{h}"])
             cmd.append(tmp_path)
-            subprocess.run(cmd, check=True, timeout=10)
+            _ = subprocess.run(cmd, check=True, timeout=10)
 
             with open(tmp_path, "rb") as f:
                 return base64.b64encode(f.read()).decode("utf-8")
@@ -758,6 +914,7 @@ class MacOSScreenDriver(ScreenDriver):
 
             _os.unlink(tmp_path)
 
+    @override
     def get_screen_size(self) -> tuple[int, int]:
         """Retrieve screen size.
 
@@ -816,7 +973,7 @@ def get_driver_set(force_stub: bool = False) -> DriverSet:
     if sys.platform == "darwin":
         # macOS: Quartz 네이티브 드라이버 시도
         try:
-            _load_optional_module("Quartz")
+            _ = _load_optional_module("Quartz")
 
             logger.info("Using macOS Quartz native drivers")
             return DriverSet(

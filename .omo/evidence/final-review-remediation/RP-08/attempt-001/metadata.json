@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-08",
+  "attempt": 1,
+  "status": "REVIEW",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "tree_clean_before_run": false,
+  "changed_files": [
+    "tests/test_fr_workspace_prompt_binding.py (new, deterministic provider-double tier)"
+  ],
+  "required_scenarios": [
+    {"id": "bound-root-resolves", "required": true, "expected": "session binding and explicit project_id resolve A/B canonical roots", "observed": "registry-backed resolve returns projA/projB roots; AGK_ALLOWED_ROOTS allowlists test workspace without weakening ARC-01", "verdict": "PASS"},
+    {"id": "tool-read-bound-marker", "required": true, "expected": "read_file under permission boundary returns bound project's marker only", "observed": "A-bound: MARKER_A in result, MARKER_B absent; after switch: converse", "verdict": "PASS"},
+    {"id": "provider-payload-carries-marker", "required": true, "expected": "2nd-round serialized provider prompt contains bound marker, excludes sibling", "observed": "real ToolLoopEngine run: round-2 stream_generate kwargs contain MARKER_A (A-bound) / MARKER_B (B-bound), sibling marker never present", "verdict": "PASS"},
+    {"id": "inflight-snapshot", "required": true, "expected": "in-flight A request keeps root snapshot when session flips to B", "observed": "contextvars.copy_context() request-lifetime simulation: continuation still reads MARKER_A after ambient flip to B (matches per-request asyncio task isolation)", "verdict": "PASS"},
+    {"id": "fail-closed", "required": true, "expected": "unregistered project / missing binding rejected", "observed": "ProjectNotFoundError / MissingExecutionContextError raised; no cwd fallback", "verdict": "PASS"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "Tier 1 (deterministic provider double) complete. Tier 2 real-browser project selection UI (screenshots, action log) not executed this session — requires running dashboard; tracked as manual-QA follow-up. Tier 3 real local/cloud provider repetition explicitly belongs to RP-12 per plan.",
+    "The request-root snapshot relies on per-request context isolation (ContextVar per asyncio task); same-context re-resolve overwrites by design. A same-thread sequential re-resolve test initially failed — documented as expected semantics, not a defect.",
+    "R08-07 subset (reload/separate-tab/space-or-korean paths) covered only at resolve/tool level, not in browser."
+  ]
+}

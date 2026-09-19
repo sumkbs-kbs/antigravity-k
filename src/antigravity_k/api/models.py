@@ -1,7 +1,5 @@
 """Pydantic request/response models for the API layer."""
 
-from typing import Union
-
 from pydantic import BaseModel
 
 
@@ -23,7 +21,7 @@ class ChatMessage(BaseModel):
     """
 
     role: str
-    content: Union[str, list[ChatMessageContent]]
+    content: str | list[ChatMessageContent]
     name: str | None = None
 
 
@@ -39,7 +37,7 @@ class ChatCompletionRequest(BaseModel):
     top_p: float | None = 1.0
     n: int | None = 1
     stream: bool | None = False
-    stop: Union[str, list[str]] | None = None
+    stop: str | list[str] | None = None
     max_tokens: int | None = None
     presence_penalty: float | None = 0.0
     frequency_penalty: float | None = 0.0
@@ -90,7 +88,7 @@ class EmbeddingRequest(BaseModel):
     Bases: BaseModel
     """
 
-    input: Union[str, list[str]]
+    input: str | list[str]
     model: str
     user: str | None = None
 

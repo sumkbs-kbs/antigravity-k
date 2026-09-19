@@ -1,5 +1,8 @@
 """DecisionAnchor 단위 테스트 — 핵심 합의 앵커 시스템."""
 
+from collections.abc import Callable
+from typing import cast
+
 from antigravity_k.engine.decision_anchor import DecisionAnchor
 
 
@@ -12,19 +15,19 @@ class TestDecisionAnchorAdd:
 
     def test_add_strips_decision(self):
         da = DecisionAnchor()
-        da.add("  Python 3.12 사용  ")
+        _ = da.add("  Python 3.12 사용  ")
         assert da.anchors[0].decision == "Python 3.12 사용"
 
     def test_add_clamps_priority(self):
         da = DecisionAnchor()
-        da.add("결정 A", priority=99)
-        da.add("결정 B", priority=-5)
+        _ = da.add("결정 A", priority=99)
+        _ = da.add("결정 B", priority=-5)
         assert da.anchors[0].priority == 10
         assert da.anchors[1].priority == 1
 
     def test_add_defaults(self):
         da = DecisionAnchor()
-        da.add("결정 A")
+        _ = da.add("결정 A")
         anchor = da.anchors[0]
         assert anchor.category == "general"
         assert anchor.priority == 5
@@ -33,7 +36,7 @@ class TestDecisionAnchorAdd:
     def test_add_evicts_lowest_priority_when_full(self):
         da = DecisionAnchor()
         for i in range(10):
-            da.add(f"결정 {i}", priority=5)
+            _ = da.add(f"결정 {i}", priority=5)
         new_id = da.add("새로운 중요 결정", priority=10)
         assert da.count == DecisionAnchor.MAX_ANCHORS
         decisions = [a.decision for a in da.anchors]
@@ -43,8 +46,8 @@ class TestDecisionAnchorAdd:
     def test_add_keeps_new_anchor_even_when_lowest_priority(self):
         da = DecisionAnchor()
         for i in range(10):
-            da.add(f"결정 {i}", priority=5)
-        da.add("낮은 우선순위 신규 앵커", priority=1)
+            _ = da.add(f"결정 {i}", priority=5)
+        _ = da.add("낮은 우선순위 신규 앵커", priority=1)
         assert da.count == DecisionAnchor.MAX_ANCHORS
         assert any(a.decision == "낮은 우선순위 신규 앵커" for a in da.anchors)
         assert all(a.decision != "결정 0" for a in da.anchors)
@@ -65,8 +68,8 @@ class TestDecisionAnchorRemove:
 class TestDecisionAnchorClear:
     def test_clear_empties(self):
         da = DecisionAnchor()
-        da.add("결정 A")
-        da.add("결정 B")
+        _ = da.add("결정 A")
+        _ = da.add("결정 B")
         da.clear()
         assert da.count == 0
 
@@ -79,7 +82,7 @@ class TestDecisionAnchorInject:
 
     def test_injects_after_first_system_message(self):
         da = DecisionAnchor()
-        da.add("DB 스키마는 A 방식으로 확정")
+        _ = da.add("DB 스키마는 A 방식으로 확정")
         messages = [
             {"role": "system", "content": "sys1"},
             {"role": "user", "content": "u1"},
@@ -93,7 +96,7 @@ class TestDecisionAnchorInject:
 
     def test_injects_at_start_when_no_system_message(self):
         da = DecisionAnchor()
-        da.add("결정 A")
+        _ = da.add("결정 A")
         messages = [{"role": "user", "content": "u1"}]
         result = da.inject_into_messages(messages)
         assert result[0]["role"] == "system"
@@ -101,10 +104,10 @@ class TestDecisionAnchorInject:
 
     def test_anchors_sorted_by_priority_desc_in_block(self):
         da = DecisionAnchor()
-        da.add("낮은 우선순위 결정", priority=1)
-        da.add("높은 우선순위 결정", priority=10)
+        _ = da.add("낮은 우선순위 결정", priority=1)
+        _ = da.add("높은 우선순위 결정", priority=10)
         result = da.inject_into_messages([{"role": "system", "content": "sys"}])
-        block = result[1]["content"]
+        block = cast(str, result[1]["content"])
         assert block.index("높은 우선순위 결정") < block.index("낮은 우선순위 결정")
 
 
@@ -137,7 +140,7 @@ class TestDecisionAnchorAutoExtract:
 
     def test_dedupe_existing_anchor_returns_none(self):
         da = DecisionAnchor()
-        da.add("DB 스키마는 A 방식")
+        _ = da.add("DB 스키마는 A 방식")
         assert da.auto_extract("DB 스키마는 A 방식으로 확정", "") is None
 
     def test_too_short_candidate_ignored(self):
@@ -152,7 +155,7 @@ class TestDecisionAnchorAutoExtract:
         da = DecisionAnchor()
         result = da.auto_extract("결정: Python 3.12 사용", "")
         assert result is not None
-        da.add(result["decision"], category=result["category"], source="auto")
+        _ = da.add(result["decision"], category=result["category"], source="auto")
         assert da.count == 1
         assert da.anchors[0].category == "tooling"
         assert da.anchors[0].source == "auto"
@@ -160,19 +163,19 @@ class TestDecisionAnchorAutoExtract:
 
 class TestDecisionAnchorClassifyCategory:
     def test_architecture(self):
-        assert DecisionAnchor._classify_category("클린 아키텍처로 진행") == "architecture"
+        assert _classify_category("클린 아키텍처로 진행") == "architecture"
 
     def test_tooling(self):
-        assert DecisionAnchor._classify_category("Python 3.12 사용") == "tooling"
+        assert _classify_category("Python 3.12 사용") == "tooling"
 
     def test_convention(self):
-        assert DecisionAnchor._classify_category("코드 스타일은 Black으로 통일") == "convention"
+        assert _classify_category("코드 스타일은 Black으로 통일") == "convention"
 
     def test_scope(self):
-        assert DecisionAnchor._classify_category("MVP 범위로 진행") == "scope"
+        assert _classify_category("MVP 범위로 진행") == "scope"
 
     def test_general(self):
-        assert DecisionAnchor._classify_category("이름은 뭐든 좋다") == "general"
+        assert _classify_category("이름은 뭐든 좋다") == "general"
 
 
 class TestDecisionAnchorRenderAndStats:
@@ -182,19 +185,24 @@ class TestDecisionAnchorRenderAndStats:
 
     def test_render_status_with_anchors(self):
         da = DecisionAnchor()
-        da.add("결정 A", priority=1)
-        da.add("결정 B", priority=10)
+        _ = da.add("결정 A", priority=1)
+        _ = da.add("결정 B", priority=10)
         status = da.render_status()
         assert "🔒 활성 결정 앵커: 2개" in status
         assert status.index("결정 B") < status.index("결정 A")  # 우선순위 내림차순
 
     def test_get_stats(self):
         da = DecisionAnchor()
-        da.add("결정 A", category="tooling", source="user")
-        da.add("결정 B", category="tooling", source="auto")
-        da.add("결정 C", category="general", source="auto")
+        _ = da.add("결정 A", category="tooling", source="user")
+        _ = da.add("결정 B", category="tooling", source="auto")
+        _ = da.add("결정 C", category="general", source="auto")
         stats = da.get_stats()
         assert stats["total_anchors"] == 3
         assert stats["max_anchors"] == DecisionAnchor.MAX_ANCHORS
         assert stats["categories"] == {"tooling": 2, "general": 1}
         assert stats["source_breakdown"] == {"user": 1, "auto": 2}
+
+
+def _classify_category(decision: str) -> str:
+    classify = cast(Callable[[str], str], getattr(DecisionAnchor, "_classify_category"))
+    return classify(decision)

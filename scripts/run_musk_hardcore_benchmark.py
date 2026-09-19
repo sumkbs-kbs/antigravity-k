@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Elon Musk Hardcore Engineering Benchmark for Antigravity-K (Qwen3.8-27B).
+"""Elon Musk Hardcore Engineering Benchmark for Ssak-Ai (Qwen3.8-27B).
 
 Evaluates the 3 First-Principles pillars:
 1. Zero-Latency Direct Fast-Path Kernel (<5ms response)
@@ -32,7 +32,7 @@ def run_musk_benchmark():
     print("\n[1/3] Testing Zero-Latency Fast-Path Kernel (<5ms)...")
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        (root / "telemetry.py").write_text(
+        _ = (root / "telemetry.py").write_text(
             "class RaptorTelemetry:\n    def read_pressure(self): pass\n", encoding="utf-8"
         )
         kernel = FastPathKernel(root)
@@ -74,7 +74,7 @@ def run_musk_benchmark():
         print("  ❌ Flight controller failed")
 
     print("\n" + "=" * 75)
-    print(f"🏆 HARDCORE FIRST-PRINCIPLES SCORE: {passed}/{total} ({(passed/total)*100:.0f}%)")
+    print(f"🏆 HARDCORE FIRST-PRINCIPLES SCORE: {passed}/{total} ({(passed / total) * 100:.0f}%)")
     print("=" * 75)
     return passed == total
 

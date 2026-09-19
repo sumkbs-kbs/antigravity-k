@@ -1,0 +1,43 @@
+=== NX-01 regression log (2026-09-16, HEAD ffb0ebb + NX-01 working tree) ===
+
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/test_nx01_compaction_retention.py -q -p no:cacheprovider --override-ini addopts=''
+..........                                                               [100%]
+10 passed in 0.81s
+exit=0
+
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/test_val02_conversation_multiprocess.py tests/test_cr02_session_durability.py -q -p no:cacheprovider --override-ini addopts=''
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+21 passed, 1 warning in 3.60s
+exit=0
+
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/test_fr_context_end_to_end.py tests/test_conversation_api_ctx01.py tests/test_conversation_store_ctx01.py tests/test_conversation_store_soft_max_rss.py tests/test_cr01_conversation_identity.py tests/test_fr05_conversation_authoritative_reads.py tests/test_ctx01_reject_fixes.py tests/test_obs01_operational_metrics.py -q -p no:cacheprovider --override-ini addopts=''
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+70 passed, 1 warning in 7.22s
+exit=0
+
+$ full suite: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests -q -p no:cacheprovider --override-ini addopts='' --ignore=tests/test_val02_conversation_multiprocess.py (summary only)
+result: 6439 passed, 10 skipped, 1 failed — 유일한 실패는 기존 CR-14 fence 테스트
+  FAILED tests/test_cr14_fence_movement_detection.py::test_declared_fingerprint_is_the_fingerprint_of_head_within_the_fence
+  (git history 만 읽는 테스트 — 작업 트리 변경과 무관, HEAD ffb0ebb 에서 동일 재현)
+
+$ before-tree 비교: PYTHONPATH=/tmp/nx01-before/src (HEAD 원본 모듈 사본, /tmp/nx01-before)
+  - repro driver: HEAD 모듈 → early_requirement_in_prompt=false (before-run-output.json.txt)
+  - PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/nx01-before/src .venv/bin/python -m pytest \
+      tests/test_val02_conversation_multiprocess.py tests/test_cr02_session_durability.py \
+      tests/test_fr_context_end_to_end.py tests/test_conversation_api_ctx01.py \
+      tests/test_conversation_store_ctx01.py tests/test_conversation_store_soft_max_rss.py \
+      tests/test_cr01_conversation_identity.py tests/test_fr05_conversation_authoritative_reads.py \
+      tests/test_ctx01_reject_fixes.py tests/test_obs01_operational_metrics.py \
+      -q -p no:cacheprovider --override-ini addopts=''
+    91 passed, 1 warning in 10.16s (exit 0)
+
+# NX-04 로 넘기는 관찰 (NX-01 변경과 무관, HEAD 에서도 동일)
+# tests/test_val02_conversation_multiprocess.py::test_multiprocess_append_is_atomic[6-20]
+#   - 단독 실행 5회: 현재 트리 5/5 pass, HEAD 모듈 5/5 pass
+#   - 대형 -k 스윗 안에서 실행: 현재 트리와 HEAD 모듈 모두 동일하게 FAIL
+#     "append 성공 85건 중 58건이 침묵 덮어쓰기로 유실됐다 / assert 27 >= 85"
+#     → cap64 압축이 켜지고 성공 append 가 64를 넘으면 유효한 압축을 유실로 오인한다(NX-04 카드의 비결정성).
+#   → NX-01 의 회귀가 아니다. 모듈만 HEAD 원본으로 교체해도 같은 조건에서 재현된다.
+#   → NX-04 는 cap0 CAS exact set 검증과 cap64 결정적 ≥123 시험으로 분리해야 한다.

@@ -1,8 +1,11 @@
 """Tests for the SkillMarketClient module."""
 
 import json
+import subprocess
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Callable, cast
 from unittest import mock
 
 from antigravity_k.engine.skill_market_client import (
@@ -11,6 +14,25 @@ from antigravity_k.engine.skill_market_client import (
     SkillListing,
     SkillMarketClient,
 )
+
+
+def _state_file(client: SkillMarketClient) -> Path:
+    return cast(Path, getattr(client, "_state_file"))
+
+
+def _run_npm_search(client: SkillMarketClient, query: str) -> list[SkillListing]:
+    method = cast(Callable[[str], list[SkillListing]], getattr(client, "_run_npm_search"))
+    return method(query)
+
+
+def _parse_view_result(client: SkillMarketClient, package_name: str, raw: Mapping[str, object]) -> SkillDetail:
+    method = cast(Callable[[str, Mapping[str, object]], SkillDetail], getattr(client, "_parse_view_result"))
+    return method(package_name, raw)
+
+
+def _completed(mock_run: mock.Mock) -> subprocess.CompletedProcess[str]:
+    return cast(subprocess.CompletedProcess[str], mock_run.return_value)
+
 
 # ─── Data Model Tests ───────────────────────────────────────────────
 
@@ -108,7 +130,7 @@ class TestClientInit:
     def test_state_file_path(self):
         with mock.patch("pathlib.Path.home", return_value=Path("/home/user")):
             c = SkillMarketClient(project_root="/proj")
-            assert ".antigravity-k/skills-market.json" in str(c._state_file)
+            assert ".antigravity-k/skills-market.json" in str(_state_file(c))
 
 
 # ─── SkillMarketClient: Search ──────────────────────────────────────
@@ -116,7 +138,7 @@ class TestClientInit:
 
 class TestSearch:
     @mock.patch("antigravity_k.engine.skill_market_client.SkillMarketClient._run_npm_search")
-    def test_search_basic(self, mock_search):
+    def test_search_basic(self, mock_search: mock.Mock):
         mock_search.return_value = [
             SkillListing(name="@antigravity-k/skill-review", version="1.0", description="Great code review"),
         ]
@@ -126,14 +148,14 @@ class TestSearch:
         assert results[0].name == "@antigravity-k/skill-review"
 
     @mock.patch("antigravity_k.engine.skill_market_client.SkillMarketClient._run_npm_search")
-    def test_search_empty(self, mock_search):
+    def test_search_empty(self, mock_search: mock.Mock):
         mock_search.return_value = []
         c = SkillMarketClient(project_root="/tmp")
         results = c.search("nothing")
         assert results == []
 
     @mock.patch("antigravity_k.engine.skill_market_client.SkillMarketClient._run_npm_search")
-    def test_search_agk_priority(self, mock_search):
+    def test_search_agk_priority(self, mock_search: mock.Mock):
         mock_search.return_value = [
             SkillListing(name="regular-pkg", version="1.0", description="a regular package"),
             SkillListing(name="@antigravity-k/skill-review", version="1.0", description="Code review skill"),
@@ -144,7 +166,7 @@ class TestSearch:
         assert results[0].name == "@antigravity-k/skill-review"
 
     @mock.patch("antigravity_k.engine.skill_market_client.SkillMarketClient._run_npm_search")
-    def test_search_keyword_fallback(self, mock_search):
+    def test_search_keyword_fallback(self, mock_search: mock.Mock):
         # First call returns non-AGK results, second call returns AGK results
         mock_search.side_effect = [
             [SkillListing(name="pkg1", version="1.0", description="test")],
@@ -155,7 +177,7 @@ class TestSearch:
         assert len(results) >= 1
 
     @mock.patch("antigravity_k.engine.skill_market_client.SkillMarketClient._run_npm_search")
-    def test_search_scoring(self, mock_search):
+    def test_search_scoring(self, mock_search: mock.Mock):
         mock_search.return_value = [
             SkillListing(name="other", version="1.0", description="no match"),
             SkillListing(name="@antigravity-k/skill-mymatch", version="1.0", description="mymatch skill"),
@@ -168,7 +190,7 @@ class TestSearch:
 
 class TestSearchByCategory:
     @mock.patch("antigravity_k.engine.skill_market_client.SkillMarketClient.search")
-    def test_search_by_category(self, mock_search):
+    def test_search_by_category(self, mock_search: mock.Mock):
         mock_search.return_value = [SkillListing(name="test", version="1.0", description="d")]
         c = SkillMarketClient(project_root="/tmp")
         results = c.search_by_category("devops")
@@ -182,9 +204,9 @@ class TestSearchByCategory:
 
 class TestGetDetail:
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_success(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = json.dumps(
+    def test_get_detail_success(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = json.dumps(
             {
                 "name": "@antigravity-k/skill-test",
                 "version": "1.0.0",
@@ -200,10 +222,10 @@ class TestGetDetail:
         assert detail.agk_skill is True
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_version_dict(self, mock_run):
+    def test_get_detail_version_dict(self, mock_run: mock.Mock):
         """nested version dict is handled correctly"""
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = json.dumps(
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = json.dumps(
             {
                 "name": "@antigravity-k/skill-test",
                 "version": {"1.0.0": "latest", "0.9.0": "previous"},
@@ -218,9 +240,9 @@ class TestGetDetail:
         assert detail.version == "1.0.0"
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_description_dict(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = json.dumps(
+    def test_get_detail_description_dict(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = json.dumps(
             {
                 "name": "test",
                 "version": "1.0.0",
@@ -233,9 +255,9 @@ class TestGetDetail:
         assert detail.description in ("desc1", "")
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_keywords_string(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = json.dumps(
+    def test_get_detail_keywords_string(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = json.dumps(
             {
                 "name": "test",
                 "version": "1.0.0",
@@ -249,31 +271,31 @@ class TestGetDetail:
         assert "skill" in detail.keywords
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_npm_fail(self, mock_run):
-        mock_run.return_value.returncode = 1
-        mock_run.return_value.stderr = "error"
+    def test_get_detail_npm_fail(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 1
+        _completed(mock_run).stderr = "error"
         c = SkillMarketClient(project_root="/tmp")
         detail = c.get_detail("@antigravity-k/skill-nonexistent")
         assert detail is None
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_timeout(self, mock_run):
-        mock_run.side_effect = __import__("subprocess").TimeoutExpired("cmd", 30)
+    def test_get_detail_timeout(self, mock_run: mock.Mock):
+        mock_run.side_effect = subprocess.TimeoutExpired("cmd", 30)
         c = SkillMarketClient(project_root="/tmp")
         detail = c.get_detail("test")
         assert detail is None
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_file_not_found(self, mock_run):
+    def test_get_detail_file_not_found(self, mock_run: mock.Mock):
         mock_run.side_effect = FileNotFoundError("npm")
         c = SkillMarketClient(project_root="/tmp")
         detail = c.get_detail("test")
         assert detail is None
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_mcp_config(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = json.dumps(
+    def test_get_detail_mcp_config(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = json.dumps(
             {
                 "name": "test",
                 "version": "1.0.0",
@@ -291,15 +313,15 @@ class TestGetDetail:
         assert detail.agk_mcp_transport == "streamable-http"
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_json_decode_error(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = "not-json{{{"
+    def test_get_detail_json_decode_error(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = "not-json{{{"
         c = SkillMarketClient(project_root="/tmp")
         detail = c.get_detail("test")
         assert detail is None
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_get_detail_exception(self, mock_run):
+    def test_get_detail_exception(self, mock_run: mock.Mock):
         mock_run.side_effect = RuntimeError("unexpected")
         c = SkillMarketClient(project_root="/tmp")
         detail = c.get_detail("test")
@@ -330,7 +352,7 @@ class TestGetInstalled:
                 "risk_level": "safe",
                 "trust_level": "verified",
             }
-            (skill_dir / ".agk_meta.json").write_text(json.dumps(meta))
+            _ = (skill_dir / ".agk_meta.json").write_text(json.dumps(meta))
 
             c = SkillMarketClient(project_root=tmpdir)
             installed = c.get_installed()
@@ -343,7 +365,7 @@ class TestGetInstalled:
             state_dir = Path(tmpdir) / ".antigravity-k"
             state_dir.mkdir(parents=True)
             state_file = state_dir / "skills-market.json"
-            state_file.write_text(
+            _ = state_file.write_text(
                 json.dumps(
                     {
                         "installed": {
@@ -369,7 +391,7 @@ class TestGetInstalled:
             market_dir = Path(tmpdir) / ".agent" / "skills" / "market"
             skill_dir = market_dir / "broken"
             skill_dir.mkdir(parents=True)
-            (skill_dir / ".agk_meta.json").write_text("not-json{{{")
+            _ = (skill_dir / ".agk_meta.json").write_text("not-json{{{")
 
             c = SkillMarketClient(project_root=tmpdir)
             installed = c.get_installed()
@@ -382,7 +404,7 @@ class TestIsInstalled:
             market_dir = Path(tmpdir) / ".agent" / "skills" / "market"
             skill_dir = market_dir / "my-skill"
             skill_dir.mkdir(parents=True)
-            (skill_dir / ".agk_meta.json").write_text(
+            _ = (skill_dir / ".agk_meta.json").write_text(
                 json.dumps(
                     {
                         "name": "test",
@@ -407,7 +429,7 @@ class TestRecordInstallation:
                 c.record_installation("@antigravity-k/skill-test", "1.0.0", "/path/to/skill")
                 state_file = Path(tmpdir) / ".antigravity-k" / "skills-market.json"
                 assert state_file.exists()
-                data = json.loads(state_file.read_text(encoding="utf-8"))
+                data = cast(dict[str, dict[str, dict[str, str]]], json.loads(state_file.read_text(encoding="utf-8")))
                 assert "test" in data["installed"]
                 assert data["installed"]["test"]["version"] == "1.0.0"
 
@@ -416,7 +438,7 @@ class TestRecordInstallation:
             state_dir = Path(tmpdir) / ".antigravity-k"
             state_dir.mkdir(parents=True)
             state_file = state_dir / "skills-market.json"
-            state_file.write_text(
+            _ = state_file.write_text(
                 json.dumps(
                     {
                         "installed": {"test": {"version": "1.0.0", "install_path": "/old"}},
@@ -426,7 +448,7 @@ class TestRecordInstallation:
             with mock.patch("antigravity_k.engine.skill_market_client.Path.home", return_value=Path(tmpdir)):
                 c = SkillMarketClient(project_root="/proj")
                 c.record_installation("@antigravity-k/skill-test", "2.0.0", "/new")
-                data = json.loads(state_file.read_text(encoding="utf-8"))
+                data = cast(dict[str, dict[str, dict[str, str]]], json.loads(state_file.read_text(encoding="utf-8")))
                 assert data["installed"]["test"]["version"] == "2.0.0"
                 assert data["installed"]["test"]["install_path"] == "/new"
 
@@ -445,7 +467,7 @@ class TestRemoveInstallation:
             state_dir = Path(tmpdir) / ".antigravity-k"
             state_dir.mkdir(parents=True)
             state_file = state_dir / "skills-market.json"
-            state_file.write_text(
+            _ = state_file.write_text(
                 json.dumps(
                     {
                         "installed": {"skill1": {}, "skill2": {}},
@@ -455,7 +477,7 @@ class TestRemoveInstallation:
             with mock.patch("antigravity_k.engine.skill_market_client.Path.home", return_value=Path(tmpdir)):
                 c = SkillMarketClient(project_root="/proj")
                 c.remove_installation("skill1")
-                data = json.loads(state_file.read_text(encoding="utf-8"))
+                data = cast(dict[str, dict[str, dict[str, str]]], json.loads(state_file.read_text(encoding="utf-8")))
                 assert "skill1" not in data["installed"]
                 assert "skill2" in data["installed"]
 
@@ -512,69 +534,69 @@ class TestFormatSearchResults:
 
 class TestRunNpmSearch:
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_success(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = json.dumps(
+    def test_success(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = json.dumps(
             [
                 {"name": "@antigravity-k/skill-test", "version": "1.0.0", "description": "Test skill"},
             ]
         )
         c = SkillMarketClient(project_root="/tmp")
-        results = c._run_npm_search("test")
+        results = _run_npm_search(c, "test")
         assert len(results) == 1
         assert results[0].name == "@antigravity-k/skill-test"
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_npm_error(self, mock_run):
-        mock_run.return_value.returncode = 1
-        mock_run.return_value.stderr = "npm ERR!"
+    def test_npm_error(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 1
+        _completed(mock_run).stderr = "npm ERR!"
         c = SkillMarketClient(project_root="/tmp")
-        results = c._run_npm_search("test")
+        results = _run_npm_search(c, "test")
         assert results == []
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_timeout(self, mock_run):
-        mock_run.side_effect = __import__("subprocess").TimeoutExpired("cmd", 30)
+    def test_timeout(self, mock_run: mock.Mock):
+        mock_run.side_effect = subprocess.TimeoutExpired("cmd", 30)
         c = SkillMarketClient(project_root="/tmp")
-        results = c._run_npm_search("test")
+        results = _run_npm_search(c, "test")
         assert results == []
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_file_not_found(self, mock_run):
+    def test_file_not_found(self, mock_run: mock.Mock):
         mock_run.side_effect = FileNotFoundError("npm")
         c = SkillMarketClient(project_root="/tmp")
-        results = c._run_npm_search("test")
+        results = _run_npm_search(c, "test")
         assert results == []
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_json_decode_error(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = "not-json{{{"
+    def test_json_decode_error(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = "not-json{{{"
         c = SkillMarketClient(project_root="/tmp")
-        results = c._run_npm_search("test")
+        results = _run_npm_search(c, "test")
         assert results == []
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_exception(self, mock_run):
+    def test_exception(self, mock_run: mock.Mock):
         mock_run.side_effect = RuntimeError("unexpected")
         c = SkillMarketClient(project_root="/tmp")
-        results = c._run_npm_search("test")
+        results = _run_npm_search(c, "test")
         assert results == []
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_not_a_list_response(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = json.dumps({"not": "a list"})
+    def test_not_a_list_response(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = json.dumps({"not": "a list"})
         c = SkillMarketClient(project_root="/tmp")
-        results = c._run_npm_search("test")
+        results = _run_npm_search(c, "test")
         assert results == []
 
     @mock.patch("antigravity_k.engine.skill_market_client.subprocess.run")
-    def test_non_dict_item(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = json.dumps(["string", 123, None])
+    def test_non_dict_item(self, mock_run: mock.Mock):
+        _completed(mock_run).returncode = 0
+        _completed(mock_run).stdout = json.dumps(["string", 123, None])
         c = SkillMarketClient(project_root="/tmp")
-        results = c._run_npm_search("test")
+        results = _run_npm_search(c, "test")
         assert results == []
 
 
@@ -590,7 +612,7 @@ class TestParseViewResult:
             "description": "A test",
             "antigravityK": {"skill": True},
         }
-        detail = c._parse_view_result("@antigravity-k/skill-test", raw)
+        detail = _parse_view_result(c, "@antigravity-k/skill-test", raw)
         assert detail.name == "@antigravity-k/skill-test"
         assert detail.version == "1.0.0"
         assert detail.agk_skill is True
@@ -603,7 +625,7 @@ class TestParseViewResult:
             "dist-tags": {"latest": "1.0.0"},
             "description": "test",
         }
-        detail = c._parse_view_result("test", raw)
+        detail = _parse_view_result(c, "test", raw)
         assert detail.version == "1.0.0"
 
     def test_antigravityk_not_dict(self):
@@ -614,7 +636,7 @@ class TestParseViewResult:
             "description": "d",
             "antigravityK": "invalid",
         }
-        detail = c._parse_view_result("@antigravity-k/skill-test", raw)
+        detail = _parse_view_result(c, "@antigravity-k/skill-test", raw)
         assert detail.agk_skill is True  # scope-based fallback
         assert detail.agk_display_name == ""
 
@@ -626,7 +648,7 @@ class TestParseViewResult:
             "description": "d",
             "antigravityK": {"skill": True, "mcp": "invalid"},
         }
-        detail = c._parse_view_result("test", raw)
+        detail = _parse_view_result(c, "test", raw)
         assert detail.agk_mcp_server_id == ""
 
     def test_license_and_repository(self):
@@ -640,7 +662,7 @@ class TestParseViewResult:
             "readmeFilename": "README.md",
             "readme": "# Readme",
         }
-        detail = c._parse_view_result("test", raw)
+        detail = _parse_view_result(c, "test", raw)
         assert detail.license == "MIT"
         assert "github.com" in detail.repository
         assert detail.has_readme is True

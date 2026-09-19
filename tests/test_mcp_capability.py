@@ -1,3 +1,7 @@
+from typing import cast
+
+from mcp.client.session import ClientSession
+
 from antigravity_k.engine.mcp_capability import MCPCapabilityAdvisor
 from antigravity_k.engine.slash_commands import SlashCommandRegistry
 from antigravity_k.tools.base_tool import RiskLevel
@@ -77,7 +81,7 @@ def test_mcp_tool_annotations_drive_risk_metadata():
         name="safe_read",
         description="Read only MCP tool",
         schema={"type": "object"},
-        mcp_client=object(),
+        mcp_client=cast(ClientSession, object()),
         server_name="local",
         transport="stdio",
         annotations={"readOnlyHint": True},
@@ -86,7 +90,7 @@ def test_mcp_tool_annotations_drive_risk_metadata():
         name="danger_write",
         description="Destructive MCP tool",
         schema={"type": "object"},
-        mcp_client=object(),
+        mcp_client=cast(ClientSession, object()),
         server_name="remote",
         transport="http",
         annotations={"destructiveHint": True},
@@ -95,5 +99,7 @@ def test_mcp_tool_annotations_drive_risk_metadata():
 
     assert read_only.risk_level == RiskLevel.SAFE
     assert destructive.risk_level == RiskLevel.HIGH
-    assert read_only.to_metadata()["mcp"]["server"] == "local"
-    assert destructive.to_metadata()["mcp"]["authenticated"] is True
+    read_only_mcp = cast(dict[str, object], read_only.to_metadata()["mcp"])
+    destructive_mcp = cast(dict[str, object], destructive.to_metadata()["mcp"])
+    assert read_only_mcp["server"] == "local"
+    assert destructive_mcp["authenticated"] is True

@@ -1,0 +1,33 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ TestCommitReverification.test_symlink_swap_after_preflight_cannot_redirect_write _
+
+self = <tests.test_fr03_transaction_containment.TestCommitReverification object at 0x115c21810>
+root = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1872/test_symlink_swap_after_prefli0/project')
+outside = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1872/test_symlink_swap_after_prefli0/outside')
+
+    def test_symlink_swap_after_preflight_cannot_redirect_write(self, root: Path, outside: Path) -> None:
+        engine = AtomicTransactionEngine(root)
+        victim = root / "victim.py"
+        victim.write_text("ORIG\n", encoding="utf-8")
+        engine.stage_file_patch("victim.py", "NEW\n")
+
+        real_write = Path.write_text
+
+        def swap_before_write(self, data, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+            if self == victim:
+                victim.unlink()
+                victim.symlink_to(outside / "secret.py")
+            return real_write(self, data, *args, **kwargs)
+
+        with patch.object(Path, "write_text", swap_before_write):
+            res = engine.commit_transaction()
+
+>       assert res.committed is False
+E       AssertionError: assert True is False
+E        +  where True = TransactionResult(committed=True, touched_files=['victim.py'], error_message='', rolled_back_count=0, conflicts=[]).committed
+
+tests/test_fr03_transaction_containment.py:117: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_fr03_transaction_containment.py::TestCommitReverification::test_symlink_swap_after_preflight_cannot_redirect_write
+1 failed in 0.39s

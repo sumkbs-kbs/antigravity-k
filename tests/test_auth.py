@@ -10,11 +10,16 @@ These cover the Priority #2 hardening:
 
 from __future__ import annotations
 
+import stat
 import time
+from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
+from starlette.requests import Request
 
 from antigravity_k.engine.auth import (
     TokenService,
@@ -58,19 +63,19 @@ def test_verify_pin_constant_time():
 
     # Warm up.
     for _ in range(5):
-        verify_pin("timing-test-pin", stored)
-        verify_pin("wrong", stored)
+        _ = verify_pin("timing-test-pin", stored)
+        _ = verify_pin("wrong", stored)
 
     # Measure. 10 iterations is enough to detect gross timing channels
     # while keeping the test under 1 second (PBKDF2 600K is ~100ms/verify).
     t_correct_start = time.perf_counter()
     for _ in range(10):
-        verify_pin("timing-test-pin", stored)
+        _ = verify_pin("timing-test-pin", stored)
     t_correct = time.perf_counter() - t_correct_start
 
     t_wrong_start = time.perf_counter()
     for _ in range(10):
-        verify_pin("wrong", stored)
+        _ = verify_pin("wrong", stored)
     t_wrong = time.perf_counter() - t_wrong_start
 
     # The two should be in the same ballpark. PBKDF2 dominates, so the ratio
@@ -103,8 +108,10 @@ def test_verify_expired_token():
 
     import antigravity_k.engine.auth as auth_mod
 
-    past_exp = {"sub": "user", "exp": 0, "iat": 0, "iss": auth_mod._JWT_ISSUER}
-    expired_token = jwt.encode(past_exp, ts.secret, algorithm=auth_mod._JWT_ALGORITHM)
+    issuer = cast(str, getattr(auth_mod, "_JWT_ISSUER"))
+    algorithm = cast(str, getattr(auth_mod, "_JWT_ALGORITHM"))
+    past_exp = {"sub": "user", "exp": 0, "iat": 0, "iss": issuer}
+    expired_token = jwt.encode(past_exp, ts.secret, algorithm=algorithm)
     assert ts.verify_token(expired_token) is None
 
 
@@ -138,6 +145,40 @@ def test_extract_bearer_token():
     assert extract_bearer_token("Bearer ") is None
 
 
+def test_authenticate_request_rejects_pin_header_without_pbkdf2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SEC-02: middleware는 X-Access-Pin 헤더로 PBKDF2를 실행하지 않는다.
+
+    hash 전용 서버(plaintext PIN 부재)에서 헤더 PIN은 무시된다 — fail-closed로
+    401 거부이며, PBKDF2 비용도 발생하지 않는다 (open_loopback 조건 미충족).
+    """
+    import antigravity_k.api.auth_policy as auth_policy_mod
+    import antigravity_k.api.auth_routes as auth_routes
+    from antigravity_k.config import config
+
+    calls: list[tuple[str, str]] = []
+
+    def verify_spy(pin: str, stored: str) -> bool:
+        calls.append((pin, stored))
+        return True
+
+    hash_file = tmp_path / "auth_hash"
+    hash_file.write_text(hash_pin("pin"), encoding="utf-8")
+    monkeypatch.setattr(config.security, "access_pin", "")
+    original_policy = auth_policy_mod._shared_auth_policy
+    auth_policy_mod.init_shared_auth_policy(hash_file)
+    try:
+        request = Request({"type": "http", "headers": [(b"x-access-pin", b"pin")]})
+        monkeypatch.setattr(auth_routes, "verify_pin", verify_spy)
+
+        assert auth_routes.authenticate_request(request) is False
+        assert calls == [], "middleware가 raw PIN으로 PBKDF2를 실행했다 — SEC-02 위반"
+        assert not hasattr(request.state, "auth_subject"), "헤더 PIN은 인증되어선 안 된다"
+    finally:
+        auth_policy_mod._shared_auth_policy = original_policy
+
+
 # ---------------------------------------------------------------------------
 # Integration tests: login flow + middleware (via TestClient)
 # ---------------------------------------------------------------------------
@@ -147,7 +188,7 @@ def test_extract_bearer_token():
 
 
 @pytest.fixture(scope="module")
-def auth_client(tmp_path_factory):
+def auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
     """Provide a TestClient with a known PIN and temp secret storage.
 
     We mutate the config *instance* directly (Pydantic Settings fields are not
@@ -171,8 +212,8 @@ def auth_client(tmp_path_factory):
     # Reset auth module state so it re-bootstraps with the patched config.
     import antigravity_k.api.auth_routes as auth_routes_mod
 
-    auth_routes_mod._token_service = None
-    auth_routes_mod._pin_hash = None
+    setattr(auth_routes_mod, "_token_service", None)
+    setattr(auth_routes_mod, "_pin_hash", None)
     auth_routes_mod.init_auth_state()
 
     from antigravity_k.api.server import app
@@ -184,12 +225,12 @@ def auth_client(tmp_path_factory):
     config.security.access_pin = orig_pin
     config.security.pin_hash_file = orig_hash_file
     config.security.token_secret_file = orig_secret_file
-    auth_routes_mod._token_service = None
-    auth_routes_mod._pin_hash = None
+    setattr(auth_routes_mod, "_token_service", None)
+    setattr(auth_routes_mod, "_pin_hash", None)
     auth_routes_mod.init_auth_state()
 
 
-def _login(client: TestClient, pin: str = "test-pin-1234") -> dict:
+def _login(client: TestClient, pin: str = "test-pin-1234") -> Response:
     """Helper: perform login and return the response JSON."""
     resp = client.post("/api/auth/login", json={"pin": pin})
     return resp
@@ -199,10 +240,18 @@ def test_login_correct_pin(auth_client: TestClient):
     """Login with the correct PIN must return a token."""
     resp = _login(auth_client)
     assert resp.status_code == 200
-    data = resp.json()
+    data = cast(dict[str, object], resp.json())
     assert "access_token" in data
     assert data["token_type"] == "bearer"
-    assert data["expires_in"] > 0
+    assert cast(int, data["expires_in"]) > 0
+
+
+def test_persisted_auth_files_are_owner_only(auth_client: TestClient):
+    from antigravity_k.config import config
+
+    _ = auth_client
+    assert stat.S_IMODE(Path(config.security.pin_hash_file).stat().st_mode) == 0o600
+    assert stat.S_IMODE(Path(config.security.token_secret_file).stat().st_mode) == 0o600
 
 
 def test_login_wrong_pin(auth_client: TestClient):
@@ -220,7 +269,7 @@ def test_protected_route_without_token(auth_client: TestClient):
 def test_protected_route_with_valid_token(auth_client: TestClient):
     """A protected /api/ route with a valid token must succeed (or 503 if the
     vault engine is not configured — but NOT 401)."""
-    token = _login(auth_client).json()["access_token"]
+    token = cast(str, _login(auth_client).json()["access_token"])
     resp = auth_client.get("/api/vault/config", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code != 401, "Valid token was rejected"
 
@@ -242,10 +291,10 @@ def test_health_endpoints_public(auth_client: TestClient):
         assert resp.status_code != 401, f"{path} should be public, got 401"
 
 
-def test_legacy_pin_header_still_works(auth_client: TestClient):
-    """The legacy X-Access-Pin header must still authenticate (migration path)."""
+def test_legacy_pin_header_is_rejected(auth_client: TestClient):
+    """SEC-02: raw PIN 헤더는 보호 경로에서 거절된다 — login route만 PIN을 받는다."""
     resp = auth_client.get("/api/vault/config", headers={"X-Access-Pin": "test-pin-1234"})
-    assert resp.status_code != 401, "Legacy PIN header was rejected"
+    assert resp.status_code == 401, "Legacy PIN header must be rejected (SEC-02)"
 
 
 def test_login_rate_limited(auth_client: TestClient):
@@ -254,7 +303,7 @@ def test_login_rate_limited(auth_client: TestClient):
     slowapi tracks limits per-IP; TestClient uses a local test client address.
     We send wrong-PIN attempts to exhaust the /api/auth/login limit.
     """
-    statuses = []
+    statuses: list[int] = []
     for _ in range(7):
         resp = auth_client.post("/api/auth/login", json={"pin": "wrong"})
         statuses.append(resp.status_code)
@@ -276,3 +325,83 @@ def test_verify_endpoint(auth_client: TestClient):
     resp = auth_client.post("/api/auth/verify", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["valid"] is True
+
+
+# ---------------------------------------------------------------------------
+# Change-PIN endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_change_pin_success(auth_client: TestClient):
+    """Authenticated change-pin must update the hash and accept the new PIN."""
+    import antigravity_k.api.auth_routes as auth_routes_mod
+    from antigravity_k.config import config
+    from antigravity_k.security.auth_audit import get_auth_audit_events, reset_auth_audit
+
+    _ = auth_client
+    original_pin = "test-pin-1234"
+    temp_pin = "0000"
+    # Issue token directly to avoid shared /login rate-limit budget.
+    token = auth_routes_mod.get_token_service().issue_token(subject="change-pin-test")
+    reset_auth_audit()
+
+    resp = auth_client.post(
+        "/api/auth/change-pin",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_pin": original_pin, "new_pin": temp_pin},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True
+
+    assert stat.S_IMODE(Path(config.security.pin_hash_file).stat().st_mode) == 0o600
+    stored = cast(str, auth_routes_mod.get_current_pin_hash())
+    assert verify_pin(temp_pin, stored) is True
+    assert verify_pin(original_pin, stored) is False
+
+    events = get_auth_audit_events()
+    assert any(e.get("event") == "pin_change_success" for e in events)
+    for event in events:
+        detail = str(event.get("detail", "")).lower()
+        assert temp_pin not in detail
+        assert original_pin not in detail
+        assert "pin=" not in detail
+
+    # Restore original PIN for sibling tests sharing the module-scoped client.
+    #
+    # NX-05: PIN 변경은 세대(epoch)를 올려 기존 토큰을 모두 폐기하므로, 두 번째
+    # 변경은 **새로 발급한 토큰**으로 호출해야 한다(재로그인 계약). 위 `token` 을
+    # 재사용하면 401 이 정상이다 — 이 사실은 tests/test_nx05_auth_epoch_revocation.py
+    # 가 별도로 고정한다.
+    rotated_token = auth_routes_mod.get_token_service().issue_token(subject="change-pin-test")
+    restore = auth_client.post(
+        "/api/auth/change-pin",
+        headers={"Authorization": f"Bearer {rotated_token}"},
+        json={"current_pin": temp_pin, "new_pin": original_pin},
+    )
+    assert restore.status_code == 200, restore.text
+    assert verify_pin(original_pin, cast(str, auth_routes_mod.get_current_pin_hash()))
+
+
+def test_change_pin_wrong_current(auth_client: TestClient):
+    """Wrong current_pin must return 401 and leave the stored hash unchanged."""
+    import antigravity_k.api.auth_routes as auth_routes_mod
+
+    original_hash = auth_routes_mod.get_current_pin_hash()
+    token = auth_routes_mod.get_token_service().issue_token(subject="change-pin-wrong")
+    resp = auth_client.post(
+        "/api/auth/change-pin",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_pin": "definitely-wrong", "new_pin": "9999"},
+    )
+    assert resp.status_code == 401
+    assert auth_routes_mod.get_current_pin_hash() == original_hash
+    assert verify_pin("test-pin-1234", cast(str, original_hash)) is True
+
+
+def test_change_pin_unauthenticated(auth_client: TestClient):
+    """Missing bearer must be rejected (middleware 401)."""
+    resp = auth_client.post(
+        "/api/auth/change-pin",
+        json={"current_pin": "test-pin-1234", "new_pin": "0000"},
+    )
+    assert resp.status_code == 401

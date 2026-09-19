@@ -1,0 +1,13 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.12, pytest-9.1.1, pluggy-1.6.0 -- /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+configfile: pyproject.toml
+plugins: cov-7.1.0, asyncio-1.4.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items
+
+tests/test_fr01_agent_execution_isolation.py::TestAgentTestSuiteExecution::test_backend_unavailable_fails_closed_without_execution PASSED [ 50%]
+tests/test_fr01_agent_execution_isolation.py::TestSandboxBoundary::test_output_quota_truncates PASSED [100%]
+
+============================== 2 passed in 0.41s ===============================

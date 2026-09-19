@@ -1,8 +1,49 @@
 """Tests for ReflectionAgent (reflection.py)."""
 
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import cast, final
 from unittest.mock import MagicMock, patch
 
+from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.reflection import ReflectionAgent
+
+
+@dataclass(frozen=True)
+class _ProcessResult:
+    stdout: str
+    stderr: str
+    returncode: int
+
+
+@final
+class _ModelManagerDouble:
+    response: str
+
+    def __init__(self, response: str):
+        self.response = response
+
+    def generate(self, prompt: str, *, target: str, model_id: str) -> str:
+        _ = (prompt, target, model_id)
+        return self.response
+
+
+def _agent_with_response(response: str) -> ReflectionAgent:
+    manager = cast(ModelManager, cast(object, _ModelManagerDouble(response)))
+    return ReflectionAgent("/tmp/test_project", manager)
+
+
+def _synthesize_skill(agent: ReflectionAgent, description: str) -> None:
+    synthesizer = cast(Callable[[str], object], getattr(agent, "_synthesize_skill"))
+    _ = synthesizer(description)
+
+
+def _git_run(*_args: object, **_kwargs: object) -> _ProcessResult:
+    return _ProcessResult(
+        stdout="diff --git a/file.py b/file.py\n+new code",
+        stderr="",
+        returncode=0,
+    )
 
 
 class TestReflectionAgent:
@@ -20,16 +61,8 @@ class TestReflectionAgent:
             result = agent.reflect_on_task("task1", "/tmp/worktree", "test task")
             assert result is None
 
-    @patch("os.path.exists")
-    @patch("subprocess.run")
-    def test_reflect_with_diff(self, mock_run, mock_exists):
-        mock_exists.return_value = True
-        mock_run.return_value.stdout = "diff --git a/file.py b/file.py\n+new code"
-        mock_run.return_value.stderr = ""
-        mock_run.return_value.returncode = 0
-
-        model_manager = MagicMock()
-        model_manager.generate.return_value = (
+    def test_reflect_with_diff(self):
+        response = (
             '{"learned_knowledge": {"title": "Error pattern", '
             '"summary": "Always check for None", '
             '"target_files": ["file.py"]}, '
@@ -37,56 +70,44 @@ class TestReflectionAgent:
             '"skill_description": ""}'
         )
 
-        agent = ReflectionAgent("/tmp/test_project", model_manager)
-        with patch.object(agent.ki_engine, "save_ki"):
-            agent.reflect_on_task("task1", "/tmp/worktree", "test")
-            # Should not raise
+        agent = _agent_with_response(response)
+        with patch("os.path.exists", return_value=True), patch("subprocess.run", side_effect=_git_run):
+            with patch.object(agent.ki_engine, "save_ki"):
+                agent.reflect_on_task("task1", "/tmp/worktree", "test")
+                # Should not raise
 
-    @patch("os.path.exists")
-    @patch("subprocess.run")
-    def test_reflect_with_auto_skill(self, mock_run, mock_exists):
-        mock_exists.return_value = True
-        mock_run.return_value.stdout = "diff --git a/file.py b/file.py\n+new code"
-        mock_run.return_value.stderr = ""
-        mock_run.return_value.returncode = 0
-
-        model_manager = MagicMock()
-        model_manager.generate.return_value = (
+    def test_reflect_with_auto_skill(self):
+        response = (
             '{"learned_knowledge": {"title": "Test", "summary": "Test"}, '
             '"propose_auto_skill": true, '
             '"skill_description": "A tool for parsing regex"}'
         )
 
-        agent = ReflectionAgent("/tmp/test_project", model_manager)
-        with patch.object(agent.ki_engine, "save_ki"):
-            with patch.object(agent, "_synthesize_skill"):
-                agent.reflect_on_task("task1", "/tmp/worktree", "test")
-                # Should not raise
+        agent = _agent_with_response(response)
+        with patch("os.path.exists", return_value=True), patch("subprocess.run", side_effect=_git_run):
+            with patch.object(agent.ki_engine, "save_ki"):
+                with patch.object(agent, "_synthesize_skill"):
+                    agent.reflect_on_task("task1", "/tmp/worktree", "test")
+                    # Should not raise
 
     def test_synthesize_skill_valid(self):
-        model_manager = MagicMock()
-        model_manager.generate.return_value = (
+        agent = _agent_with_response(
             "```python\nclass RegexParserTool(BaseTool):\n"
-            "    name = 'regex_parser'\n"
-            "    def execute(self, **kwargs):\n"
-            "        return 'parsed'\n"
-            "```"
+            + "    name = 'regex_parser'\n"
+            + "    def execute(self, **kwargs):\n"
+            + "        return 'parsed'\n"
+            + "```",
         )
-        agent = ReflectionAgent("/tmp/test_project", model_manager)
         with patch("builtins.open"):
             with patch("os.path.join", return_value="/tmp/skill.py"):
-                agent._synthesize_skill("A regex parser tool")
+                _synthesize_skill(agent, "A regex parser tool")
 
     def test_synthesize_skill_invalid(self):
-        model_manager = MagicMock()
-        model_manager.generate.return_value = "Not valid code"
-        agent = ReflectionAgent("/tmp/test_project", model_manager)
-        agent._synthesize_skill("invalid")
+        agent = _agent_with_response("Not valid code")
+        _synthesize_skill(agent, "invalid")
         # Should not crash
 
     def test_synthesize_skill_syntax_error(self):
-        model_manager = MagicMock()
-        model_manager.generate.return_value = "```python\nclass (MissingName):\n    pass\n```"
-        agent = ReflectionAgent("/tmp/test_project", model_manager)
-        agent._synthesize_skill("invalid syntax")
+        agent = _agent_with_response("```python\nclass (MissingName):\n    pass\n```")
+        _synthesize_skill(agent, "invalid syntax")
         # Should not crash

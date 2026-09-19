@@ -1,0 +1,63 @@
+
+=== 0. 동결 무해성 — 본 트리는 읽기만 한다 (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai) ===
+  미러: /tmp/nx10-promote3-dryrun-20260917T050258Z
+  본 트리에서 도는 soak: 78808
+  본 트리 지문 대상 경로 쓰기: 0건(아래 이동은 전부 미러에서 수행)
+
+=== 1. 미러 만들기 (객체 공유 클론 + 이 배치가 건드리는 파일만 복사) ===
+  [OK  ] 클론 완료(alternates — .git 을 복사하지 않는다)
+  [OK  ] 복사: docs/qa/2026-09-16-followup/nx10/soak_watch.py
+  [OK  ] 복사: docs/qa/2026-09-16-followup/nx10/soak_watch_loop.py
+  [OK  ] 복사: docs/qa/2026-09-16-followup/nx10/soak_control.sh
+  [OK  ] 복사: docs/qa/2026-09-16-followup/nx10/promote3
+  [OK  ] 인터프리터 연결(.venv 심볼릭)
+
+=== 2. 이동 전 상태 — 승격 위치에 아직 없고, 스테이징 시험이 초록인가 ===
+  [OK  ] 승격 위치 비어 있음: scripts/soak_watch.py
+  [OK  ] 승격 위치 비어 있음: scripts/soak_watch_loop.py
+  [OK  ] 승격 위치 비어 있음: scripts/soak_control.sh
+  [OK  ] 승격 위치 비어 있음: tests/test_soak_watch_contract.py
+  [OK  ] 승격 위치 비어 있음: tests/test_soak_control_contract.py
+  [OK  ] 스테이징 위치에서 두 계약 시험 초록(이동 전 기준선)
+
+=== 3. 이동(미러에서) ===
+  [OK  ] docs/qa/2026-09-16-followup/nx10/soak_watch.py → scripts/soak_watch.py (sha256 6643f3285663 동일)
+  [OK  ] docs/qa/2026-09-16-followup/nx10/soak_watch_loop.py → scripts/soak_watch_loop.py (sha256 d7b1df867443 동일)
+  [OK  ] docs/qa/2026-09-16-followup/nx10/soak_control.sh → scripts/soak_control.sh (sha256 38ffa91d4b21 동일)
+  [OK  ] docs/qa/2026-09-16-followup/nx10/promote3/test_soak_watch_contract.py → tests/test_soak_watch_contract.py (sha256 f7bf824145b7 동일)
+  [OK  ] docs/qa/2026-09-16-followup/nx10/promote3/test_soak_control_contract.py → tests/test_soak_control_contract.py (sha256 247ed74cfc0b 동일)
+
+=== 4. 이동 뒤 게이트(A·B·C·D) ===
+
+=== A. 승격 위치 계약 시험 ===
+tests/test_soak_control_contract.py::test_run_refuses_when_a_soak_is_already_live PASSED [100%]
+
+======================== 14 passed in 104.57s (0:01:44) ========================
+  [OK  ] 계약 시험 초록(14 passed) — 기록: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/promote3/promoted-contract-tests3.txt
+  [OK  ] 수집 경로가 승격 위치다(tests/ 의 노드로 실행됨)
+
+=== B. 도구 직접 실행 ===
+  [OK  ] scripts/soak_watch.py --selftest exit 0
+  [OK  ] scripts/soak_watch_loop.py --selftest exit 0
+  [OK  ] scripts/soak_control.sh 문법 검사(bash -n) 통과
+  [OK  ] scripts/soak_control.sh selftest 통과(승격 위치에서) — 기록: promoted-selftest3.txt
+
+=== C. 정적 게이트 ===
+  [OK  ] ruff check 통과
+  [OK  ] ruff format --check 통과
+
+=== D. 이빨 — tests/test_soak_watch_contract.py 는 scripts/soak_watch.py 없이 실패해야 한다 ===
+  [OK  ] 도구 없으면 실패한다(exit 1) — 조용한 스킵이 아니다
+
+=== D. 이빨 — tests/test_soak_watch_contract.py 는 scripts/soak_watch_loop.py 없이 실패해야 한다 ===
+  [OK  ] 도구 없으면 실패한다(exit 1) — 조용한 스킵이 아니다
+
+=== D. 이빨 — tests/test_soak_control_contract.py 는 scripts/soak_control.sh 없이 실패해야 한다 ===
+  [OK  ] 도구 없으면 실패한다(exit 1) — 조용한 스킵이 아니다
+
+=== 5. 스테이징 잔존 확인 ===
+  [OK  ] 스테이징 사본 0건(원본은 이동이다)
+
+=== 6. 결과 ===
+리허설 결과: ALL PASS — 본실행 준비 완료(지문에 닿는 변경은 아직 없다)
+exit=0

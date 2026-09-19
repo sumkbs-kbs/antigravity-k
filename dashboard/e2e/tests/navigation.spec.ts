@@ -15,7 +15,6 @@ test.describe('Dashboard Navigation', () => {
   test.beforeEach(async ({ page }) => {
     dashboard = new DashboardPage(page);
     await dashboard.goto();
-    await dashboard.handlePinModal();
   });
 
   test('should have visible sidebar navigation', async () => {

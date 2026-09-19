@@ -10,16 +10,43 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol, final, runtime_checkable
 
+from antigravity_k.engine import multimodal
 from antigravity_k.engine.benchmark_harness import TaskOutcome
 from antigravity_k.engine.language_normalizer import normalize_streaming_chunks
 from antigravity_k.engine.task_context_snapshot import save_task_context_snapshot
+from antigravity_k.engine.task_execution_context import TaskStateStoreProtocol
 from antigravity_k.engine.task_state_store import (
     TaskExecutionContext,
     TaskStateStore,
     current_task_execution_context,
 )
+from antigravity_k.engine.task_state_types import InvalidTaskTransitionError, TaskTransitionConflictError
 
 TaskOutcomeRecorder = Callable[[TaskOutcome], TaskOutcome | None]
+
+
+def _safe_task_transition(state_store: object, task_id: str, status: object, **kwargs: object) -> bool:
+    """DAT-01: CAS transition; conflict/terminal freeze → False (lost race)."""
+    transition = getattr(state_store, "transition")
+    try:
+        return bool(transition(task_id, status, **kwargs))
+    except (TaskTransitionConflictError, InvalidTaskTransitionError):
+        return False
+
+
+def _append_terminal_domain_event(
+    state_store: object,
+    task_id: str,
+    event_type: str,
+    payload_json: str,
+    *,
+    cas_won: bool,
+) -> None:
+    """DAT-01 F2: append competing terminal domain events only when CAS transition succeeded."""
+    if not cas_won:
+        return
+    append = getattr(state_store, "append_execution_event")
+    _ = append(task_id, event_type, payload_json)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,10 +71,12 @@ class MaxRunResultPort(Protocol):
 
 
 class MaxEnginePort(Protocol):
+    def set_max_workers(self, n: int) -> None: ...
+
     def run(
         self,
         task_spec: dict[str, object],
-        orchestrator: StreamOrchestratorPort,
+        orchestrator: object | None = None,
     ) -> MaxRunResultPort: ...
 
 
@@ -61,7 +90,7 @@ class TaskExecutionBindingPort(Protocol):
     def bind_task_execution(
         self,
         task_id: str,
-        state_store: TaskStateStore,
+        state_store: TaskStateStoreProtocol,
     ) -> AbstractContextManager[None]: ...
 
 
@@ -133,7 +162,7 @@ class DirectTaskExecution:
             return engine.run(task_spec, orchestrator=self._orchestrator)
 
         state_store = execution_context.state_store
-        _ = state_store.transition(execution_context.task_id, "running")
+        _ = _safe_task_transition(state_store, execution_context.task_id, "running")
         _ = state_store.append_execution_event(
             execution_context.task_id,
             "max_execution_started",
@@ -143,39 +172,48 @@ class DirectTaskExecution:
             with self._execution_binding(execution_context):
                 result = engine.run(task_spec, orchestrator=self._orchestrator)
         except Exception as exc:  # noqa: BLE001
-            _ = state_store.transition(execution_context.task_id, "failed", error=str(exc))
-            _ = state_store.append_execution_event(
+            cas_won = _safe_task_transition(state_store, execution_context.task_id, "failed", error=str(exc))
+            _append_terminal_domain_event(
+                state_store,
                 execution_context.task_id,
                 "max_execution_failed",
                 json.dumps({"error": str(exc)}, sort_keys=True),
+                cas_won=cas_won,
             )
             raise
 
         output = str(getattr(result, "final_output", ""))
         error = getattr(result, "error", None)
         if output:
-            _ = state_store.transition(execution_context.task_id, "done", output=output)
-            _ = state_store.append_execution_event(
+            cas_won = _safe_task_transition(state_store, execution_context.task_id, "done", output=output)
+            _append_terminal_domain_event(
+                state_store,
                 execution_context.task_id,
                 "max_execution_completed",
                 json.dumps({"output_length": len(output)}, sort_keys=True),
+                cas_won=cas_won,
             )
         else:
             message = str(error or "MAX produced no output")
-            _ = state_store.transition(execution_context.task_id, "failed", error=message)
-            _ = state_store.append_execution_event(
+            cas_won = _safe_task_transition(state_store, execution_context.task_id, "failed", error=message)
+            _append_terminal_domain_event(
+                state_store,
                 execution_context.task_id,
                 "max_execution_failed",
                 json.dumps({"error": message}, sort_keys=True),
+                cas_won=cas_won,
             )
         return result
 
     @staticmethod
     def _latest_user_text(messages: Sequence[Mapping[str, str]]) -> str:
+        # NX-09-F03: content 가 멀티모달 파트 배열일 수 있다(첨부). 이 값은 작업 생성·
+        # 도구 계약 판정에 **문자열**로 들어가므로 반드시 텍스트로 접는다 — 그대로
+        # 넘기면 state_store 바인딩이 터진다(실측: 첨부 요청이 500 으로 죽었다).
         for message in reversed(messages):
             if message.get("role") == "user":
-                return message.get("content", "")
-        return messages[-1].get("content", "") if messages else ""
+                return multimodal.flatten_content(message.get("content", ""))
+        return multimodal.flatten_content(messages[-1].get("content", "")) if messages else ""
 
     def _create_execution(self, prompt: str, mode: str) -> TaskExecutionContext | None:
         task_runner = self._task_runner
@@ -212,7 +250,7 @@ class DirectTaskExecution:
             escaped = re.escape(tool_name.casefold())
             # "X tool" / "X 도구" form, and Korean instrumental/object particles
             # (X로/으로/을/를) that unambiguously name the tool as the means/object.
-            pattern = rf"(?<!\w){escaped}(?!\w)\s*(?:tool|도구)" rf"|(?<!\w){escaped}(?:로|으로|을|를)"
+            pattern = rf"(?<!\w){escaped}(?!\w)\s*(?:tool|도구)|(?<!\w){escaped}(?:로|으로|을|를)"
             if re.search(pattern, lowered_prompt):
                 contracted.append(tool_name)
         return contracted
@@ -242,7 +280,7 @@ class DirectTaskExecution:
     ) -> Iterator[str]:
         state_store = execution_context.state_store
         started_at = time.monotonic()
-        _ = state_store.transition(execution_context.task_id, "running")
+        _ = _safe_task_transition(state_store, execution_context.task_id, "running")
         _ = state_store.append_execution_event(
             execution_context.task_id,
             f"{execution_type}_started",
@@ -265,27 +303,31 @@ class DirectTaskExecution:
         except Exception as exc:  # noqa: BLE001
             output = "".join(output_parts)
             self._save_resume_checkpoint(execution_context, output)
-            _ = state_store.transition(
+            cas_won = _safe_task_transition(
+                state_store,
                 execution_context.task_id,
                 "failed",
                 output=output,
                 error=str(exc),
             )
-            _ = state_store.append_execution_event(
+            _append_terminal_domain_event(
+                state_store,
                 execution_context.task_id,
                 f"{execution_type}_failed",
                 json.dumps({"error": str(exc)}, sort_keys=True),
+                cas_won=cas_won,
             )
-            self._record_task_outcome(
-                execution_context.task_id,
-                target_model,
-                self._latest_user_text(messages),
-                output,
-                started_at,
-                success=False,
-                completion_reason="failed",
-                error=str(exc),
-            )
+            if cas_won:
+                self._record_task_outcome(
+                    execution_context.task_id,
+                    target_model,
+                    self._latest_user_text(messages),
+                    output,
+                    started_at,
+                    success=False,
+                    completion_reason="failed",
+                    error=str(exc),
+                )
             raise
         else:
             output = "".join(output_parts)
@@ -303,40 +345,46 @@ class DirectTaskExecution:
                 final_agent_output = str(getattr(self._orchestrator, "_last_agent_output", "") or "")
                 if final_agent_output and final_agent_output != initial_agent_output:
                     output = final_agent_output
-                _ = state_store.transition(execution_context.task_id, "done", output=output)
-                _ = state_store.append_execution_event(
+                cas_won = _safe_task_transition(state_store, execution_context.task_id, "done", output=output)
+                _append_terminal_domain_event(
+                    state_store,
                     execution_context.task_id,
                     f"{execution_type}_completed",
                     json.dumps({"output_length": len(output)}, sort_keys=True),
+                    cas_won=cas_won,
                 )
-                self._record_task_outcome(
-                    execution_context.task_id,
-                    target_model,
-                    self._latest_user_text(messages),
-                    output,
-                    started_at,
-                    success=True,
-                    completion_reason="done",
-                )
+                if cas_won:
+                    self._record_task_outcome(
+                        execution_context.task_id,
+                        target_model,
+                        self._latest_user_text(messages),
+                        output,
+                        started_at,
+                        success=True,
+                        completion_reason="done",
+                    )
         finally:
             record = state_store.get_task(execution_context.task_id)
             if record is not None and record["status"] == "running":
                 output = "".join(output_parts)
-                _ = state_store.transition(execution_context.task_id, "cancelled", output=output)
-                _ = state_store.append_execution_event(
+                cas_won = _safe_task_transition(state_store, execution_context.task_id, "cancelled", output=output)
+                _append_terminal_domain_event(
+                    state_store,
                     execution_context.task_id,
                     f"{execution_type}_cancelled",
                     json.dumps({"output_length": len(output)}, sort_keys=True),
+                    cas_won=cas_won,
                 )
-                self._record_task_outcome(
-                    execution_context.task_id,
-                    target_model,
-                    self._latest_user_text(messages),
-                    output,
-                    started_at,
-                    success=False,
-                    completion_reason="cancelled",
-                )
+                if cas_won:
+                    self._record_task_outcome(
+                        execution_context.task_id,
+                        target_model,
+                        self._latest_user_text(messages),
+                        output,
+                        started_at,
+                        success=False,
+                        completion_reason="cancelled",
+                    )
 
     @staticmethod
     def _save_resume_checkpoint(execution_context: TaskExecutionContext, output: str) -> None:

@@ -38,7 +38,7 @@ date: 2026-08-17
 | 주장 경로 | 실측 | 상태 |
 |:--|:--|:--:|
 | engine/orchestrator/agent.py, model_manager, model_registry, model_router, rag_indexer, vault, security_policy, quality_gate, cost_guard, secret_scanner, error_classifier, tool_guardrails, tool_loop, tool_executor, memory/, code_intel/, provider_adapters/ | 전부 존재 | ✅ |
-| agents/ (coordinator, base_agent, scout_agent, trainer_agent) | 전부 존재 | ✅ |
+| `agents/` base/scout/trainer 모듈 및 레거시 coordinator/team_manager | 일부 유지·일부 삭제 | 🟡 | 현재 실행 경로는 `engine/orchestrator/`와 `model_router.py`를 사용하며, coordinator/team_manager 삭제 근거는 `docs/DELETE_AUDIT_REPORT.md`에 기록됨 |
 | api/ (server.py, models.py, routes/, dependencies.py) | 존재, routes 14개 모듈 | ✅ |
 | dashboard/ (Vite + Vanilla JS) | 존재 | ✅ 빌드·시각 미검증 |
 | Makefile, Dockerfile, docker-entrypoint.sh, .github/workflows | 존재 | ✅ |

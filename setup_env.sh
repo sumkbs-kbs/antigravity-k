@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Antigravity-K: M5 Max 개발 환경 자동 설정 스크립트
+# Ssak-Ai: M5 Max 개발 환경 자동 설정 스크립트
 # ============================================================================
 # 대상: macOS Apple Silicon (M5 Max, 128GB Unified Memory)
 # 용도: 완전 로컬 AI 에이전트 환경 구축
@@ -315,7 +315,7 @@ print_summary() {
 
     echo -e ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${GREEN}Antigravity-K 환경 설정 완료!${NC}                          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${GREEN}Ssak-Ai 환경 설정 완료!${NC}                                ${CYAN}║${NC}"
     echo -e "${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
     echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  다음 단계:                                              ${CYAN}║${NC}"
@@ -336,7 +336,7 @@ print_summary() {
 main() {
     echo -e ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${GREEN}Antigravity-K${NC} — Local Engine for SHI                    ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${GREEN}Ssak-Ai${NC} — Local Engine for SHI                          ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  M5 Max (128GB) 개발 환경 설정                            ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo -e ""

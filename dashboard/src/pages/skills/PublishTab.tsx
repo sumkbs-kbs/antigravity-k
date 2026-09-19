@@ -14,12 +14,13 @@ import EmptyState from './EmptyState';
 type PublishMode = 'npm' | 'github';
 type Step = 'idle' | 'validating' | 'publishing' | 'done' | 'error';
 
-export const HISTORY_KEY = 'agk_publish_history';
+export const HISTORY_KEY = 'agk_publish_history:v1';
+const LEGACY_HISTORY_KEY = 'agk_publish_history';
 export const MAX_HISTORY = 50;
 
 export function loadHistory(): PublishHistoryEntry[] {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
+    const raw = localStorage.getItem(HISTORY_KEY) ?? localStorage.getItem(LEGACY_HISTORY_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -64,7 +65,7 @@ const PublishTab: React.FC = () => {
   const [publishMode, setPublishMode] = useState<PublishMode>('npm');
   const [step, setStep] = useState<Step>('idle');
   const [result, setResult] = useState<PublishResult | null>(null);
-  const [ghRepo, setGhRepo] = useState('ssak-comp/antigravity-k');
+  const [ghRepo, setGhRepo] = useState('ssak-comp/Ssak-Ai');
   const [ghDraft, setGhDraft] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [npmTag, setNpmTag] = useState('latest');
@@ -75,6 +76,7 @@ const PublishTab: React.FC = () => {
   const [silentLoading, setSilentLoading] = useState(false);
   const skillCountRef = useRef(0);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const publishingRef = useRef(false);
 
   const loadLocalSkills = useCallback(async (silent = false) => {
     if (silent) {
@@ -84,6 +86,7 @@ const PublishTab: React.FC = () => {
     }
     try {
       const res = await fetch('/api/system/skills/local');
+      if (!res.ok) throw new Error(`Local skills request failed (${res.status})`);
       const data = await res.json();
       const skills: LocalSkill[] = data.skills || [];
 
@@ -102,7 +105,10 @@ const PublishTab: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { loadLocalSkills(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const timer = setTimeout(() => void loadLocalSkills(), 0);
+    return () => clearTimeout(timer);
+  }, [loadLocalSkills]);
 
   // Auto-polling: silently check for new skills every 15s
   useEffect(() => {
@@ -112,10 +118,11 @@ const PublishTab: React.FC = () => {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, []);
+  }, [loadLocalSkills]);
 
   const handlePublish = useCallback(async () => {
-    if (!selectedSkill) return;
+    if (!selectedSkill || step === 'publishing' || publishingRef.current) return;
+    publishingRef.current = true;
     setStep('publishing');
     setResult(null);
 
@@ -124,7 +131,7 @@ const PublishTab: React.FC = () => {
         ? '/api/system/skills/publish-npm'
         : '/api/system/skills/publish-github';
 
-      const body: Record<string, any> = {
+      const body: Record<string, string | boolean> = {
         skill_name: selectedSkill,
         dry_run: dryRun,
       };
@@ -140,6 +147,7 @@ const PublishTab: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      if (!res.ok) throw new Error(`Publish request failed (${res.status})`);
       const data = await res.json();
 
       let publishResult: PublishResult;
@@ -170,11 +178,7 @@ const PublishTab: React.FC = () => {
 
       // Save to history
       const entry = buildEntry(publishResult, dryRun);
-      setHistory(prev => {
-        const updated = [entry, ...prev].slice(0, MAX_HISTORY);
-        saveHistory(updated);
-        return updated;
-      });
+      setHistory(prev => [entry, ...prev].slice(0, MAX_HISTORY));
     } catch (err) {
       const publishResult: PublishResult = {
         success: false,
@@ -189,13 +193,15 @@ const PublishTab: React.FC = () => {
 
       // Save failure to history
       const entry = buildEntry(publishResult, dryRun);
-      setHistory(prev => {
-        const updated = [entry, ...prev].slice(0, MAX_HISTORY);
-        saveHistory(updated);
-        return updated;
-      });
+      setHistory(prev => [entry, ...prev].slice(0, MAX_HISTORY));
+    } finally {
+      publishingRef.current = false;
     }
-  }, [selectedSkill, publishMode, dryRun, npmTag, ghRepo, ghDraft]);
+  }, [selectedSkill, publishMode, dryRun, npmTag, ghRepo, ghDraft, step]);
+
+  useEffect(() => {
+    saveHistory(history);
+  }, [history]);
 
   const clearHistory = useCallback(() => {
     setHistory([]);
@@ -278,6 +284,9 @@ const PublishTab: React.FC = () => {
                   : '1px solid var(--glass-border, rgba(255,255,255,0.1))',
                 transition: 'all 0.2s ease',
               }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedSkill(skill.name); } }}
               onClick={() => {
                 setSelectedSkill(skill.name);
                 setStep('idle');
@@ -311,8 +320,8 @@ const PublishTab: React.FC = () => {
               </div>
               {skill.warnings.length > 0 && (
                 <div style={{ marginTop: 8, fontSize: 11, color: 'var(--warning, #d29922)' }}>
-                  {skill.warnings.slice(0, 2).map((w, i) => (
-                    <div key={i}>⚠️ {esc(w)}</div>
+                  {skill.warnings.slice(0, 2).map(w => (
+                    <div key={w}>⚠️ {esc(w)}</div>
                   ))}
                   {skill.warnings.length > 2 && <div>...and {skill.warnings.length - 2} more</div>}
                 </div>
@@ -473,12 +482,12 @@ const PublishTab: React.FC = () => {
               <div>{result.summary}</div>
               {result.errors.length > 0 && (
                 <div style={{ marginTop: 8, color: '#f85149' }}>
-                  {result.errors.map((e, i) => <div key={i}>• {e}</div>)}
+                  {result.errors.map(e => <div key={e}>• {e}</div>)}
                 </div>
               )}
               {result.warnings.length > 0 && (
                 <div style={{ marginTop: 8, color: '#d29922' }}>
-                  {result.warnings.map((w, i) => <div key={i}>⚠️ {w}</div>)}
+                  {result.warnings.map(w => <div key={w}>⚠️ {w}</div>)}
                 </div>
               )}
               {result.npm_url && (
@@ -526,6 +535,9 @@ const PublishTab: React.FC = () => {
             userSelect: 'none',
           }}
           onClick={() => setHistoryExpanded(!historyExpanded)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHistoryExpanded(value => !value); } }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 16 }}>📋</span>
@@ -577,6 +589,9 @@ const PublishTab: React.FC = () => {
                         transition: 'all 0.15s ease',
                       }}
                       onClick={() => setExpandedEntryId(expandedEntryId === entry.id ? null : entry.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedEntryId(expandedEntryId === entry.id ? null : entry.id); } }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
                     >
@@ -627,12 +642,12 @@ const PublishTab: React.FC = () => {
 
                         {entry.errors.length > 0 && (
                           <div style={{ marginTop: 6, color: '#f85149' }}>
-                            {entry.errors.map((e, i) => <div key={i}>• {e}</div>)}
+                            {entry.errors.map(e => <div key={e}>• {e}</div>)}
                           </div>
                         )}
                         {entry.warnings.length > 0 && (
                           <div style={{ marginTop: 4, color: '#d29922' }}>
-                            {entry.warnings.map((w, i) => <div key={i}>⚠️ {w}</div>)}
+                            {entry.warnings.map(w => <div key={w}>⚠️ {w}</div>)}
                           </div>
                         )}
                         {entry.npm_url && (

@@ -2,21 +2,38 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
 import sys
+from collections.abc import Callable
 from html import unescape
-from typing import Any
+from typing import Protocol, cast
+
+JsonObject = dict[str, object]
+
+
+class _SlangHttpModule(Protocol):
+    BlockedError: type[Exception]
+    NotFoundError: type[Exception]
+    UpstreamError: type[Exception]
+    build_namuwiki_url: Callable[[str], str]
+    fetch_html: Callable[..., str]
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _slang_http import (  # noqa: E402
-    BlockedError,
-    NotFoundError,
-    UpstreamError,
-    build_namuwiki_url,
-    fetch_html,
+_slang_http = cast(
+    _SlangHttpModule,
+    cast(
+        object,
+        importlib.import_module(f"{__package__}._slang_http" if __package__ else "_slang_http"),
+    ),
 )
+BlockedError = _slang_http.BlockedError
+NotFoundError = _slang_http.NotFoundError
+UpstreamError = _slang_http.UpstreamError
+build_namuwiki_url = _slang_http.build_namuwiki_url
+fetch_html = _slang_http.fetch_html
 
 DEFAULT_TIMEOUT = 15
 DEFAULT_MAX_LENGTH = 1500
@@ -35,7 +52,10 @@ SECTION_NUMBER_PREFIX_RE = re.compile(r"^\s*\d+(?:\.\d+)*\.\s+", re.MULTILINE)
 EDIT_AFFORDANCE_RE = re.compile(r"\[\s*편집\s*\]")
 CATEGORY_NAV_RE = re.compile(r"\[\s*펼치기\s*[·・•]\s*접기\s*\][^\n]*")
 DETAILS_PELCHIGI_RE = re.compile(
-    r"<details\b[^>]*>" r"\s*<summary\b[^>]*>[^<]*펼치기[^<]*</summary>" r".*?" r"</details>",
+    r"<details\b[^>]*>"
+    + r"\s*<summary\b[^>]*>[^<]*펼치기[^<]*</summary>"
+    + r".*?"
+    + r"</details>",
     re.DOTALL | re.IGNORECASE,
 )
 OG_DESCRIPTION_RE = re.compile(
@@ -91,7 +111,7 @@ def _h2_inner_text(h2_tag_html: str) -> str:
     opening_end = h2_tag_html.index(">") + 1
     closing_start = h2_tag_html.rindex("<")
     inner = h2_tag_html[opening_end:closing_start]
-    return unescape(TAG_RE.sub("", inner)).strip()
+    return str(unescape(TAG_RE.sub("", inner)).strip())
 
 
 def _is_numbered_section_h2(h2_tag_html: str) -> bool:
@@ -170,13 +190,16 @@ def lookup(
     *,
     timeout: int = DEFAULT_TIMEOUT,
     max_length: int = DEFAULT_MAX_LENGTH,
-) -> dict[str, Any]:
+) -> JsonObject:
     input_value = term_or_url.strip()
     if not input_value:
         raise ValueError("term_or_url is empty")
 
-    url = build_namuwiki_url(input_value)
-    result: dict[str, Any] = {
+    if _is_url(input_value):
+        url = build_namuwiki_url(input_value)
+    else:
+        url = build_namuwiki_url(input_value)
+    result: JsonObject = {
         "input": term_or_url,
         "url": url,
         "fetched": False,
@@ -219,23 +242,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "summary. Gracefully reports when the upstream blocks the request."
         )
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "term_or_url",
         help="Slang term (e.g. '중꺾마') or full Namu Wiki URL.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--timeout",
         type=int,
         default=DEFAULT_TIMEOUT,
         help=f"HTTP timeout in seconds. Default: {DEFAULT_TIMEOUT}.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--max-length",
         type=int,
         default=DEFAULT_MAX_LENGTH,
         help=f"Summary truncation length (0 = unlimited). Default: {DEFAULT_MAX_LENGTH}.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--format",
         choices=["json", "text"],
         default="json",
@@ -244,17 +267,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _format_text(result: dict) -> str:
+def _as_text(value: object) -> str:
+    return value if isinstance(value, str) else str(value)
+
+
+def _format_text(result: JsonObject) -> str:
     lines: list[str] = []
-    lines.append(f"URL: {result['url']}")
-    if result["fetched"]:
-        lines.append(f"Title: {result['title']}")
+    lines.append(f"URL: {_as_text(result['url'])}")
+    if bool(result["fetched"]):
+        lines.append(f"Title: {_as_text(result['title'])}")
         lines.append("")
-        lines.append(result["summary"] or "(summary not extracted)")
+        summary = _as_text(result["summary"])
+        lines.append(summary or "(summary not extracted)")
     else:
         lines.append("Fetch failed.")
-        lines.append(f"Reason: {result.get('block_reason')}")
-        lines.append(f"Detail: {result.get('error')}")
+        lines.append(f"Reason: {_as_text(result.get('block_reason'))}")
+        lines.append(f"Detail: {_as_text(result.get('error'))}")
     return "\n".join(lines) + "\n"
 
 
@@ -262,10 +290,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
     try:
+        term_or_url = cast(str, args.term_or_url)
+        timeout = cast(int, args.timeout)
+        max_length = cast(int, args.max_length)
         result = lookup(
-            args.term_or_url,
-            timeout=args.timeout,
-            max_length=args.max_length,
+            term_or_url,
+            timeout=timeout,
+            max_length=max_length,
         )
     except ValueError as error:
         print(
@@ -274,10 +305,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    if args.format == "json":
+    if cast(str, args.format) == "json":
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
-        sys.stdout.write(_format_text(result))
+        _ = sys.stdout.write(_format_text(result))
     return 0 if result["fetched"] else 2
 
 

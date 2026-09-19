@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-05",
+  "attempt": 1,
+  "status": "REVIEW",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "changed_files": [
+    "src/antigravity_k/engine/conversation_store.py",
+    "tests/test_fr05_conversation_authoritative_reads.py (new)"
+  ],
+  "required_scenarios": [
+    {"id": "cached-reader-sees-rev2", "required": true, "expected": "get/get_revision observe other worker's append immediately", "observed": "rev2 + 2 messages after remote append", "verdict": "PASS"},
+    {"id": "stale-get-or-create-conflict", "required": true, "expected": "stale expected revision rejected", "observed": "StaleConversationRevisionError raised; pre-fix repro accepted it (logs/repro-after-fix.txt shows script now fails at the stale call by design)", "verdict": "PASS"},
+    {"id": "stale-cas-rejected", "required": true, "expected": "compare_and_set with stale expected returns False", "observed": "False after remote append", "verdict": "PASS"},
+    {"id": "concurrent-create-append-equality", "required": true, "expected": "exactly one success; final messages == successes", "observed": "2-process barrier race: 1 ok, message count 1", "verdict": "PASS"},
+    {"id": "append-vs-compact-single-cas", "required": true, "expected": "one CAS winner, revision single increment", "observed": "1 ok, final revision 3", "verdict": "PASS"},
+    {"id": "restart-consistency", "required": true, "expected": "fresh store reads same state", "observed": "rev1, message_count 1", "verdict": "PASS"},
+    {"id": "deleted-file-invalidates-cache", "required": true, "expected": "no stale resurrection after deletion", "observed": "get/get_revision return None after unlink", "verdict": "PASS"},
+    {"id": "corrupt-payload-contract", "required": true, "expected": "existing contract kept (log + last known state)", "observed": "revision 1 still served from cache, no crash", "verdict": "PASS"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "Every public read now takes the cross-process flock and re-reads disk (correctness first; caching optimization explicitly deferred by plan RP-05 item 2).",
+    "get() still returns the live record object (existing contract); callers must not mutate it out-of-band — assemble paths use snapshot()/prompt_messages() copies. Full caller audit remains for RP-14 review.",
+    "R05-11 (real API worker path) covered indirectly via tests/test_conversation_api_ctx01.py passing; explicit worker-process API replay can be strengthened in RP-12.",
+    "R15-03 note: append equality (success count == message count) asserted here.",
+    "Independent review (R05-12) deferred to RP-14."
+  ]
+}

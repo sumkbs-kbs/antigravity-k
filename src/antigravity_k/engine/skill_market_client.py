@@ -17,12 +17,93 @@ import json
 import logging
 import os
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias, TypedDict, cast, final
 
 logger = logging.getLogger(__name__)
+
+JsonValue: TypeAlias = str | int | float | bool | None | Mapping[str, "JsonValue"] | Sequence["JsonValue"]
+JsonObject: TypeAlias = dict[str, JsonValue]
+
+
+class SkillListingDict(TypedDict):
+    name: str
+    skill_name: str
+    version: str
+    description: str
+    keywords: list[str]
+    publisher: str
+    date: str
+
+
+class SkillDetailAgkDict(TypedDict):
+    skill: bool
+    display_name: str
+    categories: list[str]
+    min_agent_version: str
+    platforms: list[str]
+    required_tools: list[str]
+    risk_level: str
+    trust_level: str
+    auto_match_keywords: list[str]
+    mcp_server_id: str
+
+
+class SkillDetailDict(TypedDict):
+    name: str
+    skill_name: str
+    version: str
+    description: str
+    keywords: list[str]
+    agk: SkillDetailAgkDict
+    license: str
+    homepage: str
+
+
+class InstalledSkillDict(TypedDict):
+    name: str
+    version: str
+    skill_name: str
+    description: str
+    install_path: str
+    installed_at: str
+    updated_at: str
+    risk_level: str
+    trust_level: str
+    mcp_server_id: str
+
+
+def _json_object(value: JsonValue) -> JsonObject:
+    return value if isinstance(value, dict) else {}
+
+
+def _json_string(value: JsonValue | None, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _json_bool(value: JsonValue | None, default: bool = False) -> bool:
+    return value if isinstance(value, bool) else default
+
+
+def _json_string_list(value: JsonValue | None) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Sequence):
+        return [item for item in value if isinstance(item, str)]
+    return []
+
+
+def _json_object_list(value: JsonValue | None) -> list[JsonObject]:
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _load_json_object(raw: str) -> JsonObject:
+    return _json_object(cast(JsonValue, json.loads(raw)))
 
 
 # ─── 상수 ─────────────────────────────────────────────────────────────
@@ -64,7 +145,7 @@ class SkillListing:
         """AGK 스킬 패키지 여부."""
         return self.name.startswith(AGK_SKILL_SCOPE)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> SkillListingDict:
         return {
             "name": self.name,
             "skill_name": self.skill_name,
@@ -90,7 +171,7 @@ class SkillDetail:
     keywords: list[str] = field(default_factory=list)
 
     # package.json 원본
-    raw_package_json: dict[str, Any] = field(default_factory=dict)
+    raw_package_json: JsonObject = field(default_factory=dict)
 
     # AGK 전용 메타데이터 (antigravityK 필드)
     agk_skill: bool = False
@@ -126,7 +207,7 @@ class SkillDetail:
     def is_agk_skill(self) -> bool:
         return self.agk_skill or self.name.startswith(AGK_SKILL_SCOPE)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> SkillDetailDict:
         return {
             "name": self.name,
             "skill_name": self.skill_name,
@@ -172,7 +253,7 @@ class InstalledSkill:
         """업데이트 필요 여부 (최신 버전과 비교)."""
         return False  # 최신 버전은 별도 조회 필요
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> InstalledSkillDict:
         return {
             "name": self.name,
             "version": self.version,
@@ -190,6 +271,7 @@ class InstalledSkill:
 # ─── 메인 클라이언트 ──────────────────────────────────────────────────
 
 
+@final
 class SkillMarketClient:
     """npm Registry 기반 Skill Marketplace 클라이언트.
 
@@ -237,7 +319,7 @@ class SkillMarketClient:
 
         # 점수 정렬: AGK 스킬 우선, 설명 일치도
         query_lower = query.lower()
-        scored = []
+        scored: list[tuple[int, SkillListing]] = []
         for r in results:
             score = 0
             if r.is_agk_skill:
@@ -290,7 +372,7 @@ class SkillMarketClient:
                 )
                 return None
 
-            raw = json.loads(result.stdout)
+            raw = _load_json_object(result.stdout)
             return self._parse_view_result(package_name, raw)
 
         except json.JSONDecodeError as e:
@@ -331,18 +413,18 @@ class SkillMarketClient:
                 meta_file = skill_dir / ".agk_meta.json"
                 if meta_file.exists():
                     try:
-                        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                        meta = _load_json_object(meta_file.read_text(encoding="utf-8"))
                         skill = InstalledSkill(
-                            name=meta.get("name", skill_dir.name),
-                            version=meta.get("version", "0.0.0"),
+                            name=_json_string(meta.get("name"), skill_dir.name),
+                            version=_json_string(meta.get("version"), "0.0.0"),
                             skill_name=skill_dir.name,
-                            description=meta.get("description", ""),
+                            description=_json_string(meta.get("description")),
                             install_path=str(skill_dir),
-                            installed_at=meta.get("installed_at", ""),
-                            updated_at=meta.get("updated_at", ""),
-                            risk_level=meta.get("risk_level", "safe"),
-                            trust_level=meta.get("trust_level", "verified"),
-                            mcp_server_id=meta.get("mcp_server_id", ""),
+                            installed_at=_json_string(meta.get("installed_at")),
+                            updated_at=_json_string(meta.get("updated_at")),
+                            risk_level=_json_string(meta.get("risk_level"), "safe"),
+                            trust_level=_json_string(meta.get("trust_level"), "verified"),
+                            mcp_server_id=_json_string(meta.get("mcp_server_id")),
                         )
                         installed[skill.skill_name] = skill
                     except Exception:
@@ -352,19 +434,20 @@ class SkillMarketClient:
         state_file = self._state_file
         if state_file.exists():
             try:
-                global_state = json.loads(state_file.read_text(encoding="utf-8"))
-                for skill_name, data in global_state.get("installed", {}).items():
+                global_state = _load_json_object(state_file.read_text(encoding="utf-8"))
+                for skill_name, data_value in _json_object(global_state.get("installed")).items():
+                    data = _json_object(data_value)
                     if skill_name not in installed:
                         skill = InstalledSkill(
-                            name=data.get("name", f"{AGK_SKILL_SCOPE}{skill_name}"),
-                            version=data.get("version", "0.0.0"),
+                            name=_json_string(data.get("name"), f"{AGK_SKILL_SCOPE}{skill_name}"),
+                            version=_json_string(data.get("version"), "0.0.0"),
                             skill_name=skill_name,
-                            description=data.get("description", ""),
-                            install_path=data.get("install_path", ""),
-                            installed_at=data.get("installed_at", ""),
-                            updated_at=data.get("updated_at", ""),
-                            risk_level=data.get("risk_level", "safe"),
-                            trust_level=data.get("trust_level", "verified"),
+                            description=_json_string(data.get("description")),
+                            install_path=_json_string(data.get("install_path")),
+                            installed_at=_json_string(data.get("installed_at")),
+                            updated_at=_json_string(data.get("updated_at")),
+                            risk_level=_json_string(data.get("risk_level"), "safe"),
+                            trust_level=_json_string(data.get("trust_level"), "verified"),
                         )
                         installed[skill_name] = skill
             except Exception:
@@ -385,7 +468,7 @@ class SkillMarketClient:
         installed = self.get_installed(project_root)
         return any(s.skill_name == skill_name for s in installed)
 
-    def record_installation(self, package_name: str, version: str, install_path: str):
+    def record_installation(self, package_name: str, version: str, install_path: str) -> None:
         """스킬 설치를 상태 파일에 기록합니다.
 
         Args:
@@ -395,33 +478,36 @@ class SkillMarketClient:
         """
         skill_name = package_name[len(AGK_SKILL_SCOPE) :] if package_name.startswith(AGK_SKILL_SCOPE) else package_name
 
-        state: dict[str, Any] = {"installed": {}}
+        state: JsonObject = {"installed": {}}
         state_file = self._state_file
 
         # 기존 상태 로드
         if state_file.exists():
             try:
-                state = json.loads(state_file.read_text(encoding="utf-8"))
+                state = _load_json_object(state_file.read_text(encoding="utf-8"))
             except Exception:
                 state = {"installed": {}}
 
         now = datetime.now().isoformat()
-        state.setdefault("installed", {})[skill_name] = {
+        installed = _json_object(state.get("installed"))
+        existing = _json_object(installed.get(skill_name))
+        installed[skill_name] = {
             "name": package_name,
             "version": version,
             "install_path": install_path,
-            "installed_at": state.get("installed", {}).get(skill_name, {}).get("installed_at", now),
+            "installed_at": _json_string(existing.get("installed_at"), now),
             "updated_at": now,
         }
+        state["installed"] = installed
 
         try:
             state_file.parent.mkdir(parents=True, exist_ok=True)
-            state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+            _ = state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
             logger.info("[SkillMarket] Installation recorded: %s@%s", package_name, version)
         except Exception as e:
             logger.warning("[SkillMarket] Failed to record installation: %s", e)
 
-    def remove_installation(self, skill_name: str):
+    def remove_installation(self, skill_name: str) -> None:
         """스킬 설치 기록을 제거합니다.
 
         Args:
@@ -432,9 +518,9 @@ class SkillMarketClient:
             return
 
         try:
-            state = json.loads(state_file.read_text(encoding="utf-8"))
-            state.get("installed", {}).pop(skill_name, None)
-            state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+            state = _load_json_object(state_file.read_text(encoding="utf-8"))
+            _ = _json_object(state.get("installed")).pop(skill_name, None)
+            _ = state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
             logger.info("[SkillMarket] Installation removed: %s", skill_name)
         except Exception as e:
             logger.warning("[SkillMarket] Failed to remove installation: %s", e)
@@ -457,6 +543,7 @@ class SkillMarketClient:
         ]
 
         for i, r in enumerate(results[:15], 1):
+            _ = i
             installed_mark = "✅" if self.is_installed(r.skill_name) else "📦"
             version = r.version
             desc = (r.description[:80] + "...") if len(r.description) > 80 else r.description
@@ -485,28 +572,22 @@ class SkillMarketClient:
                 logger.debug("[SkillMarket] npm search error: %s", result.stderr.strip()[:200])
                 return []
 
-            raw_results = json.loads(result.stdout)
-            if not isinstance(raw_results, list):
-                return []
+            raw_results = _json_object_list(cast(JsonValue, json.loads(result.stdout)))
 
-            listings = []
+            listings: list[SkillListing] = []
             for item in raw_results:
-                if not isinstance(item, dict):
-                    continue
-                name = item.get("name", "")
-                links = item.get("links", {}) or {}
+                name = _json_string(item.get("name"))
+                links = _json_object(item.get("links"))
                 listing = SkillListing(
                     name=name,
-                    version=item.get("version", "0.0.0"),
-                    description=item.get("description", ""),
-                    keywords=item.get("keywords", []) or [],
-                    publisher=item.get("publisher", {}).get("username", "")
-                    if isinstance(item.get("publisher"), dict)
-                    else "",
-                    date=item.get("date", ""),
-                    npm_url=links.get("npm", ""),
-                    homepage=links.get("homepage", ""),
-                    repository=links.get("repository", ""),
+                    version=_json_string(item.get("version"), "0.0.0"),
+                    description=_json_string(item.get("description")),
+                    keywords=_json_string_list(item.get("keywords")),
+                    publisher=_json_string(_json_object(item.get("publisher")).get("username")),
+                    date=_json_string(item.get("date")),
+                    npm_url=_json_string(links.get("npm")),
+                    homepage=_json_string(links.get("homepage")),
+                    repository=_json_string(links.get("repository")),
                 )
                 listings.append(listing)
 
@@ -525,7 +606,7 @@ class SkillMarketClient:
             logger.exception("[SkillMarket] npm search error: %s", e)
             return []
 
-    def _parse_view_result(self, package_name: str, raw: dict[str, Any]) -> SkillDetail:
+    def _parse_view_result(self, package_name: str, raw: Mapping[str, JsonValue]) -> SkillDetail:
         """npm view JSON 출력에서 SkillDetail 객체를 생성합니다.
 
         Args:
@@ -535,58 +616,53 @@ class SkillMarketClient:
         Returns:
             SkillDetail 객체
         """
-        agk = raw.get("antigravityK", {}) or {}
-        if not isinstance(agk, dict):
-            agk = {}
+        agk = _json_object(raw.get("antigravityK"))
 
         # 최신 버전 정보 (npm view는 여러 버전을 포함할 수 있음)
-        version = raw.get("version", "0.0.0")
-        if isinstance(version, dict):
+        version_value = raw.get("version")
+        if isinstance(version_value, Mapping):
             # 다중 버전인 경우 가장 최신 태그
-            version = raw.get("dist-tags", {}).get("latest", "0.0.0")
+            version = _json_string(_json_object(raw.get("dist-tags")).get("latest"), "0.0.0")
+        else:
+            version = _json_string(version_value, "0.0.0")
 
-        description = raw.get("description", "")
-        if isinstance(description, dict):
-            description = next(iter(description.values()), "")
+        description_value = raw.get("description")
+        if isinstance(description_value, Mapping):
+            description = _json_string(next(iter(description_value.values()), None))
+        else:
+            description = _json_string(description_value)
 
-        keywords = raw.get("keywords", []) or []
-        if isinstance(keywords, str):
-            keywords = [keywords]
-
-        mcp = agk.get("mcp", {}) or {}
-        if not isinstance(mcp, dict):
-            mcp = {}
+        keywords = _json_string_list(raw.get("keywords"))
+        mcp = _json_object(agk.get("mcp"))
 
         return SkillDetail(
             name=package_name,
-            version=str(version),
-            description=str(description),
-            keywords=list(keywords),
-            raw_package_json=raw,
+            version=version,
+            description=description,
+            keywords=keywords,
+            raw_package_json=dict(raw),
             # antigravityK 필드
-            agk_skill=bool(agk.get("skill", False) or package_name.startswith(AGK_SKILL_SCOPE)),
-            agk_display_name=str(agk.get("displayName", "")),
-            agk_categories=list(agk.get("categories", []) or []),
-            agk_min_agent_version=str(agk.get("minAgentVersion", "") or ""),
-            agk_platforms=list(agk.get("platforms", []) or []),
-            agk_required_tools=list(agk.get("requiredTools", []) or []),
-            agk_optional_tools=list(agk.get("optionalTools", []) or []),
-            agk_risk_level=str(agk.get("riskLevel", "medium") or "medium"),
-            agk_trust_level=str(agk.get("trustLevel", "experimental") or "experimental"),
-            agk_requires_approval=bool(agk.get("requiresApproval", False)),
-            agk_auto_match_keywords=list(agk.get("autoMatchKeywords", []) or []),
-            agk_mcp_server_id=str(mcp.get("serverId", "")),
-            agk_mcp_transport=str(mcp.get("transport", "stdio")),
+            agk_skill=_json_bool(agk.get("skill")) or package_name.startswith(AGK_SKILL_SCOPE),
+            agk_display_name=_json_string(agk.get("displayName")),
+            agk_categories=_json_string_list(agk.get("categories")),
+            agk_min_agent_version=_json_string(agk.get("minAgentVersion")),
+            agk_platforms=_json_string_list(agk.get("platforms")),
+            agk_required_tools=_json_string_list(agk.get("requiredTools")),
+            agk_optional_tools=_json_string_list(agk.get("optionalTools")),
+            agk_risk_level=_json_string(agk.get("riskLevel"), "medium"),
+            agk_trust_level=_json_string(agk.get("trustLevel"), "experimental"),
+            agk_requires_approval=_json_bool(agk.get("requiresApproval")),
+            agk_auto_match_keywords=_json_string_list(agk.get("autoMatchKeywords")),
+            agk_mcp_server_id=_json_string(mcp.get("serverId")),
+            agk_mcp_transport=_json_string(mcp.get("transport"), "stdio"),
             # 공통 메타데이터
-            license=str(raw.get("license", "") or ""),
-            homepage=str(raw.get("homepage", "") or ""),
-            repository=str(
-                raw.get("repository", {}).get("url", "")
-                if isinstance(raw.get("repository"), dict)
-                else raw.get("repository", "")
-            ),
+            license=_json_string(raw.get("license")),
+            homepage=_json_string(raw.get("homepage")),
+            repository=_json_string(_json_object(raw.get("repository")).get("url"))
+            if isinstance(raw.get("repository"), Mapping)
+            else _json_string(raw.get("repository")),
             npm_url=f"https://www.npmjs.com/package/{package_name}",
-            last_published=str(raw.get("time", {}).get(version, "")) if isinstance(raw.get("time"), dict) else "",
-            readme_filename=str(raw.get("readmeFilename", "")),
+            last_published=_json_string(_json_object(raw.get("time")).get(version)),
+            readme_filename=_json_string(raw.get("readmeFilename")),
             has_readme=bool(raw.get("readme")),
         )

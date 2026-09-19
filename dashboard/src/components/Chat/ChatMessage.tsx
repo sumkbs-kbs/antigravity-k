@@ -5,17 +5,61 @@
  * GitHub Alerts, Mermaid diagrams, and Carousel slideshows.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ChatMessage as ChatMessageType } from '../../stores/chatStore';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import rehypeRaw from 'rehype-raw';
-import { preprocessContent } from '../../utils/formatContent';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import { preprocessContent, sanitizeMarkdown } from '../../utils/formatContent';
+// task 14: 도구 실패 봉투가 정상 답변처럼 보이지 않게 — 실패는 실패로 그린다.
+import { searchFailureNotice } from '../../utils/searchFailure';
+// CR-09(F05): mermaid는 CDN 전역이 아니라 다이어그램을 그릴 때 로컬에서 지연 로드한다.
+import { loadMermaid } from '../../utils/mermaidRuntime';
 
 interface Props {
   message: ChatMessageType;
 }
+
+const markdownSanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    'button',
+    'details',
+    'summary',
+    'div',
+    'span',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    details: ['open', 'className', 'style'],
+    summary: ['className', 'style'],
+    div: ['className', 'style', 'data*'],
+    span: ['className', 'style', 'data*'],
+    button: [
+      ...(defaultSchema.attributes?.button ?? []),
+      'type',
+      'className',
+      'style',
+      'data*',
+    ],
+    '*': [
+      ...(defaultSchema.attributes?.['*'] ?? []),
+      ['className', /^[A-Za-z0-9_-]+$/],
+      'style',
+      'data*',
+    ],
+  },
+};
 
 // ─── GitHub Alert Blockquote (fallback — main conversion in formatContent.ts) ──
 const GitHubAlert: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -28,7 +72,7 @@ const GitHubAlert: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 // ─── Mermaid Diagram ──────────────────────────────────────────────
 declare global {
   interface Window {
-    mermaid: any;
+    previewArtifact?: (filePath: string, fileName: string) => Promise<void>;
   }
 }
 
@@ -36,29 +80,30 @@ const MermaidDiagram: React.FC<{ code: string }> = ({ code }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const renderId = useRef(`mermaid-${Math.random().toString(36).slice(2, 9)}`).current;
+  const renderId = `mermaid-${useId().replaceAll(':', '')}`;
 
   useEffect(() => {
-    if (!containerRef.current || !window.mermaid) {
-      setError('Mermaid library not loaded');
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
 
     const render = async () => {
       try {
         if (!containerRef.current) return;
+        /*
+         * CR-09(F05): CDN의 window.mermaid 대신 로컬 의존성을 지연 로드한다.
+         * 로드 실패는 아래 catch가 그대로 사용자 오류 화면으로 보여준다.
+         */
+        const mermaid = await loadMermaid();
+        if (!containerRef.current) return;
         containerRef.current.innerHTML = '';
-        const { svg } = await window.mermaid.render(renderId, code);
+        const { svg } = await mermaid.render(renderId, code);
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
           setError(null);
         }
-      } catch (e: any) {
+      } catch (error) {
         if (!cancelled) {
-          setError(e.message || 'Mermaid render failed');
+          const message = error instanceof Error ? error.message : String(error);
+          setError(message || 'Mermaid render failed');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -113,10 +158,11 @@ const CarouselView: React.FC<{ slides: string[] }> = ({ slides }) => {
         <div className="carousel-dots">
           {slides.map((_, i) => (
             <button
-              key={i}
+              key={slides[i]}
               type="button"
               className={`carousel-dot ${i === current ? 'active' : ''}`}
               onClick={() => setCurrent(i)}
+              aria-label={`슬라이드 ${i + 1}로 이동`}
             />
           ))}
         </div>
@@ -132,8 +178,8 @@ const CarouselView: React.FC<{ slides: string[] }> = ({ slides }) => {
       <div className="carousel-slide">
         {title && <h4>{title}</h4>}
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight, rehypeRaw]}
+          remarkPlugins={[remarkGfm, remarkBreaks]}
+          rehypePlugins={[rehypeHighlight, rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
         >
           {body}
         </ReactMarkdown>
@@ -146,13 +192,26 @@ const CarouselView: React.FC<{ slides: string[] }> = ({ slides }) => {
 function extractCodeText(children: React.ReactNode): string {
   if (typeof children === 'string') return children;
   if (typeof children === 'number') return String(children);
-  if (children && typeof children === 'object' && 'props' in children) {
-    return extractCodeText((children as any).props.children);
+  if (React.isValidElement<{ children?: React.ReactNode }>(children)) {
+    return extractCodeText(children.props.children);
   }
   if (Array.isArray(children)) {
     return children.map(extractCodeText).join('');
   }
   return '';
+}
+
+/**
+ * CR-09: 하이라이트 span 트리를 렌더할 때 마지막 개행을 제거한다. 예전에는 평문으로
+ * 치환하면서 `\n` 하나를 떼어냈기 때문에, 그대로 두면 코드 블록 아래에 빈 줄이 생긴다.
+ */
+function trimTrailingNewline(children: React.ReactNode): React.ReactNode {
+  if (typeof children === 'string') return children.replace(/\n$/, '');
+  if (Array.isArray(children)) {
+    const last = children.at(-1);
+    if (typeof last === 'string') return [...children.slice(0, -1), last.replace(/\n$/, '')];
+  }
+  return children;
 }
 
 /** Extract the language name from a className like 'hljs language-typescript'. */
@@ -166,21 +225,38 @@ function extractLanguage(className?: string): string {
 const CodeBlock: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => {
   const language = extractLanguage(className);
   const code = extractCodeText(children).replace(/\n$/, '');
+  const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [code]);
 
   return (
     <div className="code-block">
       <div className="code-block-header">
-        <span>{language || 'code'}</span>
-        <button className="code-block-copy-btn" onClick={handleCopy}>
-          📋 복사
+        <div className="code-block-lang">
+          <span className="code-block-lang-icon">⚡</span>
+          <span>{language || 'code'}</span>
+        </div>
+        <button
+          type="button"
+          className={`code-block-copy-btn ${copied ? 'copied' : ''}`}
+          onClick={handleCopy}
+          title="코드 복사"
+        >
+          {copied ? '✓ 복사됨' : '📋 복사'}
         </button>
       </div>
       <pre>
-        <code className={className}>{code}</code>
+        {/*
+         * CR-09: rehype-highlight가 만든 토큰 span(hljs-keyword 등)을 그대로 렌더한다.
+         * 이전에는 평문(code)으로 치환해 토큰 색이 사라졌고, 로컬 번들로 가져온
+         * tokyo-night-dark 테마는 기저 색만 칠할 수 있었다. span은 이미
+         * rehype-sanitize의 `span: ['className', ...]` 스키마를 통과한 노드다.
+         */}
+        <code className={className}>{trimTrailingNewline(children)}</code>
       </pre>
     </div>
   );
@@ -192,14 +268,24 @@ const InlineCode: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 // ─── Message Action Buttons ─────────────────────────────────────────
 const MessageActions: React.FC<{ content: string }> = ({ content }) => {
+  const [copied, setCopied] = useState(false);
+
   const handleCopyAll = useCallback(() => {
-    navigator.clipboard.writeText(content).catch(() => {});
+    const clean = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    navigator.clipboard.writeText(clean).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [content]);
 
   return (
     <div className="message-actions">
-      <button className="msg-action-btn" onClick={handleCopyAll}>
-        📋 복사
+      <button
+        type="button"
+        className={`msg-action-btn ${copied ? 'copied' : ''}`}
+        onClick={handleCopyAll}
+        title="전체 응답 복사"
+      >
+        {copied ? '✓ 복사 완료' : '📋 복사'}
       </button>
     </div>
   );
@@ -207,58 +293,174 @@ const MessageActions: React.FC<{ content: string }> = ({ content }) => {
 
 function ChatMessageComponent({ message }: Props) {
   const { role, content } = message;
+  const handleBubbleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('[data-agk-action]')
+      : null;
+    if (!target || !event.currentTarget.contains(target)) return;
+
+    const action = target.dataset.agkAction;
+    if (action === 'approval') {
+      const text = target.dataset.response;
+      if (text) {
+        window.dispatchEvent(new CustomEvent('agk:approval-response', { detail: { text } }));
+      }
+      return;
+    }
+
+    if (action === 'preview') {
+      const filePath = target.dataset.path;
+      const fileName = target.dataset.name;
+      if (filePath && fileName) {
+        void window.previewArtifact?.(filePath, fileName);
+      }
+    }
+  }, []);
+
+  const handleBubbleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('[data-agk-action]')
+      : null;
+    if (target && !(target instanceof HTMLButtonElement)) target.click();
+  }, []);
+
   if (!content && role === 'assistant') return null;
   if (!content) return null;
 
   const avatar = role === 'user' ? '👤' : '🤖';
+  // 사용자 발화는 절대 실패로 재해석하지 않는다(사용자가 "Search Error:" 를 인용할 수 있다).
+  const failure = role === 'user' ? null : searchFailureNotice(content);
 
-  // Preprocess assistant content for custom agent patterns
-  const displayContent = role === 'assistant' ? preprocessContent(content) : content;
+  const displayContent = role === 'assistant'
+    ? preprocessContent(sanitizeMarkdown(content))
+    : content;
 
   return (
     <div className={`message ${role}`}>
       <div className="avatar">{avatar}</div>
-      <div className="bubble glass-panel">
+      <div
+        className={`bubble glass-panel ${role === 'assistant' ? 'antigravity-assistant-bubble' : 'antigravity-user-bubble'}`}
+        role={role === 'assistant' ? 'group' : undefined}
+        onClick={role === 'assistant' ? handleBubbleClick : undefined}
+        onKeyDown={role === 'assistant' ? handleBubbleKeyDown : undefined}
+      >
+        {role === 'assistant' && (
+          <div className="antigravity-assistant-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 6 }}>
+            <div className="assistant-identity-badge">
+              <span className="assistant-spark">✦</span>
+              <span className="assistant-identity-name">Ssak-Ai</span>
+            </div>
+            {message.agentMeta && (
+              <div className="assistant-agent-meta" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '11px', opacity: 0.85 }}>
+                <span className="badge badge-mode" style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 4 }}>
+                  ⚡ {message.agentMeta.mode || 'adaptive'}
+                </span>
+                {message.agentMeta.used_web && (
+                  <span className="badge badge-web" title="Ssak-Search 웹 검색 참조" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', padding: '2px 6px', borderRadius: 4 }}>
+                    🌐 web
+                  </span>
+                )}
+                {message.agentMeta.used_graphify && (
+                  <span className="badge badge-graphify" title="Graphify 코드베이스 하이브리드 검색" style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', padding: '2px 6px', borderRadius: 4 }}>
+                    🗺️ graphify
+                  </span>
+                )}
+                {message.agentMeta.passed !== null && message.agentMeta.passed !== undefined && (
+                  <span className={`badge ${message.agentMeta.passed ? 'badge-pass' : 'badge-fail'}`} style={{ background: message.agentMeta.passed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: message.agentMeta.passed ? '#4ade80' : '#f87171', padding: '2px 6px', borderRadius: 4 }}>
+                    {message.agentMeta.passed ? '✅ passed' : '❌ failed'}
+                  </span>
+                )}
+                {message.agentMeta.steps !== undefined && (
+                  <span style={{ color: 'var(--text-muted, #888)' }}>
+                    {message.agentMeta.steps} steps ({message.agentMeta.total_seconds?.toFixed(1) ?? '0.0'}s)
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {role === 'user' ? (
-          <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>
-        ) : (
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight, rehypeRaw]}
-            components={{
-              code({ className, children, ...props }) {
-                const isInline = extractLanguage(className) === '' && !className?.includes('hljs');
-                if (isInline) {
-                  return <InlineCode>{children}</InlineCode>;
-                }
-                const lang = extractLanguage(className);
-                const code = extractCodeText(children).replace(/\n$/, '');
-
-                // Mermaid diagram
-                if (lang === 'mermaid') {
-                  return <MermaidDiagram code={code} />;
-                }
-
-                // Carousel slides (slides separated by <!-- slide -->)
-                if (lang === 'carousel') {
-                  const slides = code.split(/<!--\s*slide\s*-->/).filter(Boolean).map(s => s.trim());
-                  return <CarouselView slides={slides} />;
-                }
-
-                return <CodeBlock className={className}>{children}</CodeBlock>;
-              },
-              blockquote({ children }) {
-                return <GitHubAlert>{children}</GitHubAlert>;
-              },
-              pre({ children }) {
-                return <>{children}</>;
-              },
+          <span className="user-message-text">{content}</span>
+        ) : failure ? (
+          <div
+            role="alert"
+            data-testid="chat-error-notice"
+            data-error-code={failure.code}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              borderInlineStart: '3px solid var(--error-color)',
+              paddingInlineStart: 10,
             }}
           >
-            {displayContent}
-          </ReactMarkdown>
+            <span style={{ fontSize: 12, color: 'var(--error-color)', fontWeight: 600 }}>
+              ⚠ 이 응답은 실패했습니다 ({failure.code})
+            </span>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{failure.detail}</span>
+            {/* 원문은 접어 둔다 — 진단에는 필요하고, 답변처럼 읽히면 안 된다. */}
+            <details>
+              <summary style={{ fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}>원문 보기</summary>
+              <pre style={{ margin: '6px 0 0', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                {failure.raw}
+              </pre>
+            </details>
+          </div>
+        ) : (
+          <div className="antigravity-markdown-body">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkBreaks]}
+              rehypePlugins={[rehypeHighlight, rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
+              components={{
+                table({ children }) {
+                  return (
+                    <div className="agk-table-container">
+                      <table className="agk-markdown-table">{children}</table>
+                    </div>
+                  );
+                },
+                code({ className, children }) {
+                  const isInline = extractLanguage(className) === '' && !className?.includes('hljs');
+                  if (isInline) {
+                    return <InlineCode>{children}</InlineCode>;
+                  }
+                  const lang = extractLanguage(className);
+                  const code = extractCodeText(children).replace(/\n$/, '');
+
+                  // Mermaid diagram
+                  if (lang === 'mermaid') {
+                    return <MermaidDiagram code={code} />;
+                  }
+
+                  // Carousel slides (slides separated by <!-- slide -->)
+                  if (lang === 'carousel') {
+                    const slides = code.split(/<!--\s*slide\s*-->/).filter(Boolean).map(s => s.trim());
+                    return <CarouselView slides={slides} />;
+                  }
+
+                  return <CodeBlock className={className}>{children}</CodeBlock>;
+                },
+                blockquote({ children }) {
+                  return <GitHubAlert>{children}</GitHubAlert>;
+                },
+                pre({ children }) {
+                  return <>{children}</>;
+                },
+                a({ href, children }) {
+                  return (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="agk-markdown-link">
+                      {children}
+                    </a>
+                  );
+                },
+              }}
+            >
+              {displayContent}
+            </ReactMarkdown>
+          </div>
         )}
-        {role === 'assistant' && content && (
+        {role === 'assistant' && content && !failure && (
           <MessageActions content={content} />
         )}
       </div>

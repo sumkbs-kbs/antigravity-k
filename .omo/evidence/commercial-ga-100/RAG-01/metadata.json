@@ -1,0 +1,49 @@
+{
+  "task_id": "RAG-01",
+  "title": "충돌 없는 chunk identity와 재색인",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §RAG-01",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §RAG-01",
+  "status": "IMPLEMENTATION_DONE_REVIEW_PENDING",
+  "branch": "codex/rag-01-chunk-identity",
+  "base_sha": "55398a0",
+  "implementer": "rag_01_impl (Freebuff 세션, 2026-09-08)",
+  "reviewer": "rag_01_verify (할당 대기)",
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "반복 heading, 60자 공통 prefix, 여러 intro, 표 혼합 문서의 모든 ID가 고유하다",
+      "evidence": "test_repeated_headings_get_unique_ids (## 개요 ×3), test_long_common_prefix_docs_get_unique_ids (80자 공통 prefix ×3 문서), test_multiple_intros_unique, test_mixed_table_doc_unique_ids (표+반복 heading 혼합)"
+    },
+    {
+      "id": "AC-2",
+      "text": "동일 파일 무변경 재색인은 ID가 안정적이고 duplicate가 없다",
+      "evidence": "test_unchanged_reindex_is_stable_and_duplicate_free — 무변경 재색인 신규 0 + 저장소 ID 집합 동일, 강제 index_file 재색인 후에도 ID 집합 불변"
+    },
+    {
+      "id": "AC-3",
+      "text": "수정/삭제 뒤 stale vector가 없다",
+      "evidence": "test_modify_and_delete_leave_no_stale_vectors — 수정 후 이전 내용 vector 부재, 파일 삭제 후 sync → 저장소 empty"
+    },
+    {
+      "id": "AC-4",
+      "text": "실제 Chroma reopen에서 모든 chunk가 검색된다",
+      "evidence": "test_chroma_reopen_finds_all_chunks — 실제 VectorStore(chromadb) 생성 → index → 새 인스턴스로 reopen → ID 집합 일치 + 개수 일치"
+    }
+  ],
+  "implementation": {
+    "modified_files": [
+      "src/antigravity_k/engine/rag_indexer.py"
+    ],
+    "new_files": [
+      "tests/test_rag01_chunk_identity.py"
+    ],
+    "design": "_make_unique_id(file, suffix, content, ordinal, used): canonical file + ordinal(4자리) + suffix + content digest(12자) → sha256 16자. 반복 heading은 섹션 ordinal로 갈라지고, ordinal 충돌은 content digest가 갈라지며, 극단 케이스는 bump 재스캔. _chunk_markdown_prose가 sec_NNN_heading 원료 사용. _annotate_chunks가 최종 방어선(동일 파생식, 안정적)."
+  },
+  "verification": {
+    "target_suite": "uv run --no-sync pytest tests/test_rag01_chunk_identity.py -q → 7 passed",
+    "adjacent_suites": "test_rag.py + test_rag_incremental.py + test_rag_provenance.py + test_rag_subdir_sync_regression.py + test_chunker.py → 22 passed",
+    "full_regression": "uv run --no-sync pytest tests/ -q -m 'not slow and not benchmark' → 5601 passed, 0 failed (worktree projects.json 아티팩트 align 후)",
+    "lint": "ruff check/format clean",
+    "typecheck": "mypy rag_indexer.py → no issues"
+  }
+}

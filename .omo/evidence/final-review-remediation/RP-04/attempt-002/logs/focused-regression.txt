@@ -1,0 +1,4 @@
+PYTHONPATH=src uv run --no-sync pytest -q tests/test_rsi_family.py tests/test_evo01_mutation_fail_closed.py tests/test_fr04_mutation_rollback_isolation.py
+
+...........................................                              [100%]
+43 passed in 2.93s

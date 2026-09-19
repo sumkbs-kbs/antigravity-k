@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-The Antigravity-K project takes security bugs seriously. We appreciate your
+The Ssak-Ai project takes security bugs seriously. We appreciate your
 efforts to responsibly disclose your findings and will make every effort to
 acknowledge your contributions.
 
@@ -39,7 +39,7 @@ To help us triage and fix the issue quickly, please include:
 
 ## Scope
 
-This policy covers the Antigravity-K codebase and its official Docker images.
+This policy covers the Ssak-Ai codebase and its official Docker images.
 Issues in third-party dependencies should be reported upstream and via the
 relevant package tracker, but we welcome being notified so we can update
 quickly.

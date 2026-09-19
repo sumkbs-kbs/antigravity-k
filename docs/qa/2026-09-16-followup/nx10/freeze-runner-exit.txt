@@ -1,0 +1,9 @@
+--- freeze-gates attempt 2026-09-16T08:27:10Z ---
+# HEAD: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+# dirty: true
+# excluded: clean-machine-runtime (needs a commit: exports --ref HEAD)
+# fingerprint before: 157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce
+freeze-gates exit:1 end:2026-09-16T08:45:49Z report:gate-report-freeze002.json
+# fingerprint after: 157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce
+ga_gate_verify exit:1
+runner done:2026-09-16T08:45:49Z

@@ -31,17 +31,20 @@ const CacheStatsPanel: React.FC<Props> = ({ refreshInterval = 15000 }) => {
       } else if ('error' in data) {
         setError(data.error || 'Failed to load cache stats');
       }
-    } catch (err: any) {
-      setError(err.message || 'Connection error');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Connection error');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadStats();
+    const initialLoadTimer = setTimeout(() => void loadStats(), 0);
     const interval = setInterval(loadStats, refreshInterval);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialLoadTimer);
+      clearInterval(interval);
+    };
   }, [loadStats, refreshInterval]);
 
   const hitRatio = stats ? (stats.hit_ratio * 100).toFixed(1) : '0.0';
@@ -188,6 +191,9 @@ const CacheStatsPanel: React.FC<Props> = ({ refreshInterval = 15000 }) => {
                     key={entry.key}
                     className="cache-entry-row"
                     onClick={() => setExpandedEntry(expandedEntry === entry.key ? null : entry.key)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedEntry(expandedEntry === entry.key ? null : entry.key); } }}
                     style={{
                       cursor: 'pointer',
                       padding: '6px 10px',

@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-00",
+  "attempt": 3,
+  "status": "DONE",
+  "owner": "codex-root-orchestrator",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "tree_clean_before_run": false,
+  "status_inventory": "logs/git-status-porcelain-v2.txt",
+  "environment_log": "logs/environment.txt",
+  "commands_log": "commands.jsonl",
+  "redaction_evidence": "logs/redaction-check.txt",
+  "fr_status": [
+    {
+      "finding": "FR-01",
+      "state": "UNVERIFIED_REMEDIATION_PRESENT",
+      "evidence": "RP-01 attempt-001 plus dirty sandbox/unified-agent/test files"
+    },
+    {
+      "finding": "FR-02",
+      "state": "UNVERIFIED_REMEDIATION_PRESENT",
+      "evidence": "RP-02 attempt-001 plus dirty path/permission/terminal/test files"
+    },
+    {
+      "finding": "FR-03",
+      "state": "UNVERIFIED_REMEDIATION_PRESENT",
+      "evidence": "RP-03 attempt-001 plus dirty transaction/test files"
+    },
+    {
+      "finding": "FR-04",
+      "state": "UNVERIFIED_REMEDIATION_PRESENT",
+      "evidence": "RP-04 attempt-001 plus dirty RSI/meta-architect/test files"
+    },
+    {
+      "finding": "FR-05",
+      "state": "UNVERIFIED_REMEDIATION_PRESENT",
+      "evidence": "RP-05 attempt-001 plus dirty conversation/test files"
+    },
+    {
+      "finding": "FR-06",
+      "state": "STILL_OPEN",
+      "evidence": "No same-SHA full gate, actual cloud provider, or 28,800-second soak evidence"
+    },
+    {
+      "finding": "FR-07",
+      "state": "UNVERIFIED_REMEDIATION_PRESENT",
+      "evidence": "Dirty val01 staging and new verdict test; no complete attempt metadata"
+    },
+    {
+      "finding": "FR-08",
+      "state": "STILL_OPEN",
+      "evidence": "Support, claims, approval, score, and mirror reconciliation has not run"
+    },
+    {
+      "finding": "FR-09",
+      "state": "STILL_OPEN",
+      "evidence": "No new retrievable same-SHA release manifest"
+    },
+    {
+      "finding": "FR-10",
+      "state": "STILL_OPEN",
+      "evidence": "Root and bundled config files remain unsynchronized"
+    },
+    {
+      "finding": "workspace-e2e",
+      "state": "STILL_OPEN",
+      "evidence": "No new folder marker to actual provider payload evidence"
+    },
+    {
+      "finding": "compression-e2e",
+      "state": "STILL_OPEN",
+      "evidence": "No new manual UI plus automatic compression provider evidence"
+    }
+  ],
+  "assignments": [
+    {
+      "task_id": "RP-01",
+      "owner": "zcode-remediation-agent",
+      "owned_files": [
+        "src/antigravity_k/engine/sandbox.py",
+        "src/antigravity_k/engine/unified_agent.py",
+        "tests/test_fr01_agent_execution_isolation.py"
+      ],
+      "predecessor": "RP-00",
+      "state": "REVIEW"
+    },
+    {
+      "task_id": "RP-02",
+      "owner": "zcode-remediation-agent",
+      "owned_files": [
+        "src/antigravity_k/tools/tool_path.py",
+        "src/antigravity_k/tools/permission_gate.py",
+        "src/antigravity_k/tools/terminal_tools.py",
+        "src/antigravity_k/tools/system_tools.py",
+        "tests/test_fr02_shell_execution_boundary.py",
+        "tests/test_terminal_sandbox_routing.py",
+        "tests/test_command_execution_boundary.py"
+      ],
+      "predecessor": "RP-01",
+      "state": "REVIEW"
+    },
+    {
+      "task_id": "RP-03",
+      "owner": "zcode-remediation-agent",
+      "owned_files": [
+        "src/antigravity_k/engine/atomic_transaction_engine.py",
+        "tests/test_fr03_transaction_containment.py"
+      ],
+      "predecessor": "RP-02",
+      "state": "REVIEW"
+    },
+    {
+      "task_id": "RP-04",
+      "owner": "zcode-remediation-agent",
+      "owned_files": [
+        "src/antigravity_k/engine/rsi_sandbox.py",
+        "src/antigravity_k/engine/meta_architect.py",
+        "tests/test_fr04_mutation_rollback_isolation.py"
+      ],
+      "predecessor": "RP-03",
+      "state": "REVIEW"
+    },
+    {
+      "task_id": "RP-05",
+      "owner": "zcode-remediation-agent",
+      "owned_files": [
+        "src/antigravity_k/engine/conversation_store.py",
+        "tests/test_fr05_conversation_authoritative_reads.py"
+      ],
+      "predecessor": "RP-04; coordinator-approved independent lane",
+      "state": "REVIEW"
+    },
+    {
+      "task_id": "RP-06",
+      "owner": "rp06_executor",
+      "owned_files": [
+        "scripts/val01_staging.py",
+        "tests/test_fr07_staging_verdicts.py"
+      ],
+      "predecessor": "RP-05; coordinator-approved independent lane",
+      "state": "IN_PROGRESS"
+    }
+  ],
+  "required_scenarios": [
+    {
+      "id": "R00-01",
+      "required": true,
+      "observed": "Controlling review, original VAL/RC plan, remediation plan, and checklist are present",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-02",
+      "required": true,
+      "observed": "Exact 25-record porcelain inventory is preserved at status_inventory; vault_data remains dirty and untouched",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-03",
+      "required": true,
+      "observed": "Each FR and both E2E evidence gaps are classified in fr_status without inferring a fix from unchanged HEAD",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-04",
+      "required": true,
+      "observed": "System and uv Python, uv, Node, pnpm, OS, sandbox, and Docker are separated in environment_log",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-05",
+      "required": true,
+      "observed": "RP-01 through RP-06 have accountable owner labels, owned files, predecessor, and state; execution mirror and Boulder work are active",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-06",
+      "required": true,
+      "observed": "Every command links stdout/stderr artifacts; logs were checked for credentials and user content",
+      "verdict": "PASS"
+    },
+    {
+      "id": "R00-07",
+      "required": true,
+      "observed": "Independent reviewer reproduced baseline identity, status digest, paths, environment, assignments, Boulder state, and redaction evidence",
+      "verdict": "PASS"
+    }
+  ],
+  "reviewer": "rp00_verify",
+  "review_verdict": "confirmed",
+  "blocked_reason": null,
+  "environment_correction_2026_09_10": {
+    "issue": "Repository .venv contained a stale antigravity_k site-packages snapshot (installed from sibling checkout /Users/mr.k/program/coding/ssak_comp/antigravity-k) that shadowed Ssak-Ai/src for plain 'uv run' imports. Two attempt-002 executors hit divergent results because of this.",
+    "fix": "Removed stale site-packages copy; reinstalled project editable: uv pip install --python .venv/bin/python -e . --no-deps. Imports now resolve to Ssak-Ai/src/antigravity_k.",
+    "verified_by": "import check resolves to Ssak-Ai/src; FR-01..07 suites 84 passed."
+  }
+}

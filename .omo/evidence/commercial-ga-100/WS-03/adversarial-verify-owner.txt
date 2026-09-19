@@ -1,0 +1,19 @@
+# WS-03 owner adversarial probes (ws_03_runtime) — post REJECT fix
+When: 2026-09-06T10:38+09:00
+Prior REJECT tip: b3e48344b8fd9ed27d8090ef8f4817285b6a27a2
+Prior Impl SHA: 4a03e3770f31b49697e0ff23c29e55227808822d
+
+F1 PASS: get_session_manager() distinct across A→B; equals ProjectRuntime.session_manager
+F1b PASS: ProjectRuntime.session_manager distinct per project
+F1c PASS: chat DI get_session_manager() IS ProjectRuntime.session_manager
+F2 PASS: A→B chat session resume with project_path does NOT leak A secret
+F3 PASS: get_slash_registry() returns distinct registries; each bound to own agent_runtime
+F4 PASS: orchestrators distinct by project_id
+F5 PASS: durable project_vector clear hooks are distinct closures; clear A leaves B cache/vector
+F6 PASS: factory wires _rag_indexer (not None); vault_engine distinct per project under project root
+F7 PASS: get_scheduled_job_service() distinct per project; submit_agent matches project agent_runtime
+
+Official tests: 15 passed (test_ws03_project_lifecycle)
+Regression: 51 passed (ws03+ws01+project_memory+engine_context_quality)
+Ruff: clean on touched files
+Owner did NOT write APPROVE — awaiting ws_03_verify re-review.

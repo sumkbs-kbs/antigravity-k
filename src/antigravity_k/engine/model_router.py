@@ -1,4 +1,4 @@
-"""Antigravity-K: 스마트 모델 라우터.
+"""Ssak-Ai: 스마트 모델 라우터.
 
 ================================
 9Router 패턴 이식 — 3-Tier 폴백, 라운드로빈, 로드밸런싱 전략 지원.
@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Literal, TypedDict, cast, final, overload, override
 
 from pydantic import ValidationError
 
@@ -29,6 +29,62 @@ from .model_registry import ModelProfile, ModelRegistry
 logger = logging.getLogger("antigravity_k.model_router")
 
 _DEFAULT_CONFIDENCE_EVALUATOR = "qwen3.6:latest"
+
+
+def _mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw = cast(dict[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _float(value: object, default: float) -> float:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+
+
+def _int(value: object, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _bool(value: object, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
+
+
+class _OperationalMetric(TypedDict):
+    model: str
+    outcome_count: int
+    task_success_rate: float | None
+    tool_accuracy: float | None
+    retry_rate: float | None
+
+
+class _QualityCalibrationStatus(TypedDict):
+    enabled: bool
+    eligible_models: list[str]
+    ineligible_models: list[str]
+    operational_metrics: list[_OperationalMetric]
+
+
+class _RouterStatus(dict[str, object]):
+    @overload
+    def __getitem__(self, key: Literal["quality_calibration"]) -> _QualityCalibrationStatus: ...
+
+    @overload
+    def __getitem__(self, key: Literal["unavailable"]) -> list[dict[str, object]]: ...
+
+    @overload
+    def __getitem__(self, key: Literal["combos"]) -> list[dict[str, object]]: ...
+
+    @overload
+    def __getitem__(self, key: str) -> object: ...
+
+    @override
+    def __getitem__(self, key: str) -> object:
+        return super().__getitem__(key)
 
 
 # ─── 전략 열거형 ─────────────────────────────────────────────────────
@@ -64,7 +120,7 @@ class ModelCombo:
     description: str = ""
 
     @classmethod
-    def from_dict(cls, name: str, data: dict[str, Any]) -> ModelCombo:
+    def from_dict(cls, name: str, data: Mapping[str, object]) -> ModelCombo:
         """From Dict.
 
         Args:
@@ -75,7 +131,7 @@ class ModelCombo:
             'ModelCombo': The 'modelcombo' result.
 
         """
-        strategy_str = data.get("strategy", "fallback")
+        strategy_str = _text(data.get("strategy", "fallback"), "fallback")
         try:
             strategy = RouteStrategy(strategy_str)
         except ValueError:
@@ -86,11 +142,17 @@ class ModelCombo:
             )
             strategy = RouteStrategy.FALLBACK
 
+        raw_models = data.get("models", [])
+        models = (
+            [item for item in cast(list[object], raw_models) if isinstance(item, str)]
+            if isinstance(raw_models, list)
+            else []
+        )
         return cls(
             name=name,
-            models=data.get("models", []),
+            models=models,
             strategy=strategy,
-            description=data.get("description", ""),
+            description=_text(data.get("description", "")),
         )
 
 
@@ -121,6 +183,7 @@ class UnavailableEntry:
 # ─── 비가용 추적기 ───────────────────────────────────────────────────
 
 
+@final
 class UnavailabilityTracker:
     """실패한 모델의 지수 백오프 쿨다운 관리.
 
@@ -145,9 +208,9 @@ class UnavailabilityTracker:
             backoff_multiplier (float): float backoff multiplier.
 
         """
-        self._base = base_cooldown_sec
-        self._max = max_cooldown_sec
-        self._multiplier = backoff_multiplier
+        self._base: float = base_cooldown_sec
+        self._max: float = max_cooldown_sec
+        self._multiplier: float = backoff_multiplier
         self._entries: dict[str, UnavailableEntry] = {}
 
     def mark_unavailable(self, model_name: str, reason: str = "") -> None:
@@ -203,9 +266,9 @@ class UnavailabilityTracker:
         """비가용 항목 조회."""
         return self._entries.get(model_name)
 
-    def status(self) -> list[dict[str, Any]]:
+    def status(self) -> list[dict[str, object]]:
         """현재 비가용 모델 목록 반환."""
-        result = []
+        result: list[dict[str, object]] = []
         for name, entry in self._entries.items():
             result.append(
                 {
@@ -234,6 +297,7 @@ class UnavailabilityTracker:
 # ─── 커스텀 예외 ─────────────────────────────────────────────────────
 
 
+@final
 class AllModelsUnavailableError(Exception):
     """콤보 내 모든 모델이 사용 불가."""
 
@@ -245,11 +309,12 @@ class AllModelsUnavailableError(Exception):
             tried (list[str]): list[str] tried.
 
         """
-        self.combo_name = combo_name
-        self.tried = tried
+        self.combo_name: str = combo_name
+        self.tried: list[str] = tried
         super().__init__(f"콤보 '{combo_name}' 내 모든 모델이 사용 불가: {tried}")
 
 
+@final
 class ComboNotFoundError(Exception):
     """요청한 콤보가 등록되어 있지 않음."""
 
@@ -261,14 +326,15 @@ class ComboNotFoundError(Exception):
             available (list[str]): list[str] available.
 
         """
-        self.combo_name = combo_name
-        self.available = available
+        self.combo_name: str = combo_name
+        self.available: list[str] = available
         super().__init__(f"콤보 '{combo_name}'을 찾을 수 없습니다. 등록된 콤보: {available}")
 
 
 # ─── 메인 라우터 ─────────────────────────────────────────────────────
 
 
+@final
 class ModelRouter:
     """스마트 모델 라우터 — 9Router 패턴 기반.
 
@@ -303,16 +369,17 @@ class ModelRouter:
             max_retries (int): int max retries.
 
         """
-        self._registry = registry
+        self._registry: ModelRegistry = registry
         self._combos: dict[str, ModelCombo] = {}
-        self._tracker = UnavailabilityTracker(
+        self._tracker: UnavailabilityTracker = UnavailabilityTracker(
             base_cooldown_sec=base_cooldown_sec,
             max_cooldown_sec=max_cooldown_sec,
         )
-        self._max_retries = max_retries
+        self._max_retries: int = max_retries
         # 라운드로빈 인덱스 추적
         self._rr_index: dict[str, int] = {}
-        self._provider_capabilities: dict[str, dict[str, Any]] = {}
+        self._provider_capabilities: dict[str, dict[str, object]] = {}
+        self._policy_exclusion_logged: set[str] = set()
 
         # config.yaml에서 콤보 자동 로드
         self._load_combos_from_registry()
@@ -320,22 +387,29 @@ class ModelRouter:
         self._load_router_settings()
 
     def _load_router_settings(self) -> None:
-        router_raw = getattr(self._registry, "_raw", {}).get("router", {})
-        model_policy_raw = router_raw.get("model_policy", {})
+        router_raw = _mapping(getattr(self._registry, "_raw", {})).get("router", {})
+        router = _mapping(router_raw)
+        model_policy_raw = router.get("model_policy", {})
         self._model_policy = ModelRoutingPolicy.from_mapping(
-            model_policy_raw if isinstance(model_policy_raw, dict) else {},
+            _mapping(model_policy_raw),
         )
-        self.cascade_on_low_confidence: bool = bool(router_raw.get("cascade_on_low_confidence", False))
-        self.cascade_confidence_threshold: float = float(router_raw.get("cascade_confidence_threshold", 0.4))
-        self.cascade_max_escalations: int = int(router_raw.get("cascade_max_escalations", 2))
-        self.confidence_evaluator_enabled: bool = bool(router_raw.get("confidence_evaluator_enabled", False))
-        self.confidence_evaluator_model: str = str(
-            router_raw.get("confidence_evaluator_model", _DEFAULT_CONFIDENCE_EVALUATOR)
+        # router.max_retries / router.default_strategy — 기존에 읽히지 않아
+        # config의 값이 조용히 무시되었다.
+        config_max_retries = _int(router.get("max_retries"), 0)
+        if config_max_retries > 0:
+            self._max_retries = config_max_retries
+        self.default_strategy: str = _text(router.get("default_strategy"), "fallback")
+        self.cascade_on_low_confidence: bool = _bool(router.get("cascade_on_low_confidence"), False)
+        self.cascade_confidence_threshold: float = _float(router.get("cascade_confidence_threshold"), 0.4)
+        self.cascade_max_escalations: int = _int(router.get("cascade_max_escalations"), 2)
+        self.confidence_evaluator_enabled: bool = _bool(router.get("confidence_evaluator_enabled"), False)
+        self.confidence_evaluator_model: str = _text(
+            router.get("confidence_evaluator_model"), _DEFAULT_CONFIDENCE_EVALUATOR
         )
-        self.confidence_evaluator_min_params_b: float = float(router_raw.get("confidence_evaluator_min_params_b", 20.0))
-        self.confidence_evaluator_max_tokens: int = int(router_raw.get("confidence_evaluator_max_tokens", 32))
+        self.confidence_evaluator_min_params_b: float = _float(router.get("confidence_evaluator_min_params_b"), 20.0)
+        self.confidence_evaluator_max_tokens: int = _int(router.get("confidence_evaluator_max_tokens"), 32)
         try:
-            calibration_config = ModelQualityCalibrationConfig.model_validate(router_raw.get("quality_calibration", {}))
+            calibration_config = ModelQualityCalibrationConfig.model_validate(router.get("quality_calibration", {}))
         except ValidationError:
             logger.warning("모델 품질 calibration 설정이 올바르지 않아 비활성화합니다.")
             calibration_config = ModelQualityCalibrationConfig()
@@ -354,12 +428,16 @@ class ModelRouter:
 
     def _load_combos_from_registry(self) -> None:
         """ModelRegistry의 raw config에서 combos 섹션 로드."""
-        raw = getattr(self._registry, "_raw", {})
-        combos_data = raw.get("combos", {})
+        raw = _mapping(getattr(self._registry, "_raw", {}))
+        combos_data = _mapping(raw.get("combos", {}))
 
+        default_strategy = getattr(self, "default_strategy", "fallback")
         for combo_name, combo_config in combos_data.items():
             if isinstance(combo_config, dict):
-                combo = ModelCombo.from_dict(combo_name, combo_config)
+                combo_map = _mapping(cast(object, combo_config))
+                if not str(combo_map.get("strategy", "") or "").strip():
+                    combo_map = {**combo_map, "strategy": default_strategy}
+                combo = ModelCombo.from_dict(combo_name, combo_map)
                 self._combos[combo_name] = combo
                 logger.info(
                     "콤보 로드: %s (%s개 모델, %s)",
@@ -419,7 +497,7 @@ class ModelRouter:
             )
 
         # 만료된 비가용 항목 정리
-        self._tracker.clear_expired()
+        _ = self._tracker.clear_expired()
 
         if combo.strategy == RouteStrategy.FALLBACK:
             return self._route_fallback(combo)
@@ -447,7 +525,7 @@ class ModelRouter:
         profile = self._registry.get_model(model_name)
         if profile is None:
             raise ValueError(f"모델 '{model_name}'이 레지스트리에 없습니다.")
-        decision = self._model_policy.decide(profile)
+        decision = self._model_policy.decide(profile, explicit=True)
         if not decision.allowed:
             raise ValueError(
                 f"모델 '{model_name}'이 라우팅 정책에 의해 제외되었습니다: {decision.reason}",
@@ -460,7 +538,7 @@ class ModelRouter:
         if combo is None:
             raise ComboNotFoundError(combo_name, list(self._combos.keys()))
 
-        self._tracker.clear_expired()
+        _ = self._tracker.clear_expired()
         return [profile.name for profile in self._candidate_profiles(combo.models)]
 
     def _available_profile(self, model_name: str) -> ModelProfile | None:
@@ -471,7 +549,19 @@ class ModelRouter:
             return None
         decision = self._model_policy.decide(profile)
         if not decision.allowed:
-            logger.debug("[%s] 라우팅 정책에 의해 제외: %s", model_name, decision.reason)
+            # 제외는 운영에 보여야 한다 — debug 레벨이면 구성된 폴백 체인이
+            # 조용히 비어 있는지 알 수 없다. 모델당 1회만 경고한다.
+            logged = getattr(self, "_policy_exclusion_logged", None)
+            if logged is None:
+                logged = set()
+                self._policy_exclusion_logged = logged
+            if model_name not in logged:
+                logged.add(model_name)
+                logger.warning(
+                    "[%s] 라우팅 정책에 의해 제외(%s) — 콤보 폴백 체인에서 제거됨",
+                    model_name,
+                    decision.reason,
+                )
             return None
         if not self._quality_calibration.is_eligible(model_name):
             logger.warning("[%s] 품질 calibration 기준 미달로 자동 라우팅에서 제외", model_name)
@@ -636,12 +726,13 @@ class ModelRouter:
             return float(numeric.group(1))
 
         try:
-            payload = json.loads(raw)
+            payload = cast(object, json.loads(raw))
         except (json.JSONDecodeError, TypeError):
             payload = None
 
         if isinstance(payload, dict):
-            value = payload.get("score", payload.get("confidence"))
+            payload_mapping = _mapping(cast(object, payload))
+            value = payload_mapping.get("score", payload_mapping.get("confidence"))
             if isinstance(value, (str, int, float)) and not isinstance(value, bool):
                 try:
                     score = float(value)
@@ -651,7 +742,7 @@ class ModelRouter:
                     return score
 
         line_pattern = re.compile(
-            r"\s*(?:score|confidence)\s*(?:is|should be|[:=])\s*" r"(0(?:\.\d+)?|1(?:\.0+)?)\s*[.!]?\s*$",
+            r"\s*(?:score|confidence)\s*(?:is|should be|[:=])\s*" + r"(0(?:\.\d+)?|1(?:\.0+)?)\s*[.!]?\s*$",
             re.IGNORECASE,
         )
         for line in reversed(raw.splitlines()):
@@ -739,9 +830,10 @@ class ModelRouter:
 
     def get_temperature_boost(self, model_name: str) -> float:
         """Return a temperature boost for the given model (0.0 = no boost)."""
+        _ = model_name
         return 0.0
 
-    def set_provider_capability(self, model_name: str, capability: Mapping[str, Any]) -> None:
+    def set_provider_capability(self, model_name: str, capability: Mapping[str, object]) -> None:
         self._provider_capabilities[model_name] = dict(capability)
 
     def set_task_calibration(self, model_name: str, metrics: TaskBenchmarkMetrics | None) -> None:
@@ -749,9 +841,9 @@ class ModelRouter:
 
     # ─── 상태 조회 ───────────────────────────────────────────────────
 
-    def status(self) -> dict[str, Any]:
+    def status(self) -> _RouterStatus:
         """라우터 전체 상태 반환."""
-        combos_info = []
+        combos_info: list[dict[str, object]] = []
         for combo in self._combos.values():
             available_models = self.available_model_names(combo.name)
             combos_info.append(
@@ -766,37 +858,40 @@ class ModelRouter:
             )
 
         calibration_summaries = self._quality_calibration.summaries()
-        return {
-            "combos": combos_info,
-            "unavailable": self._tracker.status(),
-            "max_retries": self._max_retries,
-            "provider_capabilities": dict(self._provider_capabilities),
-            "model_policy": self._model_policy.to_dict(),
-            "quality_calibration": {
-                "enabled": self._quality_calibration.enabled,
-                "eligible_models": [
-                    summary.model_name
-                    for summary in calibration_summaries
-                    if self._quality_calibration.is_eligible(summary.model_name)
-                ],
-                "ineligible_models": [
-                    summary.model_name
-                    for summary in calibration_summaries
-                    if not self._quality_calibration.is_eligible(summary.model_name)
-                ],
-                "operational_metrics": [
-                    {
-                        "model": summary.model_name,
-                        "outcome_count": summary.task_outcome_count,
-                        "task_success_rate": summary.task_success_rate,
-                        "tool_accuracy": summary.task_tool_accuracy,
-                        "retry_rate": summary.task_retry_rate,
-                    }
-                    for summary in calibration_summaries
-                    if summary.task_outcome_count > 0
-                ],
+        operational_metrics: list[_OperationalMetric] = [
+            {
+                "model": summary.model_name,
+                "outcome_count": summary.task_outcome_count,
+                "task_success_rate": summary.task_success_rate,
+                "tool_accuracy": summary.task_tool_accuracy,
+                "retry_rate": summary.task_retry_rate,
+            }
+            for summary in calibration_summaries
+            if summary.task_outcome_count > 0
+        ]
+        return _RouterStatus(
+            {
+                "combos": combos_info,
+                "unavailable": self._tracker.status(),
+                "max_retries": self._max_retries,
+                "provider_capabilities": dict(self._provider_capabilities),
+                "model_policy": self._model_policy.to_dict(),
+                "quality_calibration": {
+                    "enabled": self._quality_calibration.enabled,
+                    "eligible_models": [
+                        summary.model_name
+                        for summary in calibration_summaries
+                        if self._quality_calibration.is_eligible(summary.model_name)
+                    ],
+                    "ineligible_models": [
+                        summary.model_name
+                        for summary in calibration_summaries
+                        if not self._quality_calibration.is_eligible(summary.model_name)
+                    ],
+                    "operational_metrics": operational_metrics,
+                },
             },
-        }
+        )
 
     def summary(self) -> str:
         """사람이 읽기 쉬운 요약."""

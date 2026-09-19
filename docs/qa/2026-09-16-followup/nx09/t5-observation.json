@@ -1,0 +1,22 @@
+{
+  "statusText": "(상태 메시지 없음)",
+  "changePinCalls": [
+    "← 200",
+    "body {\"ok\":true,\"detail\":\"PIN updated. All sessions were revoked; sign in again.\",\"reauth_required\":true,\"epoch\":2,\"sessions_revoked\":0}"
+  ],
+  "pinDialogVisible": true,
+  "tokenCleared": true,
+  "noticeText": "보안을 위해 모든 세션이 종료되었습니다. 새 PIN으로 다시 로그인하세요.",
+  "serverWsLog": [
+    "INFO:     127.0.0.1:57177 - \"WebSocket /v1/ws/events?ticket=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyIiwiaWF0IjoxNzg5NTM2NjU3LCJleHAiOjE3ODk1MzY2ODcuMzg5NDQsImp0aSI6IkdlbjdXZjE3U0hQZUd2N0d4RndHc2ciLCJ0eXAiOiJ3cy10aWNrZXQiLCJlcG9jaCI6MX0.z92M5mf7xQ6CM3blvrWHYDjKBl3k-3ulFubjbVIZCac\" [accepted]"
+  ],
+  "eventSockets": [
+    {
+      "url": "ws://127.0.0.1:57154/v1/ws/events?ticket=<redacted>",
+      "isClosed": false,
+      "closeEvent": false
+    }
+  ],
+  "closedSockets": 0,
+  "bodyText": "🔒 시스템 잠금\n\n외부 접속 보안을 위해 PIN 번호를 입력하세요.\n\n보안을 위해 모든 세션이 종료되었습니다. 새 PIN으로 다시 로그인하세요.\n\n잠금 해제"
+}

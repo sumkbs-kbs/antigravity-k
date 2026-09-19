@@ -28,7 +28,7 @@ class IncrementalCodeGraph:
     """In-memory symbol graph with sub-millisecond incremental update capabilities."""
 
     def __init__(self, project_root: str | Path):
-        self.project_root = Path(project_root).resolve()
+        self.project_root: Path = Path(project_root).resolve()
         # Map: file_path -> list of symbols in that file
         self._file_symbols: dict[str, list[SymbolNode]] = {}
         # Inverted index: symbol_name -> list of symbols across files

@@ -1,191 +1,406 @@
 /**
- * ChatPage — Main chat interface with IDE layout
- * ================================================
- * Integrates FileExplorer, Editor, ArtifactPreview, and Chat components
- * in a 3-panel IDE layout.
+ * ChatPage — Agent Workspace (Ssak-Ai × Codex × Unsloth)
+ * ==========================================================
+ * Composition mirrors the three reference screenshots:
+ * - Ssak-Ai: right-hand 환경 rail (변경 사항 / 로그 / branch /
+ *   커밋·푸시 / 풀 리퀘스트 / 파일 액티브티 / 소스-MCP)
+ * - Codex: activity feed (user prompt bubble, working indicator,
+ *   file-edit cards, queued messages), breadcrumb top bar, Open IDE
+ * - Unsloth: empty-state hero (mascot + "Ready when you are") with a
+ *   large centered composer and chip toolbar (+, 전체 액세스, Search,
+ *   Code, MCP, mic, round send)
+ *
+ * When a message is sent while the agent is streaming, the text is
+ * queued and flushed automatically when the run finishes (Codex-style).
  */
 
-import React, { Suspense, lazy, useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import { useChatStore } from '../../stores/chatStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { useUiStore } from '../../stores/uiStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useChangeStore } from '../../stores/changeStore';
-import { streamChatCompletion } from '../../api/client';
+import { useFileStore } from '../../stores/fileStore';
+import {
+  streamChatCompletion,
+  ConversationRevisionConflictError,
+  ConversationRequestError,
+  compactConversation,
+  fetchConversationHistory,
+  fetchModels,
+  fetchLocalModels,
+  loadModel,
+  askAgent,
+  type ModelInfo,
+  type LocalModelItem,
+} from '../../api/client';
+import { QuantBadge } from '../shared';
+import {
+  WorkspaceContextSchema,
+  AccessModeResponseSchema,
+  McpServersResponseSchema,
+  type McpServerItem,
+} from '../../api/clientSchema';
 import { useEventWebSocket } from '../../hooks/useEventWebSocket';
 import { detectChangesFromAssistantContent, registerFileModification } from '../../utils/changeDetector';
 import { firePluginHook } from '../../plugin/pluginRegistry';
 import ChatMessage from './ChatMessage';
-import ChatInput from './ChatInput';
 import ChatHistory from './ChatHistory';
-import ModelSelector from './ModelSelector';
-import PlanToggleBar from './PlanToggleBar';
-import EmptyState from './EmptyState';
-import FileExplorer from '../Editor/FileExplorer';
+import ActivityTimeline from './ActivityTimeline';
 import CodeEditor from '../Editor/Editor';
 import ArtifactPreview from '../Editor/ArtifactPreview';
 import ChangePanel from '../Editor/ChangePanel';
+import EnvironmentPanel, { type EnvPanelTab } from './EnvironmentPanel';
+import {
+  WorkingIndicator,
+  StreamErrorBanner,
+  FileEditCard,
+  QueuedMessagesCard,
+} from './ChatActivity';
+import { useActivityStore } from '../../stores/activityStore';
+import {
+  createProjectIdentityHeaders,
+  isIdentityCurrent,
+  withProjectIdentitySearchParams,
+} from '../../api/projectIdentity';
 
-// Lazy-load SplitPane (defer Split.js ~6kB)
-const SplitPane = lazy(() => import('../Layout/SplitPane'));
-const SplitPaneFallback: React.FC = () => (
-  <div style={{ display: 'flex', height: '100%', gap: 6 }}>
-    <div style={{ flex: '0 0 20%', minWidth: 180, background: 'var(--bg-secondary)', borderRadius: 8 }} />
-    <div style={{ flex: '0 0 40%', minWidth: 240, background: 'var(--bg-secondary)', borderRadius: 8 }} />
-    <div style={{ flex: 1, minWidth: 280, background: 'var(--bg-secondary)', borderRadius: 8 }} />
-  </div>
-);
+/**
+ * NX-09-F03 — 첨부는 **바이트를 함께 보낸다**.
+ *
+ * 예전에는 파일명 표식(`[첨부 파일: …]`)만 입력창에 넣고 바이트는 보내지 않았다. 사용자는
+ * 이미지를 붙였다고 믿지만 모델은 파일명만 봤다 — 화면이 거짓말했다. 계약(이름·MIME·base64)은
+ * 서버 `engine/multimodal.py`(ADR-0005)가 소유하고, 여기서는 **빠른 실패**만 한다(최종 판정은 서버).
+ */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME: readonly string[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
-const ChatPage: React.FC = () => {
+interface PendingAttachment {
+  readonly name: string;
+  readonly mime_type: string;
+  readonly data_base64: string;
+  readonly bytes: number;
+}
+
+/** 파일을 base64 로 읽는다 — 전송 형식은 서버 계약과 같다. */
+function readAttachmentBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('파일을 읽지 못했습니다.'));
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const comma = result.indexOf(',');
+      if (comma < 0) {
+        reject(new Error('파일을 읽지 못했습니다.'));
+        return;
+      }
+      resolve(result.slice(comma + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+export const ChatPage: React.FC = () => {
   const {
-    messages, isStreaming, selectedModel, isPlanMode, isTddMode,
+    messages, isStreaming, selectedModel, isPlanMode, isTddMode, isAdaptiveMode,
+    activeSession, activeSessionId, updateSessionTitle,
     addMessage, updateLastAssistantMessage, saveToStorage,
-    setStreaming, appendToCurrentAssistantContent,
-    createNewSession, loadFromStorage,
+    applyServerSnapshot,
+    setStreaming, appendToCurrentAssistantContent, setCurrentAssistantContent,
+    loadFromStorage, setSelectedModel, clearForProjectSwitch,
   } = useChatStore();
 
-  const { setChatHistoryVisible, chatHistoryVisible, addToast } = useUiStore();
-  const { previewVisible, openFile } = useEditorStore();
-  const abortRef = useRef<AbortController | null>(null);
-  const chatHistoryRef = useRef<HTMLDivElement>(null);
-  const toolIndicatorRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
-
-  // Use refs to avoid stale closures in async callbacks
-  const selectedModelRef = useRef(selectedModel);
-  selectedModelRef.current = selectedModel;
-  const isPlanModeRef = useRef(isPlanMode);
-  isPlanModeRef.current = isPlanMode;
-  const isTddModeRef = useRef(isTddMode);
-  isTddModeRef.current = isTddMode;
-
-  const { panelVisible: changePanelVisible, setPanelVisible: setChangePanelVisible } = useChangeStore();
+  const { addToast, setCommandPaletteVisible } = useUiStore();
+  const activeProjectId = useProjectStore((s) => s.activeProjectId);
+  const activeProjectName = useProjectStore((s) => s.activeProjectName);
+  const switchEpoch = useProjectStore((s) => s.switchEpoch);
+  const hydrateProjects = useProjectStore((s) => s.hydrateFromServer);
+  const projectSwitchEpochRef = useRef(switchEpoch);
+  const { previewVisible, openFile, clearForProjectSwitch: clearEditorForProjectSwitch } = useEditorStore();
+  const { setPanelVisible: setChangePanelVisible, clearChanges } = useChangeStore();
   const pendingChangeCount = useChangeStore((s) => s.changes.filter((c) => c.status === 'pending').length);
 
-  // ─── Load chat history from localStorage on mount ────────────────
+  /* ─── States ─────────────────────────────────────────────── */
+  const [inputText, setInputText] = useState<string>('');
+  // 다음 턴에 실제로 전송될 첨부(바이트 포함). 전송 시점에 비운다.
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [queueCollapsed, setQueueCollapsed] = useState<boolean>(false);
+
+  const [actionMenuOpen, setActionMenuOpen] = useState<boolean>(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState<boolean>(false);
+  const [accessDropdownOpen, setAccessDropdownOpen] = useState<boolean>(false);
+  const [mcpMenuOpen, setMcpMenuOpen] = useState<boolean>(false);
+  const [mcpServerList, setMcpServerList] = useState<McpServerItem[]>([]);
+  const [selectedMcp, setSelectedMcp] = useState<string[] | null>(null);
+  const [webSearch, setWebSearch] = useState<boolean>(false);
+  const [codeMode, setCodeMode] = useState<boolean>(false);
+  const [accessMode, setAccessMode] = useState<'full_access' | 'restricted'>('full_access');
+
+  const [envPanelOpen, setEnvPanelOpen] = useState<boolean>(true);
+  const [isEditingTitle, setIsEditingTitle] = useState<boolean>(false);
+  const [titleInput, setTitleInput] = useState<string>('');
+  const [envTab, setEnvTab] = useState<EnvPanelTab>('env');
+  const [historyVisible, setHistoryVisible] = useState<boolean>(false);
+
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState<number>(0);
+  const [isCompactingConversation, setIsCompactingConversation] = useState<boolean>(false);
+  const [compactionStatus, setCompactionStatus] = useState<string | null>(null);
+
+  const [workspaceContext, setWorkspaceContext] = useState({
+    project_name: 'Ssak-Ai',
+    workspace_path: '.',
+    target: '로컬',
+    branch: 'codex/m1-task-events',
+  });
+
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [localModels, setLocalModels] = useState<LocalModelItem[]>([]);
+  const [isScanningLocal, setIsScanningLocal] = useState<boolean>(false);
+
+  const loadLocalModels = useCallback(async (refresh = false) => {
+    try {
+      const res = await fetchLocalModels(refresh);
+      if (res.ok && res.models) {
+        setIsScanningLocal(true);
+        setLocalModels(res.models);
+        const currentSelected = useChatStore.getState().selectedModel;
+        const exists = res.models.some(m => m.id === currentSelected);
+        if (!exists && res.models.length > 0) {
+          const nextModel = res.recommended_default || res.models[0].id;
+          setSelectedModel(nextModel);
+        }
+      }
+    } catch (err) {
+      console.error('Local model fetch error:', err);
+    } finally {
+      setIsScanningLocal(false);
+    }
+  }, [setSelectedModel]);
+
+  // 스캔 시작을 렌더 단계가 아닌 첫 await 이후로 미룬다 —
+  // effect 본문에서 동기 setState(cascading render)를 피하기 위함.
+
+  const handleModelChoice = useCallback((modelId: string) => {
+    setSelectedModel(modelId);
+    setModelDropdownOpen(false);
+    void loadModel(modelId).then((res) => {
+      if (res.ok) {
+        void loadLocalModels(false);
+      }
+    }).catch((err) => {
+      console.warn('Background model load failed:', err);
+    });
+  }, [setSelectedModel, loadLocalModels]);
+
+  /* ─── Refs ───────────────────────────────────────────────── */
+  const abortRef = useRef<AbortController | null>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const queueRef = useRef<string[]>([]);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const selectedModelRef = useRef(selectedModel);
+  const isPlanModeRef = useRef(isPlanMode);
+  const isTddModeRef = useRef(isTddMode);
+  const isAdaptiveModeRef = useRef(isAdaptiveMode);
+  const runRef = useRef<(text: string) => Promise<void>>(async () => {});
+  // 로컬 모델 로더의 최신 버전을 가리키는 레퍼런스 — init effect가 마운트 시 1회만
+  // 실행되도록 하면서 effect 본문의 동기 setState(react-hooks/set-state-in-effect)를 피한다.
+  const loadLocalModelsRef = useRef<(refresh?: boolean) => Promise<void>>(async () => {});
+  // 워크스페이스 컨텍스트 리로더의 최신 버전 레퍼런스 — 동일 목적.
+  const reloadWorkspaceContextRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+    isPlanModeRef.current = isPlanMode;
+    isTddModeRef.current = isTddMode;
+    isAdaptiveModeRef.current = isAdaptiveMode;
+    loadLocalModelsRef.current = loadLocalModels;
+  }, [isPlanMode, isTddMode, isAdaptiveMode, selectedModel, loadLocalModels]);
+
+  /**
+   * CTX-01: client projection 을 **서버 권위 revision** 에 맞춘다.
+   *
+   * NX-09: 이 함수는 init effect 안에서만 불렸고 그 effect 는 프로젝트 정체성에 의존하지 않았다.
+   * 프로젝트 하이드레이션은 `hydrateProjects()` 의 **비동기** 완료로 들어오므로, 마운트 시점에는
+   * `activeProjectId` 가 아직 null 인 것이 정상이다 — 그러면 이 동기화는 조용히 return 했고
+   * **재시작 뒤 서버 이력이 한 번도 로드되지 않았다**(로컬 캐시가 비어 있으면 빈 대화로 보인다).
+   * 정체성이 도착하는 순간에도 맞추도록 ref 에 담아 별도 effect 에서 부른다.
+   */
+  const syncConversationRef = useRef<() => Promise<void>>(async () => undefined);
+
+  /* ─── Init ───────────────────────────────────────────────── */
   useEffect(() => {
     loadFromStorage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void loadLocalModelsRef.current(false);
+    fetchModels()
+      .then(models => setAvailableModels(models))
+      .catch(() => {});
+
+    const syncConversation = async () => {
+      const chat = useChatStore.getState();
+      const projectId = useProjectStore.getState().activeProjectId;
+      const convId = chat.activeSessionId;
+      if (!convId || !projectId) return;
+      try {
+        const history = await fetchConversationHistory(convId, projectId);
+        useChatStore.getState().applyServerSnapshot({
+          conversation_id: history.snapshot.conversation_id,
+          revision: history.snapshot.revision,
+          summary: history.snapshot.summary,
+          retained_message_ids: history.snapshot.retained_message_ids,
+          messages: history.messages.map((m) => ({
+            id: m.id,
+            role: m.role === "tool" ? "system" : m.role,
+            content: m.content,
+          })),
+        });
+      } catch (error: unknown) {
+        if (error instanceof ConversationRequestError && error.code === 'conversation_not_found') {
+          // CR-01: 새 로컬 대화는 아직 서버에 없다. 로컬 투영을 유지하되 다른
+          // 대화로 자동 대체하지 않는다.
+          return;
+        }
+        // CR-01: 무결성/마이그레이션/서버 오류를 빈 대화로 숨기지 않고 알린다.
+        const detail = error instanceof Error ? error.message : String(error);
+        addToast(`서버 대화 이력을 확인하지 못했습니다: ${detail}`, 'error');
+      }
+    };
+    syncConversationRef.current = syncConversation;
+    void syncConversation();
+  }, [loadFromStorage, loadLocalModels, addToast]);
+
+  // NX-09: 프로젝트 정체성이 (하이드레이션으로) 도착하면 서버 이력과 한 번 맞춘다.
+  // init effect 는 이 값을 의존성으로 갖지 않으므로 여기서 다시 부른다.
+  useEffect(() => {
+    if (!activeProjectId) return;
+    void syncConversationRef.current();
+  }, [activeProjectId]);
+
+  const reloadWorkspaceContext = useCallback(() => {
+    const store = useProjectStore.getState();
+    const capturedEpoch = store.switchEpoch;
+    setWorkspaceContext((prev) => ({
+      ...prev,
+      project_name: store.activeProjectName || prev.project_name,
+      workspace_path: store.activeProjectPath || prev.workspace_path,
+    }));
+    fetch('/api/workspace/context', { headers: createProjectIdentityHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(raw => {
+        if (!isIdentityCurrent(capturedEpoch)) return;
+        if (raw) {
+          const parsed = WorkspaceContextSchema.safeParse(raw);
+          if (parsed.success) {
+            const latest = useProjectStore.getState();
+            setWorkspaceContext({
+              project_name: latest.activeProjectName || parsed.data.project_name,
+              workspace_path: latest.activeProjectPath || parsed.data.workspace_path || '.',
+              target: parsed.data.target,
+              branch: parsed.data.branch,
+            });
+          }
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  // ─── Scroll to bottom on new messages ────────────────────────────
+  // reloadWorkspaceContext의 최신 버전을 ref에 동기화 — 아래 init effect와
+  // 프로젝트 전환 effect가 마운트 시 1회 실행되면서도 항상 최신 클로저를 쓰게 한다.
   useEffect(() => {
-    if (chatHistoryRef.current) {
-      chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+    reloadWorkspaceContextRef.current = reloadWorkspaceContext;
+  }, [reloadWorkspaceContext]);
+
+  useEffect(() => {
+    void hydrateProjects();
+  }, [hydrateProjects]);
+
+  useEffect(() => {
+    reloadWorkspaceContextRef.current();
+    // 실행 권한 모드 초기값 동기화 (읽기 전용이면 칩이 즉시 반영됨)
+    fetch('/api/system/access-mode', { headers: createProjectIdentityHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(raw => {
+        if (raw) {
+          const parsed = AccessModeResponseSchema.safeParse(raw);
+          if (parsed.success && parsed.data.mode === 'read_only') {
+            setAccessMode('restricted');
+          }
+        }
+      })
+      .catch(() => {});
+    // 구성된 MCP 서버 실목록 (환경 레일 "소스"와 동일한 소스)
+    fetch('/api/mcp/servers', { headers: createProjectIdentityHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(raw => {
+        if (raw) {
+          const parsed = McpServersResponseSchema.safeParse(raw);
+          if (parsed.success && parsed.data.ok) {
+            setMcpServerList(parsed.data.servers);
+            setSelectedMcp(parsed.data.servers.map((s) => s.name));
+            return;
+          }
+        }
+        setSelectedMcp([]);
+      })
+      .catch(() => setSelectedMcp([]));
+  }, [reloadWorkspaceContext]);
+
+  useEffect(() => {
+    if (feedRef.current) {
+      feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [messages]);
 
-  // ─── Listen for approval & wiki-ref events ──────────────────────
-  useEffect(() => {
-    const handler = (e: CustomEvent) => {
-      const text = e.detail?.text;
-      if (text && inputRef.current) {
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLTextAreaElement.prototype, 'value'
-        )?.set;
-        nativeInputValueSetter?.call(inputRef.current, text);
-        inputRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-        // Auto-send after brief delay
-        setTimeout(() => {
-          const sendBtn = document.querySelector('.send-btn') as HTMLButtonElement;
-          sendBtn?.click();
-        }, 100);
-      }
-    };
+  const handleToggleAccessMode = async (mode: 'full_access' | 'restricted') => {
+    try {
+      await fetch('/api/system/access-mode', {
+        method: 'POST',
+        headers: createProjectIdentityHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ mode }),
+      });
+      setAccessMode(mode);
+      setAccessDropdownOpen(false);
+      addToast(mode === 'full_access' ? '전체 액세스 모드 허용' : '읽기 전용 샌드박스로 전환', 'info');
+    } catch {
+      setAccessMode(mode);
+      setAccessDropdownOpen(false);
+    }
+  };
 
-    const wikiRefHandler = (e: CustomEvent) => {
-      const text = e.detail?.text;
-      if (text && inputRef.current) {
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLTextAreaElement.prototype, 'value'
-        )?.set;
-        nativeInputValueSetter?.call(inputRef.current, text);
-        inputRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-        inputRef.current.focus();
-      }
-    };
-
-    window.addEventListener('agk:approval-response', handler as EventListener);
-    window.addEventListener('agk:wiki-ref', wikiRefHandler as EventListener);
-    return () => {
-      window.removeEventListener('agk:approval-response', handler as EventListener);
-      window.removeEventListener('agk:wiki-ref', wikiRefHandler as EventListener);
-    };
-  }, []);
-
-  // ─── Get the last assistant bubble for tool event injection ──────
-  const getLastAssistantBubble = useCallback((): HTMLElement | null => {
-    const historyEl = chatHistoryRef.current;
-    if (!historyEl) return null;
-    const lastMsg = historyEl.lastElementChild;
-    if (!lastMsg?.classList.contains('assistant')) return null;
-    return lastMsg.querySelector('.bubble') as HTMLElement;
-  }, []);
-
-  // ─── Event WebSocket with full agent event handling ──────────────
+  /* ─── WebSocket event listeners ──────────────────────────── */
   useEventWebSocket({
-    onModeChanged: (data) => {
-      const mode = data?.to_mode;
-      if (mode) addToast(`🔄 모드 전환: ${mode.toUpperCase()}`, 'info');
-    },
     onToolExecutionStarted: (data) => {
-      const bubble = getLastAssistantBubble();
-      if (!bubble) return;
-      const toolName = data?.name || data?.tool_name || 'unknown_tool';
-      if (toolIndicatorRef.current?.parentNode) toolIndicatorRef.current.remove();
-
-      const div = document.createElement('div');
-      div.className = 'tool-timeline-badge start';
-      div.style.marginTop = '8px';
-      div.innerHTML = `<span class="icon">⚙️</span> <span class="text">Running Tool <b style="color:var(--accent-color);">${toolName}</b>... <span class="typing-indicator" style="height:12px;margin-left:4px;"><span></span><span></span><span></span></span></span>`;
-      bubble.appendChild(div);
-      toolIndicatorRef.current = div;
-      if (chatHistoryRef.current) chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+      useActivityStore.getState().recordToolStart(data);
     },
     onToolExecutionFinished: () => {
-      if (toolIndicatorRef.current?.parentNode) {
-        toolIndicatorRef.current.remove();
-        toolIndicatorRef.current = null;
-      }
+      useActivityStore.getState().recordToolEnd();
     },
-    onFailureDetected: () => {
-      const bubble = getLastAssistantBubble();
-      if (!bubble) return;
-      const div = document.createElement('div');
-      div.className = 'tool-timeline-badge error';
-      div.style.marginTop = '8px';
-      div.innerHTML = `<span class="icon">⚠️</span> <span class="text"><b>Failure Detected:</b> Agent is attempting to recover...</span>`;
-      bubble.appendChild(div);
-      if (chatHistoryRef.current) chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
-      if (toolIndicatorRef.current?.parentNode) toolIndicatorRef.current.remove();
+    onFailureDetected: (data) => {
+      useActivityStore.getState().recordError(data.error ?? data.message ?? '알 수 없는 오류');
     },
-    onCognitiveAdaptation: () => {
-      const bubble = getLastAssistantBubble();
-      if (!bubble) return;
-      const div = document.createElement('div');
-      div.style.marginTop = '8px';
-      div.innerHTML = `<span class="agent-badge adapting">ADAPTING</span> <span style="font-size: 13px; color: var(--warning);">동적 전략 수정 중...</span>`;
-      bubble.appendChild(div);
-      if (chatHistoryRef.current) chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
-    },
-    onPlanningModeStarted: () => {
-      const bubble = getLastAssistantBubble();
-      if (!bubble) return;
-      const div = document.createElement('div');
-      div.style.marginTop = '8px';
-      div.innerHTML = `<span class="agent-badge planning">PLANNING</span> <span style="font-size: 13px; color: var(--accent-color);">실행 계획 수립 중...</span>`;
-      bubble.appendChild(div);
-      if (chatHistoryRef.current) chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+    onPlanningModeStarted: (data) => {
+      useActivityStore.getState().recordPlan(data.goal ?? '');
     },
     onFileOpened: (data) => {
       const filePath = data?.filepath;
       if (filePath) {
+        useActivityStore.getState().recordFileRead(filePath);
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
-        // Load and open in editor
-        fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
-          .then(r => r.json())
+        const capturedEpoch = useProjectStore.getState().switchEpoch;
+        fetch(withProjectIdentitySearchParams(`/api/fs/read?file=${encodeURIComponent(filePath)}`), {
+          headers: createProjectIdentityHeaders(),
+        })
+          .then(r => r.ok ? r.json() : null)
           .then(d => {
-            if (d.content !== undefined) {
+            if (!isIdentityCurrent(capturedEpoch)) return;
+            if (d?.content !== undefined) {
               openFile(filePath, fileName, d.content);
+              setEnvPanelOpen(true);
+              setEnvTab('code');
             }
           })
           .catch(() => {});
@@ -194,206 +409,1217 @@ const ChatPage: React.FC = () => {
     onFileModified: (data) => {
       const filePath = data?.filepath;
       if (filePath) {
+        useActivityStore.getState().recordFileEdit(filePath);
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
-        // Open file in editor
-        fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
-          .then(r => r.json())
+        const capturedEpoch = useProjectStore.getState().switchEpoch;
+        fetch(withProjectIdentitySearchParams(`/api/fs/read?file=${encodeURIComponent(filePath)}`), {
+          headers: createProjectIdentityHeaders(),
+        })
+          .then(r => r.ok ? r.json() : null)
           .then(d => {
-            if (d.content !== undefined) {
+            if (!isIdentityCurrent(capturedEpoch)) return;
+            if (d?.content !== undefined) {
               openFile(filePath, fileName, d.content);
             }
           })
           .catch(() => {});
-        // Register change in Change Store for review
         registerFileModification(filePath, fileName)
           .then((registered) => {
-            if (registered) {
-              addToast(`📋 변경 감지: ${fileName}`, 'info');
-            }
+            if (!isIdentityCurrent(capturedEpoch)) return;
+            if (registered) addToast(`📋 변경 감지: ${fileName}`, 'info');
           })
           .catch(() => {});
       }
     },
   });
 
-  // ─── Handle sending messages ─────────────────────────────────────
-  const handleSend = useCallback(async (text: string, imageDataUrl?: string) => {
-    if (!text && !imageDataUrl) return;
+  /* ─── Elapsed timer while streaming ──────────────────────── */
+  const startElapsedTimer = useCallback(() => {
+    setElapsed(0);
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    elapsedTimerRef.current = setInterval(() => {
+      setElapsed((v) => v + 1);
+    }, 1000);
+  }, []);
 
+  const stopElapsedTimer = useCallback(() => {
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => stopElapsedTimer(), [stopElapsedTimer]);
+
+  /* ─── WS-04: project switch → cancel pending + reload context ─ */
+  useEffect(() => {
+    const prevEpoch = projectSwitchEpochRef.current;
+    if (switchEpoch === prevEpoch) return;
+    projectSwitchEpochRef.current = switchEpoch;
+
+    const hadPending = Boolean(abortRef.current)
+      || useChatStore.getState().isStreaming
+      || queueRef.current.length > 0;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    queueRef.current = [];
+    setQueuedMessages([]);
+    setStreaming(false);
+    setCurrentAssistantContent('');
+    setStreamError(null);
+    stopElapsedTimer();
+    useActivityStore.getState().clear();
+    useActivityStore.getState().setSessionEnded();
+
+    clearEditorForProjectSwitch();
+    clearChanges();
+    useFileStore.getState().clearForProjectSwitch();
+
+    clearForProjectSwitch();
+    loadFromStorage();
+    if (useChatStore.getState().sessions.length === 0) {
+      useChatStore.getState().createNewSession();
+    }
+
+    reloadWorkspaceContext();
+
+    if (hadPending) {
+      addToast('프로젝트 전환: 이전 요청을 취소하고 컨텍스트를 다시 불러왔습니다.', 'info');
+    }
+  }, [
+    switchEpoch,
+    clearForProjectSwitch,
+    clearEditorForProjectSwitch,
+    clearChanges,
+    loadFromStorage,
+    setStreaming,
+    setCurrentAssistantContent,
+    reloadWorkspaceContext,
+    addToast,
+    stopElapsedTimer,
+  ]);
+
+  /* ─── MCP allowlist (구성된 서버 기준 선택 집합) ─────────────── */
+  const mcpAllowlist = useMemo(
+    () => selectedMcp ?? [],
+    [selectedMcp],
+  );
+
+  /* ─── Send / queue / run loop ────────────────────────────── */
+  const runCompletion = useCallback(async (text: string) => {
     const model = selectedModelRef.current;
     const planMode = isPlanModeRef.current;
     const tddMode = isTddModeRef.current;
+    const adaptiveMode = isAdaptiveModeRef.current;
+    const requestEpoch = useProjectStore.getState().switchEpoch;
+    const requestProjectId = useProjectStore.getState().activeProjectId;
 
-    let userContent: string | any[] = text;
-    let displayText = text;
-
-    if (imageDataUrl) {
-      userContent = [
-        { type: 'text', text: text || '이 이미지를 분석해주세요.' },
-        { type: 'image_url', image_url: { url: imageDataUrl } },
-      ];
-      displayText = text + ' 📎🖼️';
+    // NX-09-F03: 첨부는 **이 턴에** 실린다 — 전송을 결정한 순간 비운다(다음 턴으로 새지 않게).
+    const attachments = pendingAttachmentsRef.current;
+    if (attachments.length > 0 && adaptiveMode) {
+      // adaptive 경로는 첨부를 받지 않는다 — 조용히 버리지 않고 명시적으로 거부한다.
+      addToast('첨부는 일반 모드에서만 전송됩니다(Adaptive 모드에서는 지원하지 않음)', 'error');
+      abortRef.current = null;
+      return;
+    }
+    if (attachments.length > 0) {
+      pendingAttachmentsRef.current = [];
+      setPendingAttachments([]);
     }
 
-    firePluginHook('chat:send', { text, model, planMode, tddMode });
-    addMessage({ role: 'user', content: displayText });
+    firePluginHook('chat:send', { text, model, planMode, tddMode, adaptiveMode });
+    useActivityStore.getState().clear();
+    useActivityStore.getState().setSessionStarted();
+    addMessage({ role: 'user', content: text });
     saveToStorage();
+    setStreamError(null);
+
     addMessage({ role: 'assistant', content: '' });
     setStreaming(true);
+    startElapsedTimer();
 
-    let assistantContent = '';
     const abortController = new AbortController();
     abortRef.current = abortController;
 
-    const updatedMessages = useChatStore.getState().messages;
-    await streamChatCompletion(
-      { model, messages: updatedMessages, stream: true, agent_mode: true, plan_mode: planMode, tdd_mode: tddMode },
-      (chunk) => {
-        assistantContent += chunk;
-        appendToCurrentAssistantContent(chunk);
-        updateLastAssistantMessage(assistantContent);
-        saveToStorage();
-      },
-      () => {
-        // Update final message
-        updateLastAssistantMessage(assistantContent);
-        saveToStorage();
-        setStreaming(false);
-        abortRef.current = null;
-        firePluginHook('chat:response', { content: assistantContent, model: selectedModelRef.current });
+    if (adaptiveMode) {
+      try {
+        const res = await askAgent({
+          task: text,
+          model: model === 'default' ? undefined : model,
+          adaptive: true,
+          use_web: webSearch,
+          project_id: requestProjectId ?? undefined,
+        });
 
-        // ── Auto-detect file changes from assistant response ──
-        if (assistantContent && assistantContent.length > 50) {
-          detectChangesFromAssistantContent(assistantContent)
-            .then(count => {
-              if (count > 0) {
-                addToast(`📋 ${count}개 파일 변경 감지 — 검토해보세요`, 'info');
-              }
-            })
-            .catch(() => {});
+        if (!isIdentityCurrent(requestEpoch)) {
+          if (abortRef.current === abortController) {
+            abortRef.current = null;
+          }
+          return;
         }
-      },
-      (err) => {
-        console.error('Stream error:', err);
-        updateLastAssistantMessage(assistantContent || `Error: ${err.message}`);
+
+        if (res.ok) {
+          updateLastAssistantMessage(res.answer, {
+            used_web: res.used_web,
+            used_graphify: res.used_graphify,
+            steps: res.steps,
+            total_seconds: res.total_seconds,
+            passed: res.passed,
+            mode: res.mode,
+          });
+          detectChangesFromAssistantContent(res.answer).catch(() => {});
+        } else {
+          const errText = res.error || 'Adaptive 에이전트 작업에 실패했습니다.';
+          updateLastAssistantMessage(`⚠️ 오류 발생: ${errText}`);
+          setStreamError(errText);
+        }
+      } catch (err: unknown) {
+        if (!isIdentityCurrent(requestEpoch)) return;
+        const errText = err instanceof Error ? err.message : 'Adaptive 에이전트 요청 중 통신 오류가 발생했습니다.';
+        updateLastAssistantMessage(`⚠️ 통신 오류: ${errText}`);
+        setStreamError(errText);
+      } finally {
         saveToStorage();
         setStreaming(false);
+        stopElapsedTimer();
         abortRef.current = null;
-        addToast(`오류: ${err.message}`, 'error');
+        useActivityStore.getState().setSessionEnded();
+        const next = queueRef.current.shift();
+        setQueuedMessages([...queueRef.current]);
+        if (next !== undefined) {
+          void runRef.current(next);
+        }
+      }
+      return;
+    }
+
+    let assistantContent = '';
+
+    // CTX-01: client message array is projection only — server store is authoritative.
+
+    // TS CFA does not track assignments made inside the onError callback across the
+    // await boundary (TS#9998), so a bare `= null` initializer narrows this to `null`
+    // and the post-await truthy branch collapses to `never`. The assertion keeps the
+    // declared string|null type at the read site below.
+    let errorMessage: string | null = null as string | null;
+    const expectedRevision = useChatStore.getState().conversationRevision ?? 0;
+    const conversationId = useChatStore.getState().activeSessionId ?? activeSessionId;
+    await streamChatCompletion(
+      {
+        model,
+        // CTX-01: server store is SoT — send new turn + expected revision only
+        messages: [{ role: 'user', content: text }],
+        new_turn: { role: 'user', content: text },
+        conversation_id: conversationId ?? undefined,
+        conversation_revision: expectedRevision,
+        use_conversation_store: true,
+        // ADR-0005: 첨부는 이름·MIME·base64 로 보낸다(서버가 파트로 바꾼다).
+        attachments: attachments.length > 0
+          ? attachments.map(({ name, mime_type, data_base64 }) => ({ name, mime_type, data_base64 }))
+          : undefined,
+        stream: true,
+        agent_mode: true,
+        plan_mode: planMode,
+        tdd_mode: tddMode,
+        web_search: webSearch,
+        code_mode: codeMode,
+        mcp_servers: mcpAllowlist,
+        // project_id / project_revision also injected by client.streamChatCompletion
+        project_id: requestProjectId ?? undefined,
       },
-      abortController.signal
+      {
+        onChunk: (chunk: string) => {
+          if (!isIdentityCurrent(requestEpoch)) return;
+          assistantContent += chunk;
+          appendToCurrentAssistantContent(chunk);
+        },
+        onDone: () => {},
+        onError: (err: Error) => {
+          if (err.name === 'AbortError') return;
+          if (err instanceof ConversationRevisionConflictError) {
+            errorMessage = `stale_conversation_revision:${err.payload.current_revision}`;
+            return;
+          }
+          errorMessage = err.message;
+        },
+        onConversationSnapshot: (snapshot) => {
+          if (!isIdentityCurrent(requestEpoch)) return;
+          applyServerSnapshot({
+            conversation_id: snapshot.conversation_id,
+            revision: snapshot.revision,
+            summary: snapshot.summary,
+            retained_message_ids: snapshot.retained_message_ids,
+          });
+        },
+      },
+      abortController.signal,
     );
+
+    // Stale responses from a previous project must not merge into the new UI/store.
+    if (!isIdentityCurrent(requestEpoch)) {
+      if (abortRef.current === abortController) {
+        abortRef.current = null;
+      }
+      return;
+    }
+
+    updateLastAssistantMessage(assistantContent);
+    saveToStorage();
+    setStreaming(false);
+    stopElapsedTimer();
+    abortRef.current = null;
+
+    // Record session end + approximate token usage
+    useActivityStore.getState().setSessionEnded();
+    const approxPromptTokens = Math.ceil(text.length / 4);
+    const approxCompletionTokens = Math.ceil(assistantContent.length / 4);
+    useActivityStore.getState().recordTokenUsage(approxPromptTokens, approxCompletionTokens);
+
+    if (errorMessage) {
+      if (errorMessage.includes('revision') || errorMessage.includes('409')) {
+        // Best-effort: refresh authoritative projection on conflict.
+        try {
+          const convId = useChatStore.getState().activeSessionId;
+          const projectId = useProjectStore.getState().activeProjectId;
+          if (convId) {
+            const history = await fetchConversationHistory(convId, projectId);
+            applyServerSnapshot({
+              conversation_id: history.snapshot.conversation_id,
+              revision: history.snapshot.revision,
+              summary: history.snapshot.summary,
+              retained_message_ids: history.snapshot.retained_message_ids,
+              messages: history.messages.map((m) => ({
+                id: m.id,
+                role: m.role === 'tool' ? 'system' : m.role,
+                content: m.content,
+              })),
+            });
+            setStreamError(
+              `대화 리비전이 충돌했습니다 (서버 r${history.snapshot.revision}). 최신 이력으로 동기화했습니다. 다시 전송해 주세요.`,
+            );
+          } else {
+            setStreamError(errorMessage);
+          }
+        } catch {
+          setStreamError(errorMessage);
+        }
+      } else {
+        setStreamError(errorMessage);
+      }
+    } else {
+      detectChangesFromAssistantContent(assistantContent).catch(() => {});
+    }
+
+    // Flush queued messages (Codex-style: sends after agent finishes)
+    const next = queueRef.current.shift();
+    setQueuedMessages([...queueRef.current]);
+    if (next !== undefined) {
+      void runRef.current(next);
+    }
+  }, [
+    addMessage, saveToStorage, setStreaming, appendToCurrentAssistantContent,
+    updateLastAssistantMessage, startElapsedTimer, stopElapsedTimer,
+    webSearch, codeMode, mcpAllowlist, activeSessionId, applyServerSnapshot,
+  ]);
+
+  useEffect(() => {
+    runRef.current = runCompletion;
+  }, [runCompletion]);
+
+  const handleSend = useCallback(async (textToSend?: string) => {
+    const text = textToSend ?? inputText;
+    if (!text.trim()) return;
+
+    if (useChatStore.getState().isStreaming) {
+      queueRef.current = [...queueRef.current, text.trim()];
+      setQueuedMessages([...queueRef.current]);
+      setInputText('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      addToast('에이전트 작업이 끝나면 자동으로 전송됩니다.', 'info');
+      return;
+    }
+
+    setInputText('');
+    setActionMenuOpen(false);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    await runCompletion(text.trim());
+  }, [inputText, runCompletion, addToast]);
+
+  const handleSendNow = useCallback((index: number) => {
+    const item = queueRef.current[index];
+    if (item === undefined) return;
+    queueRef.current = queueRef.current.filter((_, i) => i !== index);
+    setQueuedMessages([...queueRef.current]);
+    if (!useChatStore.getState().isStreaming) {
+      void runCompletion(item);
+    } else {
+      queueRef.current = [item, ...queueRef.current];
+      setQueuedMessages([...queueRef.current]);
+    }
+  }, [runCompletion]);
+
+  const handleEditQueued = useCallback((index: number) => {
+    const item = queueRef.current[index];
+    if (item === undefined) return;
+    queueRef.current = queueRef.current.filter((_, i) => i !== index);
+    setQueuedMessages([...queueRef.current]);
+    setInputText(item);
+    textareaRef.current?.focus();
+  }, []);
+
+  const handleDeleteQueued = useCallback((index: number) => {
+    queueRef.current = queueRef.current.filter((_, i) => i !== index);
+    setQueuedMessages([...queueRef.current]);
+  }, []);
+
+  const handleClearAllQueued = useCallback(() => {
+    queueRef.current = [];
+    setQueuedMessages([]);
+  }, []);
+
+  const handleMoveUpQueued = useCallback((index: number) => {
+    if (index <= 0) return;
+    const items = [...queueRef.current];
+    const temp = items[index];
+    items[index] = items[index - 1];
+    items[index - 1] = temp;
+    queueRef.current = items;
+    setQueuedMessages(items);
+  }, []);
+
+  const handleMoveDownQueued = useCallback((index: number) => {
+    if (index >= queueRef.current.length - 1) return;
+    const items = [...queueRef.current];
+    const temp = items[index];
+    items[index] = items[index + 1];
+    items[index + 1] = temp;
+    queueRef.current = items;
+    setQueuedMessages(items);
+  }, []);
+
+  const handleReorderQueued = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const items = [...queueRef.current];
+    const [moved] = items.splice(fromIndex, 1);
+    items.splice(toIndex, 0, moved);
+    queueRef.current = items;
+    setQueuedMessages(items);
   }, []);
 
   const handleStop = useCallback(() => {
-    abortRef.current?.abort();
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
     setStreaming(false);
-  }, [setStreaming]);
+    stopElapsedTimer();
+    useActivityStore.getState().setSessionEnded();
+    addToast('생성이 중단되었습니다.', 'info');
+  }, [setStreaming, addToast, stopElapsedTimer]);
 
-  const handleExampleClick = useCallback((text: string) => {
-    handleSend(text);
-  }, [handleSend]);
+  const handleCompactConversation = useCallback(async () => {
+    const chat = useChatStore.getState();
+    const conversationId = chat.activeSessionId;
+    const projectId = useProjectStore.getState().activeProjectId;
+    if (!conversationId || !projectId) {
+      const message = '압축할 대화 또는 프로젝트를 찾을 수 없습니다.';
+      setCompactionStatus(message);
+      addToast(message, 'error');
+      return;
+    }
 
-  // Register input ref with ChatInput via window callback
-  const registerInput = useCallback((el: HTMLTextAreaElement | null) => {
-    inputRef.current = el;
+    const requestEpoch = useProjectStore.getState().switchEpoch;
+    setIsCompactingConversation(true);
+    setCompactionStatus('대화를 압축하고 최신 이력을 동기화하는 중입니다.');
+    addToast('대화를 압축하는 중입니다.', 'info');
+    try {
+      const snapshot = await compactConversation({
+        conversation_id: conversationId,
+        expected_revision: chat.conversationRevision ?? 0,
+        project_id: projectId,
+      });
+      if (!isIdentityCurrent(requestEpoch)) return;
+      applyServerSnapshot({
+        conversation_id: snapshot.conversation_id,
+        revision: snapshot.revision,
+        summary: snapshot.summary,
+        retained_message_ids: snapshot.retained_message_ids,
+      });
+      const history = await fetchConversationHistory(conversationId, projectId);
+      if (!isIdentityCurrent(requestEpoch)) return;
+      applyServerSnapshot({
+        conversation_id: history.snapshot.conversation_id,
+        revision: history.snapshot.revision,
+        summary: history.snapshot.summary,
+        retained_message_ids: history.snapshot.retained_message_ids,
+        messages: history.messages.map((message) => ({
+          id: message.id,
+          role: message.role === 'tool' ? 'system' : message.role,
+          content: message.content,
+        })),
+      });
+      const message = `대화를 압축했습니다. 서버 r${history.snapshot.revision}의 최신 이력을 반영했습니다.`;
+      setCompactionStatus(message);
+      addToast(message, 'success');
+    } catch (error: unknown) {
+      if (!isIdentityCurrent(requestEpoch)) return;
+      if (error instanceof ConversationRevisionConflictError) {
+        try {
+          const history = await fetchConversationHistory(conversationId, projectId);
+          if (!isIdentityCurrent(requestEpoch)) return;
+          applyServerSnapshot({
+            conversation_id: history.snapshot.conversation_id,
+            revision: history.snapshot.revision,
+            summary: history.snapshot.summary,
+            retained_message_ids: history.snapshot.retained_message_ids,
+            messages: history.messages.map((message) => ({
+              id: message.id,
+              role: message.role === 'tool' ? 'system' : message.role,
+              content: message.content,
+            })),
+          });
+          const message = `대화 리비전이 충돌했습니다. 서버 r${history.snapshot.revision}의 최신 이력을 반영했습니다. 다시 시도해 주세요.`;
+          setCompactionStatus(message);
+          addToast(message, 'info');
+        } catch (refreshError: unknown) {
+          const detail = refreshError instanceof Error ? refreshError.message : '최신 이력을 불러오지 못했습니다.';
+          const message = `대화 리비전이 충돌했습니다 (서버 r${error.payload.current_revision}). ${detail}`;
+          setCompactionStatus(message);
+          addToast(message, 'error');
+        }
+      } else {
+        const detail = error instanceof Error ? error.message : '알 수 없는 오류';
+        const message = `대화 압축에 실패했습니다: ${detail}`;
+        setCompactionStatus(message);
+        addToast(message, 'error');
+      }
+    } finally {
+      if (isIdentityCurrent(requestEpoch)) {
+        setIsCompactingConversation(false);
+      }
+    }
+  }, [addToast, applyServerSnapshot]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      void handleSend();
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // 같은 파일을 다시 고를 수 있게 입력값을 비운다(값이 남으면 change 가 안 뜬다).
+    e.target.value = '';
+    if (!file) return;
+    // 빠른 실패 — 서버가 최종 판정하지만, 왕복 전에 이유를 알려 준다.
+    if (!ALLOWED_IMAGE_MIME.includes(file.type)) {
+      addToast(`지원하지 않는 형식입니다: ${file.type || file.name} (PNG·JPEG·WebP·GIF)`, 'error');
+      return;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      addToast(`첨부가 너무 큽니다: ${(file.size / 1024 / 1024).toFixed(1)}MB (상한 5MB)`, 'error');
+      return;
+    }
+    void readAttachmentBase64(file)
+      .then((data_base64) => {
+        const attachment: PendingAttachment = {
+          name: file.name,
+          mime_type: file.type,
+          data_base64,
+          bytes: file.size,
+        };
+        pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment];
+        setPendingAttachments(pendingAttachmentsRef.current);
+        // 파일명 표식은 **이력 참조용**으로 남긴다(바이트는 별도 채널로 간다).
+        setInputText(prev => prev ? `${prev}\n[첨부 파일: ${file.name}]` : `[첨부 파일: ${file.name}] `);
+        addToast(`파일 첨부: ${file.name} — 모델에 이미지로 전달됩니다`, 'info');
+      })
+      .catch((error: unknown) => {
+        addToast(error instanceof Error ? error.message : '파일을 읽지 못했습니다.', 'error');
+      });
+  };
+
+  const removePendingAttachment = useCallback((name: string, bytes: number) => {
+    const next = pendingAttachmentsRef.current.filter(
+      (attachment) => !(attachment.name === name && attachment.bytes === bytes),
+    );
+    pendingAttachmentsRef.current = next;
+    setPendingAttachments(next);
   }, []);
 
-  return (
-    <div className="ide-layout">
-      <Suspense fallback={<SplitPaneFallback />}>
-      <SplitPane
-        direction="horizontal"
-        storageKey="agk_ide_split_sizes"
-        initialSizes={[20, 40, 40]}
-        minSizes={[180, 240, 280]}
-        gutterSize={6}
-      >
-        {/* Left: File Explorer */}
-        <div className="ide-explorer glass-panel" style={{ borderRight: 'none', height: '100%' }}>
-          <FileExplorer />
-        </div>
+  // Close menus on click outside
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.model-selector-wrap')) setModelDropdownOpen(false);
+      if (!target.closest('.codex-action-plus-wrap')) setActionMenuOpen(false);
+      if (!target.closest('.codex-access-pill-wrap')) setAccessDropdownOpen(false);
+      if (!target.closest('.agk-mcp-chip-wrap')) setMcpMenuOpen(false);
+    };
+    document.addEventListener('click', handleDocumentClick);
+    return () => document.removeEventListener('click', handleDocumentClick);
+  }, []);
 
-        {/* Center: Editor / Preview / Changes */}
-        <div className="flex flex-col" style={{ minWidth: 0, overflow: 'hidden', height: '100%' }}>
-          {changePanelVisible ? (
-            <ChangePanel
-              visible={changePanelVisible}
-              onClose={() => setChangePanelVisible(false)}
-            />
-          ) : previewVisible ? (
-            <ArtifactPreview />
-          ) : (
-            <CodeEditor />
-          )}
-        </div>
+  const isHero = messages.length === 0;
+  const sessionTitle = activeSession?.title || 'New Conversation';
+  const modelLabel = useMemo(() => {
+    const foundLocal = localModels.find(m => m.id === selectedModel);
+    if (foundLocal) {
+      const tag = foundLocal.parameter_count_b > 0
+        ? ` (${foundLocal.parameter_count_b}B)`
+        : foundLocal.disk_size_gb > 0
+          ? ` (${foundLocal.disk_size_gb}GB)`
+          : '';
+      return `${foundLocal.name || foundLocal.id}${tag}`;
+    }
+    const foundAvail = availableModels.find(m => m.id === selectedModel);
+    if (foundAvail) {
+      return foundAvail.description || foundAvail.id;
+    }
+    if (selectedModel === 'default') {
+      return localModels[0]?.name ? `${localModels[0].name} (로컬)` : '로컬 모델 감지 중...';
+    }
+    return selectedModel;
+  }, [selectedModel, localModels, availableModels]);
 
-        {/* Right: AI Chat */}
-        <div className="ide-chat" style={{ height: '100%' }}>
-          <div className="chat-container">
-          <div className="chat-header">
-            <h2>Vibe Coding <span>Agent</span></h2>
-            <div className="model-selector-wrap">
-              {/* Change Review Button */}
-              <button
-                className={`icon-btn ${changePanelVisible ? 'active' : ''}`}
-                title={`변경 검토${pendingChangeCount > 0 ? ` (${pendingChangeCount} pending)` : ''}`}
-                aria-label={`변경 검토 패널${pendingChangeCount > 0 ? ` (${pendingChangeCount}개 보류)` : ''}`}
-                style={{
-                  fontSize: 14,
-                  position: 'relative',
-                  color: changePanelVisible ? 'var(--accent-color)' : undefined,
-                  background: changePanelVisible ? 'rgba(124,106,239,0.12)' : undefined,
-                }}
-                onClick={() => setChangePanelVisible(!changePanelVisible)}
+  const editorContent = previewVisible ? <ArtifactPreview /> : <CodeEditor />;
+  const changesContent = (
+    <ChangePanel
+      visible={true}
+      onClose={() => {
+        setChangePanelVisible(false);
+        setEnvTab('env');
+      }}
+    />
+  );
+
+  /* ─── Composer card (shared by hero & docked) ─────────────── */
+  const composerCard = (
+    <div className="agk-composer-card">
+      {!isHero && (
+        <div className="codex-context-header-bar docked">
+          <div className="context-item">
+            <span className="item-icon">📁</span>
+            <span className="item-text">{workspaceContext.project_name}</span>
+          </div>
+          <div className="context-item">
+            <span className="item-icon">🖥️</span>
+            <span className="item-text">{workspaceContext.target}</span>
+          </div>
+          <div className="context-item">
+            <span className="item-icon">⑂</span>
+            <span className="item-text branch">{workspaceContext.branch}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="agk-input-main-card">
+        {pendingAttachments.length > 0 && (
+          <div className="agk-attachment-chips" data-testid="chat-attachment-chips">
+            {pendingAttachments.map((attachment) => (
+              <span
+                key={`${attachment.name}:${attachment.bytes}`}
+                className="agk-attachment-chip"
+                data-testid="chat-attachment-chip"
+                data-attachment-name={attachment.name}
+                data-attachment-mime={attachment.mime_type}
+                data-attachment-bytes={attachment.bytes}
               >
-                📋
-                {pendingChangeCount > 0 && (
-                  <span className="change-dot">{pendingChangeCount > 9 ? '9+' : pendingChangeCount}</span>
-                )}
+                📎 {attachment.name} ({(attachment.bytes / 1024).toFixed(0)}KB)
+                <button
+                  type="button"
+                  aria-label={`${attachment.name} 첨부 제거`}
+                  onClick={() => removePendingAttachment(attachment.name, attachment.bytes)}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <textarea
+          ref={textareaRef}
+          id="chat-input"
+          className="codex-textarea"
+          style={{
+            color: 'var(--text-primary, #f0f6fc)',
+            caretColor: 'var(--accent-color, #e5a93b)',
+          }}
+          placeholder="Ask anything, @ to mention, / for actions"
+          rows={1}
+          value={inputText}
+          onChange={(e) => {
+            setInputText(e.target.value);
+            e.target.style.height = 'auto';
+            e.target.style.height = `${Math.min(220, e.target.scrollHeight)}px`;
+          }}
+          onKeyDown={handleKeyDown}
+          aria-label="메시지 입력"
+        />
+
+        {/* Chip toolbar row */}
+        <div className="agk-chip-toolbar">
+          <div className="agk-chip-group">
+            {/* + attach */}
+            <div className="codex-action-plus-wrap">
+              <button
+                type="button"
+                className={`plus-action-circle-btn ${actionMenuOpen ? 'open' : ''}`}
+                onClick={() => setActionMenuOpen(!actionMenuOpen)}
+                title="옵션 및 파일 첨부"
+                aria-label="옵션 및 파일 첨부"
+              >
+                +
               </button>
-              <button className="icon-btn" title="New Chat" aria-label="새 채팅 세션" style={{ fontSize: 14 }} onClick={createNewSession}>
-                ➕
+              {actionMenuOpen && (
+                <div className="plus-popover-dropdown">
+                  <button
+                    type="button"
+                    className="popover-row"
+                    onClick={() => { fileInputRef.current?.click(); setActionMenuOpen(false); }}
+                  >
+                    <span>📎</span>
+                    <span>파일 및 사진 첨부</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="popover-row"
+                    onClick={() => { addToast('전체 코드베이스 심층 RAG 분석 활성화', 'info'); setActionMenuOpen(false); }}
+                  >
+                    <span>🧠</span>
+                    <span>코드베이스 전체 탐색</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 전체 액세스 (Approve-for-me equivalent) */}
+            <div className="codex-access-pill-wrap">
+              <button
+                type="button"
+                className={`access-chip ${accessMode === 'full_access' ? 'amber' : 'safe'}`}
+                onClick={() => setAccessDropdownOpen(!accessDropdownOpen)}
+              >
+                <span className="chip-icon">{accessMode === 'full_access' ? '🛡️!' : '🔒'}</span>
+                <span className="chip-label">
+                  {accessMode === 'full_access' ? '전체 액세스' : '읽기 전용'}
+                </span>
+                <span className="chip-chevron">⌄</span>
               </button>
-              <button className="icon-btn" title="Chat History" aria-label="채팅 히스토리" style={{ fontSize: 14 }} onClick={() => setChatHistoryVisible(true)}>
-                📜
+              {accessDropdownOpen && (
+                <div className="access-dropdown-menu">
+                  <div
+                    className={`access-opt ${accessMode === 'full_access' ? 'selected' : ''}`}
+                    onClick={() => handleToggleAccessMode('full_access')}
+                  >
+                    ✓ 전체 액세스 (Full Access)
+                  </div>
+                  <div
+                    className={`access-opt ${accessMode === 'restricted' ? 'selected' : ''}`}
+                    onClick={() => handleToggleAccessMode('restricted')}
+                  >
+                    🔒 읽기 전용 (Read Only)
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Search toggle */}
+            <button
+              type="button"
+              className={`tool-chip ${webSearch ? 'active' : ''}`}
+              onClick={() => setWebSearch((v) => !v)}
+              aria-pressed={webSearch}
+              title="웹 검색 도구 사용"
+            >
+              <span className="chip-icon">🌐</span>
+              <span className="chip-label">Search</span>
+            </button>
+
+            {/* Code toggle */}
+            <button
+              type="button"
+              className={`tool-chip ${codeMode ? 'active' : ''}`}
+              onClick={() => setCodeMode((v) => !v)}
+              aria-pressed={codeMode}
+              title="코드 인터프리터 사용"
+            >
+              <span className="chip-icon">‹/›</span>
+              <span className="chip-label">Code</span>
+            </button>
+
+            {/* MCP selector — 구성된 서버 실목록 기반 */}
+            <div className="agk-mcp-chip-wrap">
+              <button
+                type="button"
+                className={`tool-chip ${mcpAllowlist.length > 0 ? 'active' : ''}`}
+                onClick={() => setMcpMenuOpen((v) => !v)}
+                aria-pressed={mcpAllowlist.length > 0}
+                title="MCP 서버"
+              >
+                <span className="chip-icon">⊞</span>
+                <span className="chip-label">MCP</span>
+                <span className="chip-chevron">⌄</span>
               </button>
-              <ModelSelector />
+              {mcpMenuOpen && (
+                <div className="mcp-dropdown-menu">
+                  {mcpServerList.length === 0 ? (
+                    <div className="mcp-opt mcp-empty-row">
+                      <span>구성된 MCP 서버가 없습니다</span>
+                      <span className="mcp-opt-status">.mcp.json</span>
+                    </div>
+                  ) : (
+                    mcpServerList.map(server => {
+                      const isSelected = mcpAllowlist.includes(server.name);
+                      return (
+                        <button
+                          key={server.name}
+                          type="button"
+                          className={`mcp-opt ${isSelected ? 'selected' : ''}`}
+                          onClick={() => {
+                            setSelectedMcp(prev => {
+                              const base = prev ?? mcpServerList.map(s => s.name);
+                              return isSelected
+                                ? base.filter(n => n !== server.name)
+                                : [...base, server.name];
+                            });
+                          }}
+                        >
+                          <span>{isSelected ? '✓' : '○'} {server.name}</span>
+                          <span className="mcp-opt-status on">{server.transport}</span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="chat-history" ref={chatHistoryRef}>
-            {messages.length === 0 ? (
-              <EmptyState onExampleClick={handleExampleClick} />
-            ) : (
-              messages.map((msg, i) => (
-                <ChatMessage key={msg.id || `${msg.role}-${i}`} message={msg} />
-              ))
-            )}
-            {isStreaming && (
-              <div className="message assistant">
-                <div className="avatar">🤖</div>
-                <div className="bubble glass-panel">
-                  <span className="typing-indicator"><span /><span /><span /></span>
+          <div className="agk-chip-group">
+            {/* Model selector pill */}
+            <div className="model-selector-wrap codex-model-selector-wrap">
+              <button
+                type="button"
+                className="model-pill-trigger model-select-trigger"
+                onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+                aria-label="모델 선택"
+              >
+                <span className="model-name-text">{modelLabel}</span>
+                <span className="chevron-mini">⌄</span>
+              </button>
+
+              {modelDropdownOpen && (
+                <div className="model-selection-popover">
+                  <div className="model-dropdown-header-row">
+                    <span className="popover-sec-title">💻 본 PC 전체 로컬 모델 ({localModels.length}개)</span>
+                    <button
+                      type="button"
+                      className="model-refresh-btn"
+                      title="본 PC 로컬 모델 다시 검색"
+                      disabled={isScanningLocal}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void loadLocalModels(true);
+                      }}
+                    >
+                      {isScanningLocal ? '스캔 중...' : '↻ 재검색'}
+                    </button>
+                  </div>
+
+                  {localModels.length === 0 ? (
+                    <div className="model-empty-notice">
+                      {isScanningLocal
+                        ? '본 PC의 로컬 모델을 스캔하고 있습니다...'
+                        : '본 PC에서 실행 중이거나 다운로드된 로컬 모델을 찾을 수 없습니다.'}
+                    </div>
+                  ) : (
+                    <>
+                      {/* 1. 실행 중 모델 (Ollama / Local APIs) */}
+                      {localModels.filter((m) => m.status === 'running').length > 0 && (
+                        <div className="model-group-section">
+                          <div className="model-group-title">🟢 실행 중 모델 (즉시 추론 가능)</div>
+                          {localModels
+                            .filter((m) => m.status === 'running')
+                            .map((m) => (
+                              <div
+                                key={m.id}
+                                className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
+                                onClick={() => handleModelChoice(m.id)}
+                              >
+                                <div className="model-row-left">
+                                  <div className="model-row-title-line">
+                                    <span className="status-dot running" />
+                                    <span className="model-name-text">{m.name || m.id}</span>
+                                  </div>
+                                  <div className="model-chip-badges">
+                                    <span className="badge-provider">{m.provider}</span>
+                                    {m.parameter_count_b > 0 && (
+                                      <span className="badge-param">{m.parameter_count_b}B</span>
+                                    )}
+                                    {m.role && <span className="badge-role">{m.role}</span>}
+                                  </div>
+                                </div>
+                                {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+
+                      {/* 2. 다운로드/캐시된 Unsloth 및 로컬 GGUF 모델 */}
+                      {localModels.filter((m) => m.status !== 'running' && m.provider === 'unsloth').length > 0 && (
+                        <div className="model-group-section">
+                          <div className="model-group-title">🦥 Unsloth 다운로드 모델 (GGUF)</div>
+                          {localModels
+                            .filter((m) => m.status !== 'running' && m.provider === 'unsloth')
+                            .map((m) => (
+                              <div
+                                key={m.id}
+                                className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
+                                onClick={() => handleModelChoice(m.id)}
+                              >
+                                <div className="model-row-left">
+                                  <div className="model-row-title-line">
+                                    <span className="status-dot cached" />
+                                    <span className="model-name-text">{m.name || m.id}</span>
+                                  </div>
+                                  <div className="model-chip-badges">
+                                    <span className="badge-provider unsloth">UNSLOTH</span>
+                                    {m.disk_size_gb > 0 && (
+                                      <span className="badge-disk">{m.disk_size_gb} GB</span>
+                                    )}
+                                    {m.quantization && (
+                                      <QuantBadge quantization={m.quantization} variant="chip" />
+                                    )}
+                                    {m.role && <span className="badge-role">{m.role}</span>}
+                                  </div>
+                                </div>
+                                {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+
+                      {/* 3. 기타 로컬/MLX/HuggingFace 모델 */}
+                      {localModels.filter((m) => m.status !== 'running' && m.provider !== 'unsloth').length > 0 && (
+                        <div className="model-group-section">
+                          <div className="model-group-title">📦 MLX / 로컬 캐시 모델</div>
+                          {localModels
+                            .filter((m) => m.status !== 'running' && m.provider !== 'unsloth')
+                            .map((m) => (
+                              <div
+                                key={m.id}
+                                className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
+                                onClick={() => handleModelChoice(m.id)}
+                              >
+                                <div className="model-row-left">
+                                  <div className="model-row-title-line">
+                                    <span className="status-dot cached" />
+                                    <span className="model-name-text">{m.name || m.id}</span>
+                                  </div>
+                                  <div className="model-chip-badges">
+                                    <span className={`badge-provider ${m.provider}`}>{m.provider}</span>
+                                    {m.disk_size_gb > 0 && (
+                                      <span className="badge-disk">{m.disk_size_gb} GB</span>
+                                    )}
+                                    {m.quantization && (
+                                      <QuantBadge quantization={m.quantization} variant="chip" />
+                                    )}
+                                    {m.role && <span className="badge-role">{m.role}</span>}
+                                  </div>
+                                </div>
+                                {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* ── Optional Cloud / Fallback Models Section ── */}
+                  {availableModels.filter((m) => !m.is_local && !localModels.some((lm) => lm.id === m.id)).length > 0 && (
+                    <>
+                      <div className="model-dropdown-divider" />
+                      <div className="popover-sec-title subhead">☁️ 외부 / 클라우드 모델</div>
+                      {availableModels
+                        .filter((m) => !m.is_local && !localModels.some((lm) => lm.id === m.id))
+                        .slice(0, 8)
+                        .map((m) => (
+                          <div
+                            key={m.id}
+                            className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
+                            onClick={() => {
+                              setSelectedModel(m.id);
+                              setModelDropdownOpen(false);
+                            }}
+                          >
+                            <span>{m.description || m.id}</span>
+                            {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
+                          </div>
+                        ))}
+                    </>
+                  )}
                 </div>
+              )}
+            </div>
+
+            {/* Mic */}
+            <button
+              type="button"
+              className="mic-action-btn"
+              onClick={() => addToast('음성 입력이 활성화되었습니다.', 'info')}
+              title="음성 입력"
+              aria-label="음성 입력"
+            >
+              🎙️
+            </button>
+
+            {/* Send / Stop */}
+            {isStreaming ? (
+              <button
+                type="button"
+                className="soundwave-circle-btn stop send-btn"
+                onClick={handleStop}
+                title="중단"
+                aria-label="생성 중단"
+              >
+                ⏹
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`soundwave-circle-btn ${inputText.trim() ? 'send-mode' : ''} send-btn`}
+                onClick={() => handleSend()}
+                title={inputText.trim() ? '전송' : '음성 대화 시작'}
+                aria-label={inputText.trim() ? '메시지 전송' : '음성 대화 시작'}
+              >
+                {inputText.trim() ? '↑' : 'ılı'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className={`agk-workspace ${isHero ? 'is-empty' : ''}`}>
+      {/* ── Main column: topbar + canvas + composer ──────────── */}
+      <div className="agk-main-column">
+        <header className="agk-topbar">
+          <div className="agk-breadcrumb">
+            <span className="crumb-project" data-testid="active-project-label" data-project-id={activeProjectId ?? ''}>
+              {activeProjectName || workspaceContext?.project_name || 'Ssak-Ai'}
+            </span>
+            <span className="crumb-sep">/</span>
+            {isEditingTitle ? (
+              <input
+                type="text"
+                className="crumb-title-input"
+                value={titleInput}
+                autoFocus
+                onChange={(e) => setTitleInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (titleInput.trim() && activeSessionId) {
+                      updateSessionTitle(activeSessionId, titleInput.trim());
+                      addToast('대화 제목이 변경되었습니다.', 'info');
+                    }
+                    setIsEditingTitle(false);
+                  } else if (e.key === 'Escape') {
+                    setIsEditingTitle(false);
+                  }
+                }}
+                onBlur={() => {
+                  if (titleInput.trim() && activeSessionId) {
+                    updateSessionTitle(activeSessionId, titleInput.trim());
+                  }
+                  setIsEditingTitle(false);
+                }}
+              />
+            ) : (
+              <span
+                className="crumb-title editable"
+                title="클릭하여 대화 제목 수정"
+                onClick={() => {
+                  setIsEditingTitle(true);
+                  setTitleInput(sessionTitle);
+                }}
+              >
+                {sessionTitle}
+                <span className="crumb-edit-icon" aria-hidden="true">✎</span>
+              </span>
+            )}
+          </div>
+          <div className="agk-topbar-actions">
+            <button
+              type="button"
+              className={`topbar-tool-btn ${isCompactingConversation ? 'active' : ''}`}
+              aria-label={`대화 압축: ${sessionTitle}`}
+              aria-describedby="conversation-compaction-status"
+              aria-busy={isCompactingConversation}
+              title={isCompactingConversation ? '대화 압축 및 동기화 중' : '현재 대화 압축'}
+              disabled={isCompactingConversation || isStreaming || !activeSessionId || !activeProjectId}
+              onClick={() => void handleCompactConversation()}
+            >
+              {isCompactingConversation ? '…' : '⌗'}
+            </button>
+            <button
+              type="button"
+              className="topbar-tool-btn"
+              aria-label="명령 팔레트 열기 (Cmd+K)"
+              title="명령 팔레트 (Cmd+K)"
+              onClick={() => setCommandPaletteVisible(true)}
+            >
+              ⌘
+            </button>
+            <button
+              type="button"
+              className="topbar-tool-btn"
+              aria-label="채팅 히스토리"
+              title="채팅 히스토리"
+              onClick={() => setHistoryVisible(true)}
+            >
+              🕓
+            </button>
+            <button
+              type="button"
+              className={`topbar-tool-btn ${envPanelOpen ? 'active' : ''}`}
+              onClick={() => setEnvPanelOpen((v) => !v)}
+              title="환경 패널 토글"
+              aria-label="환경 패널 토글"
+            >
+              ◫
+            </button>
+            <button
+              type="button"
+              className="topbar-tool-btn"
+              onClick={() => {
+                if (document.fullscreenElement) {
+                  document.exitFullscreen().catch(() => {});
+                } else {
+                  document.documentElement.requestFullscreen().catch(() => {});
+                }
+              }}
+              title="전체화면"
+              aria-label="전체화면"
+            >
+              □
+            </button>
+          </div>
+        </header>
+
+        <div className="agk-canvas">
+          {!isHero && (
+            <div className="agk-feed" ref={feedRef}>
+              <div className="agk-feed-inner">
+                {messages.map(msg => (
+                  <ChatMessage key={msg.id ?? `${msg.role}:${msg.content}`} message={msg} />
+                ))}
+                <ActivityTimeline />
+                {isStreaming && <WorkingIndicator elapsed={elapsed} />}
+                {streamError && !isStreaming && (
+                  <StreamErrorBanner
+                    message={`exceeded retry limit — ${streamError}`}
+                    onRetry={() => {
+                      const lastUser = [...messages].reverse().find(m => m.role === 'user');
+                      setStreamError(null);
+                      if (lastUser) void runCompletion(lastUser.content);
+                    }}
+                  />
+                )}
+                {!isStreaming && (
+                  <FileEditCard
+                    onReview={() => { setEnvPanelOpen(true); setEnvTab('changes'); }}
+                    onDiscard={() => {
+                      const { rejectAll, clearChanges } = useChangeStore.getState();
+                      rejectAll();
+                      clearChanges();
+                      addToast('편집 변경 사항을 실행 취소했습니다.', 'info');
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {isHero && (
+            <div className="unsloth-hero-head">
+              <span className="hero-mascot" aria-hidden="true">🦥</span>
+              <h1 className="hero-headline" data-testid="hero-headline">
+                <mark className="hero-mark">Ready</mark> when you are
+              </h1>
+              <p className="hero-subline">Ssak-Ai에서 무엇이든 물어보세요 — 코드 작성, 파일 편집, 웹 검색을 도와드립니다.</p>
+            </div>
+          )}
+
+          {/* Composer zone: queued card + composer */}
+          <div className={`agk-composer-zone ${isHero ? 'hero' : 'docked'}`}>
+            <QueuedMessagesCard
+              items={queuedMessages}
+              collapsed={queueCollapsed}
+              onToggleCollapse={() => setQueueCollapsed((v) => !v)}
+              onSendNow={handleSendNow}
+              onEdit={handleEditQueued}
+              onDelete={handleDeleteQueued}
+              onMoveUp={handleMoveUpQueued}
+              onMoveDown={handleMoveDownQueued}
+              onReorder={handleReorderQueued}
+              onClearAll={handleClearAllQueued}
+            />
+            {composerCard}
+            {isHero && (
+              <div
+                className="codex-suggested-prompt-line hero-variant"
+                onClick={() => {
+                  setInputText('Make the two new orchestrator-swarm benchmarks prove real agent work');
+                  textareaRef.current?.focus();
+                }}
+              >
+                <span className="github-cat-icon">🐙</span>
+                <span className="prompt-line-text">
+                  Make the two new orchestrator-swarm benchmarks prove real agent work
+                </span>
               </div>
             )}
           </div>
-
-          <ChatInput
-            onSend={handleSend}
-            onStop={handleStop}
-            isStreaming={isStreaming}
-            textareaRef={registerInput}
-          />
-
-          <PlanToggleBar />
         </div>
-      </div>
-      </SplitPane>
-      </Suspense>
 
-      <ChatHistory visible={chatHistoryVisible} onClose={() => setChatHistoryVisible(false)} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          style={{ display: 'none' }}
+          onChange={handleFileUpload}
+        />
+      </div>
+
+      {/* ── Right: Ssak-Ai 환경 rail ──────────────────────── */}
+      <EnvironmentPanel
+        open={envPanelOpen}
+        tab={envTab}
+        onTabChange={setEnvTab}
+        onClose={() => setEnvPanelOpen(false)}
+        branch={workspaceContext.branch}
+        workspacePath={workspaceContext.workspace_path}
+        mcpServers={mcpServerList}
+        editorContent={editorContent}
+        changesContent={changesContent}
+      />
+
+      <ChatHistory visible={historyVisible} onClose={() => setHistoryVisible(false)} />
+
+      {/* Screen-reader hint for pending review count */}
+      <span className="visually-hidden" aria-live="polite">
+        {pendingChangeCount > 0 ? `검토 대기 변경 ${pendingChangeCount}건` : ''}
+      </span>
+      <span id="conversation-compaction-status" className="visually-hidden" role="status">
+        {compactionStatus ?? ''}
+      </span>
     </div>
   );
 };

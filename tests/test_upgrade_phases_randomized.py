@@ -1,4 +1,4 @@
-"""Antigravity-K: Randomized Upgrade Phase Tests.
+"""Ssak-Ai: Randomized Upgrade Phase Tests.
 =============================================
 매번 다른 입력/시나리오로 테스트하여 과적합을 방지합니다.
 동일 테스트를 반복 실행해도 입력값이 달라집니다.

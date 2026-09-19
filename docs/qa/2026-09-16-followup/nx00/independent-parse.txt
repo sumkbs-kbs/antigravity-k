@@ -1,0 +1,17 @@
+artifact: .omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_soak_28800_resoake.json
+sha256: 741d64e31bf0df7251b51104108d7178ddedf538a50fafa164d23007cd6c948f
+bytes: 6244278
+parsed_ok: True
+task_id: VAL-02
+generated_at: 2026-09-15T06:08:33Z
+workdir: .omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/workdir/run28800e
+thresholds: {'p95_ms': 500.0, 'p99_ms': 1000.0, 'error_rate_max': 0.0, 'fd_leak_max': 5, 'rss_leak_mb': 64.0}
+thresholds_match_frozen: True
+scenario_names: ['SC-1-task-cas-race', 'SC-2-conversation-cas', 'SC-3-registry-flock', 'SC-4-kill-9-recovery', 'SC-5-load-latency', 'SC-6-soak']
+scenario_pass: {'SC-1-task-cas-race': True, 'SC-2-conversation-cas': True, 'SC-3-registry-flock': True, 'SC-4-kill-9-recovery': True, 'SC-5-load-latency': True, 'SC-6-soak': True}
+missing_required_in_artifact: []
+all_pass: True
+sc6: {'requested_duration_s': 28800, 'duration_s': 28801.318, 'actual_duration_s': 28801.318, 'conversation_ops': 12102886, 'conversation_revision': 12102886, 'conversation_message_count': 26, 'conversation_soft_max': 64, 'append_equals_revision': True, 'rss_growth_mb': 48.7, 'errors': 0, 'fd_growth': 0, 'orphan_worktrees': 0, 'rss_summary': {'count': 242057, 'first': 65.7, 'last': 114.4, 'min': 65.7, 'max': 114.4}, 'fd_summary': {'count': 242057, 'first': 7.0, 'last': 7.0, 'min': 7.0, 'max': 7.0}}
+derived: {'rss_growth_recomputed_from_samples': 48.7, 'rss_growth_matches_declared': True, 'fd_growth_recomputed_from_samples': 0, 'per_sample_interval_s': 0.119}
+problems: []
+verdict: PASS (metrics only)

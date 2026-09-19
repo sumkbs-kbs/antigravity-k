@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ultimate Frontier Amplification Test Suite for Antigravity-K (Qwen3.8-27B).
+"""Ultimate Frontier Amplification Test Suite for Ssak-Ai (Qwen3.8-27B).
 
 Comprehensive validation across all 8 capability amplification dimensions:
 1. Robust Tool Call Parser (Self-Healing JSON)
@@ -133,7 +133,7 @@ def run_ultimate_benchmark():
         print("  ❌ Failed speculative branch")
 
     print("\n" + "=" * 75)
-    print(f"🏆 ULTIMATE FRONTIER SCORE: {passed}/{total} ({(passed/total)*100:.0f}%)")
+    print(f"🏆 ULTIMATE FRONTIER SCORE: {passed}/{total} ({(passed / total) * 100:.0f}%)")
     print("=" * 75)
     return passed == total
 

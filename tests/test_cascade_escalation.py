@@ -5,31 +5,55 @@
 목표의 핵심 메커니즘이 실제로 연결되어 동작함을 증명한다.
 """
 
-from unittest.mock import MagicMock
+from typing import cast
 
-from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.model_manager import LoadedModel, ModelManager
 from antigravity_k.engine.model_registry import ModelProfile, ModelRegistry
 from antigravity_k.engine.model_router import ModelCombo, ModelRouter, RouteStrategy
 from antigravity_k.engine.usage_tracker import UsageTracker
 
 
-def _make_registry():
-    registry = MagicMock(spec=ModelRegistry)
-    registry.memory_config = MagicMock()
-    registry.memory_config.max_loaded_gb = 1000
-    registry.memory_config.auto_unload = False
-    profiles = {
-        "light-4b": ModelProfile(name="light-4b", repo="t", role="test", estimated_memory_gb=1),
-        "mid-24b": ModelProfile(name="mid-24b", repo="t", role="test", estimated_memory_gb=1),
-        "heavy-72b": ModelProfile(name="heavy-72b", repo="t", role="test", estimated_memory_gb=1),
-    }
-    registry.get_model.side_effect = lambda x: profiles.get(x)
-    registry.list_models.return_value = list(profiles.values())
-    registry._raw = {}
-    return registry
+class _MemoryConfigDouble:
+    max_loaded_gb: int = 1000
+    auto_unload: bool = False
+    unload_cooldown_sec: float = 300.0
 
 
-def _make_manager(responses, cascade_on, threshold=0.4, max_esc=2):
+class _RegistryDouble:
+    memory_config: _MemoryConfigDouble
+    _raw: dict[str, object]
+    _profiles: dict[str, ModelProfile]
+
+    def __init__(self) -> None:
+        self.memory_config = _MemoryConfigDouble()
+        self._raw = {}
+        self._profiles = {
+            "light-4b": ModelProfile(name="light-4b", repo="t", role="test", estimated_memory_gb=1),
+            "mid-24b": ModelProfile(name="mid-24b", repo="t", role="test", estimated_memory_gb=1),
+            "heavy-72b": ModelProfile(name="heavy-72b", repo="t", role="test", estimated_memory_gb=1),
+        }
+
+    def get_model(self, name: str) -> ModelProfile | None:
+        return self._profiles.get(name)
+
+    def list_models(self) -> list[ModelProfile]:
+        return list(self._profiles.values())
+
+    def model_exists(self, name: str) -> bool:
+        return name in self._profiles
+
+
+def _make_registry() -> ModelRegistry:
+    registry = _RegistryDouble()
+    return cast(ModelRegistry, cast(object, registry))
+
+
+def _make_manager(
+    responses: dict[str, str],
+    cascade_on: bool,
+    threshold: float = 0.4,
+    max_esc: int = 2,
+) -> ModelManager:
     registry = _make_registry()
     router = ModelRouter(registry)
     combo = ModelCombo(
@@ -43,17 +67,29 @@ def _make_manager(responses, cascade_on, threshold=0.4, max_esc=2):
     router.cascade_max_escalations = max_esc
 
     manager = ModelManager(registry=registry, router=router, tracker=UsageTracker(db_path=None))
-    manager._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
-    calls = []
+    return _attach_generator(manager, responses)
 
-    def fake_generate(loaded, prompt, **kwargs):
+
+def _attach_generator(manager: ModelManager, responses: dict[str, str]) -> ModelManager:
+    calls: list[str] = []
+
+    def fake_load(_profile: ModelProfile) -> tuple[object, object]:
+        return object(), object()
+
+    def fake_generate(loaded: LoadedModel, prompt: str, **kwargs: object) -> str:
+        del prompt, kwargs
         name = loaded.profile.name
         calls.append(name)
         return responses.get(name, "fallback")
 
-    manager._do_generate = MagicMock(side_effect=fake_generate)
-    manager.calls = calls
+    setattr(manager, "_load_mlx_model", fake_load)
+    setattr(manager, "_do_generate", fake_generate)
+    setattr(manager, "calls", calls)
     return manager
+
+
+def _calls(manager: ModelManager) -> list[str]:
+    return cast(list[str], getattr(manager, "calls"))
 
 
 def test_cascade_disabled_keeps_low_confidence_response():
@@ -61,7 +97,7 @@ def test_cascade_disabled_keeps_low_confidence_response():
     manager = _make_manager({"light-4b": "짧음"}, cascade_on=False)
     result = manager.generate("질문", "cascade-stack")
     assert result == "짧음"
-    assert manager.calls == ["light-4b"]
+    assert _calls(manager) == ["light-4b"]
 
 
 def test_cascade_enabled_escalates_on_low_confidence():
@@ -69,7 +105,7 @@ def test_cascade_enabled_escalates_on_low_confidence():
         {"light-4b": "짧음", "mid-24b": "충분히 길고 구체적이며 상세한 정답입니다." * 3}, cascade_on=True
     )
     result = manager.generate("질문", "cascade-stack")
-    assert "mid-24b" in manager.calls
+    assert "mid-24b" in _calls(manager)
     assert result != "짧음"
 
 
@@ -78,7 +114,7 @@ def test_cascade_keeps_high_confidence_response():
     manager = _make_manager({"light-4b": long_good}, cascade_on=True)
     result = manager.generate("질문", "cascade-stack")
     assert result.strip() == long_good.strip()
-    assert manager.calls == ["light-4b"]
+    assert _calls(manager) == ["light-4b"]
 
 
 def test_cascade_stops_at_top_tier():
@@ -88,9 +124,9 @@ def test_cascade_stops_at_top_tier():
         cascade_on=True,
         max_esc=5,
     )
-    manager.generate("질문", "cascade-stack")
+    _ = manager.generate("질문", "cascade-stack")
     # 최고 티어까지 에스컬레이션 후 정지
-    assert manager.calls[-1] == "heavy-72b"
+    assert _calls(manager)[-1] == "heavy-72b"
 
 
 def test_cascade_respects_max_escalations():
@@ -99,9 +135,9 @@ def test_cascade_respects_max_escalations():
         cascade_on=True,
         max_esc=1,
     )
-    manager.generate("질문", "cascade-stack")
+    _ = manager.generate("질문", "cascade-stack")
     # max_esc=1 이면 light→mid 한 번만 에스컬레이션 가능
-    assert "heavy-72b" not in manager.calls
+    assert "heavy-72b" not in _calls(manager)
 
 
 def test_non_cascading_combo_not_escalated():
@@ -115,8 +151,9 @@ def test_non_cascading_combo_not_escalated():
     router.register_combo(combo)
     router.cascade_on_low_confidence = True
 
-    manager = ModelManager(registry=registry, router=router, tracker=UsageTracker(db_path=None))
-    manager._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
-    manager._do_generate = MagicMock(return_value="짧")
+    manager = _attach_generator(
+        ModelManager(registry=registry, router=router, tracker=UsageTracker(db_path=None)),
+        {"light-4b": "짧"},
+    )
     result = manager.generate("질문", "fallback-stack")
     assert result == "짧"

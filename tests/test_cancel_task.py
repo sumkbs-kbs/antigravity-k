@@ -1,6 +1,8 @@
 import os
 import sys
 import time
+from collections.abc import Callable
+from typing import cast
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
 
@@ -21,12 +23,14 @@ def test_cancel_task():
 
     # We will submit a task that takes some time
     prompt = "Please count from 1 to 100 very slowly."
-    task_id = runner.submit_task(prompt, context={"use_worktree": True}, orchestrator=orchestrator)
+    submit_task = cast(Callable[..., str], cast(object, getattr(runner, "submit_task")))
+    task_id = submit_task(prompt, context={"use_worktree": True}, orchestrator=orchestrator)
 
     print(f"Submitted task: {task_id}")
     time.sleep(1)  # Let it start running
 
     status = runner.get_status(task_id)
+    assert status is not None
     print(f"Status before cancel: {status['status']}")
 
     print(f"Cancelling task {task_id}...")
@@ -36,6 +40,7 @@ def test_cancel_task():
     time.sleep(1)  # Wait for thread to notice the event and abort
 
     status = runner.get_status(task_id)
+    assert status is not None
     print(f"Status after cancel: {status['status']}")
 
     if status["status"] == "cancelled":

@@ -1,0 +1,10 @@
+.F......                                                                 [100%]
+=================================== FAILURES ===================================
+_______ test_five_token_message_with_1005_aux_fits_under_operator_limit ________
+tests/test_final_prompt_budget.py:84: in test_five_token_message_with_1005_aux_fits_under_operator_limit
+    assert "a" * 4 in fit.messages[0]["content"]  # latest user constraint edges retained when possible
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert ('a' * 4) in ''
+=========================== short test summary info ============================
+FAILED tests/test_final_prompt_budget.py::test_five_token_message_with_1005_aux_fits_under_operator_limit
+1 failed, 7 passed in 0.19s

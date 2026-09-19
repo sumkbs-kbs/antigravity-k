@@ -100,7 +100,7 @@ const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ visible
   if (!visible) return null;
 
   return (
-    <div className="modal-overlay" ref={overlayRef} onClick={handleOverlayClick}>
+    <div className="modal-overlay" ref={overlayRef} onClick={handleOverlayClick} role="presentation">
       <div
         className="modal-content glass-panel shortcuts-modal"
         onClick={e => e.stopPropagation()}
@@ -110,21 +110,21 @@ const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ visible
         {/* Header */}
         <div className="shortcuts-header">
           <h3>⌨️ 키보드 단축키</h3>
-          <button className="icon-btn" onClick={onClose} style={{ fontSize: 12, padding: '4px 8px', color: 'var(--text-secondary)' }}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="키보드 단축키 대화상자 닫기" style={{ fontSize: 12, padding: '4px 8px', color: 'var(--text-secondary)' }}>✕</button>
         </div>
 
         <div className="shortcuts-body">
           {Object.entries(grouped).map(([category, shortcuts]) => (
             <div key={category} className="shortcuts-group">
               <div className="shortcuts-group-title">{CATEGORY_LABELS[category] || category}</div>
-              {shortcuts.map((shortcut, i) => (
-                <div key={i} className="shortcut-row">
+              {shortcuts.map(shortcut => (
+                <div key={`${shortcut.description}:${shortcut.keys.join('|')}`} className="shortcut-row">
                   <span className="shortcut-desc">{shortcut.description}</span>
                   <span className="shortcut-keys">
-                    {shortcut.keys.map((keyCombo, j) => (
-                      <span key={j}>
+                    {shortcut.keys.map(keyCombo => (
+                      <span key={keyCombo}>
                         <kbd className="shortcut-kbd">{keyCombo}</kbd>
-                        {j < shortcut.keys.length - 1 && <span className="shortcut-or">or</span>}
+                        {keyCombo !== shortcut.keys[shortcut.keys.length - 1] && <span className="shortcut-or">or</span>}
                       </span>
                     ))}
                   </span>

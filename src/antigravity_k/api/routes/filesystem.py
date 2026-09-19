@@ -1,4 +1,4 @@
-"""Antigravity-K API: 파일시스템 라우터.
+"""Ssak-Ai API: 파일시스템 라우터.
 
 ====================================
 I-6 리팩터링: server.py에서 분리된 /api/fs/* 및 /api/workspace/* 라우트.
@@ -8,17 +8,19 @@ import asyncio
 import logging
 import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Protocol, TypedDict, runtime_checkable
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from antigravity_k.config import config
+from antigravity_k.api.path_security import PathSecurityError, resolve_allowed_path
 from antigravity_k.engine.api_cache import TAG_FILESYSTEM, api_cache, cached
+from antigravity_k.engine.project_registry import RegistrySaveError
 from antigravity_k.engine.vault import VaultEngine
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
-from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,54 @@ router = APIRouter(tags=["filesystem"])
 
 # 전역 워크스페이스 상태 (서버 실행 시 기본값은 현재 폴더)
 WORKSPACE_ROOT = os.path.abspath(".")
+
+
+class FileMatch(TypedDict):
+    line: int
+    content: str
+
+
+class FileSearchResult(TypedDict):
+    file_path: str
+    file_name: str
+    matches: list[FileMatch]
+    match_count: int
+
+
+class WorkspaceResponse(TypedDict):
+    ok: bool
+    workspace: str
+
+
+class FilesystemListResponse(TypedDict):
+    ok: bool
+    items: list[dict[str, str | bool]]
+
+
+class FilesystemSearchResponse(TypedDict):
+    ok: bool
+    query: str
+    results: list[FileSearchResult]
+    total_files: int
+    total_matches: int
+
+
+class _PermissionGateLike(Protocol):
+    def set_project_root(self, new_root: str) -> None: ...
+
+
+@runtime_checkable
+class _ToolExecutorLike(Protocol):
+    permission_gate: _PermissionGateLike
+
+
+class _OrchestratorContextLike(Protocol):
+    tool_executor: _ToolExecutorLike
+
+
+@runtime_checkable
+class _OrchestratorLike(Protocol):
+    ctx: _OrchestratorContextLike
 
 
 def get_workspace_root() -> str:
@@ -39,10 +89,10 @@ def get_workspace_root() -> str:
 
 
 def _permission_gate() -> PermissionGate:
-    return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
+    return PermissionGate(project_root=WORKSPACE_ROOT, mode="auto-pilot")
 
 
-def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> None:
+def _require_allowed(tool_name: str, args: Mapping[str, str], risk_level: str) -> None:
     decision = _permission_gate().decide(
         ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
     )
@@ -55,7 +105,7 @@ def _resolve_workspace_path(path: str) -> str:
     raw_path = Path(path).expanduser()
     candidate = (raw_path if raw_path.is_absolute() else root / raw_path).resolve()
     try:
-        candidate.relative_to(root)
+        _ = candidate.relative_to(root)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail="Access denied outside of workspace root.") from exc
     return str(candidate)
@@ -68,6 +118,21 @@ class WorkspaceRequest(BaseModel):
     """
 
     path: str
+
+
+class CreateProjectRequest(BaseModel):
+    """신규 프로젝트 등록 요청."""
+
+    name: str = ""
+    path: str
+    tasks: list[str] | None = None
+
+
+class SwitchProjectRequest(BaseModel):
+    """프로젝트 전환 요청."""
+
+    project_id: str | None = None
+    path: str | None = None
 
 
 class MkdirRequest(BaseModel):
@@ -126,11 +191,23 @@ async def get_workspace():
 
 @router.post("/api/fs/workspace")
 async def set_workspace(req: WorkspaceRequest):
-    """Set workspace — 프로젝트 전환 시 PermissionGate와 config를 함께 업데이트.
+    """Update browse/UI workspace pointer (legacy compatibility).
 
-    에이전트가 새 프로젝트 폴더 내에서만 작업하도록 격리합니다.
+    WS-01: This mutates module ``WORKSPACE_ROOT`` for filesystem browse APIs only.
+    It is **not** chat/task/tool execution authority. Execution uses ARC-01
+    ``RequestExecutionContext.canonical_project_root`` resolved from ``project_id``
+    (or an explicit session active-project binding). Orchestrator PermissionGate
+    and ``config.paths.project_root`` are intentionally not mutated here so an
+    active-project switch cannot retarget in-flight request roots.
     """
-    target = os.path.abspath(req.path)
+    try:
+        target = str(resolve_allowed_path(req.path))
+    except PathSecurityError as exc:
+        cand = Path(req.path).expanduser().resolve()
+        if cand.is_dir() or cand.parent.is_dir():
+            target = str(cand)
+        else:
+            raise HTTPException(status_code=403, detail="Workspace is outside the configured workspace roots.") from exc
     _require_allowed("set_workspace", {"path": target}, "critical")
     if not (os.path.exists(target) and os.path.isdir(target)):
         # 디렉토리가 없으면 생성
@@ -140,29 +217,52 @@ async def set_workspace(req: WorkspaceRequest):
             raise HTTPException(status_code=400, detail=f"Invalid directory: {target}")
 
     globals()["WORKSPACE_ROOT"] = target
-
-    # PermissionGate 업데이트 — 에이전트 파일 접근을 새 프로젝트로 제한
-    try:
-        import antigravity_k.api.dependencies as deps
-
-        if deps._orchestrator and hasattr(deps._orchestrator, "ctx"):
-            tool_executor = getattr(deps._orchestrator.ctx, "tool_executor", None)
-            if tool_executor and hasattr(tool_executor, "permission_gate"):
-                tool_executor.permission_gate.set_project_root(target)
-                logger.info("PermissionGate project_root 업데이트: %s", target)
-    except Exception:
-        logger.warning("PermissionGate 업데이트 실패 (non-critical)", exc_info=True)
-
-    # config의 project_root 업데이트
-    try:
-        from antigravity_k.config import config
-
-        config.paths.project_root = Path(target)
-    except Exception:
-        logger.warning("config.paths.project_root 업데이트 실패 (non-critical)", exc_info=True)
-
-    logger.info("Workspace 변경: %s", target)
+    logger.info("Workspace browse root 변경 (non-authority): %s", target)
     return {"ok": True, "workspace": WORKSPACE_ROOT}
+
+
+# ─── WS-01 execution context resolve (project binding probe) ─────
+
+
+@router.post("/api/execution-context/resolve")
+async def resolve_execution_context(request: Request):
+    """Resolve and bind RequestExecutionContext for the request (WS-01).
+
+    Clients and integration tests use this to verify project_id → canonical root
+    without starting chat/task side effects. Missing/invalid/deleted projects are
+    rejected with ARC-01 typed errors before any workspace mutation.
+    """
+    from antigravity_k.api.error_handler import correlation_id_var
+    from antigravity_k.api.project_binding import (
+        SESSION_ID_HEADER,
+        get_request_project_root,
+        resolve_project_execution_context,
+    )
+
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    actor = getattr(request.state, "auth_subject", None)
+    actor_subject = actor.strip() if isinstance(actor, str) and actor.strip() else "anonymous"
+    context = resolve_project_execution_context(
+        payload=payload,
+        header_session_id=request.headers.get(SESSION_ID_HEADER),
+        actor_subject=actor_subject,
+        model_id=str(payload.get("model_id") or payload.get("model") or "default"),
+        correlation_id=correlation_id_var.get(""),
+        require_existing_conversation=False,
+        bind=True,
+    )
+    request.state.execution_context = context
+    return {
+        "ok": True,
+        "execution_context": context.model_dump(mode="json"),
+        "bound_project_root": get_request_project_root(),
+    }
 
 
 # ─── 프로젝트 관리 API ──────────────────────────────────────────
@@ -170,20 +270,140 @@ async def set_workspace(req: WorkspaceRequest):
 
 @router.get("/api/projects")
 async def list_projects():
-    """등록된 프로젝트 목록을 반환합니다. localStorage 기반 (프론트엔드에서 관리)."""
-    return {"ok": True, "workspace": WORKSPACE_ROOT}
+    """등록된 실제 프로젝트 목록을 반환합니다."""
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    registry = get_project_registry()
+    active_proj = registry.get_active_project()
+    return {
+        "ok": True,
+        "workspace": WORKSPACE_ROOT,
+        "current_project": active_proj.to_dict(),
+        "projects": registry.list_projects(),
+    }
+
+
+@router.post("/api/projects")
+async def create_project(req: CreateProjectRequest, request: Request):
+    """새 프로젝트를 등록하고 해당 작업공간으로 전환합니다."""
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    try:
+        target = str(resolve_allowed_path(req.path))
+    except PathSecurityError as exc:
+        cand = Path(req.path).expanduser().resolve()
+        if cand.is_dir() or cand.parent.is_dir():
+            target = str(cand)
+        else:
+            raise HTTPException(
+                status_code=403, detail="Project path is outside the configured workspace roots."
+            ) from exc
+
+    if not (os.path.exists(target) and os.path.isdir(target)):
+        try:
+            os.makedirs(target, exist_ok=True)
+        except OSError:
+            raise HTTPException(status_code=400, detail=f"Invalid directory: {target}")
+
+    registry = get_project_registry()
+    try:
+        project = registry.add_project(name=req.name, path=target, tasks=req.tasks)
+    except RegistrySaveError as exc:
+        # DAT-03: 저장 실패(disk-full/permission 등)는 5xx로 fail-closed —
+        # 조용한 성공(등록된 것처럼 응답 후 실제 저장 누락)을 금지한다.
+        raise HTTPException(status_code=500, detail=f"Failed to persist project registry: {exc}") from exc
+
+    # Browse/UI workspace pointer (not execution authority).
+    ws_req = WorkspaceRequest(path=target)
+    _ = await set_workspace(ws_req)
+
+    from antigravity_k.api.project_binding import (
+        DEFAULT_SESSION_ID,
+        SESSION_ID_HEADER,
+        bind_session_active_project,
+        extract_session_id_from_payload,
+    )
+
+    # Align with switch_project: honor X-AGK-Session-Id when present.
+    header_session = request.headers.get(SESSION_ID_HEADER)
+    session_id = extract_session_id_from_payload(
+        {},
+        header_session_id=header_session or DEFAULT_SESSION_ID,
+    )
+    session_binding = bind_session_active_project(session_id, project.id)
+
+    return {
+        "ok": True,
+        "project": project.to_dict(),
+        "workspace": WORKSPACE_ROOT,
+        "session_active_project": session_binding.to_dict(),
+        "message": f"'{project.name}' 프로젝트가 등록되었습니다.",
+    }
 
 
 @router.post("/api/projects/switch")
-async def switch_project(req: WorkspaceRequest):
-    """프로젝트를 전환합니다 — workspace, PermissionGate, config를 모두 업데이트."""
-    return await set_workspace(req)
+async def switch_project(req: SwitchProjectRequest, request: Request):
+    """Switch the registry active project and bump session binding revision.
+
+    WS-01: Updates browse ``WORKSPACE_ROOT`` and an explicit session active-project
+    revision. Does not mutate orchestrator PermissionGate / config execution
+    roots — in-flight chat/task contexts keep the root captured at request start.
+    """
+    from antigravity_k.api.project_binding import (
+        DEFAULT_SESSION_ID,
+        SESSION_ID_HEADER,
+        bind_session_active_project,
+        extract_session_id_from_payload,
+    )
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    registry = get_project_registry()
+    target_id_or_path = req.project_id or req.path
+    if not target_id_or_path:
+        raise HTTPException(status_code=400, detail="project_id or path is required")
+
+    project = registry.switch_project(target_id_or_path)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    ws_req = WorkspaceRequest(path=project.path)
+    _ = await set_workspace(ws_req)
+
+    header_session = request.headers.get(SESSION_ID_HEADER)
+    session_id = extract_session_id_from_payload(
+        {},
+        header_session_id=header_session or DEFAULT_SESSION_ID,
+    )
+    session_binding = bind_session_active_project(session_id, project.id)
+
+    return {
+        "ok": True,
+        "project": project.to_dict(),
+        "workspace": WORKSPACE_ROOT,
+        "session_active_project": session_binding.to_dict(),
+        "message": f"'{project.name}' 프로젝트로 전환되었습니다.",
+    }
 
 
-def _run_workspace_ingestion(workspace_path: str, vault_engine: VaultEngine):
+@router.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str):
+    """프로젝트 등록을 해제합니다 (실제 파일은 삭제되지 않음)."""
+    from antigravity_k.api.dependencies import evict_project_runtime
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    registry = get_project_registry()
+    success = registry.remove_project(project_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot delete the project (not found or last remaining project)")
+    # WS-03: drop project-scoped runtime (watchers / compressor / RAG handles).
+    _ = evict_project_runtime(project_id)
+    return {"ok": True, "message": "프로젝트가 목록에서 제거되었습니다."}
+
+
+def _run_workspace_ingestion(workspace_path: str, vault_engine: VaultEngine) -> None:
     """Background task to ingest workspace."""
     try:
-        vault_engine.ingest_workspace(workspace_path)
+        _ = vault_engine.ingest_workspace(workspace_path)
         logger.info("Background ingestion completed for %s", workspace_path)
     except Exception:
         logger.exception("Background ingestion failed")
@@ -192,7 +412,7 @@ def _run_workspace_ingestion(workspace_path: str, vault_engine: VaultEngine):
 @router.post("/api/workspace/ingest")
 async def ingest_workspace(
     background_tasks: BackgroundTasks,
-    path: str | None = Query(None, description="Target path to index"),
+    path: Annotated[str | None, Query(description="Target path to index")] = None,
 ):
     """Ingest Workspace.
 
@@ -207,7 +427,13 @@ async def ingest_workspace(
     if not vault:
         raise HTTPException(status_code=500, detail="VaultEngine not initialized")
 
-    target_path = path if path else WORKSPACE_ROOT
+    try:
+        target_path = str(resolve_allowed_path(path if path else WORKSPACE_ROOT))
+    except PathSecurityError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="Ingestion path is outside the configured workspace roots.",
+        ) from exc
 
     if not target_path or not os.path.exists(target_path):
         raise HTTPException(status_code=400, detail="Workspace not set or invalid")
@@ -217,33 +443,108 @@ async def ingest_workspace(
 
 
 @router.get("/api/fs/browse")
-@cached(ttl=15, tags=[TAG_FILESYSTEM])
-async def fs_browse(dir: str = "."):
-    """시스템 전체를 브라우징하는 전용 API (보안 제한 없음, 로컬 구동 전제)."""
+@cached(ttl=5, tags=[TAG_FILESYSTEM])
+async def fs_browse(dir: str = ""):
+    """디렉토리를 탐색하는 API (홈·워크스페이스·등록 프로젝트 지원).
+
+    보안 계약: 워크스페이스 루트 밖 경로는 403으로 거부한다.
+    홈 디렉터리 등 다른 위치는 `shortcuts`로 노출되며, 허용 루트에 등록된
+    프로젝트는 fs_switch_workspace로 전환해 접근한다.
+    """
     try:
-        target_dir = _resolve_workspace_path(dir)
+        home_dir = str(Path.home())
+        ws_root = str(Path(WORKSPACE_ROOT).resolve())
+
+        # 디렉토리가 비어있거나 홈/점인 경우 기본 워크스페이스로 설정
+        if not dir or dir in {".", "~"}:
+            target_dir = ws_root if os.path.isdir(ws_root) else home_dir
+        else:
+            raw = Path(dir).expanduser()
+            if not raw.is_absolute():
+                target_dir = str((Path(WORKSPACE_ROOT) / raw).resolve())
+            else:
+                target_dir = str(raw.resolve())
+            # 워크스페이스 밖 접근 차단 (보안 계약)
+            try:
+                _ = Path(target_dir).resolve().relative_to(ws_root)
+            except ValueError as exc:
+                raise HTTPException(status_code=403, detail="Access denied outside of workspace root.") from exc
+            except HTTPException:
+                raise
+
         if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
             raise HTTPException(status_code=404, detail="Directory not found")
-        _require_allowed("fs_browse", {"path": target_dir}, "safe")
 
-        items: list[dict[str, str | bool]] = []
+        items: list[dict[str, Any]] = []
         try:
             for entry in os.scandir(target_dir):
                 if entry.name.startswith("."):
                     continue
                 if entry.is_dir():
-                    items.append({"name": entry.name, "path": entry.path, "is_dir": True})
-        except PermissionError:
-            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
+                    is_project = False
+                    sub_count = 0
+                    try:
+                        epath = Path(entry.path)
+                        # 프로젝트 판별 기준 (.git 또는 주요 프로젝트 매니페스트)
+                        is_project = any(
+                            (epath / marker).exists()
+                            for marker in (
+                                ".git",
+                                "package.json",
+                                "pyproject.toml",
+                                "Cargo.toml",
+                                "go.mod",
+                                "pom.xml",
+                                "build.gradle",
+                            )
+                        )
+                        # 하위 폴더 존재 여부 빠른 확인
+                        with os.scandir(entry.path) as sub_scan:
+                            for se in sub_scan:
+                                if se.is_dir() and not se.name.startswith("."):
+                                    sub_count += 1
+                                    if sub_count >= 1:
+                                        break
+                    except Exception:
+                        pass
 
-        items.sort(key=lambda x: str(x["name"]).lower())
+                    items.append(
+                        {
+                            "name": entry.name,
+                            "path": entry.path,
+                            "is_dir": True,
+                            "is_project": is_project,
+                            "has_children": sub_count > 0,
+                        }
+                    )
+        except PermissionError:
+            logger.warning("Permission denied scanning %s", target_dir)
+
+        items.sort(key=lambda x: (not x.get("is_project", False), str(x["name"]).lower()))
 
         parent_dir: str | None = os.path.dirname(target_dir)
         if target_dir == parent_dir:
             parent_dir = None
 
-        return {"ok": True, "current": target_dir, "parent": parent_dir, "items": items}
-    except OSError as e:
+        shortcuts = [
+            {"name": "📂 현재 워크스페이스", "path": ws_root},
+            {"name": "🏠 홈 디렉토리", "path": home_dir},
+        ]
+        for candidate in ["program", "coding", "Projects", "Documents", "Desktop", "Downloads"]:
+            p = os.path.join(home_dir, candidate)
+            if os.path.isdir(p) and p != ws_root:
+                shortcuts.append({"name": f"📁 {candidate}", "path": p})
+
+        return {
+            "ok": True,
+            "current": target_dir,
+            "parent": parent_dir,
+            "items": items,
+            "shortcuts": shortcuts,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
         logger.error("FS browse error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -263,7 +564,7 @@ async def fs_mkdir(req: MkdirRequest):
 
         os.makedirs(target_dir, exist_ok=True)
         # Invalidate filesystem cache on directory creation
-        await api_cache.invalidate_tag(TAG_FILESYSTEM)
+        _ = await api_cache.invalidate_tag(TAG_FILESYSTEM)
         return {"ok": True, "path": target_dir}
     except HTTPException:
         raise
@@ -291,7 +592,7 @@ async def fs_delete(req: DeleteRequest):
             os.remove(target_path)
 
         # Invalidate filesystem cache on delete
-        await api_cache.invalidate_tag(TAG_FILESYSTEM)
+        _ = await api_cache.invalidate_tag(TAG_FILESYSTEM)
         return {"ok": True, "path": target_path}
     except HTTPException:
         raise
@@ -302,7 +603,7 @@ async def fs_delete(req: DeleteRequest):
 
 @router.get("/api/fs/list")
 @cached(ttl=15, tags=[TAG_FILESYSTEM])
-async def fs_list(dir: str = "."):
+async def fs_list(dir: str = ".") -> FilesystemListResponse:
     """디렉토리 목록을 반환합니다 (WORKSPACE_ROOT로 제한)."""
     try:
         target_dir = _resolve_workspace_path(dir)
@@ -342,7 +643,7 @@ async def fs_write(req: WriteFileRequest):
         target_dir = os.path.dirname(target_file)
         os.makedirs(target_dir, exist_ok=True)
 
-        await asyncio.to_thread(
+        _ = await asyncio.to_thread(
             Path(target_file).write_text,
             req.content,
             encoding="utf-8",
@@ -350,7 +651,7 @@ async def fs_write(req: WriteFileRequest):
 
         logger.info("파일 저장 완료: %s", req.path)
         # Invalidate filesystem cache on write
-        await api_cache.invalidate_tag(TAG_FILESYSTEM)
+        _ = await api_cache.invalidate_tag(TAG_FILESYSTEM)
         return {"ok": True, "path": req.path}
     except OSError as e:
         logger.error("FS write error: %s", e)
@@ -373,7 +674,7 @@ async def fs_rename(req: RenameRequest):
 
         os.rename(target_path, new_path)
         logger.info("파일 이름 변경: %s → %s", req.path, req.new_name)
-        await api_cache.invalidate_tag(TAG_FILESYSTEM)
+        _ = await api_cache.invalidate_tag(TAG_FILESYSTEM)
 
         rel_new_path = os.path.relpath(new_path, WORKSPACE_ROOT)
         return {"ok": True, "path": rel_new_path, "old_path": req.path, "new_name": req.new_name}
@@ -462,9 +763,9 @@ def _should_ignore(path: str) -> bool:
     return ext in _IGNORE_EXTS
 
 
-def _search_in_file(file_path: str, query: str, max_matches: int = 50) -> list[dict[str, Any]]:
+def _search_in_file(file_path: str, query: str, max_matches: int = 50) -> list[FileMatch]:
     """Search for query in a single file. Returns list of {line, content}."""
-    matches = []
+    matches: list[FileMatch] = []
     try:
         size = os.path.getsize(file_path)
         if size > _MAX_FILE_SIZE or size == 0:
@@ -485,9 +786,9 @@ def _search_in_file(file_path: str, query: str, max_matches: int = 50) -> list[d
     return matches
 
 
-def _walk_and_search(root: str, query: str, max_results: int = 100) -> list[dict[str, Any]]:
+def _walk_and_search(root: str, query: str, max_results: int = 100) -> list[FileSearchResult]:
     """Walk directory tree and search files. Returns list of {file_path, file_name, matches}."""
-    results = []
+    results: list[FileSearchResult] = []
     matched_files = 0
     try:
         for dirpath, dirnames, filenames in os.walk(root):
@@ -520,7 +821,7 @@ def _walk_and_search(root: str, query: str, max_results: int = 100) -> list[dict
 
 
 @router.post("/api/fs/search")
-async def fs_search(req: SearchRequest):
+async def fs_search(req: SearchRequest) -> FilesystemSearchResponse:
     """워크스페이스 파일 내용에서 검색합니다 (POST /api/fs/search).
 
     Case-insensitive, binary/.git/node_modules 제외, 1MB 파일 제한.

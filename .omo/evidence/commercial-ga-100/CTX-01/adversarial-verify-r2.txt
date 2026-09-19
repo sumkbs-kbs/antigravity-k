@@ -1,0 +1,41 @@
+CTX-01 adversarial verify r2 (ctx_01_verify) — 2026-09-06 Asia/Seoul
+Tip: b92622e9fdc752f6e1a162d14a5a64e97acb7c33 (HEAD confirmed)
+Fix/Result: 8ba8337dbc953d3ac4788541adcf8294f809e9c6
+Prior REJECT: review.md preserved
+
+F1 CLOSED — slash /compact CAS-only success on bound path
+  Stale expected → conflict string; shaped_calls=0; save=0; store unchanged
+  Concurrent slash: wins=1 losses=1; loser no legacy shape
+  Bound-path generic store error → ❌ authoritative store; no session_manager mutate
+  Success path: one-way store → session projection only after CAS
+
+F2 CLOSED — assistant persist surfaces mid-stream compact race
+  _persist_assistant_to_conversation_store re-raises StaleConversationRevisionError
+  Stream yields agk_conversation_conflict SSE; no success agk_conversation at pre-assistant rev
+  Client emitChatFrame throws ConversationRevisionConflictError; ChatPage refresh UX
+  Probe: store_has_assistant=False after race; conflict frame typed
+
+F3 CLOSED — slash uses client expected_revision always
+  expected_revision=ctx.conversation_revision (not before.revision)
+  Stale client expected=0 while head advanced → conflict; head unchanged
+
+F4 CLOSED — auto_restore gated when revision protocol on
+  chat.py: len(messages)<=4 and not _uses_conversation_revision_protocol(body)
+  Assemble before gate; tokens_after < tokens_before; bait restore would inflate
+
+KEEP (still pass):
+  ConversationStore append/compact/fork CAS + disk reconnect
+  HTTP /v1/conversations/* 409 stale_conversation_revision
+  ChatPage new_turn + conversation_revision
+  compact summary/retained_message_ids/revision + tokens_* (API tokens_after < tokens_before)
+  refresh/reconnect/fork consistency
+
+RESIDUAL (non-blocking for CTX-01 DONE):
+  session_manager.add_turn still runs before assistant CAS; on conflict client refreshes from store
+  Non-agent native stream path still does not CAS-persist assistant (dashboard agent_mode covered)
+  tools early-return still skips _apply_authoritative_conversation (prior note)
+  applyServerSnapshot keeps local messages if server returns empty array (edge)
+
+Independent re-run: pytest 66 passed; vitest 32 passed (3 files)
+Adversarial runtime probes: ALL PASS (dual-SoT + mid-stream)
+Verdict: APPROVE

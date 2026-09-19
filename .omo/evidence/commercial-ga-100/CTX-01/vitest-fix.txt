@@ -1,0 +1,23 @@
+
+ RUN  v4.1.10 /Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-01/dashboard
+
+·······stderr | src/api/client.test.ts > shared API client > settings requests reject malformed payloads and non-OK responses before parsing JSON
+[API] Error (/api/settings/env): Error: HTTP 503: Unavailable
+    at requestJson (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-01/dashboard/src/api/client.ts:166:13)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at saveSettings (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-01/dashboard/src/api/client.ts:616:15)
+
+stderr | src/api/client.test.ts > shared API client > RED: system auth sends the PIN and dispatches the 401 event
+[API] Error (/api/system/status): Error: HTTP 401: Unauthorized
+    at requestJson (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-01/dashboard/src/api/client.ts:166:13)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at fetchSystemMetrics (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-01/dashboard/src/api/client.ts:427:15)
+
+·························
+
+ Test Files  3 passed (3)
+      Tests  32 passed (32)
+   Start at  11:50:22
+   Duration  554ms (transform 401ms, setup 115ms, import 527ms, tests 21ms, environment 792ms)
+
+EXIT:0

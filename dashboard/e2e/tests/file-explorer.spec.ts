@@ -1,91 +1,84 @@
 /**
- * File Explorer E2E Test
- * ======================
- * Verifies the file explorer panel within the chat/IDE page.
+ * File Explorer E2E Test (Agent Workspace composition)
+ * ====================================================
+ * The legacy IDE explorer panel was replaced by the right-hand 환경 rail
+ * (EnvironmentPanel). File browsing now lives in:
+ *   - 환경 tab  → agent monitor (status / activity / tokens)
+ *   - 코드 tab  → editor + Git (file activity from git status, or empty-state)
+ *   - 변경 tab  → the change review panel (ChangePanel)
  *
  * Scenario:
- *   1. Navigate to chat page (IDE layout)
- *   2. Verify file explorer panel is visible with toolbar
- *   3. Verify file tree renders
- *   4. Interact with toolbar buttons (refresh)
- *   5. Toggle search panel
+ *   1. Navigate to chat page
+ *   2. Verify the environment rail renders (환경 tab default)
+ *   3. Open the 코드 tab — git file activity (or empty-state) lives here after redesign
+ *   4. Verify the editor mounts on 코드
+ *   5. Open the 변경 tab and verify the change panel mounts
+ *   6. Toggle the rail closed and re-open
+ *
+ * CR-14 F-47 (attempt-037): file activity is on the 코드 tab (CodeTabWithGit),
+ * not the redesigned 환경 AgentMonitorTab. Clean trees render `.env-sub-empty`.
  */
 
 import { test, expect } from '@playwright/test';
 import { DashboardPage } from '../pages/DashboardPage';
 
-test.describe('File Explorer', () => {
+test.describe('Environment Rail — file browsing', () => {
   let dashboard: DashboardPage;
 
   test.beforeEach(async ({ page }) => {
     dashboard = new DashboardPage(page);
     await dashboard.goto();
-    await dashboard.handlePinModal();
     await dashboard.goToChat();
   });
 
-  test('should render the file explorer panel in the IDE layout', async () => {
-    await dashboard.expectFileExplorerVisible();
+  test('should render the environment rail by default', async () => {
+    const rail = dashboard.page.locator('.agk-env-panel');
+    await expect(rail).toBeVisible({ timeout: 5000 });
+
+    const envTab = rail.locator('.env-tab').filter({ hasText: '환경' });
+    await expect(envTab).toHaveClass(/active/);
   });
 
-  test('should show EXPLORER title', async () => {
-    await expect(dashboard.explorerTitle).toBeVisible({ timeout: 5000 });
-    const titleText = await dashboard.explorerTitle.textContent();
-    expect(titleText).toContain('EXPLORER');
+  test('should show file activity from git status', async () => {
+    const rail = dashboard.page.locator('.agk-env-panel');
+    await expect(rail).toBeVisible({ timeout: 5000 });
+
+    // After redesign, git file activity lives on the 코드 tab (not 환경).
+    await rail.locator('.env-tab').filter({ hasText: '코드' }).click();
+
+    const fileActivity = rail.locator('[data-testid="env-file-activity"]');
+    await expect(fileActivity).toBeVisible({ timeout: 8000 });
+
+    // Either git files render, or the empty state when the tree is clean
+    const fileRows = fileActivity.locator('.env-file-row');
+    const empty = fileActivity.locator('.env-sub-empty');
+    await expect(fileRows.or(empty).first()).toBeVisible({ timeout: 8000 });
   });
 
-  test('should have toolbar buttons in the file explorer header', async () => {
-    const toolbar = dashboard.page.locator('[role="toolbar"]');
-    await expect(toolbar).toBeVisible({ timeout: 5000 });
+  test('should mount the editor from the 코드 tab', async () => {
+    const rail = dashboard.page.locator('.agk-env-panel');
+    await rail.locator('.env-tab').filter({ hasText: '코드' }).click();
 
-    // Check for key action buttons
-    const refreshBtn = dashboard.page.locator('[aria-label="파일 트리 새로고침"]');
-    await expect(refreshBtn).toBeVisible({ timeout: 3000 });
-
-    const searchBtn = dashboard.page.locator('[aria-label="파일 검색"]');
-    await expect(searchBtn).toBeVisible({ timeout: 3000 });
+    const editor = dashboard.page.locator('.ide-editor');
+    await expect(editor).toBeVisible({ timeout: 8000 });
   });
 
-  test('should render the file tree container', async () => {
-    await dashboard.expectFileTreeRendered();
+  test('should mount the change panel from the 변경 tab', async () => {
+    const rail = dashboard.page.locator('.agk-env-panel');
+    await rail.locator('.env-tab').filter({ hasText: '변경' }).click();
+
+    const changePanel = dashboard.page.locator('.change-panel');
+    await expect(changePanel).toBeVisible({ timeout: 8000 });
   });
 
-  test('should toggle search panel on search button click', async () => {
-    const searchBtn = dashboard.page.locator('[aria-label="파일 검색"]');
-    await searchBtn.click();
-    await dashboard.page.waitForTimeout(500);
+  test('should toggle the environment rail closed and open', async () => {
+    const toggle = dashboard.page.locator('[aria-label="환경 패널 토글"]');
+    await expect(toggle).toBeVisible({ timeout: 5000 });
 
-    // Search panel should now be visible (replacing file tree)
-    const searchPanel = dashboard.page.locator('.search-panel-wrapper');
-    const searchVisible = await searchPanel.isVisible().catch(() => false);
+    await toggle.click();
+    await expect(dashboard.page.locator('.agk-env-panel')).toHaveCount(0);
 
-    // The search panel may or may not render depending on data; just verify toggle works
-    if (searchVisible) {
-      // Click again to close
-      await searchBtn.click();
-      await dashboard.page.waitForTimeout(500);
-      await dashboard.expectFileTreeRendered();
-    }
-  });
-
-  test('should have a refresh button that triggers file tree update', async () => {
-    await dashboard.clickExplorerRefresh();
-    // After refresh, the file tree should still be rendered (no crash)
-    await dashboard.expectFileTreeRendered();
-  });
-
-  test('should have new folder, index workspace, and open folder buttons', async () => {
-    const newFolderBtn = dashboard.page.locator('[aria-label="새 폴더"]');
-    await expect(newFolderBtn).toBeVisible({ timeout: 3000 });
-    await expect(newFolderBtn).toBeEnabled();
-
-    const indexBtn = dashboard.page.locator('[aria-label="워크스페이스 인덱싱"]');
-    await expect(indexBtn).toBeVisible({ timeout: 3000 });
-
-    const openFolderBtn = dashboard.page.locator('[aria-label="폴더 열기"]');
-    await expect(openFolderBtn).toBeVisible({ timeout: 3000 });
-
-    const refreshBtn = dashboard.page.locator('[aria-label="파일 트리 새로고침"]');
-    await expect(refreshBtn).toBeVisible({ timeout: 3000 });
+    await toggle.click();
+    await expect(dashboard.page.locator('.agk-env-panel')).toBeVisible();
   });
 });

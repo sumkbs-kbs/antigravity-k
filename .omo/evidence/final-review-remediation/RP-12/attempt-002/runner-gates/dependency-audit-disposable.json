@@ -1,0 +1,68 @@
+{
+  "dependency_locks": [
+    {
+      "path": "uv.lock",
+      "sha256": "0e60ef3fa5e480387ba95b1e5d43a965c432c9f364ed61a62f46e9719f210934"
+    },
+    {
+      "path": "dashboard/pnpm-lock.yaml",
+      "sha256": "22729c76d1369b4ed5ac9fb4232f3e560a5375dfa562773976cb1967ee9278e5"
+    },
+    {
+      "path": "dashboard/package-lock.json",
+      "sha256": "34e3a0cb42357e9db406efa35a098354db88ddbf25e441d240aca06e23cc7aa0"
+    }
+  ],
+  "gates": [
+    {
+      "category": "supply_chain",
+      "command": [
+        "bash",
+        "scripts/audit_python_dependencies.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 2.133813,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-05"
+      ],
+      "finished_at": "2026-09-11T01:08:33.137361+00:00",
+      "id": "dependency-audit-python",
+      "required": true,
+      "started_at": "2026-09-11T01:08:31.003488+00:00",
+      "status": "passed",
+      "stderr": "Installed 28 packages in 51ms\nNo known vulnerabilities found\n",
+      "stdout": "",
+      "task_ids": [
+        "REL-03"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-11T01:08:30.962412+00:00",
+  "git": {
+    "dirty": true,
+    "sha": "adae06a6926082aa86d83ace4a9c101e70360394"
+  },
+  "manifest": {
+    "path": "scripts/commercial_ga_gates.json",
+    "sha256": "3ed61d577bfba41fe2686460bfc4a60aae4464552a3af7db26e9107de9c21cb6"
+  },
+  "output_decoding": {
+    "encoding": "utf-8",
+    "errors": "backslashreplace"
+  },
+  "platform": {
+    "machine": "arm64",
+    "python_implementation": "CPython",
+    "python_version": "3.13.12",
+    "release": "25.6.0",
+    "system": "Darwin"
+  },
+  "schema_version": 1,
+  "summary": {
+    "failed": 0,
+    "passed": 1,
+    "required_failed": 0,
+    "total": 1
+  }
+}

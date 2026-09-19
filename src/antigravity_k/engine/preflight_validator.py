@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from re import Pattern
+from typing import ClassVar
 
 from antigravity_k.engine.engine_profile import EngineProfile
 
@@ -20,7 +21,7 @@ class PreflightRule:
 class PreflightValidator:
     """Lightweight request gate before the expensive agent loop starts."""
 
-    _DENY_RULES = (
+    _DENY_RULES: ClassVar[tuple[PreflightRule, ...]] = (
         PreflightRule(
             re.compile(r"\brm\s+-rf\s+/(?:\s|$)", re.IGNORECASE),
             "루트 파일시스템 삭제처럼 되돌리기 어려운 명령은 실행할 수 없습니다.",
@@ -35,7 +36,7 @@ class PreflightValidator:
         ),
     )
 
-    _FAST_HINTS = (
+    _FAST_HINTS: ClassVar[tuple[str, ...]] = (
         "prototype",
         "프로토타입",
         "quick",
@@ -45,14 +46,14 @@ class PreflightValidator:
         "샘플",
     )
 
-    def __init__(self, model_manager=None):
+    def __init__(self, model_manager: object | None = None) -> None:
         """Initialize the PreflightValidator.
 
         Args:
             model_manager: model manager.
 
         """
-        self.model_manager = model_manager
+        self.model_manager: object | None = model_manager
 
     def validate(self, user_text: str) -> tuple[bool, str, EngineProfile]:
         """Validate.

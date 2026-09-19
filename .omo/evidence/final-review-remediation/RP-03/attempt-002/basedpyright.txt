@@ -1,0 +1,30 @@
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:29:5 - warning: Result of call expression is of type "int" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:30:5 - warning: Result of call expression is of type "int" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:31:5 - warning: Result of call expression is of type "int" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:39:5 - warning: Result of call expression is of type "int" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:51:27 - warning: Type of parameter "self" is unknown (reportUnknownParameterType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:51:27 - warning: Type annotation is missing for parameter "self" (reportMissingParameterType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:51:34 - warning: Type of parameter "args" is unknown (reportUnknownParameterType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:51:34 - warning: Type annotation is missing for parameter "args" (reportMissingParameterType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:51:42 - warning: Type of parameter "kwargs" is unknown (reportUnknownParameterType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:51:42 - warning: Type annotation is missing for parameter "kwargs" (reportMissingParameterType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:52:30 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:53:30 - warning: Argument type is unknown
+    Argument corresponds to parameter "self" in function "read_text" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:53:37 - warning: Argument type is unknown
+    Argument corresponds to parameter "encoding" in function "read_text" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:53:37 - warning: Argument type is unknown
+    Argument corresponds to parameter "errors" in function "read_text" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:53:37 - warning: Argument type is unknown
+    Argument corresponds to parameter "newline" in function "read_text" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:55:48 - warning: Argument type is partially unknown
+    Argument corresponds to parameter "value" in function "setattr"
+    Argument type is "(self: Unknown, ...) -> str" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:99:9 - warning: Result of call expression is of type "int" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:114:9 - warning: Result of call expression is of type "int" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:117:29 - warning: "_write_content" is protected and used outside of the class in which it is declared (reportPrivateUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:144:29 - warning: "_write_content" is protected and used outside of the class in which it is declared (reportPrivateUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr03_transaction_containment.py:179:29 - warning: "_write_content" is protected and used outside of the class in which it is declared (reportPrivateUsage)
+0 errors, 21 warnings, 0 notes

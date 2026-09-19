@@ -1,0 +1,179 @@
+{
+  "task": "VAL-01",
+  "executed_at": "2026-09-11T08:22:20+0900",
+  "host": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O"
+  },
+  "scenarios": [
+    {
+      "scenario": "ollama_streaming",
+      "ok": true,
+      "latency_ms": 5986.8,
+      "detail": {
+        "target": "qwen3.8:latest",
+        "chunk_count": 7,
+        "response_preview": "스테이징 스트리밍 테스트",
+        "streamed": true
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "ollama_error_handling",
+      "ok": true,
+      "latency_ms": 0.0,
+      "detail": {
+        "error_type": "ValueError"
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "ollama_cancel",
+      "ok": true,
+      "latency_ms": 20170.5,
+      "detail": {
+        "cancelled_ok": true
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "ollama_tool_registry",
+      "ok": true,
+      "latency_ms": 61.9,
+      "detail": {
+        "active_tool_count": 25,
+        "sample": [
+          "agent_spawn",
+          "auto_lint",
+          "browser_dom",
+          "computer_use",
+          "cowork_delegate"
+        ],
+        "executed_tool": "read_file"
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "chroma_index",
+      "ok": true,
+      "latency_ms": 1304.1,
+      "detail": {
+        "stats": {
+          "available": true,
+          "persist_directory": "/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/agk-val01-y58kn99g/chroma-persist",
+          "count": 6
+        },
+        "target_source_chunks": 1
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "chroma_restart_survives",
+      "ok": true,
+      "latency_ms": 41.5,
+      "detail": {
+        "chunk_count_after_restart": 6,
+        "search_hits": 3
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "chroma_reindex",
+      "ok": true,
+      "latency_ms": 111.9,
+      "detail": {
+        "remaining_target_after_delete": 0,
+        "reindexed_target_chunks": 1,
+        "control_chunks_before": 1,
+        "control_chunks_after": 1,
+        "search_hits": 2
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "chroma_delete",
+      "ok": true,
+      "latency_ms": 132.5,
+      "detail": {
+        "target_chunks_before": 1,
+        "target_chunks_after": 0,
+        "control_chunks_before": 1,
+        "control_chunks_after": 1,
+        "search_hits_after_delete": 5
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "chroma_citation",
+      "ok": true,
+      "latency_ms": 43.4,
+      "detail": {
+        "source_id": "val01/doc2.md",
+        "normalized": "val01/doc2.md",
+        "ranges": [
+          [
+            1,
+            2
+          ]
+        ],
+        "citation_matched": true
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "train_recipe_and_checkpoint",
+      "ok": true,
+      "latency_ms": 45449.9,
+      "detail": {
+        "iterations": 5,
+        "staged_train_records": 10,
+        "checkpoint_count": 5,
+        "checkpoints": [
+          "0000001_adapters.safetensors",
+          "0000002_adapters.safetensors",
+          "0000003_adapters.safetensors",
+          "0000004_adapters.safetensors",
+          "0000005_adapters.safetensors"
+        ]
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "train_resume_from_checkpoint",
+      "ok": true,
+      "latency_ms": 3882.7,
+      "detail": {
+        "resume_ok": true,
+        "resume_adapter": "0000005_adapters.safetensors",
+        "resume_command_has_adapter": true
+      },
+      "failure_mode": ""
+    },
+    {
+      "scenario": "fuse_and_promote",
+      "ok": true,
+      "latency_ms": 10928.3,
+      "detail": {
+        "fused_status": "success",
+        "output_exists": true,
+        "eval_base_scores": [
+          0.0,
+          0.0
+        ],
+        "eval_tuned_scores": [
+          0.0,
+          0.0
+        ],
+        "probe_status": "passed",
+        "probe_detail": "Fused artifact loaded and generated one token."
+      },
+      "failure_mode": ""
+    }
+  ],
+  "summary": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "missing_required": [],
+    "failure_modes": []
+  }
+}

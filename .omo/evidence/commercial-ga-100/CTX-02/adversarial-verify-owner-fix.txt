@@ -1,0 +1,6 @@
+over_tokens 2008
+F1_config_not_dict RAISE OVER_NOT_RETURNED True
+F5_resolve_boom RAISE
+F2_stream_generate_calls 0 halted True
+F3_fit_compressed True system_shrunk True serialized_le_1000 True
+VERDICT_OWNER: fail-closed PASS for F1/F2/F3/F5 (not APPROVE)

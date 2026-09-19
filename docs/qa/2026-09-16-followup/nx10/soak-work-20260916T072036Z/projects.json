@@ -1,0 +1,330 @@
+[
+  {
+    "id": "default",
+    "name": "Ssak-Ai",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai",
+    "is_active": false,
+    "last_accessed_at": null,
+    "tasks": []
+  },
+  {
+    "id": "proj_e7f9c116",
+    "name": "ws-3-0",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-3-0",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.656085",
+    "tasks": []
+  },
+  {
+    "id": "proj_ead574d6",
+    "name": "ws-3-1",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-3-1",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.656782",
+    "tasks": []
+  },
+  {
+    "id": "proj_da150a39",
+    "name": "ws-3-2",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-3-2",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.657195",
+    "tasks": []
+  },
+  {
+    "id": "proj_5146c284",
+    "name": "ws-3-3",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-3-3",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.657686",
+    "tasks": []
+  },
+  {
+    "id": "proj_7305e044",
+    "name": "ws-3-4",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-3-4",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.658101",
+    "tasks": []
+  },
+  {
+    "id": "proj_4d86b58a",
+    "name": "ws-3-5",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-3-5",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.658571",
+    "tasks": []
+  },
+  {
+    "id": "proj_1ae8f671",
+    "name": "ws-3-6",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-3-6",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.658998",
+    "tasks": []
+  },
+  {
+    "id": "proj_d82d065f",
+    "name": "ws-3-7",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-3-7",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.659477",
+    "tasks": []
+  },
+  {
+    "id": "proj_894ad276",
+    "name": "ws-0-0",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-0-0",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.706981",
+    "tasks": []
+  },
+  {
+    "id": "proj_aadd16dc",
+    "name": "ws-0-1",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-0-1",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.707748",
+    "tasks": []
+  },
+  {
+    "id": "proj_9eefc115",
+    "name": "ws-0-2",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-0-2",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.708517",
+    "tasks": []
+  },
+  {
+    "id": "proj_bfdf2a54",
+    "name": "ws-0-3",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-0-3",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.709071",
+    "tasks": []
+  },
+  {
+    "id": "proj_95b2d589",
+    "name": "ws-0-4",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-0-4",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.709585",
+    "tasks": []
+  },
+  {
+    "id": "proj_abc2d6bb",
+    "name": "ws-0-5",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-0-5",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.710148",
+    "tasks": []
+  },
+  {
+    "id": "proj_14fb4922",
+    "name": "ws-0-6",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-0-6",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.710713",
+    "tasks": []
+  },
+  {
+    "id": "proj_e7a3c834",
+    "name": "ws-0-7",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-0-7",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.711313",
+    "tasks": []
+  },
+  {
+    "id": "proj_04b96e63",
+    "name": "ws-4-0",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-4-0",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.766469",
+    "tasks": []
+  },
+  {
+    "id": "proj_e578ca2c",
+    "name": "ws-4-1",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-4-1",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.767296",
+    "tasks": []
+  },
+  {
+    "id": "proj_67709cbc",
+    "name": "ws-4-2",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-4-2",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.767877",
+    "tasks": []
+  },
+  {
+    "id": "proj_4c52dac3",
+    "name": "ws-4-3",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-4-3",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.768585",
+    "tasks": []
+  },
+  {
+    "id": "proj_610def89",
+    "name": "ws-4-4",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-4-4",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.769128",
+    "tasks": []
+  },
+  {
+    "id": "proj_2eaf3ae4",
+    "name": "ws-4-5",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-4-5",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.769776",
+    "tasks": []
+  },
+  {
+    "id": "proj_6f4d6c93",
+    "name": "ws-4-6",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-4-6",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.770544",
+    "tasks": []
+  },
+  {
+    "id": "proj_82a12903",
+    "name": "ws-4-7",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-4-7",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.771255",
+    "tasks": []
+  },
+  {
+    "id": "proj_4fec9802",
+    "name": "ws-1-0",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-1-0",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.821698",
+    "tasks": []
+  },
+  {
+    "id": "proj_8dfe42da",
+    "name": "ws-1-1",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-1-1",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.822586",
+    "tasks": []
+  },
+  {
+    "id": "proj_8fe66daa",
+    "name": "ws-1-2",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-1-2",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.823212",
+    "tasks": []
+  },
+  {
+    "id": "proj_526f3d1c",
+    "name": "ws-1-3",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-1-3",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.824018",
+    "tasks": []
+  },
+  {
+    "id": "proj_a51bf668",
+    "name": "ws-1-4",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-1-4",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.824608",
+    "tasks": []
+  },
+  {
+    "id": "proj_2090732b",
+    "name": "ws-1-5",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-1-5",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.825219",
+    "tasks": []
+  },
+  {
+    "id": "proj_7cfce667",
+    "name": "ws-1-6",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-1-6",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.826105",
+    "tasks": []
+  },
+  {
+    "id": "proj_90ba2600",
+    "name": "ws-1-7",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-1-7",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.826941",
+    "tasks": []
+  },
+  {
+    "id": "proj_fb525b9b",
+    "name": "ws-2-0",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-2-0",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.873843",
+    "tasks": []
+  },
+  {
+    "id": "proj_a9ad793f",
+    "name": "ws-2-1",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-2-1",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.874817",
+    "tasks": []
+  },
+  {
+    "id": "proj_bd25294d",
+    "name": "ws-2-2",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-2-2",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.875576",
+    "tasks": []
+  },
+  {
+    "id": "proj_2f5e9965",
+    "name": "ws-2-3",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-2-3",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.876382",
+    "tasks": []
+  },
+  {
+    "id": "proj_22253a5e",
+    "name": "ws-2-4",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-2-4",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.877188",
+    "tasks": []
+  },
+  {
+    "id": "proj_bc1f785e",
+    "name": "ws-2-5",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-2-5",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.878080",
+    "tasks": []
+  },
+  {
+    "id": "proj_f29310c9",
+    "name": "ws-2-6",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-2-6",
+    "is_active": false,
+    "last_accessed_at": "2026-09-16T16:20:38.878754",
+    "tasks": []
+  },
+  {
+    "id": "proj_ee00a81b",
+    "name": "ws-2-7",
+    "path": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-work-20260916T072036Z/ws-2-7",
+    "is_active": true,
+    "last_accessed_at": "2026-09-16T16:20:38.879481",
+    "tasks": []
+  }
+]

@@ -1,0 +1,28 @@
+WS-04 adversarial verify (ws_04_verify) — static + code-path probes
+==================================================================
+Tip: 7bac16dddec026c7b5329715c0424637fa512cac / impl 1ca4ae6…
+
+F1 FAIL — fileStore stale merge (must-verify #4,#5; plan "파일 선택·loading result")
+  - fileStore.ts: no isIdentityCurrent / AbortController
+  - refreshTree awaits loadDirectory then set({ treeData: items }) unguarded
+  - Race: B list in-flight → switch C → B response overwrites C tree
+
+F2 FAIL — editor openFiles + changeStore not cleared on switch (must-verify #5; plan "파일 선택")
+  - ChatPage WS-04 switch effect clears chat/activity only
+  - Does not close editor tabs / clearChanges / reset treeData
+  - Prior project file tabs + pending diffs remain under new project label
+
+F3 FAIL — file write/read identity gaps (must-verify #3)
+  - editorStore.saveFile: createAccessPinHeaders only; body {path,content} — no project_id/revision/session
+  - ChatPage onFileOpened/onFileModified: fetch(`/api/fs/read?...`) without createProjectIdentityHeaders
+
+F4 FAIL — mobile e2e soft-assert (must-verify #6; plan desktop/mobile E2E)
+  - e2e/tests/ws-04-project-switch.spec.ts mobile test wraps asserts in `if (chatPayload?.project_id)`
+  - Missing project_id still passes; __WS04 evaluate is no-op
+
+PASS keep:
+  - useProjectStore single SoT for switch/register (Sidebar/FolderBrowser)
+  - ChatPage switchEpoch abort + clearForProjectSwitch + reloadWorkspaceContext
+  - streamChatCompletion / apiRequest headers / fileStore mutations / taskExecutionApi attach identity
+  - chat onChunk / post-stream gated by isIdentityCurrent(requestEpoch)
+  - vitest 59 passed (reviewer re-run)

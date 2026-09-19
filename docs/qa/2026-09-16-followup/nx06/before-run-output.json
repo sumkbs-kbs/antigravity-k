@@ -1,0 +1,37 @@
+{
+  "tree": "before",
+  "manifest_dir": "/tmp/nx06-before/deploy/k8s",
+  "readiness_probe_path": "/health",
+  "liveness_probe_path": "/v1/health",
+  "startup_probe_path": "/v1/health",
+  "readiness_probe_port_is_named": true,
+  "readiness_reports_dependencies": false,
+  "liveness_is_process_alive_only": true,
+  "report_keys": [
+    "checked_at",
+    "checks",
+    "status"
+  ],
+  "has_dependency_kind": false,
+  "has_traffic_verdict": false,
+  "initial_status": "degraded",
+  "missing_project_root_status": "ready",
+  "missing_project_root_detail": "writable: data",
+  "false_ready_on_missing_root": true,
+  "required_failure_status": "not_ready",
+  "required_failure_traffic": null,
+  "required_failure_rejected": false,
+  "optional_failure_status": "not_ready",
+  "optional_failure_traffic": null,
+  "optional_failure_served": false,
+  "degraded_is_accepted": false,
+  "kube_contexts": [],
+  "runtime_observation": "BLOCKED (no kube context)",
+  "defects": [
+    "readinessProbe does not use /api/ready",
+    "missing configured project root reported as ready",
+    "required failure is not rejected",
+    "degraded is not served"
+  ],
+  "contract_met": false
+}

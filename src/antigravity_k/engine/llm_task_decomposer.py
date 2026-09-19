@@ -1,4 +1,4 @@
-"""Antigravity-K: LLM 기반 작업 분해 증폭.
+"""Ssak-Ai: LLM 기반 작업 분해 증폭.
 
 ========================================================
 복잡한 멀티스텝 작업을 모델 자신에게 명시적 단계로 분해시킨 뒤, 각 단계를
@@ -9,11 +9,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+
+from pydantic import TypeAdapter, ValidationError
 
 logger = logging.getLogger("antigravity_k.llm_task_decomposer")
 
@@ -32,6 +33,8 @@ _COMPLEX_HINTS = (
     "multi",
     "orchestrat",
 )
+
+_STEPS_ADAPTER = TypeAdapter(list[str])
 
 
 @dataclass
@@ -76,11 +79,10 @@ def _extract_steps(raw: str) -> list[str]:
         candidate = bare.group(0) if bare else None
     if candidate:
         try:
-            arr = json.loads(candidate)
-            steps = [str(s).strip() for s in arr if str(s).strip()]
+            steps = [step.strip() for step in _STEPS_ADAPTER.validate_json(candidate) if step.strip()]
             if steps:
                 return steps
-        except json.JSONDecodeError:
+        except (ValidationError, ValueError):
             pass  # 폴백으로 목록 파싱
     # 2. 번호/불릿 목록 파싱
     lines = text.splitlines()
@@ -105,10 +107,10 @@ class LlmTaskDecomposer:
         generate_fn: GenerateFn | None = None,
         min_steps: int = 2,
         max_steps: int = 8,
-    ):
-        self._generate_fn = generate_fn
-        self.min_steps = max(1, int(min_steps))
-        self.max_steps = max(self.min_steps, int(max_steps))
+    ) -> None:
+        self._generate_fn: GenerateFn | None = generate_fn
+        self.min_steps: int = max(1, int(min_steps))
+        self.max_steps: int = max(self.min_steps, int(max_steps))
 
     def set_generate_fn(self, fn: GenerateFn) -> None:
         self._generate_fn = fn

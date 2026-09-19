@@ -1,0 +1,7 @@
+{
+  "verdict": "FAIL",
+  "problems": [
+    "missing_required: required gates not executed: python-ruff, python-format, python-mypy, python-basedpyright, python-benchmark, dashboard-install, dashboard-lint, dashboard-typecheck, dashboard-test, dashboard-build, package-build, docker-build, sbom-generate, dependency-audit-python, dependency-audit-dashboard, security-bandit, master-e2e, api-e2e, accessibility-e2e, dashboard-e2e-witnesses, dashboard-e2e-ambient, clean-machine-runtime",
+    "required_red: required gates failed: python-tests"
+  ]
+}

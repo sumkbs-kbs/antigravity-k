@@ -1,0 +1,6 @@
+DAT-01 owner adversarial F1/F2 probe
+====================================
+F1 wiring: TaskExecutionView passes selectedTask.status → cancelled clamp PASS (vitest)
+F2 stream TOCTOU: cancel-before-done → no interactive_completed PASS (pytest)
+F2 run_max TOCTOU: cancel-before-done → no max_execution_completed PASS (pytest)
+prior store CAS/stress: still green within 33 passed suite

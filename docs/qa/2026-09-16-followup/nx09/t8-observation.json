@@ -1,0 +1,20 @@
+{
+  "sessionsRevoked": 1,
+  "chatSockets": [
+    {
+      "url": "ws://127.0.0.1:57256/v1/ws/events?ticket=<redacted>",
+      "isClosed": true,
+      "closeEvent": true
+    }
+  ],
+  "closedChatSockets": 1,
+  "closeLatencyMs": [
+    594
+  ],
+  "observedWithinMs": 621,
+  "respondedWithinMs": 621,
+  "settingsTabSockets": [
+    "ws://127.0.0.1:57256/v1/ws/events?ticket=<redacted>"
+  ],
+  "chatTabModalVisible": false
+}

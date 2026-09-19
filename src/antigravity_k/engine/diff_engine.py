@@ -1,4 +1,4 @@
-"""Antigravity-K: Diff/Apply 엔진 (P0-1).
+"""Ssak-Ai: Diff/Apply 엔진 (P0-1).
 
 ====================================
 정교한 패치 적용을 위한 unified diff 파싱 + apply 엔진.
@@ -35,71 +35,11 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+
+from .diff_models import ApplyResult, FilePatch, Hunk
+from .diff_parser import parse_apply_patch
 
 logger = logging.getLogger("antigravity_k.diff_engine")
-
-
-@dataclass
-class Hunk:
-    """하나의 diff hunk (변경 블록)."""
-
-    context_before: list[str] = field(default_factory=list)  # 매칭용 앞 컨텍스트
-    removals: list[str] = field(default_factory=list)  # 제거될 라인들
-    additions: list[str] = field(default_factory=list)  # 추가될 라인들
-    context_after: list[str] = field(default_factory=list)  # 매칭용 뒤 컨텍스트
-
-    @property
-    def is_pure_addition(self) -> bool:
-        """제거 없이 추가만 하는 hunk."""
-        return not self.removals and bool(self.additions)
-
-    @property
-    def is_pure_removal(self) -> bool:
-        """추가 없이 제거만 하는 hunk."""
-        return not self.additions and bool(self.removals)
-
-    @property
-    def old_block(self) -> list[str]:
-        """이 hunk가 교체할 원본 블록."""
-        return self.context_before + self.removals + self.context_after
-
-    @property
-    def new_block(self) -> list[str]:
-        """교체 후 새 블록."""
-        return self.context_before + self.additions + self.context_after
-
-
-@dataclass
-class FilePatch:
-    """하나의 파일에 대한 패치."""
-
-    file_path: str
-    hunks: list[Hunk] = field(default_factory=list)
-    is_new_file: bool = False
-    is_delete_file: bool = False
-    new_file_content: list[str] = field(default_factory=list)  # 신규 파일용
-
-    @property
-    def is_empty(self) -> bool:
-        return not self.hunks and not self.is_new_file and not self.is_delete_file
-
-
-@dataclass
-class ApplyResult:
-    """패치 적용 결과."""
-
-    success: bool
-    file_path: str
-    new_content: str = ""
-    hunks_applied: int = 0
-    hunks_total: int = 0
-    error: str = ""
-    fuzzy_matches: int = 0  # 퍼지 매칭 사용 횟수
-
-    @property
-    def is_fuzzy(self) -> bool:
-        return self.fuzzy_matches > 0
 
 
 class DiffApplyEngine:
@@ -115,7 +55,7 @@ class DiffApplyEngine:
     """
 
     # 허용 오차: 퍼지 매칭 시 최소 유사도
-    FUZZY_THRESHOLD = 0.80
+    FUZZY_THRESHOLD: float = 0.80
 
     def parse_apply_patch(self, text: str) -> list[FilePatch]:
         """apply_patch 포맷(Aider 스타일)을 파싱합니다.
@@ -126,108 +66,7 @@ class DiffApplyEngine:
         Returns:
             FilePatch 리스트 (파일별)
         """
-        patches: list[FilePatch] = []
-        current: FilePatch | None = None
-        current_hunk: Hunk | None = None
-        lines = text.splitlines()
-
-        for line in lines:
-            if line.startswith("*** Begin Patch"):
-                continue
-            if line.startswith("*** End Patch"):
-                if current_hunk and current:
-                    current.hunks.append(current_hunk)
-                    current_hunk = None
-                if current:
-                    patches.append(current)
-                    current = None
-                continue
-            if line.startswith("*** Add File: "):
-                if current_hunk and current:
-                    current.hunks.append(current_hunk)
-                    current_hunk = None
-                if current:
-                    patches.append(current)
-                path = line[len("*** Add File: ") :].strip()
-                current = FilePatch(file_path=path, is_new_file=True)
-                continue
-            if line.startswith("*** Delete File: "):
-                if current_hunk and current:
-                    current.hunks.append(current_hunk)
-                    current_hunk = None
-                if current:
-                    patches.append(current)
-                path = line[len("*** Delete File: ") :].strip()
-                current = FilePatch(file_path=path, is_delete_file=True)
-                patches.append(current)
-                current = None
-                continue
-            if line.startswith("*** Update File: "):
-                if current_hunk and current:
-                    current.hunks.append(current_hunk)
-                    current_hunk = None
-                if current:
-                    patches.append(current)
-                path = line[len("*** Update File: ") :].strip()
-                current = FilePatch(file_path=path)
-                continue
-            if line.startswith("*** End File"):
-                if current_hunk and current:
-                    current.hunks.append(current_hunk)
-                    current_hunk = None
-                if current:
-                    patches.append(current)
-                    current = None
-                continue
-
-            # 신규 파일 내용
-            if current and current.is_new_file:
-                if line.startswith("+"):
-                    current.new_file_content.append(line[1:])
-                elif line == "":
-                    current.new_file_content.append("")
-                continue
-
-            # hunk 라인 처리
-            if current is None:
-                continue
-
-            if line.startswith("@@"):
-                # 새 hunk 시작 — @@ 이후의 텍스트는 첫 컨텍스트 라인으로 처리
-                if current_hunk:
-                    current.hunks.append(current_hunk)
-                # @@ 뒤의 컨텍스트 추출 (예: "@@ def hello():" → "def hello():")
-                ctx_after_marker = line[2:].strip()
-                if ctx_after_marker:
-                    current_hunk = Hunk(context_before=[ctx_after_marker])
-                else:
-                    current_hunk = Hunk()
-            elif current_hunk is not None:
-                if line.startswith("-"):
-                    current_hunk.removals.append(line[1:])
-                elif line.startswith("+"):
-                    current_hunk.additions.append(line[1:])
-                elif line.startswith(" "):
-                    # 컨텍스트 라인 — removals/additions 전이냐 후냐에 따라 before/after
-                    ctx_line = line[1:]
-                    if not current_hunk.removals and not current_hunk.additions:
-                        current_hunk.context_before.append(ctx_line)
-                    else:
-                        current_hunk.context_after.append(ctx_line)
-                elif line == "":
-                    # 빈 라인은 컨텍스트로 처리
-                    if not current_hunk.removals and not current_hunk.additions:
-                        current_hunk.context_before.append("")
-                    else:
-                        current_hunk.context_after.append("")
-
-        # 마지막 hunk/file 처리
-        if current_hunk and current:
-            current.hunks.append(current_hunk)
-        if current:
-            patches.append(current)
-
-        return patches
+        return parse_apply_patch(text)
 
     def apply_patch(self, patch: FilePatch, file_content: str) -> ApplyResult:
         """파일에 패치를 적용합니다.
@@ -362,7 +201,7 @@ class DiffApplyEngine:
         if hunk.context_before:
             # 마지막 context_before 라인을 찾고, 그 다음이 removals 시작
             anchor = hunk.context_before[-1]
-            anchor_positions = []
+            anchor_positions: list[int] = []
             for idx in range(max(0, offset - removals_len), len(lines)):
                 if lines[idx] == anchor:
                     anchor_positions.append(idx)
@@ -431,7 +270,7 @@ class DiffApplyEngine:
         for idx in range(search_start, len(lines) - block_len + 1):
             window = lines[idx : idx + block_len]
             # 라인별 유사도 평균
-            ratios = []
+            ratios: list[float] = []
             for a, b in zip(block, window):
                 ratios.append(difflib.SequenceMatcher(None, a, b).ratio())
             avg_ratio = sum(ratios) / len(ratios) if ratios else 0.0

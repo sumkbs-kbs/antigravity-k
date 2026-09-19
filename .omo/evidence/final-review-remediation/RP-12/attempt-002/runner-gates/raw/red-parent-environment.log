@@ -1,0 +1,17 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_runner_removes_parent_python_environment_from_gate ____________
+tests/test_ga_gate.py:231: in test_runner_removes_parent_python_environment_from_gate
+    assert json.loads(observed.read_text(encoding="utf-8")) == dict.fromkeys(variables)
+E   AssertionError: assert {'CONDA_DEFAU.../python', ...} == {'CONDA_DEFAU...H': None, ...}
+E
+E     Differing items:
+E     {'PYTHONPATH': '/outside/python'} != {'PYTHONPATH': None}
+E     {'CONDA_DEFAULT_ENV': '/outside/python'} != {'CONDA_DEFAULT_ENV': None}
+E     {'PIPAPI_PYTHON_LOCATION': '/outside/python'} != {'PIPAPI_PYTHON_LOCATION': None}
+E     {'CONDA_PREFIX': '/outside/python'} != {'CONDA_PREFIX': None}
+E     {'VIRTUAL_ENV': '/outside/python'} != {'VIRTUAL_ENV': None}
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/test_ga_gate.py::test_runner_removes_parent_python_environment_from_gate
+1 failed in 0.47s

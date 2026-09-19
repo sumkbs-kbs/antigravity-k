@@ -20,8 +20,8 @@ const BottomPanels: React.FC<Props> = ({ result }) => {
       <GlassPanel title="📅 추출된 날짜" count={dates.length}>
         {dates.length > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {dates.map((d, i) => (
-              <span key={i} style={{
+            {dates.map(d => (
+              <span key={d} style={{
                 padding: '4px 8px', borderRadius: 6,
                 background: 'rgba(124,106,239,0.08)',
                 color: 'var(--accent-color)', fontSize: 12,

@@ -7,31 +7,34 @@
 import logging
 import os
 import subprocess
-from typing import Any
+from typing import TypeAlias, final, override
 
 from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
+JsonMap: TypeAlias = dict[str, object]
 
+
+@final
 class ImpactAnalyzerTool(BaseTool):
     """특정 파일이나 키워드의 변경이 프로젝트 내 다른 파일에 미치는 영향을 분석합니다."""
 
-    category = ToolCategory.SEARCH
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.SAFE
-    icon = "🕸️"
-    tags = ["impact", "analysis", "dependency", "search"]
+    category: ToolCategory = ToolCategory.SEARCH
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.SAFE
+    icon: str = "🕸️"
+    tags: list[str] = ["impact", "analysis", "dependency", "search"]
 
     def __init__(self):
         """Initialize the ImpactAnalyzerTool."""
         super().__init__()
-        self._name = "impact_analyzer"
-        self._description = (
+        self._name: str = "impact_analyzer"
+        self._description: str = (
             "Analyzes the impact of a file change by searching for its dependencies, "
             "usages, and related tests across the project."
         )
-        self._schema = {
+        self._schema: JsonMap = {
             "type": "object",
             "properties": {
                 "target_path": {
@@ -47,6 +50,7 @@ class ImpactAnalyzerTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -57,6 +61,7 @@ class ImpactAnalyzerTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -67,7 +72,8 @@ class ImpactAnalyzerTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> JsonMap:
         """Parameters Schema.
 
         Returns:
@@ -76,7 +82,8 @@ class ImpactAnalyzerTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -86,8 +93,10 @@ class ImpactAnalyzerTool(BaseTool):
             Any: The any result.
 
         """
-        target_path = kwargs.get("target_path")
-        symbol_name = kwargs.get("symbol_name")
+        raw_target_path = kwargs.get("target_path")
+        target_path = raw_target_path if isinstance(raw_target_path, str) else ""
+        raw_symbol_name = kwargs.get("symbol_name")
+        symbol_name = raw_symbol_name if isinstance(raw_symbol_name, str) else ""
 
         if not target_path:
             return "Error: target_path is required."
@@ -95,14 +104,14 @@ class ImpactAnalyzerTool(BaseTool):
         base_name = os.path.basename(target_path)
         module_name = os.path.splitext(base_name)[0]
 
-        search_terms = []
+        search_terms: list[str] = []
         if symbol_name:
             search_terms.append(symbol_name)
         else:
             search_terms.append(module_name)
 
         # 1. 의존성 검색 (git grep 활용)
-        affected_files = set()
+        affected_files: set[str] = set()
         for term in search_terms:
             try:
                 # git grep은 빠른 전체 검색 제공
@@ -113,7 +122,7 @@ class ImpactAnalyzerTool(BaseTool):
                     check=False,
                 )
                 if result.returncode == 0 and result.stdout:
-                    files = result.stdout.strip().split("\n")
+                    files: list[str] = result.stdout.strip().split("\n")
                     affected_files.update(files)
                 else:
                     # fallback to standard grep if git is not available or no results
@@ -139,8 +148,8 @@ class ImpactAnalyzerTool(BaseTool):
                 pass
 
         # 2. 관련 테스트 파일 추론
-        test_files = []
-        source_files = []
+        test_files: list[str] = []
+        source_files: list[str] = []
         for f in affected_files:
             if "test" in f.lower() or "spec" in f.lower():
                 test_files.append(f)
@@ -149,7 +158,7 @@ class ImpactAnalyzerTool(BaseTool):
                     source_files.append(f)
 
         # 3. 결과 리포트 포맷팅
-        report = []
+        report: list[str] = []
         report.append(f"📊 Impact Analysis Report for: {target_path}")
         if symbol_name:
             report.append(f"🔍 Tracing symbol: {symbol_name}")

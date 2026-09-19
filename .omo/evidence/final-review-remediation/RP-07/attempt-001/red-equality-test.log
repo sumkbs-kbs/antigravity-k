@@ -1,0 +1,17 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_bundled_default_config_matches_repository_default ____________
+tests/test_model_registry.py:66: in test_bundled_default_config_matches_repository_default
+    assert Path(str(files("antigravity_k").joinpath("config.yaml"))).read_text() == repository_config.read_text()
+E   AssertionError: assert 'model:\n  ma...uired: true\n' == 'model:\n  ma...ptive: true\n'
+E
+E     Skipping 17189 identical leading characters in diff, use -v to show
+E       ired: true
+E     - agent:
+E     -   default_entry: unified
+E     -   headroom: true
+E     -   max_repairs: 2
+E     -   adaptive: true
+=========================== short test summary info ============================
+FAILED tests/test_model_registry.py::test_bundled_default_config_matches_repository_default
+1 failed in 0.35s

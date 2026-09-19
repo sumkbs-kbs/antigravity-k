@@ -1,0 +1,22 @@
+# NX-10 잔여 게이트 실행 기록
+# 시작: 2026-09-16T06:14:46Z
+# HEAD: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+# dirty: true
+python-tests exit:1 end:2026-09-16T06:25:01Z
+python-benchmark exit:0 end:2026-09-16T06:25:23Z
+master-e2e exit:0 end:2026-09-16T06:25:26Z
+runner done:2026-09-16T06:25:26Z
+--- ambient attempt 2026-09-16T06:34:28Z ---
+# HEAD: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+# dirty: true
+dashboard-e2e-ambient exit:0 end:2026-09-16T06:35:15Z
+--- full single-run attempt 2026-09-16T06:41:13Z ---
+# HEAD: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+# dirty: true
+# excluded: clean-machine-runtime (BLOCKED_EXTERNAL — 깨끗한 지원 호스트 필요)
+full-gates exit:1 end:2026-09-16T06:59:59Z report:gate-report-full001.json
+ga_gate_verify exit:1
+--- clean-machine attempt 2026-09-16T07:27:09Z ---
+# HEAD: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5  (이 게이트는 HEAD 를 export 한다 — dirty 후보는 미포함)
+# dirty: true
+clean-machine-runtime exit:0 end:2026-09-16T07:27:53Z

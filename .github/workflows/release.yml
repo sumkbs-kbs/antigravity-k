@@ -28,7 +28,7 @@ jobs:
   build:
     name: "Build distributions"
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     outputs:
       version: ${{ steps.meta.outputs.version }}
 
@@ -38,27 +38,99 @@ jobs:
         with:
           fetch-depth: 0  # Needed for version inference from tags.
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      # CR-11(R01): `python -m antigravity_k...`는 프로젝트가 설치된 환경에서만 돈다.
+      # 예전 이 워크플로는 **설치 전에** SBOM 생성 모듈을 실행해 새 venv에서
+      # ModuleNotFoundError로 죽었다. 이제 잠금파일을 frozen으로 따라
+      # **비-editable** 설치를 먼저 끝낸 뒤에만 내부 모듈을 실행한다.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
           python-version: "3.12"
 
-      - name: Install build tooling
+      - name: Sync locked environment (non-editable, dev extra)
+        run: uv sync --locked --no-editable --extra dev
+
+      # CR-11(C11-05): 릴리스 wheel에 커밋된 낡은 UI가 들어가지 않게 다시 빌드한다.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+          run_install: false
+
+      - name: Set up Node.js 22.13
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13
+          cache: "pnpm"
+          cache-dependency-path: dashboard/pnpm-lock.yaml
+
+      - name: Build dashboard (fresh bundle)
         run: |
-          python -m pip install --upgrade pip build
+          pnpm --dir dashboard install --frozen-lockfile
+          pnpm --dir dashboard build
+
+      - name: Generate release SBOMs and notices
+        run: |
+          uv run --no-sync python -m antigravity_k.engine.release_sbom generate \
+            --project-root . \
+            --release-root src/antigravity_k/release
 
       - name: Build wheel + sdist
-        run: python -m build
+        run: uv build --no-sources
 
-      - name: Verify the wheel installs
+      - name: Verify fresh dashboard bundle inside the wheel
+        run: bash scripts/verify_dashboard_bundle.sh --skip-build
+
+      # CR-11(C11-04): wheel/sdist를 **저장소 밖** 신규 venv에 설치해 CLI/API/auth를
+      # 실행한다(editable 설치·PYTHONPATH 우연 제거).
+      - name: Verify distributions outside the repository (CLI/API/auth)
+        run: bash scripts/verify_release_artifacts.sh --skip-build
+
+      - name: Verify release SBOMs and notices
         run: |
-          pip install dist/*.whl
-          python -c "import antigravity_k; print('import ok')"
+          uv run --no-sync python -m antigravity_k.engine.release_sbom verify \
+            --distribution-root dist \
+            --release-root src/antigravity_k/release \
+            --output dist/release-supply-chain.json
+
+      - name: Record and verify release provenance
+        run: |
+          mkdir -p .artifacts
+          uv run --no-sync python src/antigravity_k/engine/artifact_provenance.py \
+            create dist --root . --output .artifacts/release-dist.json
+          uv run --no-sync python src/antigravity_k/engine/artifact_provenance.py \
+            verify .artifacts/release-dist.json --root .
+
+      - name: Resolve release provenance task
+        if: ${{ vars.AGK_PROVENANCE_API_URL != '' }}
+        env:
+          AGK_PROVENANCE_API_URL: ${{ vars.AGK_PROVENANCE_API_URL }}
+          AGK_PROVENANCE_PIN: ${{ secrets.AGK_PROVENANCE_PIN }}
+          CONFIGURED_TASK_ID: ${{ vars.AGK_PROVENANCE_TASK_ID }}
+        run: |
+          if [ -n "$CONFIGURED_TASK_ID" ]; then
+            task_id="$CONFIGURED_TASK_ID"
+          else
+            task_id=$(scripts/register_artifact_provenance_task.sh build "github-${{ github.run_id }}")
+          fi
+          echo "AGK_PROVENANCE_TASK_ID=$task_id" >> "$GITHUB_ENV"
+
+      - name: Publish release provenance to task event store
+        if: ${{ vars.AGK_PROVENANCE_API_URL != '' }}
+        env:
+          AGK_PROVENANCE_API_URL: ${{ vars.AGK_PROVENANCE_API_URL }}
+          AGK_PROVENANCE_PIN: ${{ secrets.AGK_PROVENANCE_PIN }}
+        run: scripts/publish_artifact_provenance.sh .artifacts/release-dist.json build
 
       - name: Extract version
         id: meta
         run: |
-          VERSION=$(python -c "from pathlib import Path; print(__import__('tomllib').loads(Path('pyproject.toml').read_text('utf-8'))['project']['version'])")
+          METADATA=$(uv run --no-sync python -m antigravity_k.engine.release_metadata \
+            --distribution-root dist \
+            --git-ref "$GITHUB_REF")
+          VERSION=$(printf '%s' "$METADATA" | uv run --no-sync python -c "import json,sys; print(json.load(sys.stdin)['version'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Detected version: $VERSION"
 
@@ -66,16 +138,50 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: dist/
+          path: |
+            dist/
+            .artifacts/release-dist.json
+            dist/release-supply-chain.json
           retention-days: 30
+
+  # CR-14 R-11: 릴리스는 **기계가 재측정한 주장**만 출하한다.
+  # 이 job 은 `.github/workflows/ga-close.yml` 을 그대로 부른다 — 게이트 목록도 순서도
+  # 이 파일에 적지 않는다(복제하면 갈라진다: F-18/F-24/F-27). 마감 절차가 실패하면
+  # publish-pypi · github-release 가 시작되지 않는다(`needs`).
+  # 주의: 버전을 올리는 커밋은 코드 스코프를 움직이므로, 태그 **전에** 그 커밋을 후보로
+  # 다시 선언해야 한다 — 그렇지 않으면 여기서 "선언된 지문 != 측정된 지문" 으로 멈춘다.
+  ga-close:
+    name: "GA close (machine re-measurement)"
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' && inputs.dry_run != 'true'
+    uses: ./.github/workflows/ga-close.yml
+
+  dry-run-report:
+    name: "Dry-run report (publish disabled)"
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 5
+    # CR-11(C11-05): 이 워크플로에서 실제로 검증하는 것은 dry-run까지다.
+    # publish/upload는 별도 권한이 필요하므로 태그 push + dry_run=false 일 때만 돈다.
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Report build-only outcome
+        run: |
+          echo "RELEASE-DRY-RUN: build job completed for ref ${{ github.ref }}"
+          echo "RELEASE-DRY-RUN: version=${{ needs.build.outputs.version }}"
+          echo "RELEASE-DRY-RUN: publish=false (dry_run input = ${{ inputs.dry_run }})"
+          echo "RELEASE-DRY-RUN: no artifact was published to PyPI or GitHub Releases"
 
   publish-pypi:
     name: "Publish to PyPI"
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, ga-close]
     timeout-minutes: 10
     # Skip publishing on manual dry-run or on non-tag pushes.
-    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    # publish는 태그 push에서만 열린다. 수동 dispatch는 기본이 dry-run이라
+    # 절대 배포되지 않으며, 태그 push에서 inputs.dry_run은 비어 있어 통과한다.
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' && inputs.dry_run != 'true'
 
     environment:
       name: pypi
@@ -98,9 +204,9 @@ jobs:
   github-release:
     name: "Create GitHub Release"
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, ga-close]
     timeout-minutes: 5
-    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' && inputs.dry_run != 'true'
     permissions:
       contents: write
 

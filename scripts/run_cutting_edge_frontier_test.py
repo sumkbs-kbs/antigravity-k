@@ -80,7 +80,7 @@ def run_cutting_edge_benchmark():
         score += 1
 
     print("\n" + "=" * 80)
-    print(f"🏆 CUTTING-EDGE FRONTIER SCORE: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🏆 CUTTING-EDGE FRONTIER SCORE: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 80)
     return score == total
 

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "frozen_at": "2026-08-24T00:00:00Z",
+  "dataset_path": "data/benchmarks/held_out_v2.jsonl",
+  "sha256": "cf202bd9360381270525d9801dcbb4fa1a3f6ec6491ccf6bfd57776dbe2acbde",
+  "row_count": 4,
+  "case_ids": [
+    "heldout-long-002",
+    "heldout-code-002",
+    "heldout-tool-002",
+    "heldout-ko-002"
+  ],
+  "selection_rule": "Four internally authored, training-forbidden cases covering long-horizon resume, verified code, tool recovery, and Korean reasoning under one frozen promotion gate."
+}

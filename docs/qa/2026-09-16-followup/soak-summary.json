@@ -1,0 +1,114 @@
+{
+  "source": ".omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/val02_soak_28800_resoake.json",
+  "sha256": "741d64e31bf0df7251b51104108d7178ddedf538a50fafa164d23007cd6c948f",
+  "observed_date": "2026-09-16",
+  "observed_head": "ffb0ebb312b76d86742d3e4065628a9704f8268e",
+  "run_sha_binding": "UNVERIFIED",
+  "wrapper_log_exit": 141,
+  "artifact": {
+    "task_id": "VAL-02",
+    "generated_at": "2026-09-15T06:08:33Z",
+    "workdir": ".omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak/workdir/run28800e",
+    "thresholds": {
+      "p95_ms": 500.0,
+      "p99_ms": 1000.0,
+      "error_rate_max": 0.0,
+      "fd_leak_max": 5,
+      "rss_leak_mb": 64.0
+    },
+    "scenarios": [
+      {
+        "scenario": "SC-1-task-cas-race",
+        "workers": 8,
+        "tasks": 32,
+        "total_wins": 32,
+        "terminal_contradictions": 0,
+        "cross_owner_leak": 0,
+        "unexpected_errors": 0,
+        "elapsed_s": 0.35,
+        "pass": true
+      },
+      {
+        "scenario": "SC-2-conversation-cas",
+        "workers": 6,
+        "appended": 30,
+        "stale_rejected": 90,
+        "unexpected_errors": 0,
+        "final_messages": 30,
+        "lost_messages": 0,
+        "pass": true
+      },
+      {
+        "scenario": "SC-3-registry-flock",
+        "workers": 5,
+        "expected_projects": 40,
+        "registered": 41,
+        "missing": 0,
+        "errors": 0,
+        "lock_file_present": true,
+        "pass": true
+      },
+      {
+        "scenario": "SC-4-kill-9-recovery",
+        "killed_with_sigkill": true,
+        "surviving_events": 12,
+        "sequence_monotonic": true,
+        "sequence_unique": true,
+        "task_status_after_kill": "running",
+        "prepare_resume_ok": true,
+        "resumed_task_completed": true,
+        "duplicate_side_effect_rejected": true,
+        "post_recovery_sequences_unique": true,
+        "pass": true
+      },
+      {
+        "scenario": "SC-5-load-latency",
+        "operations": 300,
+        "p95_ms": 3.13,
+        "p99_ms": 3.91,
+        "mean_ms": 2.62,
+        "error_rate": 0.0,
+        "fd_before": 7,
+        "fd_after": 7,
+        "fd_growth": 0,
+        "rss_mb": 65.7,
+        "pass": true
+      },
+      {
+        "scenario": "SC-6-soak",
+        "requested_duration_s": 28800,
+        "duration_s": 28801.318,
+        "actual_duration_s": 28801.318,
+        "completed_ops": 12102886,
+        "conversation_ops": 12102886,
+        "conversation_revision": 12102886,
+        "conversation_message_count": 26,
+        "conversation_append_equality": true,
+        "conversation_messages_bounded": true,
+        "conversation_soft_max": 64,
+        "errors": 0,
+        "rss_growth_mb": 48.7,
+        "fd_growth": 0,
+        "orphan_worktrees": 0,
+        "db_accessible_after": true,
+        "pass": true,
+        "rss_samples_mb_summary": {
+          "count": 242057,
+          "first": 65.7,
+          "last": 114.4,
+          "min": 65.7,
+          "max": 114.4
+        },
+        "fd_samples_summary": {
+          "count": 242057,
+          "first": 7,
+          "last": 7,
+          "min": 7,
+          "max": 7
+        }
+      }
+    ],
+    "missing_required": [],
+    "all_pass": true
+  }
+}

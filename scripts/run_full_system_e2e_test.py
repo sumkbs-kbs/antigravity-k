@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Master End-to-End System Verification for Antigravity-K (Qwen3.8-27B).
+"""Master End-to-End System Verification for Ssak-Ai (Qwen3.8-27B).
 
 Executes a full flight mission from CLI-level fast path down to kernel verifiers.
 """
@@ -8,7 +8,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Add src to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from antigravity_k.engine.call_hierarchy_graph import CallHierarchyGraph
@@ -21,9 +20,9 @@ from antigravity_k.engine.working_memory_compactor import WorkingMemoryCompactor
 from antigravity_k.engine.zero_waste_compressor import ZeroWasteCompressor
 
 
-def run_master_e2e():
+def run_master_test():
     print("=" * 80)
-    print("🛸 MASTER END-TO-END SYSTEM TEST: ANTIGRAVITY-K (QWEN3.8-27B)")
+    print("🛸 MASTER END-TO-END SYSTEM TEST: SSAK-AI (QWEN3.8-27B)")
     print("=" * 80)
 
     score = 0
@@ -91,11 +90,11 @@ def run_master_e2e():
         score += 1
 
     print("\n" + "=" * 80)
-    print(f"🎉 MASTER SYSTEM SCORE: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🎉 MASTER SYSTEM SCORE: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 80)
     return score == total
 
 
 if __name__ == "__main__":
-    success = run_master_e2e()
+    success = run_master_test()
     sys.exit(0 if success else 1)

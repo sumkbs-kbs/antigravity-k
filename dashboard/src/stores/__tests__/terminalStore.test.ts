@@ -60,7 +60,7 @@ describe('useTerminalStore', () => {
   });
 
   it('adds a session with custom name', () => {
-    const id = useTerminalStore.getState().addSession('My Custom Terminal');
+    useTerminalStore.getState().addSession('My Custom Terminal');
 
     const session = useTerminalStore.getState().sessions[0];
     expect(session.name).toBe('My Custom Terminal');
@@ -75,9 +75,9 @@ describe('useTerminalStore', () => {
   });
 
   it('increments terminal counter across sequential calls', () => {
-    const id1 = useTerminalStore.getState().addSession();
-    const id2 = useTerminalStore.getState().addSession();
-    const id3 = useTerminalStore.getState().addSession();
+    useTerminalStore.getState().addSession();
+    useTerminalStore.getState().addSession();
+    useTerminalStore.getState().addSession();
 
     const sessions = useTerminalStore.getState().sessions;
     expect(sessions).toHaveLength(3);
@@ -217,7 +217,7 @@ describe('useTerminalStore', () => {
 
   it('sets the active session and makes panel visible', () => {
     const id1 = useTerminalStore.getState().addSession('First');
-    const id2 = useTerminalStore.getState().addSession('Second');
+    useTerminalStore.getState().addSession('Second');
 
     useTerminalStore.getState().setActiveSession(id1);
 
@@ -256,9 +256,9 @@ describe('useTerminalStore', () => {
   });
 
   it('renames session from middle of list correctly', () => {
-    const id1 = useTerminalStore.getState().addSession('A');
+    useTerminalStore.getState().addSession('A');
     const id2 = useTerminalStore.getState().addSession('B');
-    const id3 = useTerminalStore.getState().addSession('C');
+    useTerminalStore.getState().addSession('C');
 
     useTerminalStore.getState().renameSession(id2, 'B-Renamed');
 

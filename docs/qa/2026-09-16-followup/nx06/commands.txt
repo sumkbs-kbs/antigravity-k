@@ -1,0 +1,57 @@
+=== NX-06 실행 명령 (cwd=저장소 루트, 작업 트리 = 미커밋) ===
+
+# 0) 기준 트리(HEAD) 추출 — manifest + 제품 코드 (작업 트리는 건드리지 않는다)
+$ rm -rf /tmp/nx06-before && mkdir -p /tmp/nx06-before
+$ git archive HEAD deploy src | tar -x -C /tmp/nx06-before
+
+# 1) cluster 가용성 확인 (읽기 전용)
+$ kubectl config get-contexts -o name
+  → (빈 출력) : 사용 가능한 kube context/클러스터 없음 → 런타임 관측 BLOCKED
+$ kubectl version --client
+  → Client Version: v1.36.1 / Kustomize v5.8.1
+$ kubectl apply --dry-run=client --validate=false -f deploy/k8s/
+  → unable to recognize "deploy/k8s/deployment.yaml": the server could not find the requested resource
+    (client dry-run 도 API discovery 를 요구한다 → 오프라인 manifest 검증 도구로 쓸 수 없다.
+     API server 는 요청하지 않았고 어떤 자원도 생성/변경하지 않았다.)
+
+# 2) 재현 드라이버: before / after
+$ NX06_TREE=before NX06_MANIFEST_DIR=/tmp/nx06-before/deploy/k8s \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/nx06-before/src .venv/bin/python \
+    docs/qa/2026-09-16-followup/nx06/repro_nx06_readiness_probe.py
+  → exit 3 (readiness=/health, kind/traffic 없음, 프로젝트 루트 부재를 ready 로 오보)
+$ NX06_TREE=after PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python \
+    docs/qa/2026-09-16-followup/nx06/repro_nx06_readiness_probe.py
+  → exit 0 (readiness=/api/ready, required→reject, optional→degraded/accept, false ready 없음)
+
+# 3) 신규 수용 시험
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+    tests/test_nx06_deploy_readiness.py -q -p no:cacheprovider --override-ini addopts=''
+  → 14 passed
+
+# 4) readiness/기동/정책 좁은 회귀
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest \
+    tests/test_nx06_deploy_readiness.py tests/test_obs01_operational_metrics.py \
+    tests/test_startup_security.py tests/test_api_forwarder_security.py \
+    tests/test_auth_policy_truth_table.py tests/test_nx05_auth_epoch_revocation.py \
+    -q -p no:cacheprovider --override-ini addopts=''
+  → 86 passed
+
+# 5) 정적 검사
+$ .venv/bin/ruff check src/antigravity_k/api/server.py src/antigravity_k/engine/operational_metrics.py \
+    tests/test_nx06_deploy_readiness.py
+  → All checks passed!
+$ .venv/bin/python -m mypy src/antigravity_k/engine/operational_metrics.py src/antigravity_k/api/server.py
+  → Success: no issues found in 2 source files
+
+# 6) 전체 스위트 — NX-04/05 와 같은 플래그, 순서 보존 위해 두 절반으로 분할
+$ pytest <halfA: test_a* … test_cl*> -q -p no:randomly \
+    --ignore=tests/test_benchmark_performance.py --deselect tests/test_cr14_fence_movement_detection.py
+  → 1106 passed, 2 skipped  (50.20s)
+$ pytest <halfB: test_cr01_* … 끝> -q -p no:randomly \
+    --ignore=tests/test_benchmark_performance.py --deselect tests/test_cr14_fence_movement_detection.py
+  → 5393 passed, 7 skipped, 13 deselected  (554.23s)
+  합계: 6499 passed / 9 skipped / 13 deselected / 0 failed
+수집 비교: pytest tests --collect-only → 6516
+          (NX-05 시점 6502 → +14 = 신규 NX-06 시험 수)
+
+# 7) 대시보드: 이 카드는 UI 를 건드리지 않았다 → pnpm 실행 없음(변경 없음).

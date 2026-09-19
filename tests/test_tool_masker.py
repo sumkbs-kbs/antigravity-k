@@ -51,3 +51,12 @@ def test_tool_masker_dict_schema():
     filtered = masker.filter_tools(schemas)
     assert len(filtered) == 1
     assert filtered[0]["name"] == "read_file"
+
+
+def test_tool_masker_maps_runtime_task_types_to_phases():
+    masker = ActiveToolMasker(mode=ExecutionMode.BUILD)
+
+    assert masker.phase_for_task_type("coding") == "edit"
+    assert masker.phase_for_task_type("CODE") == "edit"
+    assert masker.phase_for_task_type("verification") == "test"
+    assert masker.phase_for_task_type("simple_chat") is None

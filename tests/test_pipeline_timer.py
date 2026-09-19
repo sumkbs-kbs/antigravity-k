@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Antigravity-K: PipelineTimer 단위 테스트
+Ssak-Ai: PipelineTimer 단위 테스트
 ========================================
 PipelineTimer의 record(), get_stats(), measure(), reset() 등을 검증합니다.
 """
@@ -198,7 +198,9 @@ class TestPipelineTimer:
     def test_record_step_alias(self):
         """record_step() 별칭 동작."""
         PipelineTimer.record_step("test_step", 500.0)
-        assert PipelineTimer.get_step_stats("test_step").count == 1
+        stats = PipelineTimer.get_step_stats("test_step")
+        assert stats is not None
+        assert stats.count == 1
 
     def test_empty_get_recent(self):
         """기록 없이 get_recent() → 빈 리스트."""

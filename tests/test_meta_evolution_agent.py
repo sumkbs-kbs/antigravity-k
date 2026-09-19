@@ -1,12 +1,38 @@
-from unittest.mock import MagicMock
+from pathlib import Path
+from typing import Protocol
 
 import pytest
 
 from antigravity_k.agents.meta_evolution_agent import BackupManager, MetaEvolutionAgent
 
 
+class _ModelResponse:
+    text: str
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _ModelManager(Protocol):
+    def generate(self, **kwargs: object) -> _ModelResponse: ...
+
+
+class _ToolExecutor:
+    def execute(self, name: str, args: object) -> str:
+        _ = args
+        if name == "shell_run":
+            return "FAILED error trace"
+        return "success"
+
+
+class _FakeModelManager:
+    def generate(self, **kwargs: object) -> _ModelResponse:
+        _ = kwargs
+        return _ModelResponse('<tool_call>{"name": "test_tool"}</tool_call>')
+
+
 @pytest.fixture
-def setup_test_env(tmp_path):
+def setup_test_env(tmp_path: Path) -> tuple[Path, Path, Path]:
     project_root = tmp_path / "test_project"
     project_root.mkdir()
 
@@ -14,27 +40,28 @@ def setup_test_env(tmp_path):
     src_dir = project_root / "src" / "antigravity_k"
     src_dir.mkdir(parents=True)
     test_file = src_dir / "target.py"
-    test_file.write_text("print('original')")
+    _ = test_file.write_text("print('original')")
 
     doc_file = project_root / "test_process.md"
-    doc_file.write_text("# Test Proc")
+    _ = doc_file.write_text("# Test Proc")
 
     return project_root, test_file, doc_file
 
 
-def test_backup_manager_snapshot_and_rollback(setup_test_env):
-    project_root, test_file, doc_file = setup_test_env
+def test_backup_manager_snapshot_and_rollback(setup_test_env: tuple[Path, Path, Path]) -> None:
+    project_root, test_file, _ = setup_test_env
     bm = BackupManager(str(project_root))
 
     # 1. Snapshot
     target_files = ["src/antigravity_k/target.py", "test_process.md"]
-    bm.create_snapshot(target_files)
+    _ = bm.create_snapshot(target_files)
 
+    assert bm.current_snapshot is not None
     assert bm.current_snapshot.exists()
     assert (bm.current_snapshot / "src" / "antigravity_k" / "target.py").exists()
 
     # 2. 파일 변조
-    test_file.write_text("print('hacked')")
+    _ = test_file.write_text("print('hacked')")
     assert test_file.read_text() == "print('hacked')"
 
     # 3. Rollback
@@ -43,24 +70,11 @@ def test_backup_manager_snapshot_and_rollback(setup_test_env):
     assert test_file.read_text() == "print('original')"
 
 
-def test_meta_evolution_agent_failure_rollback(setup_test_env):
-    project_root, test_file, doc_file = setup_test_env
+def test_meta_evolution_agent_failure_rollback(setup_test_env: tuple[Path, Path, Path]) -> None:
+    project_root, _, _ = setup_test_env
 
-    mock_manager = MagicMock()
-    # Mocking generate to just return some dummy xml
-    mock_resp = MagicMock()
-    mock_resp.text = '<tool_call>{"name": "test_tool"}</tool_call>'
-    mock_manager.generate.return_value = mock_resp
-
-    mock_executor = MagicMock()
-
-    # 에러 주입: pytest가 무조건 실패한다고 가정
-    def mock_execute(name, args):
-        if name == "shell_run":
-            return "FAILED error trace"
-        return "success"
-
-    mock_executor.execute.side_effect = mock_execute
+    mock_manager: _ModelManager = _FakeModelManager()
+    mock_executor = _ToolExecutor()
 
     agent = MetaEvolutionAgent(
         model_manager=mock_manager,

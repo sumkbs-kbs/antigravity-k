@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_production_build_and_dependency_audit_do_not_use_editable_environment __
+tests/test_ga_gate.py:254: in test_production_build_and_dependency_audit_do_not_use_editable_environment
+    assert commands["python-basedpyright"][-2:] == ["--level", "error"]
+E   AssertionError: assert ['src/', 'scripts/'] == ['--level', 'error']
+E
+E     At index 0 diff: 'src/' != '--level'
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/test_ga_gate.py::test_production_build_and_dependency_audit_do_not_use_editable_environment
+1 failed in 0.40s

@@ -1,13 +1,19 @@
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable, cast
 
 from antigravity_k.engine.memory_provider import (
     EpisodicMemoryProvider,
     GlobalMemoryProvider,
     MemoryManager,
 )
-from antigravity_k.engine.orchestrator.stream import _extract_learned_preferences
+from antigravity_k.engine.orchestrator import stream as stream_module
 from antigravity_k.engine.preference_memory import extract_explicit_preference_facts
+
+_extract_learned_preferences = cast(
+    Callable[[object], dict[str, object] | None],
+    getattr(stream_module, "_extract_learned_preferences"),
+)
 
 
 def _preference_manager(tmp_path: Path) -> tuple[MemoryManager, GlobalMemoryProvider]:

@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useLocalHistoryStore, type FileSnapshot } from '../localHistoryStore';
 
-function makeSnapshot(overrides: Partial<FileSnapshot> = {}): any {
+function makeSnapshot(overrides: Partial<FileSnapshot> = {}): Omit<FileSnapshot, 'id' | 'timestamp' | 'size'> {
   return {
     filePath: 'test.ts',
     fileName: 'test.ts',
@@ -289,7 +289,7 @@ describe('useLocalHistoryStore', () => {
 
   it('returns null for null/undefined ID', () => {
     expect(useLocalHistoryStore.getState().getSnapshotById(null)).toBeNull();
-    expect(useLocalHistoryStore.getState().getSnapshotById(undefined as any)).toBeNull();
+    expect(useLocalHistoryStore.getState().getSnapshotById(undefined)).toBeNull();
   });
 
   it('returns null for non-existent ID', () => {

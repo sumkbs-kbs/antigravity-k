@@ -11,7 +11,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from html import unescape
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol, cast
 
 DEFAULT_RESULTS_URL = "https://nara-speller.co.kr/old_speller/results"
 DEFAULT_MAX_CHARS = 1500
@@ -35,6 +35,45 @@ DEFAULT_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
     ),
 }
+
+Payload = dict[str, object]
+
+
+def _as_text(value: object, default: str = "") -> str:
+    if value is None:
+        return default
+    return value if isinstance(value, str) else str(value)
+
+
+def _as_int(value: object, default: int = -1) -> int:
+    if value is None or value == "":
+        return default
+    if not isinstance(value, (str, int, float)):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_payload(value: object) -> Payload:
+    if not isinstance(value, dict):
+        return {}
+    raw = cast(dict[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_payload_list(value: object) -> list[Payload]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [_as_payload(cast(object, item)) for item in items if isinstance(item, dict)]
+
+
+class _HTTPResponse(Protocol):
+    def read(self) -> bytes: ...
+
+    def close(self) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -206,20 +245,24 @@ def fetch_spell_check_html(
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.read().decode("utf-8", "ignore")
+        response = cast(_HTTPResponse, urllib.request.urlopen(request, timeout=timeout))
+        try:
+            raw_body = response.read()
+            return raw_body.decode("utf-8", "ignore")
+        finally:
+            response.close()
     except urllib.error.HTTPError as error:  # type: ignore[attr-defined]
         if error.code == 403:
             raise RuntimeError(
                 "The spell-check service returned HTTP 403. "
-                "This environment may be hitting a Cloudflare/browser challenge. "
-                "Retry later with lower request volume or from a browser-friendly network."
+                + "This environment may be hitting a Cloudflare/browser challenge. "
+                + "Retry later with lower request volume or from a browser-friendly network."
             ) from error
 
         raise RuntimeError(f"The spell-check service returned HTTP {error.code}.") from error
 
 
-def extract_result_payload(html: str) -> list[dict]:
+def extract_result_payload(html: str) -> list[Payload]:
     match = RESULT_PAYLOAD_PATTERN.search(html)
 
     if not match:
@@ -227,31 +270,31 @@ def extract_result_payload(html: str) -> list[dict]:
             return []
         raise ValueError("Unable to find the spell-check payload in the returned HTML.")
 
-    payload = json.loads(match.group(1))
+    payload = cast(object, json.loads(match.group(1)))
 
     if not isinstance(payload, list):
         raise ValueError("The extracted spell-check payload was not a list.")
 
-    return payload
+    return _as_payload_list(cast(object, payload))
 
 
-def apply_page_corrections(page: dict) -> str:
-    source = str(page.get("str", ""))
+def apply_page_corrections(page: Payload) -> str:
+    source = _as_text(page.get("str"))
     corrected = source
 
     for error in sorted(
-        page.get("errInfo", []),
-        key=lambda item: int(item.get("start", -1)),
+        _as_payload_list(page.get("errInfo")),
+        key=lambda item: _as_int(item.get("start")),
         reverse=True,
     ):
-        suggestions = split_candidates(error.get("candWord"))
-        original = str(error.get("orgStr", ""))
+        suggestions = split_candidates(_as_text(error.get("candWord")))
+        original = _as_text(error.get("orgStr"))
 
         if not suggestions:
             continue
 
-        start = int(error.get("start", -1))
-        end = int(error.get("end", -1))
+        start = _as_int(error.get("start"))
+        end = _as_int(error.get("end"))
 
         if start < 0 or end < start or end >= len(source):
             continue
@@ -329,8 +372,8 @@ def preserve_original_layout(original: str, suggestion: str) -> str:
     return "".join(merged)
 
 
-def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
-    combined_source = "".join(str(page.get("str", "")) for page in pages)
+def apply_chunk_corrections(chunk: str, pages: list[Payload]) -> str:
+    combined_source = "".join(_as_text(page.get("str")) for page in pages)
     fallback = "".join(apply_page_corrections(page) for page in pages) or chunk
 
     if not combined_source:
@@ -346,13 +389,13 @@ def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
     page_offset = 0
 
     for page in pages:
-        for error in page.get("errInfo", []):
-            suggestions = split_candidates(error.get("candWord"))
+        for error in _as_payload_list(page.get("errInfo")):
+            suggestions = split_candidates(_as_text(error.get("candWord")))
             if not suggestions:
                 continue
 
-            start = int(error.get("start", -1))
-            end = int(error.get("end", -1))
+            start = _as_int(error.get("start"))
+            end = _as_int(error.get("end"))
 
             if start < 0 or end < start:
                 continue
@@ -361,9 +404,9 @@ def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
             end += page_offset
 
             visible_ordinals = [
-                source_visible_lookup[index]
+                ordinal
                 for index in range(start, min(end + 1, len(source_visible_lookup)))
-                if source_visible_lookup[index] is not None
+                if (ordinal := source_visible_lookup[index]) is not None
             ]
 
             if not visible_ordinals:
@@ -376,11 +419,11 @@ def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
                     original_start,
                     original_end,
                     suggestions[0],
-                    str(error.get("orgStr", "")),
+                    _as_text(error.get("orgStr")),
                 )
             )
 
-        page_offset += len(str(page.get("str", "")))
+        page_offset += len(_as_text(page.get("str")))
 
     if not replacements:
         return chunk
@@ -404,19 +447,25 @@ def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
     return corrected
 
 
-def build_issue(chunk_index: int, page_index: int, issue_index: int, page: dict, error: dict) -> SpellCheckIssue:
+def build_issue(
+    chunk_index: int,
+    page_index: int,
+    issue_index: int,
+    page: Payload,
+    error: Payload,
+) -> SpellCheckIssue:
     return SpellCheckIssue(
         chunk_index=chunk_index,
         page_index=page_index,
         issue_index=issue_index,
-        sentence=str(page.get("str", "")),
-        original=str(error.get("orgStr", "")),
-        suggestions=split_candidates(error.get("candWord")),
-        reason=strip_html(error.get("help")) or strip_html(error.get("errMsg")),
-        start=int(error["start"]) if str(error.get("start", "")).strip() else None,
-        end=int(error["end"]) if str(error.get("end", "")).strip() else None,
-        correct_method=(int(error["correctMethod"]) if str(error.get("correctMethod", "")).strip() else None),
-        error_message=strip_html(error.get("errMsg")),
+        sentence=_as_text(page.get("str")),
+        original=_as_text(error.get("orgStr")),
+        suggestions=split_candidates(_as_text(error.get("candWord"))),
+        reason=strip_html(_as_text(error.get("help"))) or strip_html(_as_text(error.get("errMsg"))),
+        start=_as_int(error.get("start"), default=0) if _as_text(error.get("start")).strip() else None,
+        end=_as_int(error.get("end"), default=0) if _as_text(error.get("end")).strip() else None,
+        correct_method=(_as_int(error.get("correctMethod"), default=0) if _as_text(error.get("correctMethod")).strip() else None),
+        error_message=strip_html(_as_text(error.get("errMsg"))),
     )
 
 
@@ -429,11 +478,11 @@ def check_text(
     throttle_seconds: float = DEFAULT_THROTTLE_SECONDS,
     requester: Callable[..., str] = fetch_spell_check_html,
     sleep_fn: Callable[[float], None] = time.sleep,
-) -> dict:
+) -> dict[str, object]:
     chunks = split_text_into_chunks(text, max_chars=max_chars)
     corrected_chunks: list[str] = []
     issues: list[SpellCheckIssue] = []
-    chunk_reports: list[dict] = []
+    chunk_reports: list[Payload] = []
 
     for chunk_index, chunk in enumerate(chunks):
         if chunk_index > 0 and throttle_seconds > 0:
@@ -454,7 +503,7 @@ def check_text(
         )
 
         for page_index, page in enumerate(pages):
-            for issue_index, error in enumerate(page.get("errInfo", [])):
+            for issue_index, error in enumerate(_as_payload_list(page.get("errInfo"))):
                 issues.append(build_issue(chunk_index, page_index, issue_index, page, error))
 
     return {
@@ -472,42 +521,47 @@ def check_text(
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the official Nara/PNU Korean spell checker.")
-    parser.add_argument("--text", help="Inline Korean text to inspect.")
-    parser.add_argument("--file", help="UTF-8 text/markdown file to inspect.")
-    parser.add_argument("--max-chars", type=parse_positive_int, default=DEFAULT_MAX_CHARS)
-    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
-    parser.add_argument("--throttle-seconds", type=float, default=DEFAULT_THROTTLE_SECONDS)
-    parser.add_argument("--weak-rules", action="store_true", help="Disable the strong-rules checkbox.")
-    parser.add_argument("--format", choices=["json", "text"], default="json")
+    _ = parser.add_argument("--text", help="Inline Korean text to inspect.")
+    _ = parser.add_argument("--file", help="UTF-8 text/markdown file to inspect.")
+    _ = parser.add_argument("--max-chars", type=parse_positive_int, default=DEFAULT_MAX_CHARS)
+    _ = parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
+    _ = parser.add_argument("--throttle-seconds", type=float, default=DEFAULT_THROTTLE_SECONDS)
+    _ = parser.add_argument("--weak-rules", action="store_true", help="Disable the strong-rules checkbox.")
+    _ = parser.add_argument("--format", choices=["json", "text"], default="json")
     args = parser.parse_args(argv)
 
-    if not args.text and not args.file:
+    text_value = cast(str | None, getattr(args, "text", None))
+    file_value = cast(str | None, getattr(args, "file", None))
+    if not text_value and not file_value:
         parser.error("Either --text or --file is required.")
 
     return args
 
 
 def load_input(args: argparse.Namespace) -> str:
-    if args.text:
-        return args.text
+    text_value = cast(str | None, getattr(args, "text", None))
+    if text_value:
+        return text_value
 
-    return Path(args.file).read_text(encoding="utf-8")
+    file_value = cast(str, getattr(args, "file", ""))
+    return Path(file_value).read_text(encoding="utf-8")
 
 
-def serialize_report(report: dict) -> dict:
+def serialize_report(report: dict[str, object]) -> dict[str, object]:
+    issues = cast(list[SpellCheckIssue], report.get("issues", []))
     return {
         **report,
-        "issues": [asdict(issue) for issue in report["issues"]],
+        "issues": [cast(dict[str, object], asdict(issue)) for issue in issues],
     }
 
 
-def print_text_report(report: dict) -> None:
+def print_text_report(report: dict[str, object]) -> None:
     print("# corrected_text")
-    print(report["corrected_text"])
+    print(_as_text(report.get("corrected_text")))
     print()
     print("# issues")
 
-    for issue in report["issues"]:
+    for issue in cast(list[SpellCheckIssue], report.get("issues", [])):
         print(f"- chunk={issue.chunk_index} page={issue.page_index} issue={issue.issue_index}")
         print(f"  original: {issue.original}")
         print(f"  suggestions: {', '.join(issue.suggestions) if issue.suggestions else '(없음)'}")
@@ -518,13 +572,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     report = check_text(
         load_input(args),
-        max_chars=args.max_chars,
-        strong_rules=not args.weak_rules,
-        timeout=args.timeout,
-        throttle_seconds=args.throttle_seconds,
+        max_chars=cast(int, getattr(args, "max_chars", DEFAULT_MAX_CHARS)),
+        strong_rules=not cast(bool, getattr(args, "weak_rules", False)),
+        timeout=cast(int, getattr(args, "timeout", DEFAULT_TIMEOUT)),
+        throttle_seconds=cast(float, getattr(args, "throttle_seconds", DEFAULT_THROTTLE_SECONDS)),
     )
 
-    if args.format == "json":
+    if cast(str, getattr(args, "format", "json")) == "json":
         print(json.dumps(serialize_report(report), ensure_ascii=False, indent=2))
     else:
         print_text_report(report)

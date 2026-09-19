@@ -14,19 +14,51 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import Protocol, TypedDict, cast, final
 
 logger = logging.getLogger("antigravity_k.engine.panel_activity_tracker")
 
 
+class _HookEventLike(Protocol):
+    kind: str
+    payload: Mapping[str, object]
+
+
+class _ToolData(TypedDict):
+    tool: str
+    detail: str
+    since: float
+    elapsed_seconds: float
+
+
+class _ActivityData(TypedDict, total=False):
+    state: str
+    since: float
+    elapsed_seconds: float
+    current_tool: _ToolData
+
+
+def _mapping(value: object) -> Mapping[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw = cast(dict[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+@final
 class PanelActivityState:
     """패널 활동 상태 상수 (Sidabari PanelActivityState enum)."""
 
-    THINKING = "thinking"
-    IDLE = "idle"
+    THINKING: str = "thinking"
+    IDLE: str = "idle"
 
 
+@final
 class PanelActivity:
     """패널의 현재 활동 상태.
 
@@ -34,6 +66,8 @@ class PanelActivity:
     """
 
     __slots__ = ("since", "state")
+    state: str
+    since: float
 
     def __init__(self, state: str, since: float | None = None):
         """Initialize the PanelActivity.
@@ -46,7 +80,7 @@ class PanelActivity:
         self.state = state
         self.since = since or time.time()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> _ActivityData:
         """To Dict.
 
         Returns:
@@ -60,6 +94,7 @@ class PanelActivity:
         }
 
 
+@final
 class PanelCurrentTool:
     """현재 실행 중인 도구 정보.
 
@@ -67,6 +102,9 @@ class PanelCurrentTool:
     """
 
     __slots__ = ("detail", "since", "tool")
+    tool: str
+    detail: str
+    since: float
 
     def __init__(self, tool: str, detail: str, since: float | None = None):
         """Initialize the PanelCurrentTool.
@@ -81,7 +119,7 @@ class PanelCurrentTool:
         self.detail = detail
         self.since = since or time.time()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> _ToolData:
         """To Dict.
 
         Returns:
@@ -96,6 +134,7 @@ class PanelCurrentTool:
         }
 
 
+@final
 class PanelActivityTracker:
     """에이전트/패널별 활동 상태 추적기.
 
@@ -107,8 +146,8 @@ class PanelActivityTracker:
         """Initialize the PanelActivityTracker."""
         self._activities: dict[str, PanelActivity] = {}
         self._current_tools: dict[str, PanelCurrentTool] = {}
-        self._lock = threading.Lock()
-        self._change_callbacks: list[Callable[..., Any]] = []
+        self._lock: threading.Lock = threading.Lock()
+        self._change_callbacks: list[Callable[..., object]] = []
 
     def set_activity(self, panel_id: str, state: str) -> bool:
         """패널 활동 상태를 설정합니다.
@@ -130,7 +169,7 @@ class PanelActivityTracker:
             # idle 전환 시 currentTool 클리어
             # (Sidabari: turn 종료 시 currentTool 정보는 의미 없음)
             if state == PanelActivityState.IDLE:
-                self._current_tools.pop(panel_id, None)
+                _ = self._current_tools.pop(panel_id, None)
 
         self._notify_change(panel_id, "activity", state)
         return True
@@ -166,10 +205,10 @@ class PanelActivityTracker:
         with self._lock:
             return self._current_tools.get(panel_id)
 
-    def get_all_activities(self) -> dict[str, dict[str, Any]]:
+    def get_all_activities(self) -> dict[str, _ActivityData]:
         """모든 패널의 활동 상태를 반환합니다."""
         with self._lock:
-            result = {}
+            result: dict[str, _ActivityData] = {}
             for panel_id, activity in self._activities.items():
                 entry = activity.to_dict()
                 tool = self._current_tools.get(panel_id)
@@ -183,7 +222,7 @@ class PanelActivityTracker:
         with self._lock:
             return [pid for pid, act in self._activities.items() if act.state == PanelActivityState.THINKING]
 
-    def on_change(self, callback: Callable[..., Any]) -> None:
+    def on_change(self, callback: Callable[..., object]) -> None:
         """상태 변경 시 호출할 콜백을 등록합니다."""
         self._change_callbacks.append(callback)
 
@@ -191,7 +230,7 @@ class PanelActivityTracker:
         """변경 알림을 콜백들에게 전달합니다."""
         for callback in self._change_callbacks:
             try:
-                callback(
+                _ = callback(
                     panel_id=panel_id,
                     change_type=change_type,
                     value=value,
@@ -201,64 +240,62 @@ class PanelActivityTracker:
 
     # ── EventBus 연동 헬퍼 ──
 
-    def handle_hook_event(self, event) -> None:
+    def handle_hook_event(self, event: _HookEventLike) -> None:
         """HookEventEmit를 받아 활동 상태를 자동 업데이트합니다.
 
         Sidabari HookBridge.tsx의 switch(kind) 로직 이식.
         """
         kind = event.kind
-        payload = event.payload
-        panel_id = None
+        payload = _mapping(event.payload)
+        panel_id = ""
 
         # _antigravity 메타데이터에서 panel_id 추출
-        meta = payload.get("_antigravity", {})
-        if isinstance(meta, dict):
-            panel_id = meta.get("panel_id")
-
+        meta = _mapping(payload.get("_antigravity", {}))
+        panel_id = _text(meta.get("panel_id"))
         if not panel_id:
-            panel_id = payload.get("panel_id", "default")
+            panel_id = _text(payload.get("panel_id"), "default")
 
         if kind == "stop" or kind == "agent-turn-end":
-            self.set_activity(panel_id, PanelActivityState.IDLE)
+            _ = self.set_activity(panel_id, PanelActivityState.IDLE)
             self.clear_current_tool(panel_id)
 
         elif kind == "session-start" or kind == "agent-turn-start":
-            self.set_activity(panel_id, PanelActivityState.THINKING)
+            _ = self.set_activity(panel_id, PanelActivityState.THINKING)
 
         elif kind == "pretool" or kind == "tool-exec-start":
-            self.set_activity(panel_id, PanelActivityState.THINKING)
-            tool_name = payload.get("tool_name", "")
+            _ = self.set_activity(panel_id, PanelActivityState.THINKING)
+            tool_name = _text(payload.get("tool_name"))
             if tool_name:
                 detail = self._summarize_tool(payload)
                 self.set_current_tool(panel_id, tool_name, detail)
 
         elif kind in ("posttool", "tool-exec-finish", "user-prompt"):
-            self.set_activity(panel_id, PanelActivityState.THINKING)
+            _ = self.set_activity(panel_id, PanelActivityState.THINKING)
             # currentTool은 다음 PreToolUse까지 유지 (깜박임 방지)
 
     @staticmethod
-    def _summarize_tool(payload: dict[str, Any]) -> str:
+    def _summarize_tool(payload: Mapping[str, object]) -> str:
         """도구 호출에 대한 사용자 가시 요약을 생성합니다.
 
         Sidabari HookBridge.tsx의 summary() 함수 이식.
         """
-        tool_name = payload.get("tool_name", "")
-        tool_input = payload.get("tool_input", {})
+        tool_name = _text(payload.get("tool_name"))
+        tool_input = _mapping(payload.get("tool_input", {}))
 
-        if isinstance(tool_input, dict):
-            command = tool_input.get("command", "")
+        if tool_input:
+            command = _text(tool_input.get("command"))
             if command:
                 truncated = command[:80] + ("..." if len(command) > 80 else "")
                 return f"{tool_name}: {truncated}"
 
-            file_path = tool_input.get("file_path", "")
+            file_path = _text(tool_input.get("file_path"))
             if file_path:
                 return f"{tool_name}: {file_path}"
 
         if tool_name:
             return tool_name
 
-        notification_type = payload.get("notification_type", "")
+        notification_type = _text(payload.get("notification_type"))
         if notification_type:
             return notification_type
 
@@ -289,7 +326,8 @@ def init_panel_activity_tracker() -> PanelActivityTracker:
         from antigravity_k.engine.hook_event_bus import get_hook_event_bus
 
         hook_bus = get_hook_event_bus()
-        if hook_bus._initialized:
+        initialized = getattr(hook_bus, "_initialized", False)
+        if isinstance(initialized, bool) and initialized:
             hook_bus.subscribe_all(tracker.handle_hook_event)
             logger.info("[PanelActivityTracker] HookEventBus에 연결 완료")
     except ImportError:

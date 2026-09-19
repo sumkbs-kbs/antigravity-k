@@ -5,6 +5,12 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 
+declare global {
+  interface Window {
+    __chatInputRef?: React.RefObject<HTMLTextAreaElement | null>;
+  }
+}
+
 interface Props {
   onSend: (text: string, imageDataUrl?: string) => void;
   onStop: () => void;
@@ -25,7 +31,7 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
     if (registerRef && textareaRef.current) {
       registerRef(textareaRef.current);
       // Also expose globally for approval buttons
-      (window as any).__chatInputRef = textareaRef;
+      window.__chatInputRef = textareaRef;
     }
     return () => {
       if (registerRef) registerRef(null);
@@ -65,7 +71,10 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
-    reader.onload = (ev) => setImageDataUrl(ev.target?.result as string);
+    reader.onload = (ev) => {
+      const result = ev.target?.result;
+      if (typeof result === 'string') setImageDataUrl(result);
+    };
     reader.readAsDataURL(file);
   };
 
@@ -74,7 +83,10 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
     const file = e.dataTransfer.files?.[0];
     if (file?.type.startsWith('image/')) {
       const reader = new FileReader();
-      reader.onload = (ev) => setImageDataUrl(ev.target?.result as string);
+      reader.onload = (ev) => {
+        const result = ev.target?.result;
+        if (typeof result === 'string') setImageDataUrl(result);
+      };
       reader.readAsDataURL(file);
     }
   }, []);
@@ -94,6 +106,7 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
             <img src={imageDataUrl} alt="preview" style={{ maxHeight: 60, borderRadius: 4, border: '1px solid rgba(255,255,255,0.2)' }} />
             <button
               onClick={() => { setImageDataUrl(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+              aria-label="첨부 이미지 제거"
               style={{
                 position: 'absolute', top: -6, right: -6, background: '#ff4444', color: 'white',
                 border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 10,
@@ -106,10 +119,25 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
         </div>
       )}
 
-      {/* Input Area */}
-      <div className="chat-input-area" style={{ borderTopLeftRadius: imageDataUrl ? 0 : undefined, borderTopRightRadius: imageDataUrl ? 0 : undefined }}>
+      {/* Input Area (TERMINAL-7 Prompt Design) */}
+      <div className="chat-input-area" style={{ borderTopLeftRadius: imageDataUrl ? 0 : undefined, borderTopRightRadius: imageDataUrl ? 0 : undefined, alignItems: 'center' }}>
         <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
-        <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="이미지 첨부 (Vision)" aria-label="이미지 첨부" style={{ padding: 8, fontSize: 18, opacity: 0.7, cursor: 'pointer', background: 'transparent', border: 'none' }} disabled={disabled}>
+        <span
+          className="terminal-prompt-prefix"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px',
+            color: 'var(--terminal-green)',
+            paddingLeft: '4px',
+            userSelect: 'none',
+            whiteSpace: 'nowrap',
+          }}
+          aria-hidden="true"
+        >
+          $ ssak-ai &gt;
+        </span>
+
+        <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="이미지 첨부 (Vision)" aria-label="이미지 첨부" style={{ padding: '4px 6px', fontSize: 16, opacity: 0.6, cursor: 'pointer', background: 'transparent', border: 'none' }} disabled={disabled}>
           📎
         </button>
 
@@ -121,22 +149,27 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
           onKeyDown={handleKeyDown}
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={() => setIsComposing(false)}
-          placeholder="명령어나 질문을 입력하세요... (이미지 Drag & Drop 가능)"
+          placeholder="enter instructions, --flags, or queries... (Shift+Enter for newline)"
+          aria-label="메시지 입력"
           rows={1}
           disabled={disabled}
         />
 
-        <button className={`send-btn ${isStreaming ? 'sending' : ''}`} onClick={handleSend} disabled={disabled && !isStreaming} title={isStreaming ? '중단' : '전송'} aria-label={isStreaming ? '스트리밍 중단' : '메시지 전송'}>
-          {isStreaming ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
-          )}
+        <button
+          className={`btn-terminal ${isStreaming ? 'btn-stop' : ''}`}
+          onClick={handleSend}
+          disabled={disabled && !isStreaming}
+          title={isStreaming ? '중단' : '전송'}
+          aria-label={isStreaming ? '스트리밍 중단' : '메시지 전송'}
+          style={{
+            padding: '5px 12px',
+            fontSize: '11px',
+            height: '32px',
+            borderColor: isStreaming ? 'var(--error-color)' : 'var(--accent-color)',
+            color: isStreaming ? 'var(--error-color)' : 'var(--accent-color)',
+          }}
+        >
+          {isStreaming ? '■ STOP' : '$ RUN ↵'}
         </button>
       </div>
     </div>

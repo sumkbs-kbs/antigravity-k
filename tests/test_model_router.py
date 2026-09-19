@@ -4,7 +4,8 @@
 """
 
 import time
-from unittest.mock import MagicMock
+from collections.abc import Callable, Mapping
+from typing import cast
 
 import pytest
 
@@ -21,12 +22,37 @@ from antigravity_k.engine.model_router import (
 # ─── 픽스처 ─────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def mock_registry():
-    """모델 3개가 등록된 Mock 레지스트리."""
-    registry = MagicMock()
-    registry._raw = {}  # combos 섹션 없음 (수동 등록 테스트)
+class _RegistryStub:
+    _profiles: dict[str, ModelProfile]
+    _raw: dict[str, object]
 
+    def __init__(
+        self,
+        profiles: Mapping[str, ModelProfile] | None = None,
+        raw: dict[str, object] | None = None,
+    ) -> None:
+        self._profiles = dict(profiles or {})
+        self._raw = raw or {}
+
+    def get_model(self, name: str) -> ModelProfile | None:
+        return self._profiles.get(name)
+
+    def list_models(self) -> list[ModelProfile]:
+        return list(self._profiles.values())
+
+
+def _make_router(registry: _RegistryStub | ModelRegistry) -> ModelRouter:
+    return ModelRouter(cast(ModelRegistry, registry))
+
+
+def _available_profile(router: ModelRouter, model_name: str) -> ModelProfile | None:
+    checker = cast(Callable[[str], ModelProfile | None], getattr(router, "_available_profile"))
+    return checker(model_name)
+
+
+@pytest.fixture
+def mock_registry() -> _RegistryStub:
+    """모델 3개가 등록된 Mock 레지스트리."""
     profiles = {
         "qwen3-72b": ModelProfile(
             name="qwen3-72b",
@@ -50,13 +76,11 @@ def mock_registry():
             context_length=131072,
         ),
     }
-    registry.get_model = lambda name: profiles.get(name)
-    registry.list_models.return_value = list(profiles.values())
-    return registry
+    return _RegistryStub(profiles)
 
 
 @pytest.fixture
-def combo_fallback():
+def combo_fallback() -> ModelCombo:
     return ModelCombo(
         name="coding-stack",
         models=["qwen3-72b", "qwen-coder-32b", "llama4-scout"],
@@ -65,7 +89,7 @@ def combo_fallback():
 
 
 @pytest.fixture
-def combo_roundrobin():
+def combo_roundrobin() -> ModelCombo:
     return ModelCombo(
         name="fast-response",
         models=["llama4-scout", "qwen-coder-32b"],
@@ -74,7 +98,7 @@ def combo_roundrobin():
 
 
 @pytest.fixture
-def combo_loadbalance():
+def combo_loadbalance() -> ModelCombo:
     return ModelCombo(
         name="reasoning-balanced",
         models=["qwen3-72b", "qwen-coder-32b", "llama4-scout"],
@@ -83,8 +107,13 @@ def combo_loadbalance():
 
 
 @pytest.fixture
-def router(mock_registry, combo_fallback, combo_roundrobin, combo_loadbalance):
-    r = ModelRouter(mock_registry)
+def router(
+    mock_registry: _RegistryStub,
+    combo_fallback: ModelCombo,
+    combo_roundrobin: ModelCombo,
+    combo_loadbalance: ModelCombo,
+) -> ModelRouter:
+    r = _make_router(mock_registry)
     r.register_combo(combo_fallback)
     r.register_combo(combo_roundrobin)
     r.register_combo(combo_loadbalance)
@@ -208,24 +237,24 @@ class TestModelCombo:
 class TestFallbackRouting:
     """폴백 전략 테스트."""
 
-    def test_selects_first_available(self, router):
+    def test_selects_first_available(self, router: ModelRouter):
         profile = router.route("coding-stack")
         assert profile.name == "qwen3-72b"  # 첫 번째 모델
 
-    def test_skips_unavailable(self, router):
+    def test_skips_unavailable(self, router: ModelRouter):
         router.mark_failure("qwen3-72b", "OOM")
         profile = router.route("coding-stack")
         assert profile.name == "qwen-coder-32b"  # 두 번째 모델
 
-    def test_all_unavailable_raises(self, router):
+    def test_all_unavailable_raises(self, router: ModelRouter):
         router.mark_failure("qwen3-72b")
         router.mark_failure("qwen-coder-32b")
         router.mark_failure("llama4-scout")
         with pytest.raises(AllModelsUnavailableError):
-            router.route("coding-stack")
+            _ = router.route("coding-stack")
 
-    def test_recovery_after_cooldown(self, router):
-        router._tracker = UnavailabilityTracker(base_cooldown_sec=0.1)
+    def test_recovery_after_cooldown(self, router: ModelRouter):
+        setattr(router, "_tracker", UnavailabilityTracker(base_cooldown_sec=0.1))
         router.mark_failure("qwen3-72b")
         time.sleep(0.15)
         profile = router.route("coding-stack")
@@ -238,7 +267,7 @@ class TestFallbackRouting:
 class TestRoundRobinRouting:
     """라운드로빈 전략 테스트."""
 
-    def test_cycles_through_models(self, router):
+    def test_cycles_through_models(self, router: ModelRouter):
         p1 = router.route("fast-response")
         p2 = router.route("fast-response")
         p3 = router.route("fast-response")
@@ -246,7 +275,7 @@ class TestRoundRobinRouting:
         assert p1.name != p2.name
         assert p3.name == p1.name  # 다시 처음으로
 
-    def test_skips_unavailable_in_rotation(self, router):
+    def test_skips_unavailable_in_rotation(self, router: ModelRouter):
         router.mark_failure("llama4-scout")
         profile = router.route("fast-response")
         assert profile.name == "qwen-coder-32b"
@@ -258,12 +287,12 @@ class TestRoundRobinRouting:
 class TestLoadBalanceRouting:
     """로드밸런싱 전략 테스트."""
 
-    def test_selects_lightest_model(self, router):
+    def test_selects_lightest_model(self, router: ModelRouter):
         profile = router.route("reasoning-balanced")
         # llama4-scout가 10GB로 가장 가벼움
         assert profile.name == "llama4-scout"
 
-    def test_skips_unavailable_lightest(self, router):
+    def test_skips_unavailable_lightest(self, router: ModelRouter):
         router.mark_failure("llama4-scout")
         profile = router.route("reasoning-balanced")
         # 다음 가벼운 모델 선택 (qwen-coder-32b: 18GB)
@@ -276,51 +305,52 @@ class TestLoadBalanceRouting:
 class TestRouterManagement:
     """라우터 관리 API 테스트."""
 
-    def test_combo_not_found(self, router):
+    def test_combo_not_found(self, router: ModelRouter):
         with pytest.raises(ComboNotFoundError):
-            router.route("nonexistent-combo")
+            _ = router.route("nonexistent-combo")
 
-    def test_register_unregister(self, mock_registry):
-        r = ModelRouter(mock_registry)
+    def test_register_unregister(self, mock_registry: _RegistryStub):
+        r = _make_router(mock_registry)
         combo = ModelCombo(name="test", models=["qwen3-72b"])
         r.register_combo(combo)
         assert r.get_combo("test") is not None
         assert r.unregister_combo("test") is True
         assert r.get_combo("test") is None
 
-    def test_list_combos(self, router):
+    def test_list_combos(self, router: ModelRouter):
         combos = router.list_combos()
         assert len(combos) == 3
 
-    def test_status(self, router):
-        status = router.status()
+    def test_status(self, router: ModelRouter):
+        status = cast(dict[str, object], router.status())
         assert "combos" in status
         assert "unavailable" in status
-        assert len(status["combos"]) == 3
+        combos = cast(list[object], status["combos"])
+        assert len(combos) == 3
 
-    def test_summary(self, router):
+    def test_summary(self, router: ModelRouter):
         summary = router.summary()
         assert "Model Router" in summary
         assert "coding-stack" in summary
 
-    def test_route_single(self, router):
+    def test_route_single(self, router: ModelRouter):
         profile = router.route_single("qwen3-72b")
         assert profile.name == "qwen3-72b"
 
-    def test_mark_recovered(self, router):
+    def test_mark_recovered(self, router: ModelRouter):
         router.mark_failure("qwen3-72b")
         router.mark_recovered("qwen3-72b")
         profile = router.route("coding-stack")
         assert profile.name == "qwen3-72b"
 
-    def test_available_model_names(self, router):
+    def test_available_model_names(self, router: ModelRouter):
         router.mark_failure("qwen3-72b")
         available = router.available_model_names("coding-stack")
         assert "qwen3-72b" not in available
         assert available == ["qwen-coder-32b", "llama4-scout"]
 
-    def test_collective_routes_as_fallback_for_legacy_paths(self, mock_registry):
-        router = ModelRouter(mock_registry)
+    def test_collective_routes_as_fallback_for_legacy_paths(self, mock_registry: _RegistryStub):
+        router = _make_router(mock_registry)
         router.register_combo(
             ModelCombo(
                 name="collective-council",
@@ -338,23 +368,19 @@ class TestRouterManagement:
 class TestComboAutoLoad:
     """config.yaml에서 콤보 자동 로드 테스트."""
 
-    def test_loads_from_raw_config(self):
-        registry = MagicMock()
-        registry._raw = {
-            "combos": {
-                "auto-combo": {
-                    "models": ["model-a", "model-b"],
-                    "strategy": "fallback",
+    def test_loads_from_raw_config(self) -> None:
+        registry = _RegistryStub(
+            raw={
+                "combos": {
+                    "auto-combo": {
+                        "models": ["model-a", "model-b"],
+                        "strategy": "fallback",
+                    }
                 }
             }
-        }
-        registry.get_model = lambda name: ModelProfile(
-            name=name,
-            repo="test",
-            role="reasoning",
         )
 
-        router = ModelRouter(registry)
+        router = _make_router(registry)
         combo = router.get_combo("auto-combo")
         assert combo is not None
         assert len(combo.models) == 2
@@ -416,20 +442,20 @@ def test_enabled_model_policy_prefers_local_20b_qwen_and_excludes_known_out_of_r
             parameter_count_b=36.0,
         ),
     }
-    registry = MagicMock()
-    registry._raw = {
-        "router": {
-            "model_policy": {
-                "enabled": True,
-                "prefer_local": True,
-                "max_parameter_count_b": 70.0,
-                "min_local_parameter_count_b": 20.0,
+    registry = _RegistryStub(
+        profiles,
+        raw={
+            "router": {
+                "model_policy": {
+                    "enabled": True,
+                    "prefer_local": True,
+                    "max_parameter_count_b": 70.0,
+                    "min_local_parameter_count_b": 20.0,
+                }
             }
-        }
-    }
-    registry.get_model.side_effect = profiles.get
-    registry.list_models.return_value = list(profiles.values())
-    router = ModelRouter(registry)
+        },
+    )
+    router = _make_router(registry)
     router.register_combo(
         ModelCombo(
             name="policy-combo",
@@ -443,7 +469,11 @@ def test_enabled_model_policy_prefers_local_20b_qwen_and_excludes_known_out_of_r
     assert router.available_model_names("policy-combo") == ["qwen3.6:latest", "remote-30b"]
 
 
-def test_expected_model_policy_exclusions_are_debug_not_warning(caplog):
+def test_expected_model_policy_exclusions_are_warned_once(caplog: pytest.LogCaptureFixture) -> None:
+    """정책 제외는 운영에 보여야 한다 — 모델당 1회 WARNING.
+
+    debug 레벨이면 구성된 폴백 체인이 조용히 비어 있는지 알 수 없다.
+    """
     profile = ModelProfile(
         name="remote-80b",
         repo="remote-80b",
@@ -451,27 +481,30 @@ def test_expected_model_policy_exclusions_are_debug_not_warning(caplog):
         provider="openrouter",
         parameter_count_b=80.0,
     )
-    registry = MagicMock()
-    registry._raw = {
-        "router": {
-            "model_policy": {
-                "enabled": True,
-                "max_parameter_count_b": 70.0,
+    registry = _RegistryStub(
+        {profile.name: profile},
+        raw={
+            "router": {
+                "model_policy": {
+                    "enabled": True,
+                    "max_parameter_count_b": 70.0,
+                }
             }
-        }
-    }
-    registry.get_model.return_value = profile
-    registry.list_models.return_value = [profile]
-    router = ModelRouter(registry)
+        },
+    )
+    router = _make_router(registry)
 
     with caplog.at_level("DEBUG", logger="antigravity_k.model_router"):
-        router._available_profile("remote-80b")
+        _ = _available_profile(router, "remote-80b")
+        _ = _available_profile(router, "remote-80b")
 
-    record = next(record for record in caplog.records if "parameter_cap_exceeded" in record.message)
-    assert record.levelname == "DEBUG"
+    matching = [record for record in caplog.records if "parameter_cap_exceeded" in record.message]
+    assert matching, "policy exclusion must be surfaced in logs"
+    assert all(record.levelname == "WARNING" for record in matching)
+    assert len(matching) == 1  # 모델당 1회만 경고 (로그 홍수 방지)
 
 
-def test_enabled_model_policy_rejects_direct_model_above_parameter_cap():
+def test_enabled_model_policy_rejects_direct_model_above_parameter_cap() -> None:
     profile = ModelProfile(
         name="remote-80b",
         repo="remote-80b",
@@ -479,18 +512,44 @@ def test_enabled_model_policy_rejects_direct_model_above_parameter_cap():
         provider="openrouter",
         parameter_count_b=80.0,
     )
-    registry = MagicMock()
-    registry._raw = {
-        "router": {
-            "model_policy": {
-                "enabled": True,
-                "max_parameter_count_b": 70.0,
+    registry = _RegistryStub(
+        {profile.name: profile},
+        raw={
+            "router": {
+                "model_policy": {
+                    "enabled": True,
+                    "max_parameter_count_b": 70.0,
+                }
             }
-        }
-    }
-    registry.get_model.return_value = profile
-    registry.list_models.return_value = [profile]
-    router = ModelRouter(registry)
+        },
+    )
+    router = _make_router(registry)
 
     with pytest.raises(ValueError):
-        router.route_single("remote-80b")
+        _ = router.route_single("remote-80b")
+
+
+def test_explicit_small_local_model_can_route_below_quality_floor() -> None:
+    profile = ModelProfile(
+        name="llava:latest",
+        repo="llava:latest",
+        role="vision",
+        provider="ollama",
+        api_base="http://127.0.0.1:11434",
+        parameter_count_b=7.0,
+    )
+    registry = _RegistryStub(
+        {profile.name: profile},
+        raw={
+            "router": {
+                "model_policy": {
+                    "enabled": True,
+                    "min_local_parameter_count_b": 20.0,
+                    "allow_small_local_models": False,
+                }
+            }
+        },
+    )
+    router = _make_router(registry)
+
+    assert router.route_single("llava:latest") is profile

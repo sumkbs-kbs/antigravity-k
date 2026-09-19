@@ -1,0 +1,45 @@
+{
+  "task_id": "VAL-02",
+  "generated_at": "2026-09-15T23:41:21Z",
+  "workdir": "/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/val02-4mn832rg",
+  "thresholds": {
+    "p95_ms": 500.0,
+    "p99_ms": 1000.0,
+    "error_rate_max": 0.0,
+    "fd_leak_max": 5,
+    "rss_leak_mb": 64.0
+  },
+  "scenarios": [
+    {
+      "scenario": "SC-2-conversation-cas",
+      "workers": 6,
+      "turns_per_worker": 25,
+      "max_attempts_per_worker": 750,
+      "conversation_soft_max": 64,
+      "appended": 150,
+      "stale_rejected": 299,
+      "attempts": 449,
+      "unexpected_errors": 0,
+      "originals": 150,
+      "lost_originals": 0,
+      "missing_original_ids": [],
+      "rejected_ids_stored": [],
+      "view_messages": 34,
+      "view_bounded": true,
+      "compaction_generations": 2,
+      "revision": 150,
+      "revision_matches_successes": true,
+      "workers_alive_after_join": [],
+      "join_timeout_s": 120,
+      "pass": true
+    }
+  ],
+  "missing_required": [
+    "SC-1",
+    "SC-3",
+    "SC-4",
+    "SC-5",
+    "SC-6"
+  ],
+  "all_pass": false
+}

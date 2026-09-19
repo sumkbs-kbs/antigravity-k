@@ -1,0 +1,28 @@
+=== 1. 문서가 안내한 CLI 플래그가 실제로 있는가 ===
+  [OK  ] CLOSURE_RUNBOOK.md §3.2 / ledger §2 → scripts/ga_gate.py — 4개 확인
+  [OK  ] CLOSURE_RUNBOOK.md §0·§4 → scripts/ga_gate_verify.py — 2개 확인
+  [OK  ] docs/09 (CR-01 migration) → scripts/migrate_conversation_storage.py — 6개 확인
+  [OK  ] nx02/damaged-conversation-disposal.md §4 → scripts/run_dashboard_e2e_ambient.py — 0개 확인
+  [OK  ] docs/09 (SC-1~6 soak) → scripts/val02_staging.py — 0개 확인
+  [OK  ] docs/09 (clean-room gate) → scripts/verify_clean_machine.sh — 1개 확인
+
+=== 2. 문서의 AGK_* 환경변수가 코드에 있는가 ===
+  [OK  ] 문서에 나온 AGK_* 변수 14개 — 직접 존재 또는 파생 0개: []
+
+=== 3. 문서가 참조하는 경로가 존재하는가 ===
+  [OK  ] 참조 경로 31개 — 전부 존재
+
+=== 4. 커밋 대상 비밀 스캔 (dirty + untracked, 값은 출력하지 않음) ===
+  [OK  ] 파일 129개 스캔 — 패턴 일치 없음
+
+=== 5. 스테이징 제외 대상 확인 (소유 불명 파일) ===
+  [note] data/auth_hash.bak.pre-0000: exists=True tracked=False
+  [note] vault_data: exists=True tracked=True
+  [OK  ] .gitignore 에 'vault_data' 규칙
+  [OK  ] .gitignore 에 'data/auth_hash' 규칙
+  [OK  ] data/auth_hash.bak.pre-0000 이 무시된다 — .gitignore (git add -A 안전)
+
+=== 6. 문서 로컬 상대 링크가 실재하는 파일을 가리키는가 ===
+  [OK  ] 로컬 상대 링크 104개 — 전부 실재
+
+결과: ALL OK

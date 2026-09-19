@@ -1,0 +1,11 @@
+lrwxr-xr-x@ 1 mr.k  staff  73 Sep  6 11:32 node_modules -> /Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ws-04/dashboard/node_modules
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ws-04/dashboard/node_modules
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ws-04/dashboard/node_modules/vitest/package.json
+
+ RUN  v4.1.10 /Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-01/dashboard
+
+
+ Test Files  3 passed (3)
+      Tests  14 passed (14)
+   Start at  11:32:09
+   Duration  539ms (transform 374ms, setup 102ms, import 507ms, tests 8ms, environment 822ms)

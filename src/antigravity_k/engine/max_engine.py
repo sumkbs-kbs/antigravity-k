@@ -1,4 +1,4 @@
-"""Antigravity-K: MAX Mode Parallel Editing Engine (P4).
+"""Ssak-Ai: MAX Mode Parallel Editing Engine (P4).
 
 =============================================================
 Codebuff의 MAX 모드에서 영감을 받은 병렬 편집 시스템:
@@ -19,11 +19,119 @@ Codebuff의 MAX 모드에서 영감을 받은 병렬 편집 시스템:
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Mapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Protocol, TypeAlias, TypedDict, TypeGuard, final, runtime_checkable
 
 logger = logging.getLogger("antigravity_k.max_engine")
+
+JsonMap: TypeAlias = dict[str, object]
+Message: TypeAlias = dict[str, str]
+
+
+class WorkerConfig(TypedDict):
+    model: str
+    strategy: str
+    temperature: float
+    description: str
+
+
+class CostDecisionProtocol(Protocol):
+    allowed: bool
+    reason: str
+    remaining_budget_usd: float
+
+
+class CostGuardProtocol(Protocol):
+    def check_budget(self, model: str, tokens_in: int, tokens_out: int) -> CostDecisionProtocol: ...
+
+
+class ModelRouterProtocol(Protocol):
+    def get_combo(self, name: str) -> object | None: ...
+
+
+class ModelManagerProtocol(Protocol):
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str: ...
+
+
+class MaxContextProtocol(Protocol):
+    cost_guard: CostGuardProtocol | None
+
+
+class MaxOrchestratorProtocol(Protocol):
+    manager: ModelManagerProtocol
+    ctx: MaxContextProtocol
+
+    def _get_model_for_role(self, role: str) -> str: ...
+
+
+@runtime_checkable
+class RoleModelResolver(Protocol):
+    def __call__(self, role: str) -> str: ...
+
+
+def _is_max_orchestrator(value: object) -> TypeGuard[MaxOrchestratorProtocol]:
+    return (
+        value is not None
+        and hasattr(value, "manager")
+        and hasattr(value, "ctx")
+        and callable(getattr(value, "_get_model_for_role", None))
+    )
+
+
+def _as_str(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_int(value: object, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _as_messages(value: object) -> list[Message]:
+    if not _is_object_list(value):
+        return []
+    messages: list[Message] = []
+    for item in value:
+        if not _is_string_mapping(item):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if isinstance(role, str) and isinstance(content, str):
+            messages.append({"role": role, "content": content})
+    return messages
+
+
+def _mapping_or_empty(value: object) -> Mapping[str, object]:
+    if _is_string_mapping(value):
+        return value
+    return {}
+
+
+def _is_string_mapping(value: object) -> TypeGuard[Mapping[str, object]]:
+    return isinstance(value, Mapping)
+
+
+def _string_list(value: object) -> list[str]:
+    if not _is_object_list(value):
+        return []
+    return [str(item) for item in value]
+
+
+def _model_names(value: object) -> list[str]:
+    if not _is_object_list(value):
+        return []
+    names: list[str] = []
+    for item in value:
+        if _is_string_mapping(item):
+            names.append(str(item.get("name", str(item))))
+        else:
+            names.append(str(item))
+    return names
+
+
+def _is_object_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
 
 
 @dataclass
@@ -51,6 +159,7 @@ class MaxRunResult:
     error: str | None = None
 
 
+@final
 class MaxModeEngine:
     """MAX 모드 병렬 편집 엔진.
 
@@ -64,7 +173,7 @@ class MaxModeEngine:
         print(result.final_output)
     """
 
-    def __init__(self, model_manager, project_root: str = ""):
+    def __init__(self, model_manager: ModelManagerProtocol | None, project_root: str = "") -> None:
         """Initialize the MaxModeEngine.
 
         Args:
@@ -75,15 +184,15 @@ class MaxModeEngine:
         self.project_root = project_root or os.getcwd()
         self._max_workers = 4  # 기본값, 필요시 조정
 
-    def set_max_workers(self, n: int):
+    def set_max_workers(self, n: int) -> None:
         """최대 병렬 워커 수를 설정합니다."""
         self._max_workers = max(1, min(n, 8))  # 1~8 범위
 
     def _check_budget_before_spawn(
         self,
-        orchestrator,
+        orchestrator: MaxOrchestratorProtocol,
         worker_count: int,
-        messages: list[dict[str, Any]],
+        messages: list[Message],
         prompt: str,
     ) -> str:
         """N개 워커 spawn 전에 비용 예산을 사전 검사합니다.
@@ -102,7 +211,7 @@ class MaxModeEngine:
         Returns:
             str: 에러 메시지 (차단 시), 빈 문자열 (허용 시)
         """
-        cost_guard = getattr(getattr(orchestrator, "ctx", None), "cost_guard", None)
+        cost_guard = orchestrator.ctx.cost_guard
         if cost_guard is None:
             return ""  # CostGuard 미설치 — 통과 (하위 호환)
 
@@ -112,10 +221,7 @@ class MaxModeEngine:
         try:
             input_text = prompt
             for msg in messages:
-                content = msg.get("content", "") if isinstance(msg, dict) else str(msg)
-                if isinstance(content, list):
-                    content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
-                input_text += " " + str(content)
+                input_text += " " + msg.get("content", "")
             # 라틴 4자/토큰, CJK 1.5자/토큰 근사
             tokens_in_est = max(1, len(input_text) // 4)
             tokens_out_per_worker = 2000
@@ -146,8 +252,8 @@ class MaxModeEngine:
 
     def run(
         self,
-        task_spec: dict[str, Any],
-        orchestrator=None,
+        task_spec: JsonMap,
+        orchestrator: object | None = None,
     ) -> MaxRunResult:
         """MAX 모드 병렬 실행.
 
@@ -166,14 +272,14 @@ class MaxModeEngine:
         Returns:
             MaxRunResult: 실행 결과
         """
-        prompt = task_spec.get("prompt", "")
-        messages = task_spec.get("messages", [])
-        task_type = task_spec.get("task_type", "coding")
-        delegate_to = task_spec.get("delegate_to", "WORKER")
-        max_steps = task_spec.get("max_steps", 15)
-        target_model = task_spec.get("target_model", "")
+        prompt = _as_str(task_spec.get("prompt"), "")
+        messages = _as_messages(task_spec.get("messages"))
+        task_type = _as_str(task_spec.get("task_type"), "coding")
+        delegate_to = _as_str(task_spec.get("delegate_to"), "WORKER")
+        max_steps = _as_int(task_spec.get("max_steps"), 15)
+        target_model = _as_str(task_spec.get("target_model"), "")
 
-        if not orchestrator or not self.manager:
+        if not self.manager or not _is_max_orchestrator(orchestrator):
             return MaxRunResult(
                 total_workers=0,
                 successful=0,
@@ -211,7 +317,7 @@ class MaxModeEngine:
         results: list[WorkerResult | None] = [None] * effective_workers
 
         with ThreadPoolExecutor(max_workers=effective_workers) as executor:
-            future_map = {}
+            future_map: dict[Future[WorkerResult], int] = {}
             for i, config in enumerate(worker_configs):
                 future = executor.submit(
                     self._run_worker,
@@ -245,26 +351,39 @@ class MaxModeEngine:
         valid_results = [r for r in results if r is not None]
         successful = [r for r in valid_results if r.error is None and r.output.strip()]
 
+        def _valid_index_of(target: WorkerResult) -> int:
+            # selected_idx는 results(전체) 기준으로 보고되어야 한다 —
+            # 소비자(max_execute_handler)가 results[selected_idx]로 조회하기
+            # 때문에 successful 압축 목록의 인덱스를 재매핑한다.
+            for i, r in enumerate(valid_results):
+                if r is target:
+                    return i
+            return -1
+
         # 3. Selector: 최적 결과 선정
+        selected_result: WorkerResult | None = None
         if successful:
-            selected = self._select_best(prompt, successful, delegate_to, orchestrator)
-        else:
-            selected = -1
+            sel = self._select_best(prompt, successful, delegate_to, orchestrator)
+            if sel >= 0:
+                selected_result = successful[sel]
 
         # 4. 최종 출력 구성
-        if selected >= 0:
-            final_output = successful[selected].output
+        if selected_result is not None:
+            selected_idx = _valid_index_of(selected_result)
+            final_output = selected_result.output
             selector_reasoning = self._format_trace(
-                successful,
-                selected,
+                valid_results,
+                selected_idx,
                 worker_configs,
             )
         elif successful:
             # Selector 실패 시 첫 번째 성공 결과 사용
-            selected = 0
-            final_output = successful[0].output
+            selected_result = successful[0]
+            selected_idx = _valid_index_of(selected_result)
+            final_output = selected_result.output
             selector_reasoning = "> MAX Mode: Selector unavailable, using first successful result.\n\n"
         else:
+            selected_idx = -1
             final_output = ""
             selector_reasoning = ""
 
@@ -276,16 +395,16 @@ class MaxModeEngine:
             total_workers=effective_workers,
             successful=len(successful),
             results=valid_results,
-            selected_idx=selected,
+            selected_idx=selected_idx,
             final_output=final_output,
             selector_reasoning=selector_reasoning,
         )
 
     def _build_worker_configs(
         self,
-        delegate_to: str,
+        _delegate_to: str,
         target_model: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[WorkerConfig]:
         """워커 구성을 생성합니다. (다양한 모델 + 전략 조합).
 
         최대 4개 워커:
@@ -294,7 +413,7 @@ class MaxModeEngine:
         - Worker 3: 대상 역할의 또 다른 모델 (safe strategy, temperature 0.1)
         - Worker 4: fallback 모델 (balanced strategy, temperature 0.4)
         """
-        configs: list[dict[str, Any]] = []
+        configs: list[WorkerConfig] = []
 
         if not self.manager:
             return configs
@@ -360,34 +479,39 @@ class MaxModeEngine:
 
         try:
             # 1. 실제 로드된 모델 우선
-            loaded = getattr(self.manager, "_loaded_models", None) or getattr(self.manager, "loaded_models", None)
-            if loaded and isinstance(loaded, dict):
-                models = list(loaded.keys())[:4]
+            loaded: Mapping[str, object] | list[object] | None = getattr(
+                self.manager, "_loaded_models", None
+            ) or getattr(
+                self.manager,
+                "loaded_models",
+                None,
+            )
+            if loaded and isinstance(loaded, Mapping):
+                models = [str(key) for key in list(loaded.keys())[:4]]
             elif loaded and isinstance(loaded, list):
-                models = [m.get("name", str(m)) if isinstance(m, dict) else str(m) for m in loaded[:4]]
+                models = _model_names(loaded[:4])
 
             # 실제 로드된 모델이 2개 이상 있으면 바로 반환
             if len(models) >= 2:
                 return models[: self._max_workers]
 
             # 2. 로드된 모델 부족 시 config에서 추가
-            config = getattr(self.manager, "config", {})
-            combos = config.get("combos", {})
+            config = _mapping_or_empty(getattr(self.manager, "config", {}))
+            combos = _mapping_or_empty(config.get("combos", {}))
 
             preferred_combos = ["reasoning-balanced", "fast-response", "coding-swarm"]
             for combo_name in preferred_combos:
-                combo = combos.get(combo_name, {})
-                combo_models = combo.get("models", [])
-                for m in combo_models:
-                    if m not in models:
-                        models.append(m)
+                combo = _mapping_or_empty(combos.get(combo_name, {}))
+                for model_name in _string_list(combo.get("models", [])):
+                    if model_name not in models:
+                        models.append(model_name)
                         if len(models) >= 4:
                             break
                 if len(models) >= 4:
                     break
 
             if len(models) < 2:
-                agents_config = config.get("agent_models", {})
+                agents_config = _mapping_or_empty(config.get("agent_models", {}))
                 for role in ("WORKER", "ENG_MANAGER"):
                     model = agents_config.get(role, "")
                     if model and model not in models:
@@ -404,36 +528,39 @@ class MaxModeEngine:
     def _run_worker(
         self,
         worker_id: int,
-        config: dict[str, str],
+        config: WorkerConfig,
         prompt: str,
-        messages: list[dict[str, str]],
+        messages: list[Message],
         task_type: str,
         delegate_to: str,
         max_steps: int,
-        orchestrator,
+        orchestrator: MaxOrchestratorProtocol,
     ) -> WorkerResult:
         """단일 워커를 실행합니다."""
         model = config.get("model", "default")
         strategy = config.get("strategy", "default")
-        temperature = float(config.get("temperature", 0.4))
 
         # 워커별 전략이 담긴 프롬프트 주입
         worker_prompt = self._build_worker_prompt(
             original_prompt=prompt,
             model=model,
             strategy=strategy,
-            temperature=temperature,
+            _temperature=float(config.get("temperature", 0.4)),
         )
 
         worker_messages = list(messages)
         worker_messages[-1] = {"role": "user", "content": worker_prompt}
+
+        # 워커별 온도를 실제 샘플링 파라미터로 전달한다 — 프롬프트 문자열에만
+        # 담아 폐기되면 단일 모델 환경에서 N개 워커가 사실상 동일 샘플이 된다.
+        worker_sampling = {"temperature": float(config.get("temperature", 0.4))}
 
         start = time.time()
         try:
             from antigravity_k.engine.tool_loop import ToolLoopEngine
 
             tool_loop = ToolLoopEngine(orchestrator)
-            output_parts = []
+            output_parts: list[str] = []
 
             for chunk in tool_loop.run_loop(
                 worker_messages,
@@ -441,6 +568,7 @@ class MaxModeEngine:
                 task_type,
                 max_steps,
                 model,
+                sampling_overrides=worker_sampling,
             ):
                 output_parts.append(chunk)
 
@@ -480,7 +608,7 @@ class MaxModeEngine:
         original_prompt: str,
         model: str,
         strategy: str,
-        temperature: float,
+        _temperature: float,
     ) -> str:
         """워커별 전략이 반영된 프롬프트를 생성합니다."""
         strategy_intro = {
@@ -511,7 +639,7 @@ class MaxModeEngine:
         prompt: str,
         results: list[WorkerResult],
         delegate_to: str,
-        orchestrator,
+        orchestrator: MaxOrchestratorProtocol | None,
     ) -> int:
         """Selector: 모든 결과를 검토하고 최적 인덱스를 반환합니다.
 
@@ -522,18 +650,19 @@ class MaxModeEngine:
             return 0
 
         # 결과 포맷팅
-        candidates = []
+        candidates: list[str] = []
         for i, r in enumerate(results):
             output_preview = r.output[:800] if r.output else "(empty)"
             candidates.append(
                 f"[Candidate {i + 1}] — Model: {r.model}, Strategy: {r.strategy}\n"
-                f"Time: {r.elapsed_sec}s, Length: {len(r.output)} chars\n"
-                f"---\n{output_preview}\n---\n",
+                + f"Time: {r.elapsed_sec}s, Length: {len(r.output)} chars\n"
+                + f"---\n{output_preview}\n---\n",
             )
 
         candidate_text = "\n\n".join(candidates)
 
-        # Selector 프롬프트
+        # Selector 프롬프트 — JSON 강제(문법 제약 디코딩)로 형식 실패 제거.
+        # 제어 평면은 항상 no-think이므로 thinking 충돌이 없다.
         selector_prompt = (
             "You are the MAX Mode Selector. Review the following candidate outputs "
             "generated by different AI models/strategies for the same task.\n\n"
@@ -542,9 +671,8 @@ class MaxModeEngine:
             "2. Completeness — Does it handle edge cases?\n"
             "3. Code Quality — Is the code clean, well-structured?\n"
             "4. Efficiency — Is the solution performant?\n\n"
-            "Respond in EXACTLY this format:\n"
-            "SELECTED: <candidate number (1-based)>\n"
-            "REASON: <one-line reason>\n\n"
+            "Respond in EXACTLY this JSON format:\n"
+            '{"selected": <candidate number (1-based)>, "reason": "<one-line reason>"}\n\n'
             f"Original task:\n{prompt[:500]}\n\n"
             f"{candidate_text}"
         )
@@ -553,13 +681,17 @@ class MaxModeEngine:
             # QA 모델로 Selector 실행
             qa_model = self._get_qa_model(delegate_to, orchestrator)
 
+            if orchestrator is None:
+                return 0
+
             # 비용 게이트: selector LLM 호출 전 예산 확인 (추가 비용 보호)
-            context = vars(orchestrator).get("ctx") if hasattr(orchestrator, "__dict__") else None
-            cost_guard = getattr(context, "cost_guard", None)
+            cost_guard = orchestrator.ctx.cost_guard
             if cost_guard is not None:
+                from antigravity_k.engine.tokenizer import TokenEstimator
+
                 sel_decision = cost_guard.check_budget(
                     model=qa_model,
-                    tokens_in=len(selector_prompt) // 4,
+                    tokens_in=TokenEstimator.estimate_text(selector_prompt),
                     tokens_out=256,
                 )
                 if not sel_decision.allowed:
@@ -577,10 +709,16 @@ class MaxModeEngine:
                 prompt=selector_prompt,
                 target=qa_model,
                 max_tokens=256,
+                response_format="json",
             )
             response = response.strip()
 
-            # SELECTED 추출
+            # 1차: JSON 파싱 (문법 제약으로 대부분 여기서 성공)
+            selected = self._parse_selected_json(response, len(results))
+            if selected is not None:
+                return selected
+
+            # 2차 폴백: 레거시 "SELECTED: N" 라인 스캔
             for line in response.split("\n"):
                 line = line.strip()
                 if line.startswith("SELECTED:"):
@@ -598,20 +736,45 @@ class MaxModeEngine:
             logger.debug("[MAX] Selector failed, using first result")
             return 0
 
-    def _get_qa_model(self, delegate_to: str, orchestrator) -> str:
+    @staticmethod
+    def _parse_selected_json(response: str, n_results: int) -> int | None:
+        import json as _json
+
+        try:
+            data = _json.loads(response)
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        raw = data.get("selected")
+        if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+            return None
+        try:
+            selected = int(raw) - 1  # 1-based → 0-based
+        except (ValueError, TypeError):
+            return None
+        if 0 <= selected < n_results:
+            return selected
+        return None
+
+    def _get_qa_model(self, _delegate_to: str, orchestrator: MaxOrchestratorProtocol | None) -> str:
         """Selector용 QA 모델을 반환합니다."""
-        if hasattr(orchestrator, "_get_model_for_role"):
-            return orchestrator._get_model_for_role("QA")
+        if orchestrator is None:
+            return "default"
+        resolver: object = getattr(orchestrator, "_get_model_for_role", None)
+        if isinstance(resolver, RoleModelResolver):
+            return resolver("QA")
         return "default"
 
     def _format_trace(
         self,
         results: list[WorkerResult],
         selected_idx: int,
-        configs: list[dict[str, str]],
+        configs: Sequence[Mapping[str, object]],
     ) -> str:
         """MAX 모드 실행 트레이스를 포맷팅합니다."""
-        worker_details = []
+        _ = configs
+        worker_details: list[str] = []
         for i, r in enumerate(results):
             marker = "← SELECTED" if i == selected_idx else ""
             worker_details.append(
@@ -619,6 +782,7 @@ class MaxModeEngine:
             )
 
         return (
-            "⚡ **[MAX Mode]** "
-            f"{len(results)}개 워커 병렬 실행 → Selector 선정 완료\n" + "\n".join(worker_details) + "\n\n"
+            f"⚡ **[MAX Mode]** {len(results)}개 워커 병렬 실행 → Selector 선정 완료\n"
+            + "\n".join(worker_details)
+            + "\n\n"
         )

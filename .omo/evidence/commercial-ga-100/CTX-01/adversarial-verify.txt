@@ -1,0 +1,41 @@
+CTX-01 adversarial verify (ctx_01_verify) — 2026-09-06 Asia/Seoul
+Tip: 54fc8f088ae64d8bb736eb8b7b6afaf652a84395
+Impl: 81c957805ab92599ff842b39e1ac124bf842ae43
+
+F1 BLOCKER — slash _cmd_compact bare-except fallback mutates session_manager
+  Path: src/antigravity_k/engine/slash_commands_session.py _cmd_compact
+  On ANY Exception (incl. StaleConversationRevisionError), falls through to
+  context_shaper.shape(session_manager messages) and saves — non-authoritative
+  write succeeds while ConversationStore is unchanged. Dual-history divergence.
+  Plan owns "slash command session"; authoritative store must not be bypassed
+  as a success path after CAS conflict.
+  Probe: slash_stale_special_cased=False; slash_bare_except_fallback=True
+
+F2 BLOCKER — assistant CAS soft-fail swallows mid-stream compact race
+  Path: chat.py _persist_assistant_to_conversation_store
+  Tab A streams (user already CAS-appended); Tab B compact advances revision;
+  Tab A assistant append raises StaleConversationRevisionError; except logs and
+  returns pre-assistant snapshot. SSE reports "success" revision without
+  assistant; client UI keeps assistant locally; refresh drops it.
+  Probe: ASSISTANT_APPEND conflict; store_has_assistant=False after race.
+  Owner adversarial-notes residual #5 confirmed as blocking for commercial GA.
+
+F3 BLOCKER — slash compact uses before.revision not client expected
+  expected_revision=ctx.conversation_revision if before is None else before.revision
+  Always CAS against current store head when record exists → client stale
+  expected never surfaces as 409 on slash path; weakens two-tab conflict contract.
+
+F4 RELATED — chat auto_restore when len(messages)<=4 re-inflates after compact
+  After authoritative assemble, session_manager.auto_restore() may insert old
+  system context when assembled history is small (retain_tail<=3 → count<=4).
+  Undermines plan criterion "next chat request history tokens actually decrease"
+  on the live chat path (unit assemble_history tests still pass).
+
+KEEP (passes):
+  - ConversationStore append/compact/fork CAS + disk reconnect
+  - HTTP /v1/conversations/* 409 stale_conversation_revision
+  - ChatPage new_turn + conversation_revision (not full array SoT)
+  - compact response summary/retained_message_ids/revision + tokens_* fields
+  - store unit: tokens_after < tokens_before; two-thread race one conflict
+  - GET history refresh + applyServerSnapshot; fork rev 0 + stale fork 409
+  - Reviewer re-run: pytest CTX+ARC/WS 39 passed; vitest related 14 passed

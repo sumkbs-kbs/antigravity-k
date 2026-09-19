@@ -1,0 +1,16 @@
+{
+  "asked": "NX-09 T1 사용자 요청",
+  "assistantText": "✦\nSsak-Ai\n\n🛡️ [정밀 엔지니어링 모드]\n\n🏢\n⚠️ 응답 없음\n\n🔁 [Quality Revision] 피드백을 반영해 응답을 다시 생성했습니다.\n\nNX09-FAKE-PROVIDER-응답\n\n📊\nTokens Used: In: 9 | Out: 7\n📋 복사",
+  "providerPaths": [
+    "/api/tags",
+    "/api/tags",
+    "/api/show",
+    "/api/tags",
+    "/api/tags",
+    "/chat/completions",
+    "/api/chat",
+    "/api/chat",
+    "/chat/completions"
+  ],
+  "reachedProvider": true
+}

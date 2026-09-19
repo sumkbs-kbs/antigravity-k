@@ -25,7 +25,7 @@ class AuthTokenPayload:
 class SimpleJWTAuthEngine:
     """Lightweight deterministic HS256 JWT auth engine."""
 
-    def __init__(self, secret_key: str = "antigravity-k-production-secret-999"):
+    def __init__(self, secret_key: str = "ssak-ai-production-secret-999"):
         self.secret = secret_key.encode("utf-8")
 
     def issue_token(self, user_id: str, roles: list[str], ttl_seconds: float = 3600.0) -> str:

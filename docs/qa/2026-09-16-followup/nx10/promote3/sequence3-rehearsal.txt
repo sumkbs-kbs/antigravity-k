@@ -1,0 +1,33 @@
+
+=== 0. 본 트리 무해성 ===
+  본 트리: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+  본 트리에서 도는 soak: 78808 — 이 리허설은 미러만 쓴다
+  미러는 /tmp 에 만들고 각 경로 끝에서 지운다(쓰기 0건)
+
+=== A — 판정 PASS · 지문 일치 ===
+  [OK  ] 미러: /tmp/nx10-seq3-rehearsal-A
+  [OK  ] 판정 픽스처 기록(soak-recovery-latest.json + soak-harvest-*.txt · 방금 mtime)
+  [OK  ] A: exit 0 (기대 0)
+  [OK  ] A: 승격됐다(scripts/soak_watch.py 존재)
+  [OK  ] A: 스테이징은 비었다(이동)
+  [OK  ] A: 커밋이 만들어졌다 — test(nx10): promote the soak watcher and control tools under the gates
+  [OK  ] A: 커밋 뒤 코드 경로 깨끗(게이트 측정 전제 성립)
+
+=== B — 판정 FAIL · 지문 일치 ===
+  [OK  ] 미러: /tmp/nx10-seq3-rehearsal-B
+  [OK  ] 판정 픽스처 기록(soak-recovery-latest.json + soak-harvest-*.txt · 방금 mtime)
+  [OK  ] B: exit 1 (기대 1)
+  [OK  ] B: 승격되지 않았다(scripts/soak_watch.py 없음)
+  [OK  ] B: 스테이징 바이트 동일(d6891b487ffc) — 트리 무변경
+  [OK  ] B: 중단 사실이 기록됐다
+
+=== C — 판정 PASS · 지문 갈림 ===
+  [OK  ] 미러: /tmp/nx10-seq3-rehearsal-C
+  [OK  ] 판정 픽스처 기록(soak-recovery-latest.json + soak-harvest-*.txt · 방금 mtime)
+  [OK  ] C: exit 1 (기대 1)
+  [OK  ] C: 승격되지 않았다(scripts/soak_watch.py 없음)
+  [OK  ] C: 스테이징 바이트 동일(d6891b487ffc) — 트리 무변경
+  [OK  ] C: 중단 사실이 기록됐다
+
+=== 결과 ===
+순서 리허설: ALL PASS — 세 경로가 기대대로 멈추고/진행한다

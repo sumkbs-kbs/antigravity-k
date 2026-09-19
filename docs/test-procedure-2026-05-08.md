@@ -1,16 +1,16 @@
 ---
-title: Antigravity-K E2E 자율 진화 및 통합 기능 정밀 테스트 프로시저 (v2.0)
+title: Ssak-Ai E2E 자율 진화 및 통합 기능 정밀 테스트 프로시저 (v2.0)
 tags: [qa, test-procedure, harness, dom, e2e, dashboard, autonomous, k-skill, bananatape]
 date: 2026-05-08
 status: completed
-tester: Antigravity-K (Autonomous Evaluation Engine)
+tester: Ssak-Ai (Autonomous Evaluation Engine)
 ---
 
-# Antigravity-K 통합 시스템 및 자율 진화 테스트 프로시저
+# Ssak-Ai 통합 시스템 및 자율 진화 테스트 프로시저
 
 ## 1. 목적
 
-본 문서는 Antigravity-K의 대시보드(프론트엔드), 백엔드 시스템, 그리고 자율 엔진 코어의 모든 기능이 통합된 상태에서 정상 작동하는지 검증하기 위한 절차 문서입니다. 초기 DOM 기반 4단계 테스트에서 크게 진화하여, 현재는 업계 최고 수준(Codex, Claude Code)과 동등한 기능 수행을 목표로 하는 **44-Phase E2E 자율 기능 검증(Autonomous Functional Verification)** 프로시저로 확장되었습니다.
+본 문서는 Ssak-Ai의 대시보드(프론트엔드), 백엔드 시스템, 그리고 자율 엔진 코어의 모든 기능이 통합된 상태에서 정상 작동하는지 검증하기 위한 절차 문서입니다. 초기 DOM 기반 4단계 테스트에서 크게 진화하여, 현재는 업계 최고 수준(Codex, Claude Code)과 동등한 기능 수행을 목표로 하는 **44-Phase E2E 자율 기능 검증(Autonomous Functional Verification)** 프로시저로 확장되었습니다.
 
 본 테스트는 시스템 자체 치유 로직, 리소스 모니터링, 고도화된 메모리 아키텍처, 그리고 외부 연동 스킬(K-Skill, BananaTape)의 작동 무결성을 보장합니다.
 
@@ -74,4 +74,4 @@ tester: Antigravity-K (Autonomous Evaluation Engine)
 | **Testing** | 4단계의 기본 DOM 조작 위주 한계 | 44-Phase 자동화 검증 절차(자가 복구, 메모리, 스킬 연동 등)로 E2E 테스트 스위트 전면 확장 |
 
 ## 5. 결론
-2026-05-08 부로 Antigravity-K 시스템은 **"최상위 상용 코딩 에이전트에 필적하는 44-Phase 규모의 자율 E2E 기능 검증을 통과"**하였습니다. 특히 고도화된 메모리 시스템(SurfSense), 안정성 가드레일(IronClaw), 그리고 강력한 한국형 도구(K-Skill)와 이미지 에디팅 워크스페이스(BananaTape)의 완벽한 결합을 입증하였습니다.
+2026-05-08 부로 Ssak-Ai 시스템은 **"최상위 상용 코딩 에이전트에 필적하는 44-Phase 규모의 자율 E2E 기능 검증을 통과"**하였습니다. 특히 고도화된 메모리 시스템(SurfSense), 안정성 가드레일(IronClaw), 그리고 강력한 한국형 도구(K-Skill)와 이미지 에디팅 워크스페이스(BananaTape)의 완벽한 결합을 입증하였습니다.

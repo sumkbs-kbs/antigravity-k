@@ -6,7 +6,8 @@ from typing import ClassVar, Final, Literal, final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from antigravity_k.engine.task_state_store import TaskStateStore
+from antigravity_k.engine import multimodal
+from antigravity_k.engine.task_execution_context import TaskStateStoreProtocol
 
 CONTEXT_SNAPSHOT_EVENT: Final = "context_snapshot"
 _RESTORED_CONTEXT_HEADER: Final = "[Restored Task Context]"
@@ -52,7 +53,7 @@ class ContextSnapshotStoreError(RuntimeError):
 
 
 def save_task_context_snapshot(
-    state_store: TaskStateStore,
+    state_store: TaskStateStoreProtocol,
     task_id: str,
     messages: list[dict[str, str]],
     target_model: str,
@@ -73,7 +74,7 @@ def save_task_context_snapshot(
 
 
 def load_task_context_snapshot(
-    state_store: TaskStateStore,
+    state_store: TaskStateStoreProtocol,
     task_id: str,
 ) -> TaskContextSnapshot | None:
     try:
@@ -110,10 +111,18 @@ def restored_task_context_messages(snapshot: TaskContextSnapshot) -> list[dict[s
 def _is_durable_message(message: dict[str, str]) -> bool:
     if message.get("role") != "system":
         return True
-    content = message.get("content", "")
+    content = multimodal.flatten_content(message.get("content", ""))
     return not content.startswith(_TRANSIENT_SYSTEM_PREFIXES)
 
 
 def _snapshot_message(message: dict[str, str]) -> SnapshotMessage:
-    payload = {key: message[key] for key in ("role", "content", "name") if key in message}
+    # NX-09-F03/ADR-0005: 스냅샷은 **텍스트** 모델(SnapshotMessage.content: str)이다.
+    # 멀티모달 content(파트 배열)를 그대로 넣으면 ValidationError 로 요청이 실패하고,
+    # base64 를 그대로 넣으면 SQLite 이벤트가 이미지로 부푼다. 그래서 텍스트만 남긴다
+    # (이미지는 그 턴의 모델 입력으로만 간다 — 이력에는 파일명 표식만 남는다).
+    payload: dict[str, object] = {}
+    for key in ("role", "name"):
+        if key in message:
+            payload[key] = message[key]
+    payload["content"] = multimodal.flatten_content(message.get("content", ""))
     return SnapshotMessage.model_validate(payload)

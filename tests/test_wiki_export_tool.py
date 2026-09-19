@@ -6,6 +6,8 @@ Files are written to <project_root>/wiki_exports/ by default.
 
 import os
 import tempfile
+from collections.abc import Mapping
+from typing import Protocol, TextIO, TypedDict, Unpack, cast
 from unittest.mock import patch
 
 from antigravity_k.tools.wiki_export_tool import WikiExportTool
@@ -13,34 +15,51 @@ from antigravity_k.tools.wiki_export_tool import WikiExportTool
 WIKI_EXPORTS_SUBDIR = "wiki_exports"
 
 
-def _wiki_dir(tmpdir):
+class OpenOptions(TypedDict, total=False):
+    buffering: int
+    encoding: str | None
+    errors: str | None
+    newline: str | None
+    closefd: bool
+
+
+class WikiExportToolProtocol(Protocol):
+    name: str
+    description: str
+    parameters_schema: dict[str, object]
+
+    def execute(self, **kwargs: object) -> str: ...
+
+
+def _wiki_dir(tmpdir: str) -> str:
     return os.path.join(tmpdir, WIKI_EXPORTS_SUBDIR)
 
 
 class TestWikiExportToolInit:
     def test_name(self):
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         assert tool.name == "export_to_wiki"
 
     def test_description(self):
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         assert "wiki" in tool.description.lower()
         assert "export" in tool.description.lower()
 
     def test_parameters_schema_has_required_fields(self):
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         schema = tool.parameters_schema
-        assert "title" in schema["properties"]
-        assert "content" in schema["properties"]
-        assert "tags" in schema["properties"]
-        assert "filename" in schema["properties"]
+        properties = cast(Mapping[str, object], schema["properties"])
+        assert "title" in properties
+        assert "content" in properties
+        assert "tags" in properties
+        assert "filename" in properties
         assert schema["required"] == ["title", "content"]
 
 
 class TestWikiExportToolExecute:
     def test_basic_export(self):
         """Happy path: title + content → file created with frontmatter."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(title="Test Page", content="Hello world")
@@ -52,7 +71,7 @@ class TestWikiExportToolExecute:
 
     def test_export_with_tags(self):
         """Tags should appear in YAML frontmatter."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(title="Architecture", content="Details", tags=["architecture", "design"])
@@ -68,7 +87,7 @@ class TestWikiExportToolExecute:
 
     def test_export_with_custom_filename(self):
         """Custom filename should be used instead of title-based."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(title="My Title", content="Stuff", filename="custom_name")
@@ -77,7 +96,7 @@ class TestWikiExportToolExecute:
 
     def test_export_without_title(self):
         """Empty title should not crash."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(title="", content="Some content")
@@ -85,7 +104,7 @@ class TestWikiExportToolExecute:
 
     def test_safe_filename_creation(self):
         """Special chars in title should be sanitized."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(title="User Guide / FAQ", content="Guide content")
@@ -99,7 +118,7 @@ class TestWikiExportToolExecute:
 
     def test_content_preserved(self):
         """Content should be preserved in the file after frontmatter."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         test_content = "# Test\n\nThis is test content with **markdown**."
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
@@ -115,7 +134,7 @@ class TestWikiExportToolExecute:
 
     def test_date_in_frontmatter(self):
         """Frontmatter should contain a date field."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(title="Dated", content="Test")
@@ -131,7 +150,7 @@ class TestWikiExportToolExecute:
 
     def test_export_to_default_wiki_exports_dir(self):
         """Default wiki_exports directory is created if it doesn't exist."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(title="Wiki Test", content="Content")
@@ -141,20 +160,25 @@ class TestWikiExportToolExecute:
 
     def test_fallback_on_permission_error(self):
         """When writing to wiki_dir fails, should fallback to project_root."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 original_open = open
 
                 class MockWriteCounter:
-                    def __init__(self):
-                        self.call_count = 0
+                    def __init__(self) -> None:
+                        self.call_count: int = 0
 
-                    def __call__(self, file, mode="r", **kwargs):
+                    def __call__(
+                        self,
+                        file: str | os.PathLike[str],
+                        mode: str = "r",
+                        **kwargs: Unpack[OpenOptions],
+                    ) -> TextIO:
                         self.call_count += 1
-                        if self.call_count == 1 and "wiki_exports" in file:
+                        if self.call_count == 1 and "wiki_exports" in str(file):
                             raise OSError("Permission denied")
-                        return original_open(file, mode, **kwargs)
+                        return cast(TextIO, cast(object, original_open(file, mode, **kwargs)))
 
                 mock_writer = MockWriteCounter()
                 with patch("builtins.open", mock_writer):
@@ -163,10 +187,10 @@ class TestWikiExportToolExecute:
 
     def test_frontmatter_format(self):
         """Verify correct YAML frontmatter structure."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
-                tool.execute(title="TestDoc", content="Body", tags=["tag1", "tag2"])
+                _ = tool.execute(title="TestDoc", content="Body", tags=["tag1", "tag2"])
                 wiki_dir = _wiki_dir(tmpdir)
                 for fname in os.listdir(wiki_dir):
                     if fname.endswith(".md"):
@@ -181,33 +205,33 @@ class TestWikiExportToolExecute:
 
     def test_filename_has_date_prefix(self):
         """Filename should start with YYYY-MM-DD_ prefix."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(title="DatePrefix", content="Test")
                 import re
 
-                match = re.search(r"(\d{4}-\d{2}-\d{2}_.*\.md)", result)
+                match = re.search(r"(\d{4}-\d{2}-\d{2}_.*\.md)", str(result))
                 assert match, f"Expected date-prefixed filename in: {result}"
 
     def test_config_wiki_dir_used(self):
         """When config.yaml has wiki_dir, it should be used."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             wiki_dir = os.path.join(tmpdir, "config_wiki")
-            os.makedirs(wiki_dir)
+            _ = os.makedirs(wiki_dir)
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 with open(os.path.join(tmpdir, "config.yaml"), "w") as f:
-                    f.write(f"wiki_dir: {wiki_dir}\n")
+                    _ = f.write(f"wiki_dir: {wiki_dir}\n")
                 result = tool.execute(title="Config Test", content="Data")
                 assert wiki_dir in result
 
     def test_empty_tags(self):
         """Empty tags list should not produce tags in frontmatter."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
-                tool.execute(title="NoTags", content="Content", tags=[])
+                _ = tool.execute(title="NoTags", content="Content", tags=[])
                 wiki_dir = _wiki_dir(tmpdir)
                 for fname in os.listdir(wiki_dir):
                     if fname.endswith(".md"):
@@ -218,7 +242,7 @@ class TestWikiExportToolExecute:
 
     def test_none_content(self):
         """None content should be handled gracefully (converted to empty string)."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(title="Empty", content=None)
@@ -226,7 +250,7 @@ class TestWikiExportToolExecute:
 
     def test_full_pipeline_with_frontmatter_and_content(self):
         """End-to-end: frontmatter + content written correctly."""
-        tool = WikiExportTool()
+        tool = cast(WikiExportToolProtocol, cast(object, WikiExportTool()))
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("antigravity_k.tools.wiki_export_tool.os.getcwd", return_value=tmpdir):
                 result = tool.execute(

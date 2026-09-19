@@ -1,8 +1,24 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { fetchModelOperations, type ModelOperationsStatus } from '../../api/client';
+import {
+  fetchModelOperations,
+  type ModelOperationsStatus,
+  type ModelProviderCapability,
+} from '../../api/client';
 import GlassPanel from './GlassPanel';
 
 const formatRate = (value: number | null): string => (value === null ? '-' : `${Math.round(value * 100)}%`);
+
+const formatLongContext = (capability: ModelProviderCapability): string => {
+  const plan = capability.long_context_plan;
+  if (!plan) return 'unknown';
+  const strategy = plan.strategy === 'retrieval_fallback' ? 'retrieval' : plan.strategy;
+  const cache = plan.kv_cache_compression_enabled
+    ? 'KV compressed'
+    : plan.kv_cache_mode === 'bounded_context'
+      ? 'bounded'
+      : 'standard';
+  return `${strategy} · ${cache}`;
+};
 
 const ModelOperationsPanel: React.FC = () => {
   const [status, setStatus] = useState<ModelOperationsStatus | null>(null);
@@ -22,7 +38,8 @@ const ModelOperationsPanel: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    void loadStatus();
+    const timer = setTimeout(() => void loadStatus(), 0);
+    return () => clearTimeout(timer);
   }, [loadStatus]);
 
   const metrics = status?.quality_calibration.operational_metrics ?? [];
@@ -86,6 +103,7 @@ const ModelOperationsPanel: React.FC = () => {
                       <th>Provider</th>
                       <th>Runtime</th>
                       <th>Native tools</th>
+                      <th>Long context</th>
                       <th>Probe</th>
                     </tr>
                   </thead>
@@ -96,6 +114,7 @@ const ModelOperationsPanel: React.FC = () => {
                         <td data-label="Provider">{capability.provider}</td>
                         <td data-label="Runtime"><span className={`model-ops-chip ${capability.runtime_status}`}>{capability.runtime_status}</span></td>
                         <td data-label="Native tools"><span className={`model-ops-chip ${capability.native_tool_calling}`}>{capability.native_tool_calling}</span></td>
+                        <td data-label="Long context" title={capability.long_context_plan?.rationale}>{formatLongContext(capability)}</td>
                         <td className="model-ops-source" data-label="Probe" title={capability.detail}>{capability.source}</td>
                       </tr>
                     ))}

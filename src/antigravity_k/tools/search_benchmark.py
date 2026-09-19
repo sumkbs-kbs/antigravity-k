@@ -344,7 +344,7 @@ def main() -> int:
     cases = _load_cases(args.fixture)
     engine = WebSearchEngine(searxng_url=args.searxng_url, max_results=max(args.k, 3))
     report = anyio.run(_run_live, engine, cases, args.k)
-    _ = args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     _ = args.output.write_text(json.dumps(report.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report.to_dict(), ensure_ascii=False))
     return 0 if report.aggregate["error_count"] == 0 else 1

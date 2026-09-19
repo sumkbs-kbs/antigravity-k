@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,10 +18,13 @@ from antigravity_k.engine.failure_classifier import (
     classify_tool_failure,
 )
 from antigravity_k.engine.tool_executor import ToolExecutor
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission
 from antigravity_k.tools.tool_registry import ToolRegistry
 
-CLASSIFICATION_CASES = [
+ClassificationCase = tuple[str, str, FailureCategory]
+
+CLASSIFICATION_CASES: list[ClassificationCase] = [
     ("git_commit", "Error: fatal: not a git repository", FailureCategory.git_conflict),
     ("git_commit", "Error: Your local changes would be overwritten", FailureCategory.git_conflict),
     ("run_bash_command", "Error: [exit_code=1] pytest FAILED 2 tests", FailureCategory.test_failure),
@@ -40,7 +46,7 @@ CLASSIFICATION_CASES = [
 
 
 @pytest.mark.parametrize(("tool", "message", "expected"), CLASSIFICATION_CASES)
-def test_classify_tool_failure(tool, message, expected):
+def test_classify_tool_failure(tool: str, message: str, expected: FailureCategory) -> None:
     failure = classify_tool_failure(tool, message)
     assert failure.category is expected
     assert failure.tool_name == tool
@@ -48,11 +54,13 @@ def test_classify_tool_failure(tool, message, expected):
 
 
 def test_classify_accepts_non_string():
-    failure = classify_tool_failure("read_file", 42)
+    failure = classify_tool_failure("read_file", cast(str, cast(object, 42)))
     assert failure.category is FailureCategory.unknown
 
 
-RETRYABLE_CASES = [
+RetryableCase = tuple[FailureCategory, bool]
+
+RETRYABLE_CASES: list[RetryableCase] = [
     (FailureCategory.timeout, True),
     (FailureCategory.external_service, True),
     (FailureCategory.unknown, True),
@@ -63,7 +71,7 @@ RETRYABLE_CASES = [
 
 
 @pytest.mark.parametrize(("category", "expected"), RETRYABLE_CASES)
-def test_retryable_property(category, expected):
+def test_retryable_property(category: FailureCategory, expected: bool) -> None:
     failure = ClassifiedFailure(category, "tool", "msg")
     assert failure.retryable is expected
 
@@ -112,65 +120,141 @@ def test_render_without_template_falls_back():
     assert "boom" in out
 
 
-def _make_tool(name="dummy", *, required=None):
+def _make_tool(name: str = "dummy", *, required: list[str] | None = None) -> MagicMock:
     tool = MagicMock()
     tool.name = name
     tool.parameters_schema = {"required": required or []}
     return tool
 
 
-def _make_executor(tmp_path):
+def _registry_tools(reg: MagicMock) -> dict[str, MagicMock]:
+    return cast(dict[str, MagicMock], getattr(reg, "_tools"))
+
+
+def _last_failure(executor: ToolExecutor) -> ClassifiedFailure | None:
+    return cast(ClassifiedFailure | None, getattr(executor, "_last_failure"))
+
+
+def _set_last_failure(executor: ToolExecutor, value: ClassifiedFailure | None) -> None:
+    setattr(executor, "_last_failure", value)
+
+
+def _set_immune_system(executor: ToolExecutor, value: object) -> None:
+    setattr(executor, "_immune_system", value)
+
+
+def _consecutive_errors(executor: ToolExecutor) -> int:
+    return cast(int, getattr(executor, "_consecutive_errors"))
+
+
+def _trigger_recovery(
+    executor: ToolExecutor,
+    name: str,
+    args: dict[str, object],
+    result: str,
+) -> str:
+    callback = cast(Callable[[str, dict[str, object], str], str], getattr(executor, "_trigger_recovery"))
+    return callback(name, args, result)
+
+
+def _make_executor(tmp_path: Path) -> tuple[ToolExecutor, MagicMock]:
     reg = MagicMock(spec=ToolRegistry)
-    reg._tools = {}
+    setattr(reg, "_tools", {})
     dummy = _make_tool("dummy", required=["x"])
-    reg._tools["dummy"] = dummy
-    reg.get = MagicMock(side_effect=lambda n: reg._tools.get(n))
-    reg.__contains__ = lambda self, name: name in reg._tools
-    reg.execute_with_permission = lambda name, args, objective="": (Permission.ALLOW, "ok")
+    _registry_tools(reg)["dummy"] = dummy
+
+    def lookup(name: str) -> MagicMock | None:
+        return _registry_tools(reg).get(name)
+
+    def contains(_self: object, name: str) -> bool:
+        return name in _registry_tools(reg)
+
+    def execute_with_permission(
+        _name: str,
+        _args: dict[str, object],
+        objective: str = "",
+    ) -> tuple[Permission, str]:
+        _ = objective
+        return Permission.ALLOW, "ok"
+
+    reg.get = MagicMock(side_effect=lookup)
+    reg.__contains__ = contains
+    reg.execute_with_permission = execute_with_permission
     gate = MagicMock(spec=PermissionGate)
     with patch("antigravity_k.engine.tool_executor.ImmuneSystem"):
         ex = ToolExecutor(tool_registry=reg, permission_gate=gate, project_root=str(tmp_path))
-    ex._immune_system = None
+    _set_immune_system(ex, None)
     return ex, reg
 
 
-def test_post_execute_records_classified_failure(tmp_path):
+def test_post_execute_records_classified_failure(tmp_path: Path) -> None:
     ex, reg = _make_executor(tmp_path)
-    reg.execute_with_permission = lambda name, args, objective="": (
-        Permission.ALLOW,
-        "Error: [exit_code=1] command timed out",
-    )
-    ex.execute("dummy", {"x": 1})
-    assert ex._last_failure is not None
-    assert ex._last_failure.category is FailureCategory.timeout
+
+    def failing_execution(
+        _name: str,
+        _args: dict[str, object],
+        objective: str = "",
+    ) -> tuple[Permission, str]:
+        _ = objective
+        return (
+            Permission.ALLOW,
+            "Error: [exit_code=1] command timed out",
+        )
+
+    reg.execute_with_permission = failing_execution
+    _ = ex.execute("dummy", {"x": 1})
+    failure = _last_failure(ex)
+    assert failure is not None
+    assert failure.category is FailureCategory.timeout
 
 
-def test_post_execute_resets_failure_on_success(tmp_path):
+def test_post_execute_resets_failure_on_success(tmp_path: Path) -> None:
     ex, reg = _make_executor(tmp_path)
-    reg.execute_with_permission = lambda name, args, objective="": (
-        Permission.ALLOW,
-        "Error: [exit_code=1] command timed out",
-    )
-    ex.execute("dummy", {"x": 1})
-    assert ex._last_failure is not None
-    reg.execute_with_permission = lambda name, args, objective="": (Permission.ALLOW, "ok")
-    ex.execute("dummy", {"x": 1})
-    assert ex._last_failure is None
+
+    def failing_execution(
+        _name: str,
+        _args: dict[str, object],
+        objective: str = "",
+    ) -> tuple[Permission, str]:
+        _ = objective
+        return (
+            Permission.ALLOW,
+            "Error: [exit_code=1] command timed out",
+        )
+
+    def successful_execution(
+        _name: str,
+        _args: dict[str, object],
+        objective: str = "",
+    ) -> tuple[Permission, str]:
+        _ = objective
+        return Permission.ALLOW, "ok"
+
+    reg.execute_with_permission = failing_execution
+    _ = ex.execute("dummy", {"x": 1})
+    assert _last_failure(ex) is not None
+    reg.execute_with_permission = successful_execution
+    _ = ex.execute("dummy", {"x": 1})
+    assert _last_failure(ex) is None
 
 
-def test_trigger_recovery_returns_playbook_for_sandbox_violation(tmp_path):
+def test_trigger_recovery_returns_playbook_for_sandbox_violation(tmp_path: Path) -> None:
     ex, _ = _make_executor(tmp_path)
-    ex._last_failure = classify_tool_failure("run_bash_command", "Error: sandbox-exec: Operation not permitted")
-    result = ex._trigger_recovery("run_bash_command", {}, "Error: sandbox-exec")
+    _set_last_failure(ex, classify_tool_failure("run_bash_command", "Error: sandbox-exec: Operation not permitted"))
+    result = _trigger_recovery(ex, "run_bash_command", {}, "Error: sandbox-exec")
     assert "sandbox" in result
-    assert ex._consecutive_errors == 0
+    assert _consecutive_errors(ex) == 0
 
 
-def test_trigger_recovery_escalates_unknown_to_immune(tmp_path):
+def test_trigger_recovery_escalates_unknown_to_immune(tmp_path: Path) -> None:
     ex, _ = _make_executor(tmp_path)
-    ex._immune_system = MagicMock()
-    ex._immune_system.heal = MagicMock(return_value="healed")
-    ex._last_failure = classify_tool_failure("dummy", "Error: mysterious bug in executor")
-    result = ex._trigger_recovery("dummy", {}, "Error: mysterious")
-    assert result == "healed"
-    ex._immune_system.heal.assert_called_once()
+    immune = MagicMock()
+    heal = MagicMock(return_value="healed")
+    immune.heal = heal
+    _set_immune_system(ex, immune)
+    _set_last_failure(ex, classify_tool_failure("dummy", "Error: mysterious bug in executor"))
+    result = _trigger_recovery(ex, "dummy", {}, "Error: mysterious")
+    # 복구 메시지는 실제 오류 원문을 포함한다 (원문 상실 방지)
+    assert result.endswith("healed")
+    assert "Error: mysterious" in result
+    assert cast(int, getattr(heal, "call_count")) == 1

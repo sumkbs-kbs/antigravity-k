@@ -1,4 +1,4 @@
-"""Antigravity-K: 사용량 추적기.
+"""Ssak-Ai: 사용량 추적기.
 
 ============================
 9Router의 usageDb 패턴 이식 — 모델별 토큰·레이턴시·성공률 메트릭 추적.
@@ -13,16 +13,62 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Final, TypedDict, cast
 
 from .cost_guard import CostGuard
 
 logger = logging.getLogger("antigravity_k.usage_tracker")
+
+
+# ─── 기본 DB 경로 (단일 패치 지점) ────────────────────────────────────
+#
+# 이전에는 호출자(`api/dependencies.py`)가 `UsageTracker(db_path="data/token_usage.json")`
+# 처럼 **CWD 상대 경로를 하드코딩**했다. `data/token_usage.json` 은 **추적 파일**이고
+# `record()` 는 ``auto_save_interval``(기본 50)건마다 `_save()` 를 호출하므로, 사용량을
+# 50건 이상 기록하는 테스트 조합 하나면 **검증 실행이 후보 트리를 바꿨다** —
+# F-02(benchmark_harness)와 같은 결함이 두 번째 경로에 남아 있었다.
+#
+# 이제 경로 결정은 이 한 곳에서만 일어난다. 프로덕션 기본값은 그대로다(누적 사용량 DB).
+USAGE_DB_ENV_VAR: Final[str] = "AGK_USAGE_DB"
+DEFAULT_USAGE_DB_RELATIVE: Final[Path] = Path("data/token_usage.json")
+
+
+def resolve_usage_db_path(environ: Mapping[str, str] | None = None) -> Path:
+    """환경 값으로부터 사용량 DB 경로를 계산하는 **순수** 함수.
+
+    ``tests/conftest.py`` 가 :func:`default_usage_db_path` 를 패치하므로, 우선순위
+    규칙 자체는 이 순수 함수로 검증해야 한다(패치된 함수를 부르면 **규칙이 아니라
+    패치 결과**를 검증하게 된다 — CR-14 D-15 와 같은 이유).
+    """
+    source = os.environ if environ is None else environ
+    override = source.get(USAGE_DB_ENV_VAR, "").strip()
+    if override:
+        return Path(override).expanduser()
+    return DEFAULT_USAGE_DB_RELATIVE
+
+
+def default_usage_db_path() -> Path:
+    """사용량 DB 의 기본 경로(테스트에서는 conftest 가 이 지점을 바꾼다)."""
+    return resolve_usage_db_path()
+
+
+class UsageRecordPayload(TypedDict):
+    model_name: str
+    timestamp: float
+    tokens_in: int
+    tokens_out: int
+    latency_ms: float
+    success: bool
+    error: str
+    combo_name: str
+    fallback_depth: int
 
 
 # ─── 데이터 클래스 ───────────────────────────────────────────────────
@@ -91,14 +137,14 @@ class UsageStats:
         """
         return self.total_tokens_in + self.total_tokens_out
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
             dict: The dict result.
 
         """
-        d = asdict(self)
+        d = cast(dict[str, object], cast(object, asdict(self)))
         d["success_rate"] = round(self.success_rate, 1)
         d["total_tokens"] = self.total_tokens
         return d
@@ -136,12 +182,12 @@ class UsageTracker:
             cost_guard (CostGuard | None): CostGuard | None cost guard.
 
         """
-        self._db_path = Path(db_path) if db_path else None
-        self._max_records = max_records
-        self._auto_save_interval = auto_save_interval
+        self._db_path: Path | None = Path(db_path) if db_path else None
+        self._max_records: int = max_records
+        self._auto_save_interval: int = auto_save_interval
         self._records: list[UsageRecord] = []
-        self._unsaved_count = 0
-        self._cost_guard = cost_guard  # IronClaw CostGuard 통합
+        self._unsaved_count: int = 0
+        self._cost_guard: CostGuard | None = cost_guard  # IronClaw CostGuard 통합
 
         # DB 파일에서 기존 기록 로드
         if self._db_path:
@@ -229,7 +275,7 @@ class UsageTracker:
         for r in filtered:
             grouped[r.model_name].append(r)
 
-        stats_list = []
+        stats_list: list[UsageStats] = []
         for name, records in grouped.items():
             stats = self._compute_stats(name, records, period)
             stats_list.append(stats)
@@ -255,7 +301,7 @@ class UsageTracker:
 
     # ─── 대시보드 데이터 ─────────────────────────────────────────────
 
-    def to_dashboard_data(self) -> dict[str, Any]:
+    def to_dashboard_data(self) -> dict[str, object]:
         """대시보드 UI용 전체 통계 데이터."""
         daily_stats = self.get_stats(period="daily")
         total_stats = self.get_stats(period="total")
@@ -305,10 +351,19 @@ class UsageTracker:
 
         try:
             with open(self._db_path, encoding="utf-8") as f:
-                data = json.load(f)
+                data = cast(object, json.load(f))
 
-            raw_records = data.get("records", [])
-            self._records = [UsageRecord(**r) for r in raw_records]
+            if not isinstance(data, dict):
+                return
+            payload = cast(dict[str, object], cast(object, data))
+            raw_records = payload.get("records", [])
+            if isinstance(raw_records, list):
+                records = cast(list[object], cast(object, raw_records))
+                self._records = [
+                    UsageRecord(**cast(UsageRecordPayload, cast(object, record)))
+                    for record in records
+                    if isinstance(record, dict)
+                ]
             logger.info("사용량 DB 로드: %s (%s건)", self._db_path, len(self._records))
         except Exception:
             logger.exception("사용량 DB 로드 실패")
@@ -377,7 +432,7 @@ class UsageTracker:
             buckets[hour_key]["requests"] += 1
 
         # 빈 시간대 채우기
-        result = []
+        result: list[dict[str, int]] = []
         for h in range(hours):
             bucket = buckets.get(h, {"hour": h, "tokens": 0, "requests": 0})
             result.append(bucket)

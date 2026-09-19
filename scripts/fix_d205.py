@@ -9,16 +9,17 @@ Applies only to multi-line docstrings (\"\"\"...\"\"\" with >= 2 content lines).
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 
 
-def find_docstring_pairs(lines):
+def find_docstring_pairs(lines: list[str]) -> list[tuple[int, int]]:
     """Find all triple-quoted string pairs (possibly docstrings).
 
     Returns list of (open_idx, close_idx) tuples.
     Only considers pairs where open and close are on different lines (multi-line).
     Skips single-line docstrings.
     """
-    pairs = []
+    pairs: list[tuple[int, int]] = []
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -50,7 +51,7 @@ def find_docstring_pairs(lines):
     return pairs
 
 
-def fix_docstring_d205(text):
+def fix_docstring_d205(text: str) -> str:
     """Fix D205 violations in Python file content.
 
     Uses line-based approach that handles multiple docstrings per file
@@ -105,7 +106,7 @@ def fix_docstring_d205(text):
     return "\n".join(lines)
 
 
-def fix_file(filepath, dry_run=False):
+def fix_file(filepath: Path, dry_run: bool = False) -> bool:
     """Fix D205 violations in a file. Returns True if modified."""
     try:
         original = filepath.read_text(encoding="utf-8")
@@ -133,38 +134,41 @@ def fix_file(filepath, dry_run=False):
                     print(f'    Line {idx + 1}: "{o}" -> "{f}"')
         return True
 
-    filepath.write_text(fixed, encoding="utf-8")
+    _ = filepath.write_text(fixed, encoding="utf-8")
     return True
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description="Fix D205 (missing blank line after docstring summary).")
-    parser.add_argument("--path", default="src/", help="Path to scan")
-    parser.add_argument("--dry-run", action="store_true", help="Preview only")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Show details")
+    _ = parser.add_argument("--path", default="src/", help="Path to scan")
+    _ = parser.add_argument("--dry-run", action="store_true", help="Preview only")
+    _ = parser.add_argument("--verbose", "-v", action="store_true", help="Show details")
     args = parser.parse_args()
 
-    target = Path(args.path)
+    path_arg = cast(str, args.path)
+    dry_run = cast(bool, args.dry_run)
+    verbose = cast(bool, args.verbose)
+    target = Path(path_arg)
     if target.is_file():
         files = [target]
     elif target.is_dir():
         files = sorted(target.rglob("*.py"))
     else:
-        print(f"Error: {args.path} not found")
+        print(f"Error: {path_arg} not found")
         sys.exit(1)
 
     modified = 0
     skipped = 0
 
     for fp in files:
-        if fix_file(fp, dry_run=args.dry_run):
+        if fix_file(fp, dry_run=dry_run):
             modified += 1
-            if args.verbose and not args.dry_run:
+            if verbose and not dry_run:
                 print(f"  [FIXED] {fp}")
         else:
             skipped += 1
 
-    mode = "Dry-run" if args.dry_run else "Fixed"
+    mode = "Dry-run" if dry_run else "Fixed"
     print(f"\n{mode}: {modified} files | Unchanged: {skipped} files")
     return 0
 

@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+  File "/private/tmp/ssak-rp03-head.HErVpk/repo/src/antigravity_k/engine/__init__.py", line 4, in <module>
+    from .model_manager import ModelManager
+  File "/private/tmp/ssak-rp03-head.HErVpk/repo/src/antigravity_k/engine/model_manager.py", line 18, in <module>
+    from typing import TYPE_CHECKING, ContextManager, Protocol, TypeAlias, cast, final, runtime_checkable
+ImportError: cannot import name 'TypeAlias' from 'typing' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py)
+expected_red_exit=1

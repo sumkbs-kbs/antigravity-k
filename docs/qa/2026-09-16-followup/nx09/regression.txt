@@ -1,0 +1,47 @@
+# NX-09 regression (2026-09-16)
+
+## 대시보드 단위(vitest)
+npx vitest run
+→ **89 files / 888 tests passed** (이 카드가 추가한 `src/stores/__tests__/chatStore.nx09.test.ts` 4건 포함)
+
+## 대시보드 E2E(playwright, 전량)
+npx playwright test --reporter=line --workers=3
+→ **191 passed / 10 failed**  (nx09-user-journey 7건 포함)
+
+실패 10건의 분류:
+| 실패 | 원인 | 이 카드와의 관계 |
+|---|---|---|
+| `nx09 T4` (첨부가 모델에 도달) | **NX-09-F03 미해결** | 이 카드가 찾은 결함 — `test.fail` 로 고정(수정되면 오히려 실패) |
+| `task-execution` 6건 | ambient 8012 인스턴스의 응답(404/503 형태)과 스펙 기대 불일치 | 무관 — **커밋된 dist 로 되돌린 상태에서도 동일하게 8 failed**(재측정: task-execution+capture 3종 = 3 passed/8 failed) |
+| `capture-disclosure-*` 2건 · `capture-real-local-models` 1건 | ambient 8012/실 로컬 모델 캡처 | 무관 — 위와 같은 재측정에서 동일 실패 |
+
+즉 이 카드가 만든 실패는 nx09 T4(F03, 의도적 고정) 하나이고, 나머지는 이 환경의 ambient 서버 때문이다.
+
+## 백엔드(pytest)
+- `tests/test_auth.py tests/test_nx05_auth_epoch_revocation.py` → **44 passed**
+- `-k "ws or session_state or conversation" tests/` → **297 passed / 6278 deselected** (129s)
+- `tests/test_nx0*.py tests/test_cr0*.py tests/test_conversation*.py tests/test_auth*.py tests/test_ws*.py`
+  → **327 passed** (69s)
+- 참고: 전체 `pytest tests/ -q -x` 를 한 번 돌렸을 때 `test_benchmark_performance.py::test_context_enrich_total_latency`
+  가 실패했으나 **단독 실행은 16 passed**(7s) — 부하에 민감한 latency 예산 시험이며 이 카드의 변경과 무관하다.
+  전체 스위트는 단일 호출 예산(600s)을 넘으므로 위처럼 관련 집합으로 나눠 돌렸다(선택 기준을 명시했다).
+
+## F06 재검증(같은 작업 안, after — 계약으로 승격)
+- `npx playwright test e2e/tests/nx09-user-journey.spec.ts -g "T8" --workers=1 --reporter=line`
+  → **1 passed (7.1s)** · `t8-observation.json`: `sessionsRevoked=1`, `closedChatSockets=1/1`,
+  `closeLatencyMs=[571]`, `settingsTabSockets=1`(창 B 가 `/` 를 거치며 연 소켓 — 설정 화면 자체는 WS 를 열지 않는다)
+- 같은 파일 전량: `npx playwright test e2e/tests/nx09-user-journey.spec.ts --workers=1 --reporter=line`
+  → **8 passed (1.6m)** = 7 + 1 expected-fail(T4 = F03 미해결 고정)
+- `npx eslint e2e/tests/nx09-user-journey.spec.ts` — clean
+- F06 은 **NOT_REPRODUCED**: 원래 0 은 한 창 측정 아티팩트(이동이 WS 소유자를 unmount + 파괴된 창의 소켓은
+  close 를 보고하지 않음). 판정 근거와 재현 절차는 `after.md` §3·`handoff.md` §5-4.
+
+## 정적검사
+- `ruff check` — All checks passed
+- `mypy src/antigravity_k/api/routes/session_state.py` — Success: no issues found
+- `npx tsc -b --pretty false` — exit 0
+
+## 되돌린 산출물
+`src/antigravity_k/dashboard_dist/` 는 서빙용 **파생 산출물**이라 최종 상태에서 커밋본으로 되돌렸다
+(`git checkout -- …` + `git clean -f …`, 29개 추가 청크 제거). 이 카드의 UI 증거는 `pnpm build` 후 측정한 것이며,
+다시 재려면 같은 빌드가 필요하다 — 그 사실 자체가 **NX-09-F04**(서빙 번들이 소스보다 낡음)다.

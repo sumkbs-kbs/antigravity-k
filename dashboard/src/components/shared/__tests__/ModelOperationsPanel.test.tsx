@@ -16,6 +16,16 @@ const STATUS: ModelOperationsStatus = {
       runtime_status: 'available',
       native_tool_calling: 'supported',
       source: 'ollama:/api/show',
+      long_context_plan: {
+        strategy: 'native',
+        retrieval_mode: 'native',
+        native_attention_enabled: true,
+        kv_cache_compression_enabled: true,
+        kv_cache_mode: 'backend_managed',
+        context_token_limit: 32768,
+        candidate_pool: 12,
+        rationale: 'verified native long-context capability',
+      },
     },
   },
   quality_calibration: {
@@ -43,6 +53,7 @@ describe('ModelOperationsPanel', () => {
     expect(await screen.findAllByText('qwen3.6:latest')).toHaveLength(2);
     expect(screen.getByText('available')).toBeInTheDocument();
     expect(screen.getByText('supported')).toBeInTheDocument();
+    expect(screen.getByText('native · KV compressed')).toBeInTheDocument();
     expect(screen.getAllByText('3')).toHaveLength(2);
     await waitFor(() => expect(fetchModelOperations).toHaveBeenCalledOnce());
   });

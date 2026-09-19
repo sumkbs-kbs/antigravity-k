@@ -1,0 +1,14 @@
+PYTHONPATH=src uv run --no-sync pytest -q tests/test_rp04_meta_architect_red.py
+
+F                                                                        [100%]
+=================================== FAILURES ===================================
+E       assert "value = 'committed'\\n" == "value = 'user-dirty'\\n"
+E         - value = 'user-dirty'
+E         + value = 'committed'
+
+Captured log call:
+ERROR [RSI Sandbox] 수정 중 오류, 롤백 시작: Meta-Architect macromutation failed validation. Rolling back.
+
+1 failed in 0.69s
+
+This command ran in the detached baseline worktree at 8794aaecabf5664a7ee560b104e0115d915aabb7 before the RP-04 dirty implementation. The binary failure proves its git checkout rollback overwrote dirty B.

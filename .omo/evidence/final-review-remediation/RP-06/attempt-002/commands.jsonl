@@ -1,0 +1,6 @@
+{"argv":["uv","run","--no-sync","pytest","-q","tests/test_fr07_staging_verdicts.py"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/fr07-focused-pytest.log"}
+{"argv":["uv","run","--no-sync","ruff","check","scripts/val01_staging.py","tests/test_fr07_staging_verdicts.py"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/ruff.log"}
+{"argv":["uv","run","--no-sync","basedpyright","scripts/val01_staging.py","tests/test_fr07_staging_verdicts.py"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/basedpyright.log"}
+{"argv":["uv","run","--no-sync","python","-","# persistent Chroma healthy manual scenario"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/manual-chroma-healthy.json"}
+{"argv":["uv","run","--no-sync","python","-","# no-op delete negative control"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/manual-chroma-noop-negative.json"}
+{"argv":["uv","run","--no-sync","python","-","# missing-required CLI fail-closed scenario"],"cwd":"/Users/mr.k/program/coding/ssak_comp/Ssak-Ai","exit_code":0,"stdout_stderr":"logs/manual-cli-fail-closed.log"}

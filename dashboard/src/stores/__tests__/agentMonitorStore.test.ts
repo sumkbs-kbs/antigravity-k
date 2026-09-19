@@ -25,7 +25,8 @@ beforeEach(() => {
     currentTasks: [],
     timeline: [],
     uptime: 0,
-    memoryMb: 0,
+    uptimeObservedAt: null,
+    memoryPercent: 0,
     cpuPercent: 0,
     totalTokens: 0,
   });
@@ -42,7 +43,7 @@ describe('useAgentMonitorStore', () => {
     expect(state.currentTasks).toHaveLength(0);
     expect(state.timeline).toHaveLength(0);
     expect(state.uptime).toBe(0);
-    expect(state.memoryMb).toBe(0);
+    expect(state.memoryPercent).toBe(0);
     expect(state.cpuPercent).toBe(0);
     expect(state.totalTokens).toBe(0);
   });
@@ -248,17 +249,17 @@ describe('useAgentMonitorStore', () => {
   /* ─── updateMetrics ─────────────────────────────────────── */
 
   it('updates metrics with partial values', () => {
-    useAgentMonitorStore.getState().updateMetrics({ memoryMb: 2048, cpuPercent: 45 });
+    useAgentMonitorStore.getState().updateMetrics({ memoryPercent: 2048, cpuPercent: 45 });
 
-    expect(useAgentMonitorStore.getState().memoryMb).toBe(2048);
+    expect(useAgentMonitorStore.getState().memoryPercent).toBe(2048);
     expect(useAgentMonitorStore.getState().cpuPercent).toBe(45);
     expect(useAgentMonitorStore.getState().totalTokens).toBe(0); // unchanged
   });
 
   it('updates metrics with all values', () => {
-    useAgentMonitorStore.getState().updateMetrics({ memoryMb: 4096, cpuPercent: 80, totalTokens: 15000 });
+    useAgentMonitorStore.getState().updateMetrics({ memoryPercent: 4096, cpuPercent: 80, totalTokens: 15000 });
 
-    expect(useAgentMonitorStore.getState().memoryMb).toBe(4096);
+    expect(useAgentMonitorStore.getState().memoryPercent).toBe(4096);
     expect(useAgentMonitorStore.getState().cpuPercent).toBe(80);
     expect(useAgentMonitorStore.getState().totalTokens).toBe(15000);
   });
@@ -266,7 +267,7 @@ describe('useAgentMonitorStore', () => {
   it('only updates provided metrics (partial merge)', () => {
     useAgentMonitorStore.getState().updateMetrics({ totalTokens: 5000 });
 
-    expect(useAgentMonitorStore.getState().memoryMb).toBe(0);
+    expect(useAgentMonitorStore.getState().memoryPercent).toBe(0);
     expect(useAgentMonitorStore.getState().cpuPercent).toBe(0);
     expect(useAgentMonitorStore.getState().totalTokens).toBe(5000);
   });
@@ -276,6 +277,25 @@ describe('useAgentMonitorStore', () => {
   it('sets uptime', () => {
     useAgentMonitorStore.getState().setUptime(3600);
     expect(useAgentMonitorStore.getState().uptime).toBe(3600);
+  });
+
+  /* ─── setUptime: CR-10 관측 시각 ────────────────────────── */
+
+  it('records when uptime was observed (stale 판단 근거)', () => {
+    useAgentMonitorStore.getState().setUptime(3600);
+    const state = useAgentMonitorStore.getState();
+    expect(state.uptime).toBe(3600);
+    expect(typeof state.uptimeObservedAt).toBe('number');
+  });
+
+  it('accepts an explicit observation timestamp', () => {
+    useAgentMonitorStore.getState().setUptime(120, 1_700_000_000_000);
+    expect(useAgentMonitorStore.getState().uptimeObservedAt).toBe(1_700_000_000_000);
+  });
+
+  it('uptime starts as never-observed, not as zero', () => {
+    // 0은 "막 재시작된 서버"라는 유효값이므로 미관측과 구분되어야 한다.
+    expect(useAgentMonitorStore.getState().uptimeObservedAt).toBeNull();
   });
 
   /* ─── clearLogs ─────────────────────────────────────────── */
@@ -400,13 +420,13 @@ describe('useAgentMonitorStore', () => {
   /* ─── updateMetrics: Edge Cases ──────────────────────────── */
 
   it('preserves existing value when metric is null', () => {
-    useAgentMonitorStore.getState().updateMetrics({ memoryMb: 1024, cpuPercent: 50, totalTokens: 1000 });
+    useAgentMonitorStore.getState().updateMetrics({ memoryPercent: 1024, cpuPercent: 50, totalTokens: 1000 });
     // Update with null value — should keep existing
-    useAgentMonitorStore.getState().updateMetrics({ memoryMb: null as any, cpuPercent: undefined, totalTokens: 2000 });
+    useAgentMonitorStore.getState().updateMetrics({ memoryPercent: null, cpuPercent: undefined, totalTokens: 2000 });
 
     const state = useAgentMonitorStore.getState();
     // null should NOT override (?? preserves for null/undefined)
-    expect(state.memoryMb).toBe(1024);
+    expect(state.memoryPercent).toBe(1024);
     // undefined should NOT override
     expect(state.cpuPercent).toBe(50);
     // valid value SHOULD override
@@ -414,10 +434,10 @@ describe('useAgentMonitorStore', () => {
   });
 
   it('overrides metric with zero values', () => {
-    useAgentMonitorStore.getState().updateMetrics({ memoryMb: 2048 });
-    useAgentMonitorStore.getState().updateMetrics({ memoryMb: 0 });
+    useAgentMonitorStore.getState().updateMetrics({ memoryPercent: 2048 });
+    useAgentMonitorStore.getState().updateMetrics({ memoryPercent: 0 });
 
-    expect(useAgentMonitorStore.getState().memoryMb).toBe(0);
+    expect(useAgentMonitorStore.getState().memoryPercent).toBe(0);
   });
 
   /* ─── reset: Edge Cases ──────────────────────────────────── */

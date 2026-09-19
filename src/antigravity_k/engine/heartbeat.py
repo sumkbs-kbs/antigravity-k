@@ -27,11 +27,28 @@ import logging
 import os
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TypedDict
 
 logger = logging.getLogger("antigravity_k.engine.heartbeat")
+
+
+class HeartbeatStatusResult(TypedDict):
+    task: str
+    success: bool
+    message: str
+    duration_ms: float
+
+
+class HeartbeatStatus(TypedDict):
+    total_tasks: int
+    due_tasks: int
+    completed_tasks: int
+    quiet_hours: bool
+    checklist_path: str
+    recent_results: list[HeartbeatStatusResult]
 
 
 # ── 데이터 클래스 ──
@@ -102,11 +119,11 @@ class HeartbeatMonitor:
             default_interval_minutes (int): int default interval minutes.
 
         """
-        self.project_root = os.path.abspath(project_root)
-        self.checklist_path = os.path.join(self.project_root, checklist_path)
-        self.quiet_start = quiet_hours[0]  # 23시
-        self.quiet_end = quiet_hours[1]  # 07시
-        self.default_interval = default_interval_minutes
+        self.project_root: str = os.path.abspath(project_root)
+        self.checklist_path: str = os.path.join(self.project_root, checklist_path)
+        self.quiet_start: int = quiet_hours[0]  # 23시
+        self.quiet_end: int = quiet_hours[1]  # 07시
+        self.default_interval: int = default_interval_minutes
 
         self._tasks: list[HeartbeatTask] = []
         self._last_load_time: float = 0.0
@@ -179,7 +196,7 @@ class HeartbeatMonitor:
 
     def execute_due_tasks(
         self,
-        executor_fn=None,
+        executor_fn: Callable[[str], object] | None = None,
     ) -> list[HeartbeatResult]:
         """실행 시점이 도래한 태스크를 실행합니다.
 
@@ -197,7 +214,7 @@ class HeartbeatMonitor:
 
         # 체크리스트 재로드 (5분마다)
         if time.time() - self._last_load_time > 300:
-            self.load_checklist()
+            _ = self.load_checklist()
 
         # 비어 있으면 스킵 (cost-efficient)
         due_tasks = [t for t in self._tasks if t.is_due]
@@ -257,7 +274,7 @@ class HeartbeatMonitor:
 
     # ── 상태 보고 ──
 
-    def get_status(self) -> dict[str, Any]:
+    def get_status(self) -> HeartbeatStatus:
         """하트비트 모니터 상태를 반환합니다."""
         due_count = sum(1 for t in self._tasks if t.is_due)
         return {

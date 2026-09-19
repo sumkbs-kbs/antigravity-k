@@ -1,0 +1,9 @@
+{
+  "changePinStatus": 200,
+  "sessionsRevoked": 1,
+  "sockets": 1,
+  "closedSockets": 1,
+  "serverDisconnectLog": [
+    "INFO:     127.0.0.1:57238 - \"WebSocket /v1/ws/events?ticket=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyIiwiaWF0IjoxNzg5NTM2NzA2LCJleHAiOjE3ODk1MzY3MzYuNTM0MTk1LCJqdGkiOiIzN18xZ2lZc1A2Z2c2aVNSbWg1Y1hnIiwidHlwIjoid3MtdGlja2V0IiwiZXBvY2giOjF9.rLKtdAl5mkeKIrUJt1HmjGFoKlxnaKQpZHwPts-FjQc\" [accepted]"
+  ]
+}

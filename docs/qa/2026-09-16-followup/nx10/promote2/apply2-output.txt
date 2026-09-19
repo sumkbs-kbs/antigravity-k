@@ -1,0 +1,38 @@
+
+=== 1. 전제조건 ===
+  [OK  ] scripts/·tests/ 작업 트리 깨끗
+  [OK  ] 도는 soak 없음(동결 해제 상태)
+  [OK  ] 리허설 기록이 ALL PASS 다
+
+=== 2. 백업(되돌리기용) — /tmp/nx10-promote2-backup-20260917T022426Z ===
+  [OK  ] 백업: docs/qa/2026-09-16-followup/nx01/restore_rehearsal.py (sha256 0a46008bba1b)
+  [OK  ] 백업: docs/qa/2026-09-16-followup/nx03/rollback_rehearsal.py (sha256 f695df1ee8ab)
+  [OK  ] 백업: docs/qa/2026-09-16-followup/nx10/promote2/test_restore_rehearsal_contract.py (sha256 554d648d1950)
+  [OK  ] 백업: docs/qa/2026-09-16-followup/nx10/promote2/test_rollback_rehearsal_contract.py (sha256 98628c86ec9a)
+
+=== 3. 이동 ===
+  [OK  ] docs/qa/2026-09-16-followup/nx01/restore_rehearsal.py → scripts/restore_rehearsal.py (sha256 0a46008bba1b)
+  [OK  ] docs/qa/2026-09-16-followup/nx03/rollback_rehearsal.py → scripts/rollback_rehearsal.py (sha256 f695df1ee8ab)
+  [OK  ] docs/qa/2026-09-16-followup/nx10/promote2/test_restore_rehearsal_contract.py → tests/test_restore_rehearsal_contract.py (sha256 554d648d1950)
+  [OK  ] docs/qa/2026-09-16-followup/nx10/promote2/test_rollback_rehearsal_contract.py → tests/test_rollback_rehearsal_contract.py (sha256 98628c86ec9a)
+
+=== 4. 승격 위치 게이트(B·C — 이빨은 리허설이 이미 증명했다) ===
+
+=== A. 승격 위치 계약 시험 ===
+tests/test_rollback_rehearsal_contract.py::test_rehearsal_does_not_dirty_the_repository PASSED [100%]
+
+============================== 14 passed in 5.85s ==============================
+  [OK  ] 계약 시험 초록(14 passed) — 기록: docs/qa/2026-09-16-followup/nx10/promote2/promoted-contract-tests.txt
+  [OK  ] 수집 경로가 승격 위치다(tests/ 의 노드로 실행됨)
+
+=== B. 도구 직접 실행 ===
+  [OK  ] scripts/restore_rehearsal.py exit 0
+  [OK  ] scripts/rollback_rehearsal.py exit 0
+
+=== C. 정적 게이트 ===
+  [OK  ] ruff check 통과
+  [OK  ] ruff format --check 통과
+
+=== 5. 결과와 롤백 ===
+승격 완료 — 기록: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/promote2/promotion2-applied.txt
+**지문이 이동했다**: 필수 게이트 재측정과 soak 재장전이 필요하다(기록의 다음 줄 참조)

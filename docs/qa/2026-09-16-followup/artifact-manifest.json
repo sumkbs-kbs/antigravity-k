@@ -1,0 +1,42 @@
+{
+  "docs/18_RELIABILITY_AND_CONNECTOME_DEVELOPMENT_PLAN.md": {
+    "bytes": 48065,
+    "sha256": "21246dacd6a0245f26dea66cee789a6e06774948d677fe79e44d076c3aa6be0e"
+  },
+  "docs/19_RELIABILITY_AND_CONNECTOME_CHECKLIST.md": {
+    "bytes": 15230,
+    "sha256": "491b56fe844af1b3849901072823c9a5f9e1ab22cb5e4ff83e850b89c9e973fa"
+  },
+  "docs/qa/2026-09-16-followup/BASELINE.md": {
+    "bytes": 3412,
+    "sha256": "33d3e60448627805b81a33cc1d8aa5549ae25399e685371b272dd6a7a5d7af50"
+  },
+  "docs/qa/2026-09-16-followup/PLAN_REVIEW.md": {
+    "bytes": 1100,
+    "sha256": "141d1d535670965f653e9329dbd0013b324345fcce9c4c520eade4be2fed68ad"
+  },
+  "docs/qa/2026-09-16-followup/PLAN_VALIDATION.md": {
+    "bytes": 1192,
+    "sha256": "e5a6c97d2474cae0ccf2b7cdeb2af16f97e4c0777998f5fa3fbe1026bb915246"
+  },
+  "docs/qa/2026-09-16-followup/REPORT.md": {
+    "bytes": 37015,
+    "sha256": "0c2952e43b2c1b544773d06490705900dbd43b8de220422b46dbb2d37a5559be"
+  },
+  "docs/qa/2026-09-16-followup/independent-review.md": {
+    "bytes": 7072,
+    "sha256": "3b46809019c7c7c222b19c13c73c1e248bbb1e0d5686cdfbf07999af5ad342eb"
+  },
+  "docs/qa/2026-09-16-followup/runtime-evidence.txt": {
+    "bytes": 1620,
+    "sha256": "49d0dc148ecb37af2d9674d5a77e10a1b942dbc594d6e7db2e210a7327f508fb"
+  },
+  "docs/qa/2026-09-16-followup/soak-summary.json": {
+    "bytes": 3203,
+    "sha256": "2734ca069d35fff6fa57767778d14fd7947dc64637c25bb9009edb5d7bd055a6"
+  },
+  "docs/qa/2026-09-16-followup/tests.log": {
+    "bytes": 612,
+    "sha256": "0a1a2f792dd8ba5189e8eaecb3a8a4b38b27843c8fc848a602a41756b79450b4"
+  }
+}

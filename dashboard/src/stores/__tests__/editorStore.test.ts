@@ -6,6 +6,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useEditorStore, getLanguageFromExt } from '../editorStore';
+import { useProjectStore } from '../projectStore';
+import { PROJECT_ID_HEADER, PROJECT_REVISION_HEADER } from '../../api/projectIdentity';
 
 beforeEach(() => {
   // Reset store state between tests
@@ -16,6 +18,17 @@ beforeEach(() => {
     previewPath: null,
     previewTitle: '',
     previewContent: '',
+  });
+  useProjectStore.setState({
+    projects: [],
+    activeProjectId: 'proj_test',
+    activeProjectName: 'Test',
+    activeProjectPath: '/tmp/test',
+    projectRevision: 5,
+    switchEpoch: 1,
+    isSwitching: false,
+    lastSwitchError: null,
+    hydrated: true,
   });
 });
 
@@ -180,6 +193,21 @@ describe('useEditorStore', () => {
     vi.restoreAllMocks();
   });
 
+  it('saveFile does not parse a non-OK response', async () => {
+    const json = vi.fn().mockResolvedValue({ ok: true });
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503, json });
+
+    useEditorStore.getState().openFile('test.ts', 'test.ts', 'content');
+    useEditorStore.getState().updateFileContent('test.ts', 'modified');
+    const result = await useEditorStore.getState().saveFile('test.ts');
+
+    expect(result).toBe(false);
+    expect(json).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().openFiles[0].isDirty).toBe(true);
+
+    vi.restoreAllMocks();
+  });
+
   /* ─── Preview ─────────────────────────────────────────── */
 
   it('shows preview with path, title, and content', () => {
@@ -201,5 +229,46 @@ describe('useEditorStore', () => {
     expect(state.previewPath).toBeNull();
     expect(state.previewTitle).toBe('');
     expect(state.previewContent).toBe('');
+  });
+  /* ─── WS-04 F2/F3 ─────────────────────────────────────── */
+
+  it('clearForProjectSwitch closes all tabs and preview', () => {
+    useEditorStore.getState().openFile('b/a.ts', 'a.ts', 'aaa');
+    useEditorStore.getState().openFile('b/c.ts', 'c.ts', 'ccc');
+    useEditorStore.getState().showPreview('p.html', 'P', '<h1/>');
+    useEditorStore.getState().clearForProjectSwitch();
+    const s = useEditorStore.getState();
+    expect(s.openFiles).toEqual([]);
+    expect(s.activeFilePath).toBeNull();
+    expect(s.previewVisible).toBe(false);
+    expect(s.previewPath).toBeNull();
+    expect(s.previewContent).toBe('');
+  });
+
+  it('saveFile attaches project identity headers and payload', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true }),
+    });
+    global.fetch = fetchMock;
+
+    useEditorStore.getState().openFile('test.ts', 'test.ts', 'content');
+    useEditorStore.getState().updateFileContent('test.ts', 'modified');
+    const result = await useEditorStore.getState().saveFile('test.ts');
+    expect(result).toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/fs/write');
+    const headers = init.headers;
+    expect(headers.get(PROJECT_ID_HEADER)).toBe('proj_test');
+    expect(headers.get(PROJECT_REVISION_HEADER)).toBe('5');
+    const body = JSON.parse(init.body);
+    expect(body.path).toBe('test.ts');
+    expect(body.content).toBe('modified');
+    expect(body.project_id).toBe('proj_test');
+    expect(body.project_revision).toBe(5);
+
+    vi.restoreAllMocks();
   });
 });

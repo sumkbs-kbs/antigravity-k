@@ -1,5 +1,7 @@
 """Tests for the base provider adapter."""
 
+from typing import cast
+
 import pytest
 
 from antigravity_k.engine.provider_adapters.base_adapter import BaseProviderAdapter
@@ -8,8 +10,9 @@ from antigravity_k.engine.provider_adapters.base_adapter import BaseProviderAdap
 class TestBaseProviderAdapter:
     def test_cannot_instantiate(self):
         """Abstract class should not be instantiable directly."""
+        adapter_type = cast(type[object], BaseProviderAdapter)
         with pytest.raises(TypeError):
-            BaseProviderAdapter()
+            adapter_type()
 
     def test_concrete_subclass(self):
         class ConcreteAdapter(BaseProviderAdapter):

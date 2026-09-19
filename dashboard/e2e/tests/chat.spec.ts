@@ -18,10 +18,19 @@ test.describe('Chat Interface', () => {
   let dashboard: DashboardPage;
 
   test.beforeEach(async ({ page }) => {
+    await page.route(/\/v1\/chat\/completions$/, async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          'data: {"choices":[{"delta":{"content":"deterministic E2E response"}}]}',
+          'data: [DONE]',
+          '',
+        ].join('\n\n'),
+      });
+    });
     dashboard = new DashboardPage(page);
     await dashboard.goto();
-    await dashboard.handlePinModal();
-    // Ensure we're on the chat page
     await dashboard.goToChat();
   });
 
@@ -42,8 +51,6 @@ test.describe('Chat Interface', () => {
     await dashboard.sendChatMessageViaTextarea(testMessage);
     await dashboard.expectUserMessage(testMessage);
 
-    // Wait for any assistant response (error bubble or streaming response)
-    // This works without requiring a real LLM backend
     const assistantRow = dashboard.page.locator('.message.assistant');
     await expect(assistantRow.first()).toBeVisible({ timeout: 15_000 });
     const text = await assistantRow.first().textContent();
@@ -67,6 +74,7 @@ test.describe('Chat Interface', () => {
 
     await dashboard.sendChatMessageViaTextarea(message1);
     await dashboard.expectUserMessage(message1);
+    await expect(dashboard.page.locator('.send-btn.sending')).toHaveCount(0);
 
     await dashboard.sendChatMessageViaTextarea(message2);
     await dashboard.expectUserMessage(message2);
@@ -78,14 +86,7 @@ test.describe('Chat Interface', () => {
   });
 
   test('should have the empty state before any messages', async () => {
-    // Fresh chat should show empty state (suggestions, not messages)
-    const emptyState = dashboard.page.locator('.empty-state, [class*="empty"], .chat-suggestions');
     const hasBubbles = await dashboard.page.locator('.bubble').count();
-    // Either empty state is visible OR there are no message bubbles yet
-    if (hasBubbles === 0) {
-      const emptyVisible = await emptyState.first().isVisible().catch(() => false);
-      // Empty state may or may not exist depending on UI; just verify no bubbles
-      expect(hasBubbles).toBe(0);
-    }
+    expect(hasBubbles).toBe(0);
   });
 });

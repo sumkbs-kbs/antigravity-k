@@ -1,10 +1,10 @@
 ---
-title: Antigravity-K 종합 진단 보고서
+title: Ssak-Ai 종합 진단 보고서
 tags: [diagnosis, evaluation, architecture, roadmap, antigravity-k]
 date: 2026-08-17
 ---
 
-# Antigravity-K 종합 진단 보고서
+# Ssak-Ai 종합 진단 보고서
 
 > **대상**: `antigravity-k` (Apple Silicon 로컬 우선 자율형 엔지니어링 에이전트, Qwen3.6 36B 급)
 > **범위**: 코드 구조 분석 기반 진단 — **이번 세션은 분석 전용, 코드 수정 없음**
@@ -63,7 +63,7 @@ date: 2026-08-17
 ## 4. 고도화 항목 A~H
 
 ### A. Agent Core
-- **현황**: OrchestratorAgent(상태 그래프), ReAct 루프, 멀티 에이전트(coordinator/scout/trainer), goal_runner, planner_executor 존재.
+- **현황**: OrchestratorAgent(상태 그래프), ReAct 루프, goal_runner, planner_executor와 현재 오케스트레이션 라우팅 계층이 존재한다. coordinator/team_manager 레거시 모듈은 삭제되었고, scout/trainer 실행 경로는 유지된다.
 - **제안**: 상태 그래프 전이 커버리지 테스트 보강, 장기 워크플로용 checkpointer(task_state_store와 연동) 실전화, 실패 분류(error_classifier) → 복구 전략 자동 결합.
 - **우선순위**: P1
 

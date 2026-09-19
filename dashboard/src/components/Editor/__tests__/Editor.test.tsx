@@ -6,7 +6,6 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
-import { useEditorStore } from '../../../stores/editorStore';
 import CodeEditor from '../Editor';
 
 /* ─── Mock stores ─────────────────────────────────────────── */
@@ -37,24 +36,14 @@ function makeEditorStoreState(overrides: Partial<{
   return state;
 }
 
-// Create a callable function that also has .getState()
-function createMockUseEditorStore(defaultState: ReturnType<typeof makeEditorStoreState>) {
-  const hook = (selector?: (s: any) => any) => {
-    return selector ? selector(defaultState) : defaultState;
-  };
-  hook.getState = () => defaultState;
-  hook.setState = vi.fn();
-  return hook;
-}
-
 let currentEditorStoreState = makeEditorStoreState();
 
 vi.mock('../../../stores/editorStore', () => ({
   useEditorStore: new Proxy(
-    ((selector?: (s: any) => any) => {
+    ((selector?: (s: ReturnType<typeof makeEditorStoreState>) => unknown) => {
       const state = currentEditorStoreState;
       return selector ? selector(state) : state;
-    }) as any,
+    }) as unknown as (selector?: (s: ReturnType<typeof makeEditorStoreState>) => unknown) => unknown,
     {
       get(target, prop) {
         if (prop === 'getState') return () => currentEditorStoreState;

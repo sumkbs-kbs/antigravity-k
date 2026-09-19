@@ -1,6 +1,7 @@
 """Comprehensive Async TDD Tests for Demo Microservice Suite."""
 
 import asyncio
+
 import pytest
 
 from demo_service.auth_engine import SimpleJWTAuthEngine

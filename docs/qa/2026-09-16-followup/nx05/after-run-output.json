@@ -1,0 +1,31 @@
+{
+  "tree": "after",
+  "tree_module": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/api/auth_routes.py",
+  "epoch_support_present": true,
+  "state_document_is_json": true,
+  "state_epoch": 2,
+  "old_pin_login_status_after_external_change": 401,
+  "old_pin_accepted_after_external_change": false,
+  "login_before_change_status": 200,
+  "change_pin_status": 200,
+  "change_pin_response_keys": [
+    "detail",
+    "epoch",
+    "ok",
+    "reauth_required",
+    "sessions_revoked"
+  ],
+  "change_pin_reports_reauth": true,
+  "old_bearer_status_after_change": 401,
+  "old_bearer_accepted_after_change": false,
+  "old_pin_login_status_after_change": 401,
+  "old_pin_accepted_after_change": false,
+  "new_pin_login_status_after_change": 200,
+  "new_pin_accepted_after_change": true,
+  "open_ws_revocation_api_present": true,
+  "stale_ws_ticket_subject_after_change": null,
+  "stale_ws_ticket_reusable": false,
+  "state_schema": "agk.auth.v1",
+  "revoked_and_rejected": true,
+  "still_valid_credentials": []
+}

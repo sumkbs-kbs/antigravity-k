@@ -1,0 +1,46 @@
+Conversation view rebuilt from journal (proj_46412455/mtwiqg4x9q2w2d1s): view_seq=0 journal_seq=1
+Conversation view rebuilt from journal (proj_46412455/mtwiqg4x9q2w2d1s): view_seq=0 journal_seq=1
+원본: /Users/mr.k/.antigravity/conversations
+작업: /var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/nx02-rehearsal-20260916T091839Z-o0sftabn
+  [PASS] 원본 저장소에 파일이 있다 — 4개 파일
+  [PASS] 사본이 원본과 동일
+  리허설 대상 대화 3개 (id 개수 기준)
+
+=== CR-01 migration 리허설 (실데이터 사본) ===
+  [PASS] migration dry-run exit 0 — exit=0
+  [PASS] migration apply exit 0 — exit=0
+  [PASS] migration verify-only exit 0 — exit=0
+  report: {"dry-run": {"exit": 0, "stdout_tail": ["  ],", "  \"state\": \"dry_run\"", "}"]}, "apply": {"exit": 0, "stdout_tail": ["  \"journal_backfilled\": 3,", "  \"state\": \"applied\"", "}"]}, "verify-only": {"exit": 0, "stdout_tail": ["  \"journal_verification_failures\": [],", "  \"state\": \"verified\"", "}"]}}
+  [PASS] migration 후 v2 레이아웃 생성 — 3개 view
+  [PASS] layout == v2 — v2
+  [관측] 백필 직후 view/journal seq 불일치 3건: ['v2/37a8eec1ce19687d132fe29051dca629d164e2c4958ba141d5f4133a33f0688f/030edf050c7aaed690b80695d862a02e821fdc5fac17058d77b82e83bed3cc1a.json: view_seq=0 journal_seq=1', 'v2/5784f1b38f48c9b96e4874505a0d7c1a67fb1c534770b14651efe6e704c63bcc/370e8760fc9a3399202d4b02ad1d51a5204557743548e20cfb2f37ee58c87d7b.json: view_seq=0 journal_seq=1', 'v2/cc51960fe86d3b28168d546917c029f64c2698cd469b8c0bd57eaad252a9da77/e56032b11a4b19617e151996713306d60b54abbd3f269ab6a1b3eab69c811d8e.json: view_seq=0 journal_seq=1']
+         → 첫 읽기에서 view 가 journal 로부터 재생성된다(제품의 설계된 reconcile 경로).
+
+=== 손상 대화 격리·폐기 리허설 (실데이터 사본) ===
+  [PASS] 손상 view 읽기가 거절된다 — ConversationIntegrityError
+  [PASS] view 가 저장소에서 사라지고 표식이 생겼다
+  [PASS] 격리본이 보존됐다 — 2개 파일
+  [PASS] 대상은 삭제됨으로 보인다 — {'exists': False, 'deleted': True, 'content_erased': True, 'journal_seq': 0, 'revision': 0, 'original_message_count': 0, 'view_message_count': 0, 'history_incomplete': False, 'truncated_tail': False}
+  [PASS] 삭제된 id 재사용이 금지된다 — ConversationNotFoundError
+  [PASS] 형제 대화는 여전히 읽힌다
+
+=== 음성 대조군 A: 마이그레이션 **전** 저장소 + 루트 안 격리 ===
+  [PASS] 표식 없는 저장소는 레거시로 오인된다(검사가 fail-closed) — legacy_requires_migration
+  [PASS] 무관한 대화도 실패한다 — ConversationStorageMigrationRequiredError
+
+=== 음성 대조군 B: 마이그레이션 **후** 저장소 + 루트 안 격리 (관측) ===
+
+=== CR-01 migration 리허설 (음성 대조군 B) ===
+  [PASS] migration dry-run exit 0 — exit=0
+  [PASS] migration apply exit 0 — exit=0
+  [PASS] migration verify-only exit 0 — exit=0
+  report: {"dry-run": {"exit": 0, "stdout_tail": ["  ],", "  \"state\": \"dry_run\"", "}"]}, "apply": {"exit": 0, "stdout_tail": ["  \"journal_backfilled\": 3,", "  \"state\": \"applied\"", "}"]}, "verify-only": {"exit": 0, "stdout_tail": ["  \"journal_verification_failures\": [],", "  \"state\": \"verified\"", "}"]}}
+  [PASS] 표식이 있으면 루트 안 잉여 파일을 견딘다(관측) — v2
+  [PASS] 그 상태에서도 대화는 읽힌다(관측)
+  [PASS] 검증기(verify-only)는 잉여 파일에도 통과한다(관측) — exit=0 ['  "journal_verification_failures": [],', '  "state": "verified"', '}']
+
+=== 원본 무변경 확인 ===
+  [PASS] 원본 저장소 해시 동일 — before=4 after=4
+(작업 디렉터리 정리: /var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/nx02-rehearsal-20260916T091839Z-o0sftabn)
+
+결과: ALL PASS

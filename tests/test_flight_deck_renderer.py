@@ -18,4 +18,5 @@ def test_flight_deck_rendering():
 
     panel = FlightDeckRenderer.render_panel(state)
     assert panel is not None
+    assert panel.title is not None
     assert "ANTIGRAVITY-K FLIGHT DECK" in panel.title

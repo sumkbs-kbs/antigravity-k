@@ -1,0 +1,12 @@
+{
+  "model": "qwen3.8:latest",
+  "n_samples": 3,
+  "baseline": {
+    "correct": 5,
+    "mean_latency": 2.4833372604971373
+  },
+  "self_consistency": {
+    "correct": 5,
+    "mean_latency": 5.803322971440139
+  }
+}

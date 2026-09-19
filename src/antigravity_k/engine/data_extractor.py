@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Antigravity-K: 데이터 추출 레이어 (Data Extractor)
+Ssak-Ai: 데이터 추출 레이어 (Data Extractor)
 ==================================================
 검색 결과의 원시 텍스트에서 숫자/날짜/가격 등 구조화된 데이터를
 자동으로 추출하여 LLM이 정확히 인용할 수 있도록 합니다.
@@ -16,11 +16,66 @@ import json
 import logging
 import re
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Literal, NotRequired, TypedDict, cast, final
 
 logger = logging.getLogger("data_extractor")
+
+type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
+type MetricKey = Literal[
+    "total_calls",
+    "stock_attempts",
+    "stock_success",
+    "weather_attempts",
+    "weather_success",
+    "exchange_attempts",
+    "exchange_success",
+    "date_attempts",
+    "date_found",
+    "errors",
+    "speculative_filtered",
+]
+
+
+class _RecentCall(TypedDict):
+    timestamp: str
+    type: str
+    success: bool
+
+
+class _SuccessRates(TypedDict):
+    stock: float
+    weather: float
+    exchange: float
+    overall: float
+
+
+class _MetricsState(TypedDict):
+    total_calls: int
+    stock_attempts: int
+    stock_success: int
+    weather_attempts: int
+    weather_success: int
+    exchange_attempts: int
+    exchange_success: int
+    date_attempts: int
+    date_found: int
+    errors: int
+    speculative_filtered: int
+    recent_calls: list[_RecentCall]
+    success_rates: NotRequired[_SuccessRates]
+    total_attempts: NotRequired[int]
+    total_successes: NotRequired[int]
+
+
+def _as_json_object(value: object) -> dict[str, JsonValue] | None:
+    if not isinstance(value, dict):
+        return None
+    items = cast(Mapping[object, object], value).items()
+    return {key: cast(JsonValue, item) for key, item in items if isinstance(key, str)}
+
 
 # ─── 데이터 모델 ──────────────────────────────────────────────────
 
@@ -31,13 +86,13 @@ class ExtractedStockPrice:
 
     name: str = ""
     ticker: str = ""
-    close_price: Optional[int] = None
-    open_price: Optional[int] = None
-    high_price: Optional[int] = None
-    low_price: Optional[int] = None
-    change_percent: Optional[float] = None
-    change_amount: Optional[int] = None
-    volume: Optional[int] = None
+    close_price: int | None = None
+    open_price: int | None = None
+    high_price: int | None = None
+    low_price: int | None = None
+    change_percent: float | None = None
+    change_amount: int | None = None
+    volume: int | None = None
     source_index: int = 0  # 검색 결과 목록에서의 인덱스
 
 
@@ -46,9 +101,9 @@ class ExtractedWeather:
     """추출된 날씨 데이터."""
 
     location: str = ""
-    temperature: Optional[float] = None
-    feels_like: Optional[float] = None
-    humidity: Optional[int] = None
+    temperature: float | None = None
+    feels_like: float | None = None
+    humidity: int | None = None
     condition: str = ""
     source_index: int = 0
 
@@ -58,8 +113,8 @@ class ExtractedExchangeRate:
     """추출된 환율 데이터."""
 
     currency_pair: str = ""
-    rate: Optional[float] = None
-    change_percent: Optional[float] = None
+    rate: float | None = None
+    change_percent: float | None = None
     source_index: int = 0
 
 
@@ -68,7 +123,7 @@ class ExtractedNumericData:
     """기타 숫자 데이터. 단위와 함께 저장."""
 
     label: str = ""
-    value: Optional[float] = None
+    value: float | None = None
     unit: str = ""
     source_index: int = 0
     raw_text: str = ""
@@ -121,7 +176,7 @@ class ExtractionResult:
             label = sp.name or f"종목 {sp.ticker}" if sp.ticker else "주식"
 
             # 가격 데이터를 한 줄에 요약
-            prices = []
+            prices: list[str] = []
             if sp.close_price is not None:
                 prices.append(f"종가 {sp.close_price:,}원")
             if sp.open_price is not None:
@@ -147,7 +202,7 @@ class ExtractionResult:
 
         # 빈 줄 (주식과 날씨 사이)
         if self.stock_prices and line_count < max_lines:
-            _safe_add([""])
+            _ = _safe_add([""])
 
         # ── 날씨 데이터 ──
         for w in self.weather:
@@ -166,7 +221,7 @@ class ExtractionResult:
                 break
 
         if self.weather and line_count < max_lines:
-            _safe_add([""])
+            _ = _safe_add([""])
 
         # ── 환율 데이터 ──
         for er in self.exchange_rates:
@@ -182,17 +237,17 @@ class ExtractionResult:
                 break
 
         if self.exchange_rates and line_count < max_lines:
-            _safe_add([""])
+            _ = _safe_add([""])
 
         # ── 기타 숫자 데이터 ──
         if self.numeric_data and line_count < max_lines:
-            nums = []
+            nums: list[str] = []
             for nd in self.numeric_data[:5]:
                 if nd.value is not None:
                     nums.append(f"{nd.label}: {nd.value}{nd.unit}")
             if nums:
-                _safe_add(["📊 기타 데이터:"])
-                _safe_add([f"   {n}" for n in nums])
+                _ = _safe_add(["📊 기타 데이터:"])
+                _ = _safe_add([f"   {n}" for n in nums])
 
         if line_count >= max_lines:
             lines.append("...(데이터 추출 결과 생략)")
@@ -203,6 +258,7 @@ class ExtractionResult:
 # ─── 추출 메트릭 ───────────────────────────────────────────────────
 
 
+@final
 class ExtractionMetrics:
     """데이터 추출 성능 메트릭 수집기 (클래스 레벨 싱글턴).
 
@@ -211,7 +267,7 @@ class ExtractionMetrics:
     """
 
     _lock = threading.Lock()
-    _metrics: dict[str, Any] = {
+    _metrics: _MetricsState = {
         # 호출 카운트
         "total_calls": 0,
         "stock_attempts": 0,
@@ -230,9 +286,10 @@ class ExtractionMetrics:
     }
 
     @classmethod
-    def increment(cls, key: str, delta: int = 1) -> None:
+    def increment(cls, key: MetricKey, delta: int = 1) -> None:
         with cls._lock:
-            cls._metrics[key] = cls._metrics.get(key, 0) + delta
+            value = cls._metrics[key]
+            cls._metrics[key] = value + delta
 
     @classmethod
     def record_call(cls, call_type: str, success: bool) -> None:
@@ -251,10 +308,10 @@ class ExtractionMetrics:
                 cls._metrics["recent_calls"] = cls._metrics["recent_calls"][-50:]
 
     @classmethod
-    def get_stats(cls) -> dict[str, Any]:
+    def get_stats(cls) -> _MetricsState:
         """현재까지 수집된 모든 메트릭 통계를 반환합니다."""
         with cls._lock:
-            stats = dict(cls._metrics)
+            stats = cls._metrics.copy()
 
             # 각 타입별 성공률 계산
             stock_rate = 0.0
@@ -298,12 +355,27 @@ class ExtractionMetrics:
     def reset(cls) -> None:
         """모든 메트릭을 초기화합니다 (테스트용)."""
         with cls._lock:
-            cls._metrics = {k: (0 if isinstance(v, int) else []) for k, v in cls._metrics.items()}
+            for key in (
+                "total_calls",
+                "stock_attempts",
+                "stock_success",
+                "weather_attempts",
+                "weather_success",
+                "exchange_attempts",
+                "exchange_success",
+                "date_attempts",
+                "date_found",
+                "errors",
+                "speculative_filtered",
+            ):
+                cls._metrics[key] = 0
+            cls._metrics["recent_calls"] = []
 
 
 # ─── 추출기 ────────────────────────────────────────────────────────
 
 
+@final
 class DataExtractor:
     """검색 결과 텍스트에서 구조화된 데이터를 추출합니다.
 
@@ -317,7 +389,15 @@ class DataExtractor:
 
     # 종목명 + 종목코드 패턴들 (1차: 기본 패턴, 2차: 복잡 패턴 폴백)
     # 기본: "한화에어로스페이스 (012450)" / "한화에어로스페이스 012450"
-    _TICKER_PATTERN = re.compile(r"([가-힣a-zA-Z\s·|,./&\-]{1,40}?)\s*" r"(?:\([^)]*?)?" r"(\d{6})\s*\)?")
+    _TICKER_PATTERN = re.compile(
+        "".join(
+            (
+                r"([가-힣a-zA-Z\s·|,./&\-]{1,40}?)\s*",
+                r"(?:\([^)]*?)?",
+                r"(\d{6})\s*\)?",
+            )
+        )
+    )
     # 폴백: 텍스트 어디에서든 6자리 코드 발견 + 앞뒤 문맥으로 종목명 추출
     _CODE_ONLY_PATTERN = re.compile(r"(\d{6})")
 
@@ -348,22 +428,30 @@ class DataExtractor:
     # 실제 가격이 아닌 것으로 의심되는 컨텍스트 (앞에 오는 단어)
     # "목표 95만원", "전망 100만원" → 필터
     _SPECULATIVE_PREFIX = re.compile(
-        r"(목표|전망|예상|희망|기대|제시|상향|하향|조정|추정|예측|"
-        r"target|forecast|expect|estimate|projected)"
-        r"[\s:：]*",
+        (
+            r"(목표|전망|예상|희망|기대|제시|상향|하향|조정|추정|예측|"
+            r"target|forecast|expect|estimate|projected)"
+            r"[\s:：]*"
+        ),
         re.IGNORECASE,
     )
     # 실제 가격이 아닌 것으로 의심되는 컨텍스트 (뒤에 오는 단어)
     # "95만원을 향해", "186만인데" → 필터
     _SPECULATIVE_SUFFIX = re.compile(
         r"(?:을|를|으로)?\s*"
-        r"(향해|돌파|도달|기대|인데|인가|일까|이라는|이지만|지만|"
-        r"까지|정도|이상|미만|내외|선|대|수준)"
+        + r"(향해|돌파|도달|기대|인데|인가|일까|이라는|이지만|지만|"
+        + r"까지|정도|이상|미만|내외|선|대|수준)"
     )
     # 실제 가격임을 확인하는 컨텍스트
     # "현재 95만원", "종가 95만원" → 유지
     _VALID_PRICE_PREFIX = re.compile(
-        r"(현재|종가|시가|장중|거래|기록|마감|" r"current|close|trading|opening)" r"[\s:：]*",
+        "".join(
+            (
+                r"(현재|종가|시가|장중|거래|기록|마감|",
+                r"current|close|trading|opening)",
+                r"[\s:：]*",
+            )
+        ),
         re.IGNORECASE,
     )
     _VALID_PRICE_SUFFIX = re.compile(r"(?:에|으로|에서)?\s*(거래|기록|마감|형성|settle|close|trade)")
@@ -377,7 +465,14 @@ class DataExtractor:
 
     # 금융 데이터 스니펫 (Self-Hosted 엔진 출력)
     _STOCK_SNIPPET_PATTERN = re.compile(
-        r"📊\s*(.+?)\s*\((\d{6})\)\s*" r"([\d,]+)원\s*" r"([+-]\d+\.?\d*)%\s*" r"\((.+?)\)"
+        "".join(
+            (
+                r"📊\s*(.+?)\s*\((\d{6})\)\s*",
+                r"([\d,]+)원\s*",
+                r"([+-]\d+\.?\d*)%\s*",
+                r"\((.+?)\)",
+            )
+        )
     )
     # "📊 한화에어로스페이스 (012450) 943,000원 +1.51% (상승)"
 
@@ -395,16 +490,20 @@ class DataExtractor:
     _HUMIDITY_LABEL = re.compile(r"(습도)\s*[:：]?\s*(\d+)\s*%")
     _FEELS_LIKE_LABEL = re.compile(r"(체감|체감온도)\s*[:：]?\s*([+-]?\d+\.?\d*)\s*[°]?\s*[CFcf]?")
     _WEATHER_CONDITION = re.compile(
-        r"(맑음|흐림|구름|비|눈|안개|황사|태풍|번개|천둥|소나기|"
-        r"폭우|폭설|강풍|한파|더위|clear|cloudy|rain|snow|fog|storm)"
+        (
+            r"(맑음|흐림|구름|비|눈|안개|황사|태풍|번개|천둥|소나기|"
+            r"폭우|폭설|강풍|한파|더위|clear|cloudy|rain|snow|fog|storm)"
+        )
     )
 
     # ── 환율 데이터 패턴 ──
 
     _EXCHANGE_PATTERN = re.compile(
-        r"(환율|[가-힣]{2,4}/\w+|[가-힣]+달러|달러당|원/)\s*"
-        r"[:：]?\s*(\d{1,3}(?:,\d{3})*\.?\d*)\s*"
-        r"(\s*[+-]?\d+\.?\d*%\s*)?"
+        (
+            r"(환율|[가-힣]{2,4}/\w+|[가-힣]+달러|달러당|원/)\s*"
+            r"[:：]?\s*(\d{1,3}(?:,\d{3})*\.?\d*)\s*"
+            r"(\s*[+-]?\d+\.?\d*%\s*)?"
+        )
     )
 
     # ── 날짜 패턴 ──
@@ -419,11 +518,13 @@ class DataExtractor:
     def _load_stock_names(self) -> None:
         """stock_code_validator에서 종목명-코드 매핑을 가져옵니다."""
         try:
-            from antigravity_k.engine.stock_code_validator import _STOCK_CODE_MAP, _STOCK_NAME_TO_CODE
+            from antigravity_k.engine import stock_code_validator
 
-            self._stock_names = dict(_STOCK_NAME_TO_CODE)
+            name_to_code = cast(dict[str, str], getattr(stock_code_validator, "_STOCK_NAME_TO_CODE"))
+            code_map = cast(dict[str, str], getattr(stock_code_validator, "_STOCK_CODE_MAP"))
+            self._stock_names = dict(name_to_code)
             # 코드→이름 역방향도 추가
-            for code, name in _STOCK_CODE_MAP.items():
+            for code, name in code_map.items():
                 self._stock_names[code] = name
                 self._stock_names[name] = code
         except ImportError:
@@ -472,7 +573,7 @@ class DataExtractor:
 
     # ─── TOP 1 JSON 블록 추출 ──────────────────────────────────
 
-    def _extract_top1_json(self, text: str) -> Optional[dict[str, Any]]:
+    def _extract_top1_json(self, text: str) -> dict[str, JsonValue] | None:
         """검색 결과 텍스트에서 TOP 1 심층 분석의 JSON 블록을 추출합니다.
 
         웹 검색 결과의 'Markdown Content:' 섹션에 포함된
@@ -518,8 +619,8 @@ class DataExtractor:
         if json_end > 0:
             json_str = after_content[brace_start:json_end]
             try:
-                data = json.loads(json_str)
-                if isinstance(data, dict) and "answer" in data:
+                data = _as_json_object(cast(object, json.loads(json_str)))
+                if data is not None and "answer" in data:
                     return data
             except (json.JSONDecodeError, ValueError):
                 logger.debug("TOP 1 JSON 파싱 실패 (truncated?)", exc_info=True)
@@ -562,7 +663,7 @@ class DataExtractor:
 
         return None
 
-    def _extract_answer_texts(self, data: dict[str, Any]) -> list[str]:
+    def _extract_answer_texts(self, data: dict[str, JsonValue]) -> list[str]:
         """TOP 1 JSON에서 answer.text와 results content를 텍스트 리스트로 추출합니다.
 
         Args:
@@ -594,7 +695,7 @@ class DataExtractor:
 
         return texts
 
-    def _extract_change_percent(self, text: str) -> Optional[float]:
+    def _extract_change_percent(self, text: str) -> float | None:
         """텍스트에서 변동률(change_percent) 값을 추출합니다.
 
         여러 패턴을 순차적으로 시도합니다:
@@ -668,7 +769,7 @@ class DataExtractor:
                     sp.ticker = code
                     if not sp.name:
                         known = self._stock_names.get(code)
-                        if known and isinstance(known, str) and len(known) > 1:
+                        if known and len(known) > 1:
                             sp.name = known
 
         # close_price가 없으면 raw_text에서 만원/억원 패턴 시도 (컨텍스트 필터 적용)
@@ -685,8 +786,8 @@ class DataExtractor:
                     continue
 
     def _extract_from_top1_json(
-        self, data: dict[str, Any], source_index: int = 0, raw_text: str = ""
-    ) -> Optional[ExtractedStockPrice]:
+        self, data: dict[str, JsonValue], source_index: int = 0, raw_text: str = ""
+    ) -> ExtractedStockPrice | None:
         """TOP 1 JSON의 answer.text에서 주식 가격 데이터를 추출합니다.
 
         answer.text 필드에는 LLM이 생성한 자연어 요약이 포함되며,
@@ -734,7 +835,7 @@ class DataExtractor:
 
     # ─── 기존 추출 메서드 ─────────────────────────────────────
 
-    def extract_stock_prices(self, text: str, source_index: int = 0) -> Optional[ExtractedStockPrice]:
+    def extract_stock_prices(self, text: str, source_index: int = 0) -> ExtractedStockPrice | None:
         """텍스트 한 조각에서 주식 가격 데이터를 추출합니다."""
         sp = ExtractedStockPrice(source_index=source_index)
 
@@ -842,7 +943,7 @@ class DataExtractor:
             else:
                 # 추출명이 KOSPI 같은 오탐이면 코드 매핑의 공식명 사용
                 known_name = self._stock_names.get(code)
-                if known_name and isinstance(known_name, str) and len(known_name) > 1:
+                if known_name and len(known_name) > 1:
                     sp.name = known_name
                 elif name_candidate:
                     sp.name = name_candidate
@@ -902,7 +1003,7 @@ class DataExtractor:
 
         return None
 
-    def extract_weather(self, text: str, source_index: int = 0) -> Optional[ExtractedWeather]:
+    def extract_weather(self, text: str, source_index: int = 0) -> ExtractedWeather | None:
         """텍스트에서 날씨 데이터를 추출합니다."""
         w = ExtractedWeather(source_index=source_index)
 
@@ -940,7 +1041,7 @@ class DataExtractor:
             return w
         return None
 
-    def extract_exchange_rate(self, text: str, source_index: int = 0) -> Optional[ExtractedExchangeRate]:
+    def extract_exchange_rate(self, text: str, source_index: int = 0) -> ExtractedExchangeRate | None:
         """텍스트에서 환율 데이터를 추출합니다."""
         match = self._EXCHANGE_PATTERN.search(text)
         if not match:
@@ -1058,7 +1159,9 @@ class DataExtractor:
             # ── 1차: TOP 1 심층 분석 JSON 블록 추출 시도 ──
             top1_data = self._extract_top1_json(text)
             if top1_data:
-                logger.info("TOP 1 JSON 블록 발견: query=%s", top1_data.get("query", "?")[:50])
+                query_value = top1_data.get("query", "?")
+                query_text = query_value if isinstance(query_value, str) else "?"
+                logger.info("TOP 1 JSON 블록 발견: query=%s", query_text[:50])
 
                 # answer.text에서 주식 데이터 추출 (raw text로 보강)
                 ExtractionMetrics.increment("stock_attempts")
@@ -1073,7 +1176,7 @@ class DataExtractor:
 
                 # answer 및 results 텍스트에서 추가 데이터 추출
                 top1_texts = self._extract_answer_texts(top1_data)
-                for t_idx, t in enumerate(top1_texts):
+                for t in top1_texts:
                     # 날씨 (주식 외 데이터)
                     if not has_top1_stock and not result.weather:
                         ExtractionMetrics.increment("weather_attempts")

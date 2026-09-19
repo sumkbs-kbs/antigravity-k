@@ -1,0 +1,149 @@
+^DFFFFFF                                                                   [100%]
+=================================== FAILURES ===================================
+_ TestLexicalBoundary.test_attached_redirection_escape_tokens_denied[echo PWNED >/tmp/secret.txt] _
+
+self = <tests.test_fr02_shell_execution_boundary.TestLexicalBoundary object at 0x1058dd7c0>
+project = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1908/test_attached_redirection_esca0/project')
+command = 'echo PWNED >/tmp/secret.txt'
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo PWNED >/tmp/secret.txt",
+            "echo PWNED >>/tmp/secret.txt",
+            "echo PWNED 2>/tmp/secret.txt",
+            "echo PWNED >$HOME/secret.txt",
+            "echo PWNED >${HOME}/secret.txt",
+            "cat</tmp/secret.txt",
+        ],
+    )
+    def test_attached_redirection_escape_tokens_denied(self, project: Path, command: str) -> None:
+>       with pytest.raises(ToolPathError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ToolPathError
+
+tests/test_fr02_shell_execution_boundary.py:97: Failed
+_ TestLexicalBoundary.test_attached_redirection_escape_tokens_denied[echo PWNED >>/tmp/secret.txt] _
+
+self = <tests.test_fr02_shell_execution_boundary.TestLexicalBoundary object at 0x105e620b0>
+project = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1908/test_attached_redirection_esca1/project')
+command = 'echo PWNED >>/tmp/secret.txt'
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo PWNED >/tmp/secret.txt",
+            "echo PWNED >>/tmp/secret.txt",
+            "echo PWNED 2>/tmp/secret.txt",
+            "echo PWNED >$HOME/secret.txt",
+            "echo PWNED >${HOME}/secret.txt",
+            "cat</tmp/secret.txt",
+        ],
+    )
+    def test_attached_redirection_escape_tokens_denied(self, project: Path, command: str) -> None:
+>       with pytest.raises(ToolPathError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ToolPathError
+
+tests/test_fr02_shell_execution_boundary.py:97: Failed
+_ TestLexicalBoundary.test_attached_redirection_escape_tokens_denied[echo PWNED 2>/tmp/secret.txt] _
+
+self = <tests.test_fr02_shell_execution_boundary.TestLexicalBoundary object at 0x105e62270>
+project = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1908/test_attached_redirection_esca2/project')
+command = 'echo PWNED 2>/tmp/secret.txt'
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo PWNED >/tmp/secret.txt",
+            "echo PWNED >>/tmp/secret.txt",
+            "echo PWNED 2>/tmp/secret.txt",
+            "echo PWNED >$HOME/secret.txt",
+            "echo PWNED >${HOME}/secret.txt",
+            "cat</tmp/secret.txt",
+        ],
+    )
+    def test_attached_redirection_escape_tokens_denied(self, project: Path, command: str) -> None:
+>       with pytest.raises(ToolPathError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ToolPathError
+
+tests/test_fr02_shell_execution_boundary.py:97: Failed
+_ TestLexicalBoundary.test_attached_redirection_escape_tokens_denied[echo PWNED >$HOME/secret.txt] _
+
+self = <tests.test_fr02_shell_execution_boundary.TestLexicalBoundary object at 0x105e41a50>
+project = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1908/test_attached_redirection_esca3/project')
+command = 'echo PWNED >$HOME/secret.txt'
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo PWNED >/tmp/secret.txt",
+            "echo PWNED >>/tmp/secret.txt",
+            "echo PWNED 2>/tmp/secret.txt",
+            "echo PWNED >$HOME/secret.txt",
+            "echo PWNED >${HOME}/secret.txt",
+            "cat</tmp/secret.txt",
+        ],
+    )
+    def test_attached_redirection_escape_tokens_denied(self, project: Path, command: str) -> None:
+>       with pytest.raises(ToolPathError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ToolPathError
+
+tests/test_fr02_shell_execution_boundary.py:97: Failed
+_ TestLexicalBoundary.test_attached_redirection_escape_tokens_denied[echo PWNED >${HOME}/secret.txt] _
+
+self = <tests.test_fr02_shell_execution_boundary.TestLexicalBoundary object at 0x10583ff50>
+project = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1908/test_attached_redirection_esca4/project')
+command = 'echo PWNED >${HOME}/secret.txt'
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo PWNED >/tmp/secret.txt",
+            "echo PWNED >>/tmp/secret.txt",
+            "echo PWNED 2>/tmp/secret.txt",
+            "echo PWNED >$HOME/secret.txt",
+            "echo PWNED >${HOME}/secret.txt",
+            "cat</tmp/secret.txt",
+        ],
+    )
+    def test_attached_redirection_escape_tokens_denied(self, project: Path, command: str) -> None:
+>       with pytest.raises(ToolPathError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ToolPathError
+
+tests/test_fr02_shell_execution_boundary.py:97: Failed
+_ TestLexicalBoundary.test_attached_redirection_escape_tokens_denied[cat</tmp/secret.txt] _
+
+self = <tests.test_fr02_shell_execution_boundary.TestLexicalBoundary object at 0x105e78050>
+project = PosixPath('/private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1908/test_attached_redirection_esca5/project')
+command = 'cat</tmp/secret.txt'
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo PWNED >/tmp/secret.txt",
+            "echo PWNED >>/tmp/secret.txt",
+            "echo PWNED 2>/tmp/secret.txt",
+            "echo PWNED >$HOME/secret.txt",
+            "echo PWNED >${HOME}/secret.txt",
+            "cat</tmp/secret.txt",
+        ],
+    )
+    def test_attached_redirection_escape_tokens_denied(self, project: Path, command: str) -> None:
+>       with pytest.raises(ToolPathError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ToolPathError
+
+tests/test_fr02_shell_execution_boundary.py:97: Failed
+=========================== short test summary info ============================
+FAILED tests/test_fr02_shell_execution_boundary.py::TestLexicalBoundary::test_attached_redirection_escape_tokens_denied[echo PWNED >/tmp/secret.txt]
+FAILED tests/test_fr02_shell_execution_boundary.py::TestLexicalBoundary::test_attached_redirection_escape_tokens_denied[echo PWNED >>/tmp/secret.txt]
+FAILED tests/test_fr02_shell_execution_boundary.py::TestLexicalBoundary::test_attached_redirection_escape_tokens_denied[echo PWNED 2>/tmp/secret.txt]
+FAILED tests/test_fr02_shell_execution_boundary.py::TestLexicalBoundary::test_attached_redirection_escape_tokens_denied[echo PWNED >$HOME/secret.txt]
+FAILED tests/test_fr02_shell_execution_boundary.py::TestLexicalBoundary::test_attached_redirection_escape_tokens_denied[echo PWNED >${HOME}/secret.txt]
+FAILED tests/test_fr02_shell_execution_boundary.py::TestLexicalBoundary::test_attached_redirection_escape_tokens_denied[cat</tmp/secret.txt]
+6 failed in 0.26s
+test_exit=1

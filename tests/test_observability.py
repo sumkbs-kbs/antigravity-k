@@ -4,8 +4,12 @@ correlation-ID propagation, and the global error handler (no str(exc) leak).
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
+from fastapi import Request as FastAPIRequest
 from fastapi.testclient import TestClient
+from starlette.datastructures import State
 
 from antigravity_k.engine.metrics import (
     REGISTRY,
@@ -101,12 +105,16 @@ def test_error_handler_does_not_leak_exception_detail(metrics_client: TestClient
     import asyncio
 
     async def _run():
-        return await global_exception_handler(FakeRequest(), RuntimeError("SECRET_INTERNAL_PATH=/etc/passwd"))
+        return await global_exception_handler(
+            cast(FastAPIRequest[State], cast(object, FakeRequest())),
+            RuntimeError("SECRET_INTERNAL_PATH=/etc/passwd"),
+        )
 
     response = asyncio.run(_run())
-    body = json.loads(response.body)
+    raw_body = bytes(response.body)
+    body = json.loads(raw_body)
     # Safe detail message (generic, not raw exception) is allowed
     assert body.get("detail") == "Internal Server Error", "detail must be a safe generic message, not str(exc)"
-    assert "SECRET_INTERNAL_PATH" not in response.body.decode("utf-8"), "Raw exception text leaked into response"
+    assert "SECRET_INTERNAL_PATH" not in raw_body.decode("utf-8"), "Raw exception text leaked into response"
     assert "correlation_id" in body, "Response must include a correlation_id"
     assert body["error"] == "internal_error", "error must match the error handler's response format"

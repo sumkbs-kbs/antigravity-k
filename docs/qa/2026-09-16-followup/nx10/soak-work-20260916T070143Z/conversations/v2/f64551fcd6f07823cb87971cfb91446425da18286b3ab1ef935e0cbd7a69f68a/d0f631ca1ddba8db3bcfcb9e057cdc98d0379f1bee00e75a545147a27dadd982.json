@@ -1,0 +1,310 @@
+{
+  "conversation_id": "c1",
+  "project_id": "p1",
+  "revision": 150,
+  "messages": [
+    {
+      "id": "msg_summary",
+      "role": "system",
+      "content": "[대화 요약 — 59개 메시지 압축]\n[이전 압축 요약 — 보존]\n[user]: w5-1 body\n[user]: w2-1 body\n[user]: w4-1 body\n[user]: w5-3 body\n[user]: w2-3 body\n[user]: w4-39 body\n[user]: w5-41 body\n[user]: w2-41 body\n[user]: w4-41 body\n[user]: w5-43 body\n<!-- agk-summary schema=agk.summary.v1 g=2 c=0 a=0 b=4000 -->",
+      "created_at": 1789542105.358655,
+      "provenance": "summary"
+    },
+    {
+      "id": "w3-92",
+      "role": "user",
+      "content": "w3-92 body",
+      "created_at": 1789542105.342613,
+      "provenance": "append"
+    },
+    {
+      "id": "w3-93",
+      "role": "user",
+      "content": "w3-93 body",
+      "created_at": 1789542105.345748,
+      "provenance": "append"
+    },
+    {
+      "id": "w3-94",
+      "role": "user",
+      "content": "w3-94 body",
+      "created_at": 1789542105.348927,
+      "provenance": "append"
+    },
+    {
+      "id": "w3-95",
+      "role": "user",
+      "content": "w3-95 body",
+      "created_at": 1789542105.351973,
+      "provenance": "append"
+    },
+    {
+      "id": "w3-96",
+      "role": "user",
+      "content": "w3-96 body",
+      "created_at": 1789542105.3551722,
+      "provenance": "append"
+    },
+    {
+      "id": "w3-97",
+      "role": "user",
+      "content": "w3-97 body",
+      "created_at": 1789542105.358444,
+      "provenance": "append"
+    },
+    {
+      "id": "w3-98",
+      "role": "user",
+      "content": "w3-98 body",
+      "created_at": 1789542105.3684201,
+      "provenance": "append"
+    },
+    {
+      "id": "w3-99",
+      "role": "user",
+      "content": "w3-99 body",
+      "created_at": 1789542105.371231,
+      "provenance": "append"
+    },
+    {
+      "id": "w3-100",
+      "role": "user",
+      "content": "w3-100 body",
+      "created_at": 1789542105.3746078,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-102",
+      "role": "user",
+      "content": "w0-102 body",
+      "created_at": 1789542105.3773,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-103",
+      "role": "user",
+      "content": "w0-103 body",
+      "created_at": 1789542105.3795469,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-104",
+      "role": "user",
+      "content": "w0-104 body",
+      "created_at": 1789542105.3817239,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-105",
+      "role": "user",
+      "content": "w0-105 body",
+      "created_at": 1789542105.3838,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-106",
+      "role": "user",
+      "content": "w0-106 body",
+      "created_at": 1789542105.386073,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-107",
+      "role": "user",
+      "content": "w0-107 body",
+      "created_at": 1789542105.388424,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-108",
+      "role": "user",
+      "content": "w0-108 body",
+      "created_at": 1789542105.391063,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-109",
+      "role": "user",
+      "content": "w0-109 body",
+      "created_at": 1789542105.3940039,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-110",
+      "role": "user",
+      "content": "w0-110 body",
+      "created_at": 1789542105.3965042,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-111",
+      "role": "user",
+      "content": "w0-111 body",
+      "created_at": 1789542105.398816,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-112",
+      "role": "user",
+      "content": "w0-112 body",
+      "created_at": 1789542105.4011252,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-113",
+      "role": "user",
+      "content": "w0-113 body",
+      "created_at": 1789542105.403583,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-114",
+      "role": "user",
+      "content": "w0-114 body",
+      "created_at": 1789542105.40625,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-115",
+      "role": "user",
+      "content": "w0-115 body",
+      "created_at": 1789542105.408552,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-116",
+      "role": "user",
+      "content": "w0-116 body",
+      "created_at": 1789542105.4112031,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-117",
+      "role": "user",
+      "content": "w0-117 body",
+      "created_at": 1789542105.413661,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-118",
+      "role": "user",
+      "content": "w0-118 body",
+      "created_at": 1789542105.416178,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-119",
+      "role": "user",
+      "content": "w0-119 body",
+      "created_at": 1789542105.4185119,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-120",
+      "role": "user",
+      "content": "w0-120 body",
+      "created_at": 1789542105.420783,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-121",
+      "role": "user",
+      "content": "w0-121 body",
+      "created_at": 1789542105.423263,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-122",
+      "role": "user",
+      "content": "w0-122 body",
+      "created_at": 1789542105.42567,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-123",
+      "role": "user",
+      "content": "w0-123 body",
+      "created_at": 1789542105.428153,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-124",
+      "role": "user",
+      "content": "w0-124 body",
+      "created_at": 1789542105.4305742,
+      "provenance": "append"
+    },
+    {
+      "id": "w0-125",
+      "role": "user",
+      "content": "w0-125 body",
+      "created_at": 1789542105.4330082,
+      "provenance": "append"
+    }
+  ],
+  "summary": "[대화 요약 — 59개 메시지 압축]\n[이전 압축 요약 — 보존]\n[user]: w5-1 body\n[user]: w2-1 body\n[user]: w4-1 body\n[user]: w5-3 body\n[user]: w2-3 body\n[user]: w4-39 body\n[user]: w5-41 body\n[user]: w2-41 body\n[user]: w4-41 body\n[user]: w5-43 body\n<!-- agk-summary schema=agk.summary.v1 g=2 c=0 a=0 b=4000 -->",
+  "retained_message_ids": [
+    "msg_summary",
+    "w3-92",
+    "w3-93",
+    "w3-94",
+    "w3-95",
+    "w3-96",
+    "w3-97",
+    "w3-98",
+    "w3-99",
+    "w3-100",
+    "w0-102",
+    "w0-103",
+    "w0-104",
+    "w0-105",
+    "w0-106",
+    "w0-107",
+    "w0-108",
+    "w0-109",
+    "w0-110",
+    "w0-111",
+    "w0-112",
+    "w0-113",
+    "w0-114",
+    "w0-115",
+    "w0-116",
+    "w0-117",
+    "w0-118",
+    "w0-119",
+    "w0-120",
+    "w0-121",
+    "w0-122",
+    "w0-123",
+    "w0-124",
+    "w0-125"
+  ],
+  "forked_from": null,
+  "created_at": 1789542104.986977,
+  "updated_at": 1789542105.433012,
+  "memory": {
+    "schema": "agk.summary.v1",
+    "generation": 2,
+    "constraints": [],
+    "summarized_ranges": [
+      {
+        "generation": 1,
+        "revision": 65,
+        "message_count": 59,
+        "first_message_id": "w5-1",
+        "last_message_id": "w2-39"
+      },
+      {
+        "generation": 2,
+        "revision": 123,
+        "message_count": 59,
+        "first_message_id": "msg_summary",
+        "last_message_id": "w3-91"
+      }
+    ],
+    "carried_summary": "[user]: w5-1 body\n[user]: w2-1 body\n[user]: w4-1 body\n[user]: w5-3 body\n[user]: w2-3 body"
+  },
+  "journal_seq": 150,
+  "history_incomplete": false,
+  "view_schema": "agk.conv-view.v1"
+}

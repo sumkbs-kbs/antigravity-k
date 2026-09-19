@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-09",
+  "attempt": 1,
+  "status": "REVIEW",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7+dirty",
+  "tree_clean_before_run": false,
+  "changed_files": [
+    "src/antigravity_k/engine/context_summary.py (product fix: deterministic summary dropped initial key decisions when tool evidence present — R09-04)",
+    "tests/test_fr_context_end_to_end.py (new, deterministic tier)"
+  ],
+  "required_scenarios": [
+    {"id": "long-conversation-fixture", "required": true, "expected": "initial constraint + tool evidence pair + citation + latest instruction", "observed": "12-turn seeded conversation incl. NEVER-EDIT-CONSTRAINT, structured TOOL_EVIDENCE with citation source, LATEST-INSTRUCTION", "verdict": "PASS"},
+    {"id": "manual-compact-store-contract", "required": true, "expected": "revision +1 exactly, retained ids == snapshot, tokens drop, latest instruction survives tail", "observed": "all asserted at store level", "verdict": "PASS"},
+    {"id": "summary-preserves-initial-constraint", "required": true, "expected": "deterministic summary keeps initial key decision AND tool evidence", "observed": "product defect found & fixed: preserved_evidence-only return dropped key user decisions; now header + key messages + evidence joined. Post-fix both NEVER-EDIT-CONSTRAINT and TOOL_EVIDENCE/citation present", "verdict": "PASS"},
+    {"id": "llm-double-summary", "required": true, "expected": "summarize_fn invoked, summary + evidence sections", "observed": "double captured prompt; summary includes 대화 요약 header + TOOL_EVIDENCE", "verdict": "PASS"},
+    {"id": "skipped-tail-only", "required": true, "expected": "CAS bump once, messages intact, no failure", "observed": "retain_tail=50 → revision+1, message count unchanged", "verdict": "PASS"},
+    {"id": "stale-revision-rejected", "required": true, "expected": "store raises; API returns 409 stale_conversation_revision", "observed": "store-level StaleConversationRevisionError; ctx01-style isolated app: 409 + error code", "verdict": "PASS"},
+    {"id": "manual-compact-api-contract", "required": true, "expected": "endpoint returns revision/retained/summary/tokens_before/after/reduced", "observed": "200 with full payload; summary contains constraint + evidence", "verdict": "PASS"},
+    {"id": "restart-consistency", "required": true, "expected": "fresh store observes compacted state", "observed": "revision + retained ids equal after reopen", "verdict": "PASS"},
+    {"id": "final-payload-bounded", "required": true, "expected": "prompt_messages ordered summary-first; constraint+evidence+latest instruction serialized; token estimate drops", "observed": "asserted on serialized payload", "verdict": "PASS"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": null,
+  "limitations": [
+    "Tier coverage: deterministic store+API tiers green (43 passed incl. plan's six legacy suites). Automatic compaction trigger inside a live request stream (should_compress during /v1/chat/completions streaming), browser manual UI click, real-provider payload budget, and over-budget/failure UI projection remain for manual QA + RP-12; ctx03 already covers maybe_compress halt/degrade decision logic.",
+    "RP-05 cross-worker read regression re-run as part of the plan's command set (test_val02 multiprocess) — green."
+  ]
+}

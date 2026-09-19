@@ -1,0 +1,86 @@
+NX-10 soak 통제 자기시험 — 임시 루트 /var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T//nx10-ctl-selftest-UCRzHs
+  [OK]   ① 살아 있는 예약이 있으면 arm 거부(exit 2)
+  [OK]   ① 거부 사유가 '중복 예약 금지'
+  [OK]   ② 지문 UNVERIFIED 면 arm 거부(exit 2)
+  [OK]   ② 거부 사유가 UNVERIFIED
+docs/qa/2026-09-16-followup/nx10/soak_control.sh: line 1324:  8675 Terminated: 15          bash "$d/schedule_nx10_soak.sh" > "$d/fake.log" 2>&1
+  [OK]   ③ cancel 성공(exit 0)
+  [OK]   ③ cancel 뒤 잔존 프로세스 0건
+  [OK]   ③ '죽음 확인'을 문장으로 남긴다
+docs/qa/2026-09-16-followup/nx10/soak_control.sh: line 1324:  8729 Killed: 9               bash "$d/schedule_nx10_soak.sh" > "$d/fake.log" 2>&1
+  [OK]   ④ TERM 무시 프로세스도 cancel 성공(exit 0)
+  [OK]   ④ KILL 승격을 기록했다
+  [OK]   ④ 승격 뒤 잔존 0건
+  [OK]   ⑤b 잠금 주인을 품은 예약은 건강(exit 0)
+  [OK]   ⑤b 고아 0건
+docs/qa/2026-09-16-followup/nx10/soak_control.sh: line 1324:  8794 Terminated: 15          bash "$d/schedule_nx10_soak.sh" > "$d/fake.log" 2>&1
+  [OK]   ⑦ 이미 soak 이 돌면 러너가 거부(exit 5)
+  [OK]   ⑦ 거부 사유를 증거에 남긴다
+  [OK]   ⑦ 거부된 실행은 리포트를 만들지 않는다
+docs/qa/2026-09-16-followup/nx10/soak_control.sh: line 1324:  8890 Terminated: 15          sleep 60 > "$d/keep.log" 2>&1
+  [OK]   ⑧ 건강한 예약이면 preflight 0
+  [OK]   ⑧ 후보 귀속(현재 트리 == HEAD)까지 본다
+  [OK]   ⑧ 여유 공간 미달이면 preflight 1
+  [OK]   ⑧ 미달 항목을 지목
+  [OK]   ⑧ 이미 soak 이 돌면 preflight 1
+  [OK]   ⑧ 다른 실행을 지목
+docs/qa/2026-09-16-followup/nx10/soak_control.sh: line 1324:  9099 Terminated: 15          sleep 60 > "$d/keep8.log" 2>&1
+  [OK]   ⑧ 지문 불일치면 preflight 1
+  [OK]   ⑧ 지문 불일치를 지목
+docs/qa/2026-09-16-followup/nx10/soak_control.sh: line 1324:  8919 Terminated: 15          bash "$d/schedule_nx10_soak.sh" > "$d/fake.log" 2>&1
+  [OK]   ⑧ 유령 잠금이면 preflight 1
+  [OK]   ⑧ 유령 잠금을 지목
+  [OK]   ⑧ 다른 soak 이 돌면 preflight 1
+  [OK]   ⑧ 도는 프로세스를 pid 로 지목한다
+  [OK]   ⑧ 처리량 하한을 넘으면 preflight 0
+  [OK]   ⑧ 처리량을 ops/s 로 보고한다
+  [OK]   ⑧ 프루브가 리포트를 냈는지 확인한다
+  [OK]   ⑧ 처리량 미달이면 preflight 1
+  [OK]   ⑧ 미달 항목을 지목한다
+  [OK]   ⑧ 프루브가 리포트를 못 내면 preflight 1
+  [OK]   ⑧ 그 사유를 문장으로 남긴다
+  [OK]   ⑧ 예상 쓰기량이 hard cap 을 넘으면 preflight 1
+  [OK]   ⑧ 그 항목을 지목한다
+  [OK]   ⑧ 왜 빨간지(507 거절 → 거짓 FAIL)를 말한다
+  [OK]   ⑧ 넉넉한 캡이면 preflight 0
+  [OK]   ⑧ 투영·캡·프루브 길이를 숫자로 보여준다
+  [OK]   ⑧ 캡 값을 문장으로 남긴다
+  [OK]   ⑨ preflight 실패면 run 거부(exit 2)
+  [OK]   ⑨ 거부 사유를 문장으로 남긴다
+  [OK]   ⑨ 예약이 걸려 있으면 run 거부(exit 2)
+  [OK]   ⑨ 예약을 지목
+docs/qa/2026-09-16-followup/nx10/soak_control.sh: line 1324: 10399 Terminated: 15          bash "$d/schedule_nx10_soak.sh" > "$d/fake.log" 2>&1
+  [OK]   ⑩ (전제) 시험용 지문을 계산했다
+  [OK]   ⑩ 실행 중이면 status 가 RUNNING(exit 0)
+  [OK]   ⑩ 모드를 문장으로 말한다
+  [OK]   ⑩ 남은 초와 종료 예정을 보여준다
+  [OK]   ⑩ 실행 시작 지문을 현재 트리와 나란히 보여준다
+  [OK]   ⑩ 지문이 갈리면 status 가 ATTENTION(exit 1)
+  [OK]   ⑩ 후보 귀속이 끊겼다고 말한다
+  [OK]   ⑤ stale 잠금이면 status 가 1
+  [OK]   ⑤ stale 로 표기
+  [OK]   ⑤ ATTENTION 판정
+  [OK]   ⑥ arm 이 잠금을 잡고 성공(exit 0)
+  [OK]   ⑥ 발화 시각에 스텁 러너가 실행됐다
+  [OK]   ⑥ 시작 뒤 예약 잠금이 해제됐다
+  [OK]   ⑥ 예약 기록에 시작 지문이 남았다
+  [OK]   ⑪ 도는 soak 이 있으면 --no-wait 는 거부(exit 4)
+  [OK]   ⑪ 그 사유가 '끝난 뒤' 임을 말한다
+  [OK]   ⑪ 거부된 회수는 판정기를 실행하지 않는다
+  [OK]   ⑪ 판정기의 exit 를 그대로 전한다(7)
+  [OK]   ⑪ 판정기를 실제로 실행했다
+  [OK]   ⑪ 판정 출력을 파일로 남긴다
+  [OK]   ⑪ 요약에 실행·판정·지문을 모아 보여준다
+  [OK]   ⑪ 시작 == 종료 지문이면 귀속 성립을 말한다
+  [OK]   ⑪ 완성 블록이 없으면 판정하지 않는다(exit 3)
+  [OK]   ⑪ 그 사유를 문장으로 남긴다
+  [OK]   ⑪ 기다렸다가 판정한다(exit 7 = 판정기 exit)
+  [OK]   ⑪ 기다린 사실을 기록한다
+  [OK]   ⑫ 무응답(살아 있지만 안 쓴다)이면 harvest 가 중단(exit 6)
+  [OK]   ⑫ 마지막 쓰기 경과를 숫자로 보여준다
+  [OK]   ⑫ 그대로 두면 8시간이 결과 0 이라고 말한다
+  [OK]   ⑫ 멈춘 실행을 판정하지 않는다
+  [OK]   ⑫ 쓰기가 살아 있으면 무응답으로 몰지 않는다(exit 5 = 대기 초과)
+
+  SOAK_CONTROL_SELFTEST: 75/75 passed
+exit=0

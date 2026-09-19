@@ -5,7 +5,14 @@
  */
 
 import { create } from 'zustand';
+import type { OnMount } from '@monaco-editor/react';
 import { firePluginHook } from '../plugin/pluginRegistry';
+import {
+  createProjectIdentityHeaders,
+  withProjectIdentityPayload,
+} from '../api/projectIdentity';
+
+type MonacoEditor = Parameters<OnMount>[0];
 
 export interface OpenFile {
   path: string;
@@ -21,7 +28,7 @@ export interface EditorState {
   activeFilePath: string | null;
 
   // Monaco editor instance (for overlay widgets, etc.)
-  monacoEditor: any | null;
+  monacoEditor: MonacoEditor | null;
 
   // Preview
   previewVisible: boolean;
@@ -33,12 +40,13 @@ export interface EditorState {
   openFile: (path: string, name: string, content: string, language?: string) => void;
   closeFile: (path: string) => void;
   setActiveFile: (path: string) => void;
-  setMonacoEditor: (editor: any | null) => void;
+  setMonacoEditor: (editor: MonacoEditor | null) => void;
   updateFileContent: (path: string, content: string) => void;
   markFileSaved: (path: string) => void;
 
   // Actions (continued)
   saveFile: (path: string) => Promise<boolean>;
+  clearForProjectSwitch: () => void;
 
   // Preview
   showPreview: (path: string, title: string, content: string) => void;
@@ -140,11 +148,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       const res = await fetch('/api/fs/write', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: file.path, content: file.content }),
+        headers: createProjectIdentityHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(withProjectIdentityPayload({ path: file.path, content: file.content })),
       });
-      const data = await res.json();
-      if (data.ok) {
+      if (!res.ok) return false;
+      const data: unknown = await res.json();
+      if (data !== null && typeof data === 'object' && 'ok' in data && data.ok === true) {
         get().markFileSaved(path);
         return true;
       }
@@ -152,6 +161,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } catch {
       return false;
     }
+  },
+
+  clearForProjectSwitch: () => {
+    set({
+      openFiles: [],
+      activeFilePath: null,
+      previewVisible: false,
+      previewPath: null,
+      previewTitle: '',
+      previewContent: '',
+    });
   },
 
   showPreview: (path, title, content) => {

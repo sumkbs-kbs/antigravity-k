@@ -5,9 +5,14 @@ Uses Typer's CliRunner to invoke the command and verify output.
 
 from __future__ import annotations
 
+from typing import final
+
+import pytest
 from typer.testing import CliRunner
 
 from antigravity_k.cli import app
+from antigravity_k.engine.model_registry import ModelProfile
+from antigravity_k.engine.provider_capabilities import ProviderCapability
 
 runner = CliRunner()
 
@@ -75,11 +80,18 @@ class TestDoctorCommand:
         result = runner.invoke(app, ["doctor"])
         assert "Model" in result.output or "registry" in result.output.lower()
 
-    def test_doctor_uses_capability_probe_for_local_model_health(self, monkeypatch):
+    def test_doctor_uses_capability_probe_for_local_model_health(self, monkeypatch: pytest.MonkeyPatch):
         """로컬 모델 헬스는 ProviderCapabilityProbe 결과로 표시한다."""
         from antigravity_k.engine.provider_capabilities import LocalProviderCapabilityProbe
 
-        def fake_observe(self, profile, *, refresh=False):
+        def fake_observe(
+            self: LocalProviderCapabilityProbe,
+            profile: ModelProfile,
+            *,
+            refresh: bool = False,
+        ) -> ProviderCapability:
+            _ = self
+            _ = refresh
             status = "available" if profile.backend == "mlx" else "unavailable"
             detail = (
                 "LM Studio server reachable; configured model identifiers are not loaded."
@@ -116,12 +128,17 @@ class TestDoctorCommand:
         result = runner.invoke(app, ["--help"])
         assert "doctor" in result.output
 
-    def test_run_command_uses_agent_runtime(self, monkeypatch):
+    def test_run_command_uses_agent_runtime(self, monkeypatch: pytest.MonkeyPatch):
         from antigravity_k.api import dependencies
         from antigravity_k.engine.agent_runtime import TrackedStream
 
+        @final
         class Runtime:
-            def start_stream(self, messages, target_model=""):
+            def start_stream(
+                self,
+                messages: list[dict[str, str]],
+                target_model: str = "",
+            ) -> TrackedStream:
                 assert messages == [{"role": "user", "content": "hello"}]
                 assert target_model == "local-test"
                 return TrackedStream(task_id="direct_cli_001", chunks=iter(["runtime output"]))

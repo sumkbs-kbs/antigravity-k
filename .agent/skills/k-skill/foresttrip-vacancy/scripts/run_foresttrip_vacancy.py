@@ -15,14 +15,14 @@ import argparse
 import concurrent.futures
 import json
 import os
-import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast
 
 LOGIN_URL = "https://www.foresttrip.go.kr/com/login.do"
 RSRVT_PAGE = "https://www.foresttrip.go.kr/rep/or/sssn/monthRsrvtSmplStatus.do"
@@ -31,6 +31,40 @@ DEFAULT_CONCURRENCY = 4
 MAX_CONCURRENCY = 5
 DEFAULT_WEEK_RANGE = 1
 CATEGORY_CODES = {"01", "02"}
+
+Payload = dict[str, object]
+
+
+def _as_mapping(value: object) -> Payload:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_mapping_list(value: object) -> list[Payload]:
+    if not isinstance(value, list):
+        return []
+    return [_as_mapping(cast(object, item)) for item in cast(list[object], value) if isinstance(item, Mapping)]
+
+
+def _as_text(value: object, default: str = "") -> str:
+    if value is None:
+        return default
+    return value if isinstance(value, str) else str(value)
+
+
+def _as_str_map(value: object) -> dict[str, str]:
+    mapping = _as_mapping(value)
+    return {key: _as_text(item) for key, item in mapping.items()}
+
+
+class _HTTPResponse(Protocol):
+    status: int
+
+    def read(self) -> bytes: ...
+
+    def close(self) -> None: ...
 
 
 @dataclass
@@ -103,54 +137,59 @@ def parse_args() -> argparse.Namespace:
         description="Read-only foresttrip.go.kr vacancy lookup.",
     )
     target = parser.add_argument_group("target selection")
-    target.add_argument("--all", action="store_true", help="Scan all extracted forest IDs.")
-    target.add_argument(
+    _ = target.add_argument("--all", action="store_true", help="Scan all extracted forest IDs.")
+    _ = target.add_argument(
         "--forest-id",
         action="append",
         help="ForestTrip insttId. Can be passed multiple times or comma-separated.",
     )
-    target.add_argument(
+    _ = target.add_argument(
         "--forest-name",
         action="append",
         help="Substring to match against official forest names.",
     )
 
     output = parser.add_mutually_exclusive_group()
-    output.add_argument("--json", action="store_true", help="Print JSON output.")
-    output.add_argument("--text", action="store_true", help="Print human-readable output.")
-    parser.add_argument("--dates", type=parse_dates, help="Comma-separated YYYYMMDD dates.")
-    parser.add_argument(
+    _ = output.add_argument("--json", action="store_true", help="Print JSON output.")
+    _ = output.add_argument("--text", action="store_true", help="Print human-readable output.")
+    _ = parser.add_argument("--dates", type=parse_dates, help="Comma-separated YYYYMMDD dates.")
+    _ = parser.add_argument(
         "--categories",
         type=parse_categories,
         default=("01", "02"),
         help="Comma-separated category codes: 01=lodging, 02=camping.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--concurrency",
         type=parse_concurrency,
         default=DEFAULT_CONCURRENCY,
         help=f"Parallel POST workers, 1-{MAX_CONCURRENCY}.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--week-range",
         type=parse_week_range,
         help="Weeks ahead to scan when --dates is omitted.",
     )
-    parser.add_argument("--refresh-session", action="store_true", help="Ignore session cache.")
-    parser.add_argument(
+    _ = parser.add_argument("--refresh-session", action="store_true", help="Ignore session cache.")
+    _ = parser.add_argument(
         "--check-deps",
         action="store_true",
         help="Check Python and Playwright runtime dependencies.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--session-cache",
         default="~/.cache/k-skill/foresttrip-vacancy/session.json",
         help="Session cache path.",
     )
     args = parser.parse_args()
-    if args.all and (args.forest_id or args.forest_name):
+    all_targets = cast(bool, getattr(args, "all", False))
+    forest_ids = cast(list[str] | None, getattr(args, "forest_id", None))
+    forest_names = cast(list[str] | None, getattr(args, "forest_name", None))
+    dates = cast(tuple[str, ...] | None, getattr(args, "dates", None))
+    week_range = cast(int | None, getattr(args, "week_range", None))
+    if all_targets and (forest_ids or forest_names):
         parser.error("--all cannot be combined with --forest-id or --forest-name")
-    if args.dates and args.week_range is not None:
+    if dates and week_range is not None:
         parser.error("--week-range cannot be combined with --dates; the lookup range is derived from --dates")
     return args
 
@@ -163,8 +202,6 @@ def require_env(name: str) -> str:
 
 
 def check_dependencies(*, launch_browser: bool = True) -> None:
-    if sys.version_info < (3, 9):
-        raise SystemExit("python 3.9+ is required")
     try:
         from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
@@ -188,15 +225,15 @@ def load_session_cache(path: Path) -> Session | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if time.time() > float(data.get("expires_at", 0)):
+        data = _as_mapping(cast(object, json.loads(path.read_text(encoding="utf-8"))))
+        if time.time() > cast(float, data.get("expires_at", 0.0)):
             return None
         return Session(
-            cookies=dict(data["cookies"]),
-            csrf=str(data["csrf"]),
-            user_agent=str(data["user_agent"]),
-            forests=dict(data["forests"]),
-            expires_at=float(data["expires_at"]),
+            cookies=_as_str_map(data.get("cookies")),
+            csrf=_as_text(data.get("csrf")),
+            user_agent=_as_text(data.get("user_agent")),
+            forests=_as_str_map(data.get("forests")),
+            expires_at=cast(float, data["expires_at"]),
         )
     except Exception:
         return None
@@ -204,9 +241,9 @@ def load_session_cache(path: Path) -> Session | None:
 
 def save_session_cache(path: Path, session: Session) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(asdict(session), ensure_ascii=False), encoding="utf-8")
+    _ = path.write_text(json.dumps(asdict(session), ensure_ascii=False), encoding="utf-8")
     try:
-        path.chmod(0o600)
+        _ = path.chmod(0o600)
     except OSError:
         pass
 
@@ -218,7 +255,7 @@ def bootstrap_session(*, forest_id: str, forest_pw: str, ttl_sec: int = 600) -> 
     except ImportError as exc:
         raise SystemExit(
             "playwright is required. Install with: python3 -m pip install playwright "
-            "&& python3 -m playwright install chromium"
+            + "&& python3 -m playwright install chromium"
         ) from exc
 
     with sync_playwright() as p:
@@ -229,12 +266,12 @@ def bootstrap_session(*, forest_id: str, forest_pw: str, ttl_sec: int = 600) -> 
                 "playwright chromium browser is required. Install with: python3 -m playwright install chromium"
             ) from exc
         page = browser.new_page()
-        page.goto(LOGIN_URL)
+        _ = page.goto(LOGIN_URL)
         page.fill("#mmberId", forest_id)
         page.fill("#gnrlMmberPssrd", forest_pw)
         page.click("input.loginBtn")
         page.wait_for_load_state("networkidle")
-        page.goto(RSRVT_PAGE)
+        _ = page.goto(RSRVT_PAGE)
         page.wait_for_load_state("networkidle")
 
         csrf_locator = page.locator('input[name="_csrf"]')
@@ -244,34 +281,38 @@ def bootstrap_session(*, forest_id: str, forest_pw: str, ttl_sec: int = 600) -> 
         csrf = csrf_locator.first.get_attribute("value") or ""
 
         forests: dict[str, str] = {}
-        regions = page.evaluate(
+        regions = _as_mapping_list(cast(object, page.evaluate(
             """
             () => Array.from(document.querySelector('#srchSido').options)
               .slice(1)
               .map(o => ({ value: o.value, text: o.textContent.trim() }))
             """
-        )
+        )))
         for region in regions:
-            value = region.get("value")
+            value = _as_text(region.get("value"))
             if not value:
                 continue
-            page.select_option("#srchSido", value=value)
+            _ = page.select_option("#srchSido", value=value)
             page.wait_for_timeout(500)
-            options = page.evaluate(
+            options = _as_mapping_list(cast(object, page.evaluate(
                 """
                 () => Array.from(document.querySelector('#srchInstt').options)
                   .slice(1)
                   .map(o => ({ value: o.value, text: o.textContent.trim() }))
                 """
-            )
+            )))
             for opt in options:
-                fid = str(opt.get("value") or "").strip()
-                name = str(opt.get("text") or "").strip()
+                fid = _as_text(opt.get("value")).strip()
+                name = _as_text(opt.get("text")).strip()
                 if fid and name:
                     forests[fid] = name
 
-        cookies = {cookie["name"]: cookie["value"] for cookie in page.context.cookies()}
-        user_agent = page.evaluate("() => navigator.userAgent")
+        cookies = {
+            str(cookie.get("name")): str(cookie.get("value", ""))
+            for cookie in page.context.cookies()
+            if cookie.get("name")
+        }
+        user_agent = cast(str, page.evaluate("() => navigator.userAgent"))
         browser.close()
 
     if not csrf or not cookies:
@@ -288,8 +329,8 @@ def bootstrap_session(*, forest_id: str, forest_pw: str, ttl_sec: int = 600) -> 
 
 
 def get_session(args: argparse.Namespace) -> Session:
-    cache_path = Path(args.session_cache).expanduser()
-    if not args.refresh_session:
+    cache_path = Path(cast(str, getattr(args, "session_cache", ""))).expanduser()
+    if not cast(bool, getattr(args, "refresh_session", False)):
         cached = load_session_cache(cache_path)
         if cached is not None:
             return cached
@@ -309,11 +350,14 @@ def split_csv(values: list[str] | None) -> list[str]:
 
 
 def resolve_targets(args: argparse.Namespace, forests: dict[str, str]) -> dict[str, str]:
-    if args.all:
+    all_targets = cast(bool, getattr(args, "all", False))
+    forest_ids = cast(list[str] | None, getattr(args, "forest_id", None))
+    forest_names = cast(list[str] | None, getattr(args, "forest_name", None))
+    if all_targets:
         return dict(sorted(forests.items(), key=lambda item: item[1]))
 
-    requested_ids = split_csv(args.forest_id)
-    requested_names = split_csv(args.forest_name)
+    requested_ids = split_csv(forest_ids)
+    requested_names = split_csv(forest_names)
     targets: dict[str, str] = {}
     for fid in requested_ids:
         targets[fid] = forests.get(fid, fid)
@@ -348,7 +392,7 @@ def fetch_one(
     category: str,
     today: str,
     last_day: str,
-) -> tuple[str, str, list[dict[str, Any]] | None, str | None]:
+) -> tuple[str, str, list[Payload] | None, str | None]:
     payload = {
         "insttId": forest_id,
         "upperGoodsClsscCd": category,
@@ -364,24 +408,27 @@ def fetch_one(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        response = cast(_HTTPResponse, urllib.request.urlopen(request, timeout=30))
+        try:
             if response.status != 200:
                 return forest_id, category, None, f"http_{response.status}"
-            data = json.loads(response.read().decode("utf-8"))
+            data = cast(object, json.loads(response.read().decode("utf-8")))
             if isinstance(data, list):
-                return forest_id, category, data, None
+                return forest_id, category, _as_mapping_list(cast(object, data)), None
             return forest_id, category, None, "unexpected_payload"
+        finally:
+            response.close()
     except urllib.error.HTTPError as exc:
         return forest_id, category, None, f"http_{exc.code}"
     except Exception as exc:
         return forest_id, category, None, str(exc)
 
 
-def is_available(row: dict[str, Any]) -> bool:
+def is_available(row: Payload) -> bool:
     return row.get("rsrvtAvail") == "Y" and row.get("rsrvtCnt") == 0
 
 
-def normalize_row(row: dict[str, Any], forests: dict[str, str]) -> dict[str, Any]:
+def normalize_row(row: Payload, forests: dict[str, str]) -> Payload:
     instt_id = str(row.get("insttId") or "")
     return {
         "forest_id": instt_id,
@@ -405,13 +452,13 @@ def collect_results(
     dates: tuple[str, ...] | None,
     week_range: int | None,
     concurrency: int,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     now = datetime.now()
     today = now.strftime("%Y%m%d")
     last_day = max(dates) if dates else (now + timedelta(weeks=week_range or DEFAULT_WEEK_RANGE)).strftime("%Y%m%d")
     date_filter = set(dates) if dates else None
     failures: list[dict[str, str]] = []
-    rows: list[dict[str, Any]] = []
+    rows: list[Payload] = []
 
     jobs = [(forest_id, category) for forest_id in targets for category in categories]
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
@@ -445,9 +492,11 @@ def collect_results(
                     continue
                 rows.append(normalized)
 
-    grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
-    for row in sorted(rows, key=lambda item: (item["forest"], item["use_dt"], item["name"])):
-        grouped.setdefault(row["forest"], {}).setdefault(row["use_dt"], []).append(row)
+    grouped: dict[str, dict[str, list[Payload]]] = {}
+    for row in sorted(rows, key=lambda item: (str(item["forest"]), str(item["use_dt"]), str(item["name"]))):
+        forest_name = str(row["forest"])
+        use_dt = str(row["use_dt"])
+        grouped.setdefault(forest_name, {}).setdefault(use_dt, []).append(row)
 
     return {
         "forests_scanned": len(targets),
@@ -466,45 +515,52 @@ def collect_results(
     }
 
 
-def print_text(payload: dict[str, Any]) -> None:
+def print_text(payload: dict[str, object]) -> None:
     print("=== ForestTrip Vacancy Lookup ===")
     print(
         f"filter_hits: {payload['filter_hits']}   "
-        f"fetch_failures: {payload['fetch_failures']}   "
-        f"forests_scanned: {payload['forests_scanned']}"
+        + f"fetch_failures: {payload['fetch_failures']}   "
+        + f"forests_scanned: {payload['forests_scanned']}"
     )
     if not payload["results"]:
         print("(no available rooms at lookup time)")
         return
-    for forest in payload["results"]:
-        print(f"\n{forest['forest']}")
-        for date_group in forest["dates"]:
-            rooms = date_group["rooms"]
-            print(f"  {date_group['use_dt']} - {len(rooms)} slot(s)")
+    for forest in _as_mapping_list(payload.get("results")):
+        print(f"\n{_as_text(forest.get('forest'))}")
+        for date_group in _as_mapping_list(forest.get("dates")):
+            rooms = _as_mapping_list(date_group.get("rooms"))
+            print(f"  {_as_text(date_group.get('use_dt'))} - {len(rooms)} slot(s)")
             for room in rooms[:8]:
-                capacity = room["capacity"] if room["capacity"] is not None else "?"
-                area = room["area"] if room["area"] is not None else "?"
-                print(f"    - {room['name']} / {room['category']} / {area}sqm / max {capacity}")
+                capacity = room.get("capacity") if room.get("capacity") is not None else "?"
+                area = room.get("area") if room.get("area") is not None else "?"
+                print(f"    - {_as_text(room.get('name'))} / {_as_text(room.get('category'))} / {area}sqm / max {capacity}")
 
 
 def main() -> int:
     args = parse_args()
-    if args.check_deps:
+    check_deps = cast(bool, getattr(args, "check_deps", False))
+    if check_deps:
         check_dependencies()
         print("foresttrip-vacancy dependencies look ready")
         return 0
     session = get_session(args)
     targets = resolve_targets(args, session.forests)
+    categories = cast(tuple[str, ...], getattr(args, "categories", ("01", "02")))
+    dates = cast(tuple[str, ...] | None, getattr(args, "dates", None))
+    week_range = cast(int | None, getattr(args, "week_range", None))
+    concurrency = cast(int, getattr(args, "concurrency", DEFAULT_CONCURRENCY))
     payload = collect_results(
         session=session,
         targets=targets,
-        categories=args.categories,
-        dates=args.dates,
-        week_range=args.week_range,
-        concurrency=args.concurrency,
+        categories=categories,
+        dates=dates,
+        week_range=week_range,
+        concurrency=concurrency,
     )
 
-    if args.text and not args.json:
+    text_output = cast(bool, getattr(args, "text", False))
+    json_output = cast(bool, getattr(args, "json", False))
+    if text_output and not json_output:
         print_text(payload)
     else:
         print(json.dumps(payload, ensure_ascii=False, indent=2))

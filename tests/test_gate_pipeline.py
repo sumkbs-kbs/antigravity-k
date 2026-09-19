@@ -7,11 +7,13 @@ and individual gates (RateLimitGate, CostBudgetGate, ApprovalGate).
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from collections.abc import Callable
+from typing import Protocol, cast
 
 import pytest
 
 from antigravity_k.engine.gate_pipeline import (
+    ExecutionGate,
     GateAction,
     GateContext,
     GateDecision,
@@ -19,6 +21,52 @@ from antigravity_k.engine.gate_pipeline import (
     RateLimitGate,
     ResumeKind,
 )
+
+
+class _GateMethod:
+    def __init__(self) -> None:
+        self.return_value: object = None
+        self.side_effect: Callable[..., object] | BaseException | None = None
+        self.call_count: int = 0
+
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        self.call_count += 1
+        effect = self.side_effect
+        if isinstance(effect, BaseException):
+            raise effect
+        if effect is not None:
+            return effect(*args, **kwargs)
+        return self.return_value
+
+
+class _ConfigurableGate(Protocol):
+    name: _GateMethod
+    priority: _GateMethod
+    evaluate: _GateMethod
+
+
+class _GateDouble:
+    def __init__(self) -> None:
+        self.name: _GateMethod = _GateMethod()
+        self.priority: _GateMethod = _GateMethod()
+        self.evaluate: _GateMethod = _GateMethod()
+
+
+def _mock_gate() -> _ConfigurableGate:
+    return _GateDouble()
+
+
+def _as_execution_gate(gate: _ConfigurableGate) -> ExecutionGate:
+    return cast(ExecutionGate, cast(object, gate))
+
+
+def _record_and_allow(call_order: list[str], label: str) -> Callable[..., object]:
+    def callback(*_args: object, **_kwargs: object) -> object:
+        call_order.append(label)
+        return GateDecision()
+
+    return callback
+
 
 # ---------------------------------------------------------------------------
 # GateDecision / GateAction
@@ -69,7 +117,7 @@ class TestGateDecision:
         """GateDecision is frozen — attributes cannot be reassigned."""
         d = GateDecision()
         with pytest.raises(AttributeError):
-            d.action = GateAction.DENY  # type: ignore[misc]
+            setattr(d, "action", GateAction.DENY)
 
 
 # ---------------------------------------------------------------------------
@@ -123,89 +171,89 @@ class TestGatePipeline:
 
     def test_single_allowing_gate(self):
         """A gate that returns ALLOW lets the pipeline pass."""
-        gate = MagicMock()
+        gate = _mock_gate()
         gate.name.return_value = "test_gate"
         gate.priority.return_value = 10
         gate.evaluate.return_value = GateDecision(action=GateAction.ALLOW)
 
-        pipeline = GatePipeline().add_gate(gate)
+        pipeline = GatePipeline().add_gate(_as_execution_gate(gate))
         decision = pipeline.evaluate(GateContext(tool_name="x"))
         assert decision.is_allowed
 
     def test_single_denying_gate_short_circuits(self):
         """A gate that returns DENY short-circuits the pipeline."""
-        gate = MagicMock()
+        gate = _mock_gate()
         gate.name.return_value = "blocker"
         gate.priority.return_value = 10
         gate.evaluate.return_value = GateDecision(action=GateAction.DENY, reason="no")
 
-        pipeline = GatePipeline().add_gate(gate)
+        pipeline = GatePipeline().add_gate(_as_execution_gate(gate))
         decision = pipeline.evaluate(GateContext(tool_name="x"))
         assert decision.is_denied
         assert decision.reason == "no"
 
     def test_priority_ordering(self):
         """Gates are evaluated in priority order (lower number = higher priority)."""
-        call_order = []
+        call_order: list[str] = []
 
-        gate_low = MagicMock()
+        gate_low = _mock_gate()
         gate_low.name.return_value = "high_priority"
         gate_low.priority.return_value = 1
-        gate_low.evaluate.side_effect = lambda ctx: call_order.append("first") or GateDecision()
+        gate_low.evaluate.side_effect = _record_and_allow(call_order, "first")
 
-        gate_high = MagicMock()
+        gate_high = _mock_gate()
         gate_high.name.return_value = "low_priority"
         gate_high.priority.return_value = 100
-        gate_high.evaluate.side_effect = lambda ctx: call_order.append("second") or GateDecision()
+        gate_high.evaluate.side_effect = _record_and_allow(call_order, "second")
 
-        pipeline = GatePipeline().add_gate(gate_high).add_gate(gate_low)
-        pipeline.evaluate(GateContext(tool_name="x"))
+        pipeline = GatePipeline().add_gate(_as_execution_gate(gate_high)).add_gate(_as_execution_gate(gate_low))
+        _ = pipeline.evaluate(GateContext(tool_name="x"))
 
         assert call_order == ["first", "second"]
 
     def test_short_circuit_skips_lower_priority(self):
         """When a high-priority gate denies, lower-priority gates are not called."""
-        gate1 = MagicMock()
+        gate1 = _mock_gate()
         gate1.name.return_value = "gate1"
         gate1.priority.return_value = 1
         gate1.evaluate.return_value = GateDecision(action=GateAction.DENY)
 
-        gate2 = MagicMock()
+        gate2 = _mock_gate()
         gate2.name.return_value = "gate2"
         gate2.priority.return_value = 2
         gate2.evaluate.return_value = GateDecision()
 
-        pipeline = GatePipeline().add_gate(gate2).add_gate(gate1)
-        pipeline.evaluate(GateContext(tool_name="x"))
+        pipeline = GatePipeline().add_gate(_as_execution_gate(gate2)).add_gate(_as_execution_gate(gate1))
+        _ = pipeline.evaluate(GateContext(tool_name="x"))
 
-        gate2.evaluate.assert_not_called()
+        assert gate2.evaluate.call_count == 0
 
     def test_gate_error_fail_open(self):
         """If a gate raises an exception, the pipeline continues (fail-open)."""
-        bad_gate = MagicMock()
+        bad_gate = _mock_gate()
         bad_gate.name.return_value = "bad"
         bad_gate.priority.return_value = 1
         bad_gate.evaluate.side_effect = RuntimeError("gate crashed")
 
-        good_gate = MagicMock()
+        good_gate = _mock_gate()
         good_gate.name.return_value = "good"
         good_gate.priority.return_value = 2
         good_gate.evaluate.return_value = GateDecision(action=GateAction.ALLOW)
 
-        pipeline = GatePipeline().add_gate(bad_gate).add_gate(good_gate)
+        pipeline = GatePipeline().add_gate(_as_execution_gate(bad_gate)).add_gate(_as_execution_gate(good_gate))
         decision = pipeline.evaluate(GateContext(tool_name="x"))
         assert decision.is_allowed
 
     def test_list_gates(self):
         """list_gates returns name and priority of each gate."""
-        g1 = MagicMock()
+        g1 = _mock_gate()
         g1.name.return_value = "alpha"
         g1.priority.return_value = 5
-        g2 = MagicMock()
+        g2 = _mock_gate()
         g2.name.return_value = "beta"
         g2.priority.return_value = 10
 
-        pipeline = GatePipeline().add_gate(g1).add_gate(g2)
+        pipeline = GatePipeline().add_gate(_as_execution_gate(g1)).add_gate(_as_execution_gate(g2))
         gates = pipeline.list_gates()
         assert len(gates) == 2
         assert gates[0]["name"] == "alpha"
@@ -214,7 +262,7 @@ class TestGatePipeline:
     def test_add_gate_returns_self_for_chaining(self):
         """add_gate returns the pipeline for method chaining."""
         pipeline = GatePipeline()
-        result = pipeline.add_gate(MagicMock())
+        result = pipeline.add_gate(_as_execution_gate(_mock_gate()))
         assert result is pipeline
 
 
@@ -241,6 +289,30 @@ class TestRateLimitGate:
         decision = gate.evaluate(ctx)
         assert decision.is_allowed
 
+    def test_skips_before_call_when_guardrail_prechecked(self):
+        """A4: tool_loop pre-check must not re-run before_call on allow path."""
+        from unittest.mock import MagicMock
+
+        guardrails = MagicMock()
+        guardrails.before_call.return_value = MagicMock(should_halt=False, message="", code="allow")
+        gate = RateLimitGate(guardrails=guardrails)
+
+        decision = gate.evaluate(GateContext(tool_name="read_file", args={"path": "/x"}, guardrail_prechecked=True))
+        assert decision.is_allowed
+        guardrails.before_call.assert_not_called()
+
+    def test_runs_before_call_when_not_prechecked(self):
+        """Direct executor paths still evaluate before_call via RateLimitGate."""
+        from unittest.mock import MagicMock
+
+        guardrails = MagicMock()
+        guardrails.before_call.return_value = MagicMock(should_halt=False, message="", code="allow")
+        gate = RateLimitGate(guardrails=guardrails)
+
+        decision = gate.evaluate(GateContext(tool_name="read_file", args={"path": "/x"}))
+        assert decision.is_allowed
+        guardrails.before_call.assert_called_once_with("read_file", {"path": "/x"})
+
 
 # ---------------------------------------------------------------------------
 # Integration: realistic pipeline
@@ -252,7 +324,7 @@ class TestPipelineIntegration:
 
     def test_approval_gate_pauses_high_risk_tool(self):
         """A mock approval gate can pause execution for user approval."""
-        approval_gate = MagicMock()
+        approval_gate = _mock_gate()
         approval_gate.name.return_value = "approval"
         approval_gate.priority.return_value = 50
         approval_gate.evaluate.return_value = GateDecision(
@@ -262,7 +334,7 @@ class TestPipelineIntegration:
             allow_always=True,
         )
 
-        pipeline = GatePipeline().add_gate(approval_gate)
+        pipeline = GatePipeline().add_gate(_as_execution_gate(approval_gate))
         decision = pipeline.evaluate(GateContext(tool_name="delete_database"))
         assert decision.is_paused
         assert decision.resume_kind == ResumeKind.APPROVAL
@@ -270,19 +342,19 @@ class TestPipelineIntegration:
 
     def test_rate_limit_denies_before_approval(self):
         """Rate limit (priority 10) denies before approval gate (priority 50)."""
-        rate_gate = MagicMock()
+        rate_gate = _mock_gate()
         rate_gate.name.return_value = "rate_limit"
         rate_gate.priority.return_value = 10
         rate_gate.evaluate.return_value = GateDecision(action=GateAction.DENY, reason="Rate exceeded")
 
-        approval_gate = MagicMock()
+        approval_gate = _mock_gate()
         approval_gate.name.return_value = "approval"
         approval_gate.priority.return_value = 50
         approval_gate.evaluate.return_value = GateDecision(action=GateAction.PAUSE)
 
-        pipeline = GatePipeline().add_gate(approval_gate).add_gate(rate_gate)
+        pipeline = GatePipeline().add_gate(_as_execution_gate(approval_gate)).add_gate(_as_execution_gate(rate_gate))
         decision = pipeline.evaluate(GateContext(tool_name="api_call"))
         assert decision.is_denied
         assert "Rate exceeded" in decision.reason
         # Approval gate was never reached.
-        approval_gate.evaluate.assert_not_called()
+        assert approval_gate.evaluate.call_count == 0

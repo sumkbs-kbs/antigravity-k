@@ -1,6 +1,6 @@
 ---
 name: antigravity-agent-cron
-description: Antigravity-K의 Cron 스케줄 설정 — 금리/시장 리포트, 포트폴리오 분석, Memory 정리 등 자동화된 업무
+description: Ssak-Ai의 Cron 스케줄 설정 — 금리/시장 리포트, 포트폴리오 분석, Memory 정리 등 자동화된 업무
 version: "1.0.0"
 tags: [cron, schedule, automation, workflow]
 triggers: ["cron", "스케줄", "자동", "정기작업"]
@@ -22,7 +22,7 @@ context_from: ["previous-cron-job-id"]  # 이전 리포트 이어받기
 ```yaml
 schedule: 0 0 * * *
 name: 포트폴리오 영향 분석
-prompt: "오늘의 금융시장 동향이 Antigravity-K의 관련 기업에 미칠 영향 분석"
+prompt: "오늘의 금융시장 동향이 Ssak-Ai의 관련 기업에 미칠 영향 분석"
 deliver: telegram
 ```
 
@@ -38,7 +38,7 @@ deliver: local  # 파일만 저장
 ```yaml
 schedule: 0 11 1 * *
 name: Memory/User 정리
-prompt: "/Users/mr.k/program/coding/ssak_comp/antigravity-k/.agent/skills/antigravity-agent/MEMORY.md 검토 및 정리 요청"
+prompt: "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.agent/skills/antigravity-agent/MEMORY.md 검토 및 정리 요청"
 deliver: local
 ```
 

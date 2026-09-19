@@ -1,0 +1,22 @@
+{
+  "label": "after",
+  "sequential_two_instance": {
+    "session_id": "f1807945_a8c30a3ded5f4ec38e3dc64eedf80f02",
+    "file_after_create": true,
+    "b_loaded_same_id": true,
+    "deleted_count": 1,
+    "files_after_clear": [],
+    "file_after_clear": false,
+    "tombstones_after_clear": [
+      "f1807945_a8c30a3ded5f4ec38e3dc64eedf80f02.json"
+    ],
+    "b_save_succeeded": false,
+    "b_save_error": "SessionDeletedError",
+    "file_after_b_save": false,
+    "marker_present_after_b_save": false,
+    "restart_resumed_id": "f1807945_25b8d11c9bf7452fbcc29ed6a9646c85",
+    "restart_resumed_original": false,
+    "restart_messages": [],
+    "marker_present_after_restart": false
+  }
+}

@@ -1,0 +1,10 @@
+# NX-00: is the wrapper log a truncated stdout stream of the harness print()?
+# cwd: .omo/evidence/commercial-reliability/CR-14/ex-2026-09-15/soak
+
+log lines: 515 artifact lines: 484210
+log[0] (wrapper start): 'starting 2026-09-15T15:08:33+09:00'
+log body lines: 513 | log[-1] (wrapper): '  finished exit:141'
+log body is exact prefix of artifact JSON: True
+log body last line: '        75.8,' | artifact line at that index: '        75.8,'
+artifact bytes: 6244278 | log bytes: 8245
+consumed fraction of stdout stream: 0.1059%

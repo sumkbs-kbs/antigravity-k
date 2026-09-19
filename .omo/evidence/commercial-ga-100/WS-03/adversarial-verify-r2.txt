@@ -1,0 +1,25 @@
+# WS-03 ws_03_verify r2 adversarial probes (independent)
+When: 2026-09-06T10:45+09:00
+HEAD tip: d6713e7a327d24ff3f7d738effbc81c25087f966
+Fix SHA: bf00b1e2ef153a2c02205d920e327d3519f22e23
+Prior REJECT tip: b3e48344b8fd9ed27d8090ef8f4817285b6a27a2
+
+pytest /tmp/ws03_verify_r2_adversarial.py -q
+.........                                                                [100%]
+9 passed in 1.88s
+
+F1 PASS: get_session_manager() is ProjectRuntime.session_manager; distinct A/B; base_dir under project root
+F2 PASS: A→B resume does not leak SECRET_FROM_PROJECT_A_ONLY_xyz_VERIFY_R2; A→B→A restores; sid distinct
+F3 PASS: slash registries distinct; each bound to own agent_runtime; A sticky pointer preserved
+F4 PASS: orchestrators distinct by project_id
+F5 PASS: clear(all) on A leaves B search_cache (+ B vector marker when chroma available)
+F6 PASS: factory wires non-None RAGIndexer; orch VaultEngine distinct under each project root
+F7 PASS: scheduled_job_service distinct; submit_agent matches project agent_runtime
+EXTRA PASS: sessions not under repo cwd .antigravity/sessions
+EXTRA PASS: A clear does not delete repo cwd vault_data marker
+
+Residual noted (non-blocking): get_vault_engine() process singleton for vault REST/subagent
+Official suite (reviewer): 15 passed
+Regression (reviewer): 51 passed
+Ruff (reviewer): clean
+Verdict: APPROVE

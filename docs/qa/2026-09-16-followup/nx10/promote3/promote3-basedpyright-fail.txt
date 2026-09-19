@@ -1,0 +1,221 @@
+=== python-basedpyright (exit 1) ===
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch.py:476:104 - error: "allowed_rate" is possibly unbound (reportPossiblyUnboundVariable)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch.py:478:67 - error: "allowed_rate" is possibly unbound (reportPossiblyUnboundVariable)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:39:8 - error: Import from `soak_watch` is implicitly relative and will not work if this file is imported as a module
+    Use a relative import from `.soak_watch` instead
+    or specify the full module path: `scripts.soak_watch` (reportImplicitRelativeImport)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:96:32 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:96:50 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:163:17 - error: Operator "-" not supported for types "object | Literal[0]" and "object | Literal[0]"
+    Operator "-" not supported for types "object" and "object"
+    Operator "-" not supported for types "object" and "Literal[0]"
+    Operator "-" not supported for types "Literal[0]" and "object" (reportOperatorIssue)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:164:31 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:164:50 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:169:50 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:186:64 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:189:28 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:189:54 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:190:58 - error: Argument of type "object | Literal[0]" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object | Literal[0]" is not assignable to type "ConvertibleToFloat"
+      Type "object" is not assignable to type "ConvertibleToFloat"
+        "object" is not assignable to "str"
+        "object" is incompatible with protocol "Buffer"
+          "__buffer__" is not present
+        "object" is incompatible with protocol "SupportsFloat"
+          "__float__" is not present
+        "object" is incompatible with protocol "SupportsIndex"
+    ... (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:190:58 - error: Argument of type "object | Literal[0]" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object | Literal[0]" is not assignable to type "ConvertibleToFloat"
+      Type "object" is not assignable to type "ConvertibleToFloat"
+        "object" is not assignable to "str"
+        "object" is incompatible with protocol "Buffer"
+          "__buffer__" is not present
+        "object" is incompatible with protocol "SupportsFloat"
+          "__float__" is not present
+        "object" is incompatible with protocol "SupportsIndex" (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:191:48 - error: Argument of type "object | Literal[0]" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object | Literal[0]" is not assignable to type "ConvertibleToFloat"
+      Type "object" is not assignable to type "ConvertibleToFloat"
+        "object" is not assignable to "str"
+        "object" is incompatible with protocol "Buffer"
+          "__buffer__" is not present
+        "object" is incompatible with protocol "SupportsFloat"
+          "__float__" is not present
+        "object" is incompatible with protocol "SupportsIndex"
+    ... (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:191:48 - error: Argument of type "object | Literal[0]" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object | Literal[0]" is not assignable to type "ConvertibleToFloat"
+      Type "object" is not assignable to type "ConvertibleToFloat"
+        "object" is not assignable to "str"
+        "object" is incompatible with protocol "Buffer"
+          "__buffer__" is not present
+        "object" is incompatible with protocol "SupportsFloat"
+          "__float__" is not present
+        "object" is incompatible with protocol "SupportsIndex" (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:195:65 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:196:29 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:209:42 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToInt" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToInt"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsInt"
+        "__int__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present
+    ... (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:209:42 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToInt" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToInt"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsInt"
+        "__int__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:218:25 - error: Argument of type "object | Literal[0]" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object | Literal[0]" is not assignable to type "ConvertibleToFloat"
+      Type "object" is not assignable to type "ConvertibleToFloat"
+        "object" is not assignable to "str"
+        "object" is incompatible with protocol "Buffer"
+          "__buffer__" is not present
+        "object" is incompatible with protocol "SupportsFloat"
+          "__float__" is not present
+        "object" is incompatible with protocol "SupportsIndex"
+    ... (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:218:25 - error: Argument of type "object | Literal[0]" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object | Literal[0]" is not assignable to type "ConvertibleToFloat"
+      Type "object" is not assignable to type "ConvertibleToFloat"
+        "object" is not assignable to "str"
+        "object" is incompatible with protocol "Buffer"
+          "__buffer__" is not present
+        "object" is incompatible with protocol "SupportsFloat"
+          "__float__" is not present
+        "object" is incompatible with protocol "SupportsIndex" (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:218:71 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:219:21 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:220:21 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToFloat" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToFloat"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsFloat"
+        "__float__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:227:35 - error: Argument of type "list[object | None]" cannot be assigned to parameter "values" of type "list[float | None]" in function "_chart"
+    "list[object | None]" is not assignable to "list[float | None]"
+      Type parameter "_T@list" is invariant, but "object | None" is not the same as "float | None"
+      Consider switching from "list" to "Sequence" which is covariant (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:228:27 - error: Argument of type "list[object | None]" cannot be assigned to parameter "values" of type "list[float | None]" in function "_chart"
+    "list[object | None]" is not assignable to "list[float | None]"
+      Type parameter "_T@list" is invariant, but "object | None" is not the same as "float | None"
+      Consider switching from "list" to "Sequence" which is covariant (reportArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/soak_watch_loop.py:431:46 - error: Argument of type "dict[object, list[dict[str, object]]]" cannot be assigned to parameter "iterable" of type "Iterable[SupportsRichComparisonT@sorted]" in function "sorted"
+    "dict[object, list[dict[str, object]]]" is not assignable to "Iterable[SupportsRichComparisonT@sorted]"
+      Type parameter "_T_co@Iterable" is covariant, but "object" is not a subtype of "SupportsRichComparisonT@sorted"
+        Type "object" is not assignable to type "SupportsRichComparison"
+          Type "object" is not assignable to type "SupportsRichComparison"
+            "object" is incompatible with protocol "SupportsDunderLT[Any]"
+            "object" is incompatible with protocol "SupportsDunderGT[Any]" (reportArgumentType)
+28 errors, 0 warnings, 0 notes

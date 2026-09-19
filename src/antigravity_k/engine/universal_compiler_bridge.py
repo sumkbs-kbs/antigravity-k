@@ -54,7 +54,7 @@ class UniversalCompilerBridge:
     @staticmethod
     def _verify_python(content: str) -> PolyglotVerificationResult:
         try:
-            ast.parse(content)
+            _ = ast.parse(content)
             return PolyglotVerificationResult(language="python", is_valid=True)
         except SyntaxError as se:
             return PolyglotVerificationResult(
@@ -102,7 +102,7 @@ class UniversalCompilerBridge:
                             is_valid=False,
                             error_message=f"Unmatched closing bracket `{char}` at position {idx}.",
                         )
-                    stack.pop()
+                    _ = stack.pop()
 
         if stack:
             return PolyglotVerificationResult(

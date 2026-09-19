@@ -1,0 +1,79 @@
+{
+  "task_id": "UI-01",
+  "title": "실제 BrowserRouter 접근성 gate — 16 route × 2 viewport, axe critical/serious 0 하드게이트",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §UI-01",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §UI-01",
+  "status": "IMPLEMENTATION_DONE_REVIEW_PENDING",
+  "branch": "codex/ui-01-route-a11y-gate",
+  "worktree": "(병합 후 제거)",
+  "base_sha": "ca17134",
+  "result_sha": "cda84dc",
+  "roles": {
+    "implementer": "ui_01_impl (Freebuff 세션)",
+    "reviewer": "ui_01_verify (할당 대기)"
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "16개 실제 BrowserRouter URL 목록이 있다",
+      "evidence": "accessibility.spec.ts ROUTES 상수 16건 — App.tsx 15 route + 플러그인 패널 /plugins/hello-world; 스펙 고정 테스트가 길이 16·중복 0·hash 선택자 금지를 검증"
+    },
+    {
+      "id": "AC-2",
+      "text": "각 case가 pathname과 route marker를 검증한다",
+      "evidence": "page.goto(pathname) 후 URL pathname 검증 + 페이지 고유 marker (.agk-workspace, .unsloth-studio-title, .hub-title, .job-operations-page 등 16종) visible assertion"
+    },
+    {
+      "id": "AC-3",
+      "text": "desktop/mobile viewport를 모두 실행한다",
+      "evidence": "test.use viewport matrix — desktop 1280×800, mobile 390×844"
+    },
+    {
+      "id": "AC-4",
+      "text": "load/API error가 독립 실패로 처리된다",
+      "evidence": "marker assertion이 axe scan 이전에 실행 — route 로드 실패는 'route marker 미발견'으로 a11y gate와 별도 실패 (실측: 구버전 dist 서빙 시 32건이 marker 실패로 분리 보고)"
+    },
+    {
+      "id": "AC-5",
+      "text": "axe critical/serious 0을 hard gate로 사용한다",
+      "evidence": "실측 33/33 passed (16×2 + 스펙 고정 1), exit 0"
+    },
+    {
+      "id": "AC-6",
+      "text": "route/viewport별 JSON과 screenshot이 저장된다",
+      "evidence": "testInfo.outputDir/a11y/<viewport>/<route>.json|.png — A11yReport(pathname, verifiedPathname, marker, passes, violations, criticalSerious)"
+    }
+  ],
+  "implementation": {
+    "files_changed": [
+      "dashboard/e2e/tests/accessibility.spec.ts (재작성 — hash URL 제거, 16-route×2-viewport 게이트)",
+      "dashboard/e2e/pages/DashboardPage.ts (gotoPage BrowserRouter 전환)",
+      "dashboard/src/components/Layout/SystemTelemetricsBar.tsx (스크롤 영역 키보드 접근)",
+      "dashboard/src/pages/SettingsPage.tsx (number 입력 aria-label)",
+      "dashboard/src/pages/PluginPage.tsx (토글 aria-label)",
+      "dashboard/src/components/shared/SessionDisclosurePanel.tsx (progressbar aria-label)",
+      "dashboard/src/components/Git/GitStatusView.tsx (nested-interactive 제거)",
+      "dashboard/src/stores/themeStore.ts (기본 accent #7c6aef→#9b87f2)",
+      "dashboard/src/styles/index.css (text-dim·muted badge·spec-key·model-id·empty-state·accent 버튼 대비)"
+    ],
+    "contrast_fixes_verified": [
+      "accent #9b87f2 on #0d0f0d = 6.54:1 (구 #7c6aef 4.73:1)",
+      "text-dim #79816f on #080908 = 4.92:1 (구 #41483e 2.11:1)",
+      "muted badge #9aa5c9 = 7.07:1",
+      "glass-btn.primary/unsloth-btn-primary/hub-action-btn.swap: #0d0f0d on accent = 6.54:1 (구 #fff 2.94:1)"
+    ]
+  },
+  "verification": {
+    "gate": "npx playwright test e2e/tests/accessibility.spec.ts --workers=2 — 33 passed / 0 failed (35s), axe critical/serious 0",
+    "gate_progression": "1차 32 failed (hash+구 dist) → 2차 27 failed (실제 위반 노출) → 3차 10 → 4차 6 → 최종 0",
+    "typecheck": "tsc -b 0 errors",
+    "lint": "0 errors (27 pre-existing warnings)",
+    "backend_regression": "uv run pytest tests/ -m 'not slow and not benchmark' — 5,632 passed / 1 failed (TRN-02 cancel 타이밍 플레이크, 단독 실행 15/15 통과로 환경 플레이크 확인)",
+    "live_backend": "uvicorn 127.0.0.1:8391 (dev 익명 허용 env), worktree dist 서빙 확인 (index-C9u9ExHX.js)"
+  },
+  "notes": [
+    "SPA fallback: 서버의 _DashboardStaticFiles가 확장자 없는 path를 index.html로 폴백 — deep-link route 직접 로드 지원",
+    "worktree .venv가 메인 체크아웃 editable install을 가리키던 환경 문제는 uv sync로 독립 venv 구성해 해소",
+    "AGK_TEST_PYTHON은 반드시 해당 체크아웃의 .venv/bin/python3를 사용해야 함 (miniforge python 불일치 시 CLI/드리프트 테스트 16건 실패)"
+  ]
+}

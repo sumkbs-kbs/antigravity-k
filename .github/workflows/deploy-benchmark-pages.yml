@@ -111,6 +111,42 @@ jobs:
           cp benchmark_insights_report.md docs/benchmark/ 2>/dev/null || true
           echo "Gallery meta updated"
 
+      - name: Record and verify Pages artifact provenance
+        run: |
+          mkdir -p .artifacts
+          python src/antigravity_k/engine/artifact_provenance.py \
+            create docs/benchmark --root . --output .artifacts/benchmark-pages.json
+          python src/antigravity_k/engine/artifact_provenance.py \
+            verify .artifacts/benchmark-pages.json --root .
+
+      - name: Resolve Pages provenance task
+        if: ${{ vars.AGK_PROVENANCE_API_URL != '' }}
+        env:
+          AGK_PROVENANCE_API_URL: ${{ vars.AGK_PROVENANCE_API_URL }}
+          AGK_PROVENANCE_PIN: ${{ secrets.AGK_PROVENANCE_PIN }}
+          CONFIGURED_TASK_ID: ${{ vars.AGK_PROVENANCE_TASK_ID }}
+        run: |
+          if [ -n "$CONFIGURED_TASK_ID" ]; then
+            task_id="$CONFIGURED_TASK_ID"
+          else
+            task_id=$(scripts/register_artifact_provenance_task.sh ui_bundle "github-${{ github.run_id }}")
+          fi
+          echo "AGK_PROVENANCE_TASK_ID=$task_id" >> "$GITHUB_ENV"
+
+      - name: Publish Pages provenance to task event store
+        if: ${{ vars.AGK_PROVENANCE_API_URL != '' }}
+        env:
+          AGK_PROVENANCE_API_URL: ${{ vars.AGK_PROVENANCE_API_URL }}
+          AGK_PROVENANCE_PIN: ${{ secrets.AGK_PROVENANCE_PIN }}
+        run: scripts/publish_artifact_provenance.sh .artifacts/benchmark-pages.json ui_bundle
+
+      - name: Upload Pages provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-pages-provenance
+          path: .artifacts/benchmark-pages.json
+          retention-days: 30
+
       # Step 6: Upload as Pages artifact
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3

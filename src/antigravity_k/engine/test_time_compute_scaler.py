@@ -56,6 +56,17 @@ class TestTimeComputeScaler:
         if cyclomatic_hint > 5:
             score += 2
 
+        # 공통 복잡도 추정기(chain_of_verification.estimate_complexity)와
+        # 정합 — 두 추정기가 상반된 판정을 내지 않도록, 공통 추정기가
+        # 명확히 복잡(0.6+)으로 보는 과제는 최소 MODERATE(score 2)로 올린다.
+        try:
+            from antigravity_k.engine.chain_of_verification_models import estimate_complexity
+
+            if estimate_complexity(user_task) >= 0.6:
+                score = max(score, 2)
+        except Exception:  # noqa: BLE001  # noqa: BROAD_EXCEPT_OK - 선택적 신호
+            pass
+
         # Map score to ComputeBudget
         if score >= 6:
             return ComputeBudget(

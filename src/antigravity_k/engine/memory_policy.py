@@ -1,4 +1,4 @@
-"""Antigravity-K: 메모리 정책 엔진 (Memory Policy).
+"""Ssak-Ai: 메모리 정책 엔진 (Memory Policy).
 
 =================================================
 LRU 기반 모델 메모리 관리 정책을 캡슐화합니다.
@@ -14,10 +14,15 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import Protocol
 
 logger = logging.getLogger("antigravity_k.memory_policy")
+
+
+class LoadedModelLike(Protocol):
+    actual_memory_gb: float
+    last_used_at: float
 
 
 class MemoryPolicy:
@@ -47,19 +52,19 @@ class MemoryPolicy:
             idle_eviction_sec (float): float idle eviction sec.
 
         """
-        self.max_gb = max_gb
-        self.cooldown_sec = cooldown_sec
-        self.auto_unload = auto_unload
-        self.idle_eviction_sec = idle_eviction_sec
+        self.max_gb: float = max_gb
+        self.cooldown_sec: float = cooldown_sec
+        self.auto_unload: bool = auto_unload
+        self.idle_eviction_sec: float = idle_eviction_sec
 
-    def current_usage_gb(self, loaded_models: dict[str, Any]) -> float:
+    def current_usage_gb(self, loaded_models: Mapping[str, LoadedModelLike]) -> float:
         """현재 로드된 모델의 총 메모리 사용량(GB)을 반환합니다."""
-        return sum(getattr(m, "actual_memory_gb", 0.0) for m in loaded_models.values())
+        return sum(model.actual_memory_gb for model in loaded_models.values())
 
     def ensure_memory(
         self,
         needed_gb: float,
-        loaded_models: dict[str, Any],
+        loaded_models: Mapping[str, LoadedModelLike],
         unload_fn: Callable[[str], bool],
     ) -> None:
         """필요한 메모리를 확보합니다. LRU 순서로 모델을 언로드합니다.
@@ -85,15 +90,15 @@ class MemoryPolicy:
         # LRU: last_used_at 기준 오래된 모델부터 언로드
         sorted_models = sorted(
             list(loaded_models.items()),
-            key=lambda x: getattr(x[1], "last_used_at", 0),
+            key=lambda item: item[1].last_used_at,
         )
 
         for name, loaded in sorted_models:
             if available >= needed_gb:
                 break
 
-            elapsed_sec = time.time() - getattr(loaded, "last_used_at", 0)
-            mem_gb = getattr(loaded, "actual_memory_gb", 0.0)
+            elapsed_sec = time.time() - loaded.last_used_at
+            mem_gb = loaded.actual_memory_gb
 
             if elapsed_sec < self.cooldown_sec:
                 logger.warning(
@@ -106,7 +111,7 @@ class MemoryPolicy:
                 logger.info("[%s] 메모리 확보를 위해 자동 언로드 (%sGB)", name, mem_gb)
 
             available += mem_gb
-            unload_fn(name)
+            _ = unload_fn(name)
 
         if available < needed_gb:
             raise MemoryError(
@@ -115,7 +120,7 @@ class MemoryPolicy:
 
     def evict_unused(
         self,
-        loaded_models: dict[str, Any],
+        loaded_models: Mapping[str, LoadedModelLike],
         unload_fn: Callable[[str], bool],
         idle_sec: float | None = None,
     ) -> list[str]:
@@ -136,9 +141,9 @@ class MemoryPolicy:
 
         # dict가 반복 중 변경되므로 리스트로 미리 복사
         for name, loaded in list(loaded_models.items()):
-            last_used = getattr(loaded, "last_used_at", 0)
+            last_used = loaded.last_used_at
             if now - last_used > threshold:
-                mem_gb = getattr(loaded, "actual_memory_gb", 0.0)
+                mem_gb = loaded.actual_memory_gb
                 logger.info(
                     "[MemoryPolicy] 유휴 모델 퇴출: %s (idle %ss > %ss, %sGB)",
                     name,
@@ -146,7 +151,7 @@ class MemoryPolicy:
                     threshold,
                     mem_gb,
                 )
-                unload_fn(name)
+                _ = unload_fn(name)
                 evicted.append(name)
 
         return evicted

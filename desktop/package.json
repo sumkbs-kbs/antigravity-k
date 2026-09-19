@@ -1,0 +1,24 @@
+{
+  "name": "ssak-ai-desktop-shell",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Thin Electron shell for Ssak-Ai Host (loopback SPA). Phase 2 scaffold \u2014 no Cordis/DSH transplant.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "postinstall": "electron --version || true",
+    "test:update-channels": "node test_updateChannels.js"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
+  }
+}

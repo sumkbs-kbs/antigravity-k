@@ -5,7 +5,47 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Mapping, Sequence
 from datetime import date
+from typing import final
+
+type JsonPrimitive = str | int | float | bool | None
+type JsonValue = JsonPrimitive | Sequence[JsonValue] | Mapping[str, JsonValue]
+
+
+@final
+class _ParsedArguments(argparse.Namespace):
+    school_name: str | None
+    school_domain: str | None
+    department: list[str]
+    college: list[str]
+    nationwide: bool
+    year: int
+
+    def __init__(
+        self,
+        *,
+        school_name: str | None,
+        school_domain: str | None,
+        department: list[str],
+        college: list[str],
+        nationwide: bool,
+        year: int,
+    ) -> None:
+        super().__init__(
+            school_name=school_name,
+            school_domain=school_domain,
+            department=department,
+            college=college,
+            nationwide=nationwide,
+            year=year,
+        )
+        self.school_name = school_name
+        self.school_domain = school_domain
+        self.department = department
+        self.college = college
+        self.nationwide = nationwide
+        self.year = year
 
 
 def build_school_queries(
@@ -14,7 +54,7 @@ def build_school_queries(
     departments: list[str],
     colleges: list[str],
     year: int,
-) -> dict[str, object]:
+) -> Mapping[str, JsonValue]:
     if school_domain:
         domain_targets = [f"site:{school_domain}"]
     else:
@@ -84,7 +124,7 @@ def build_school_queries(
     }
 
 
-def build_nationwide_queries(year: int) -> dict[str, object]:
+def build_nationwide_queries(year: int) -> Mapping[str, JsonValue]:
     queries = [
         f"site:*.ac.kr {year} 장학 공고",
         f"site:*.ac.kr {year} 교내 장학",
@@ -114,26 +154,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate exhaustive official scholarship search queries for a Korean university or for nationwide university coverage.",
     )
-    parser.add_argument("--school-name", help="University name, e.g. 서울대학교.")
-    parser.add_argument("--school-domain", help="Official university domain, e.g. snu.ac.kr.")
-    parser.add_argument(
+    _ = parser.add_argument("--school-name", help="University name, e.g. 서울대학교.")
+    _ = parser.add_argument("--school-domain", help="Official university domain, e.g. snu.ac.kr.")
+    _ = parser.add_argument(
         "--department",
         action="append",
         default=[],
         help="Department or program name. Repeatable.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--college",
         action="append",
         default=[],
         help="College/faculty name. Repeatable.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--nationwide",
         action="store_true",
         help="Generate search queries for all Korean universities.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--year",
         type=int,
         default=date.today().year,
@@ -144,7 +184,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = _ParsedArguments(
+        school_name=None,
+        school_domain=None,
+        department=[],
+        college=[],
+        nationwide=False,
+        year=date.today().year,
+    )
+    _ = parser.parse_args(namespace=args)
 
     if args.nationwide:
         payload = build_nationwide_queries(args.year)

@@ -71,6 +71,7 @@ const TimelineDot: React.FC<TimelineDotProps> = React.memo(({
       onClick={() => onClick(snapshot.id)}
       role="button"
       tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(snapshot.id); } }}
     >
       {/* Timeline line + dot */}
       <div className="timeline-dot-line">
@@ -131,7 +132,7 @@ TimelineDot.displayName = 'TimelineDot';
 
 const LocalHistoryTimeline: React.FC = () => {
   const {
-    selectedFile, snapshots, compareIds,
+    selectedFile, compareIds,
     setComparePair, getSnapshotsForFile,
   } = useLocalHistoryStore();
 

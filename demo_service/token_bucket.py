@@ -18,11 +18,11 @@ class AsyncTokenBucketLimiter:
     """Thread-safe and async-safe token bucket rate limiter."""
 
     def __init__(self, capacity: float = 10.0, refill_rate_per_sec: float = 2.0):
-        self.capacity = float(capacity)
-        self.refill_rate = float(refill_rate_per_sec)
-        self.tokens = float(capacity)
-        self.last_refill = time.monotonic()
-        self._lock = asyncio.Lock()
+        self.capacity: float = float(capacity)
+        self.refill_rate: float = float(refill_rate_per_sec)
+        self.tokens: float = float(capacity)
+        self.last_refill: float = time.monotonic()
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def acquire(self, tokens_needed: float = 1.0) -> RateLimitResult:
         """Attempt to acquire tokens atomically."""

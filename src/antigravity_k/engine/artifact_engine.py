@@ -1,4 +1,4 @@
-"""Antigravity-K: Artifact Engine (Phase 1 Enhanced).
+"""Ssak-Ai: Artifact Engine (Phase 1 Enhanced).
 
 ===========================================================================
 계획 모드(Planning Mode) 시 생성되는 implementation_plan.md, task.md,
@@ -19,9 +19,65 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TypeAlias, TypedDict, cast, final, override
+
+from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
+
+JsonValue: TypeAlias = object
+JsonMap: TypeAlias = dict[str, JsonValue]
+
+
+class _PlanSection(TypedDict):
+    name: str
+    patterns: list[str]
+    weight: float
+
+
+class _ToolRegistryProtocol:
+    def install(self, _tool: BaseTool) -> object:
+        raise NotImplementedError
+
+
+class _PlanTaskData(TypedDict):
+    title: str
+    description: str
+    priority: int
+    status: str
+    depends_on: list[str]
+    section: str
+
+
+class _PlanValidationData(TypedDict):
+    is_complete: bool
+    score: float
+    missing_sections: list[str]
+    issues: list[str]
+    task_count: int
+
+
+class _ArtifactWriteResult(TypedDict):
+    success: bool
+    filepath: str
+    message: str
+    request_feedback: bool
+    error: str
+
+
+class _ArtifactInfo(TypedDict):
+    filename: str
+    path: str
+    size: int
+    modified: str
+    type: str
+
+
+class _KanbanResult(TypedDict):
+    success: bool
+    board: object | None
+    task_count: int
+    message: str
 
 
 # ─── Plan Task 데이터 타입 ───────────────────────────────────────────
@@ -39,7 +95,7 @@ class PlanTask:
     section: str = ""  # 원본 Plan 내 섹션 이름
     line_number: int = 0  # 마크다운 내 라인 번호
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> _PlanTaskData:
         return {
             "title": self.title,
             "description": self.description,
@@ -63,7 +119,7 @@ class PlanValidationResult:
     issues: list[str] = field(default_factory=list)
     task_count: int = 0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> _PlanValidationData:
         return {
             "is_complete": self.is_complete,
             "score": self.score,
@@ -87,7 +143,7 @@ class ArtifactMetadata:
 
 # ─── Required Plan Sections (완전성 검증 기준) ────────────────────────
 
-REQUIRED_PLAN_SECTIONS: list[dict[str, Any]] = [
+REQUIRED_PLAN_SECTIONS: list[_PlanSection] = [
     {
         "name": "Overview",
         "patterns": [r"#+\s*개요", r"#+\s*overview", r"#+\s*목표", r"#+\s*goal"],
@@ -138,6 +194,7 @@ REQUIRED_PLAN_SECTIONS: list[dict[str, Any]] = [
 # ─── 메인 엔진 ─────────────────────────────────────────────────────────
 
 
+@final
 class ArtifactEngine:
     """Plan 아티팩트 생성을 담당하는 엔진.
 
@@ -154,8 +211,8 @@ class ArtifactEngine:
         Args:
             project_root: 프로젝트 루트 경로
         """
-        self.project_root = project_root
-        self.artifacts_dir = os.path.join(project_root, "artifacts")
+        self.project_root: str = project_root
+        self.artifacts_dir: str = os.path.join(project_root, "artifacts")
         os.makedirs(self.artifacts_dir, exist_ok=True)
 
     # ─── 기본 CRUD ─────────────────────────────────────────────────
@@ -165,7 +222,7 @@ class ArtifactEngine:
         target_file: str,
         code_content: str,
         metadata: ArtifactMetadata | None = None,
-    ) -> dict[str, Any]:
+    ) -> _ArtifactWriteResult:
         """아티팩트 파일을 작성합니다.
 
         Args:
@@ -184,7 +241,7 @@ class ArtifactEngine:
 
         try:
             with open(filepath, "w", encoding="utf-8") as f:
-                f.write(code_content)
+                _ = f.write(code_content)
 
             feedback_msg = ""
             if metadata and metadata.request_feedback:
@@ -197,10 +254,17 @@ class ArtifactEngine:
                 "filepath": filepath,
                 "message": f"Artifact {filename} successfully written.{feedback_msg}",
                 "request_feedback": metadata.request_feedback if metadata else False,
+                "error": "",
             }
         except Exception as e:
             logger.exception("Failed to write artifact %s", filepath)
-            return {"success": False, "error": str(e)}
+            return {
+                "success": False,
+                "filepath": "",
+                "message": "",
+                "request_feedback": False,
+                "error": str(e),
+            }
 
     def read_artifact(self, target_file: str) -> str | None:
         """아티팩트 파일 내용을 읽습니다.
@@ -410,7 +474,7 @@ class ArtifactEngine:
 
     # ─── Kanban 연동 ───────────────────────────────────────────────
 
-    def auto_create_kanban_tasks(self, target_file: str = "implementation_plan.md") -> dict[str, Any]:
+    def auto_create_kanban_tasks(self, target_file: str = "implementation_plan.md") -> _KanbanResult:
         """Plan에서 태스크를 추출하여 Kanban 보드에 자동 등록합니다.
 
         KanbanEngine이 로드 가능할 때만 동작합니다.
@@ -477,7 +541,7 @@ class ArtifactEngine:
 
     # ─── 아티팩트 목록 ─────────────────────────────────────────────
 
-    def list_artifacts(self) -> list[dict[str, Any]]:
+    def list_artifacts(self) -> list[_ArtifactInfo]:
         """artifacts/ 디렉토리의 모든 아티팩트 정보를 반환합니다.
 
         Returns:
@@ -486,7 +550,7 @@ class ArtifactEngine:
         if not os.path.exists(self.artifacts_dir):
             return []
 
-        artifacts = []
+        artifacts: list[_ArtifactInfo] = []
         for fname in sorted(os.listdir(self.artifacts_dir)):
             if not fname.endswith(".md"):
                 continue
@@ -612,35 +676,38 @@ class ArtifactEngine:
 # ─── Tool Registry 연동 ────────────────────────────────────────────────
 
 
-def register_artifact_tool(tool_registry, project_root: str):
+def register_artifact_tool(tool_registry: _ToolRegistryProtocol, project_root: str) -> ArtifactEngine:
     """도구 레지스트리에 write_artifact 도구를 등록합니다."""
     engine = ArtifactEngine(project_root)
 
-    from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
-
+    @final
     class WriteArtifactTool(BaseTool):
-        category = ToolCategory.FILE_IO
-        render_in = RenderIn.CONTEXTUAL
-        risk_level = RiskLevel.LOW
-        icon = "📝"
+        category: ToolCategory = ToolCategory.FILE_IO
+        render_in: RenderIn = RenderIn.CONTEXTUAL
+        risk_level: RiskLevel = RiskLevel.LOW
+        icon: str = "📝"
+        tags: list[str] = ["artifact", "markdown", "write", "plan"]
 
         def __init__(self) -> None:
             super().__init__()
-            self._name = "write_artifact"
-            self._description = (
+            self._name: str = "write_artifact"
+            self._description: str = (
                 "Create or update planning artifacts like implementation_plan.md, task.md, and walkthrough.md"
             )
 
         @property
+        @override
         def name(self) -> str:
             return self._name
 
         @property
+        @override
         def description(self) -> str:
             return self._description
 
         @property
-        def parameters_schema(self) -> dict[str, Any]:
+        @override
+        def parameters_schema(self) -> JsonMap:
             return {
                 "type": "object",
                 "properties": {
@@ -676,24 +743,31 @@ def register_artifact_tool(tool_registry, project_root: str):
                 "required": ["target_file", "code_content"],
             }
 
-        def execute(self, **kwargs) -> Any:
-            target_file = kwargs.get("target_file", "")
-            code_content = kwargs.get("code_content", "")
-            metadata: dict[str, Any] | None = kwargs.get("metadata")
-            meta_obj = None
-            if metadata:
+        @override
+        def execute(self, **kwargs: object) -> str:
+            target_file_value = kwargs.get("target_file", "")
+            target_file = target_file_value if isinstance(target_file_value, str) else ""
+            content_value = kwargs.get("code_content", "")
+            code_content = content_value if isinstance(content_value, str) else ""
+            metadata_value = kwargs.get("metadata")
+            metadata = cast(JsonMap, metadata_value) if isinstance(metadata_value, dict) else None
+            meta_obj: ArtifactMetadata | None = None
+            if metadata is not None:
+                artifact_type_value = metadata.get("artifact_type", "other")
+                summary_value = metadata.get("summary", "")
+                request_feedback_value = metadata.get("request_feedback", False)
                 meta_obj = ArtifactMetadata(
-                    artifact_type=metadata.get("artifact_type", "other"),
-                    summary=metadata.get("summary", ""),
-                    request_feedback=metadata.get("request_feedback", False),
+                    artifact_type=artifact_type_value if isinstance(artifact_type_value, str) else "other",
+                    summary=summary_value if isinstance(summary_value, str) else "",
+                    request_feedback=request_feedback_value if isinstance(request_feedback_value, bool) else False,
                 )
             result = engine.write_artifact(target_file, code_content, meta_obj)
-            if result["success"]:
+            if result.get("success") is True:
                 msg = result["message"]
-                if result.get("request_feedback"):
+                if result.get("request_feedback") is True:
                     msg += "\n\nWAITING_FOR_USER_APPROVAL"
                 return msg
-            return f"Error writing artifact: {result.get('error')}"
+            return f"Error writing artifact: {result.get('error', '')}"
 
-    tool_registry.install(WriteArtifactTool())
+    _ = tool_registry.install(WriteArtifactTool())
     return engine

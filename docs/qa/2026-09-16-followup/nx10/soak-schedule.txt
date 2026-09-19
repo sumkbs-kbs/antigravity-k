@@ -1,0 +1,74 @@
+# NX-10 soak 예약 기록 (오너 지정 시각 실행)
+scheduled_at: 2026-09-16T08:20:00Z
+scheduled_local: 2026-09-16T17:20:00+0900
+at_local: 22:00
+target_local: 2026-09-16T22:00:00+09:00
+target_utc: 2026-09-16T13:00:00+00:00
+wait_seconds: 16799
+expected_fingerprint: 157311cf106f6e1de937331d332c9dcf947ee826c28c856cfdaccead0ddad8ce
+runner: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/run_nx10_soak.sh
+pid: 29088
+# NX-10 soak 예약 기록 (오너 지정 시각 실행)
+scheduled_at: 2026-09-16T09:47:11Z
+scheduled_local: 2026-09-16T18:47:11+0900
+at_local: 22:00
+target_local: 2026-09-16T22:00:00+09:00
+target_utc: 2026-09-16T13:00:00+00:00
+wait_seconds: 11568
+expected_fingerprint: ab980ba5b43b195d8a1d074861b76dc7a52ffe03d5fb75628e673d87a5c3bcd2
+runner: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/run_nx10_soak.sh
+pid: 51134
+# NX-10 soak 예약 기록 (오너 지정 시각 실행)
+scheduled_at: 2026-09-16T10:26:34Z
+scheduled_local: 2026-09-16T19:26:34+0900
+at_local: 22:00
+target_local: 2026-09-16T22:00:00+09:00
+target_utc: 2026-09-16T13:00:00+00:00
+wait_seconds: 9205
+expected_fingerprint: 0f345d0ccc210f019c398bbfc425b23aae4d9051a2f3b3e230677359670a8194
+runner: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/run_nx10_soak.sh
+pid: 64244
+# NX-10 soak 예약 기록 (오너 지정 시각 실행)
+scheduled_at: 2026-09-16T10:47:15Z
+scheduled_local: 2026-09-16T19:47:15+0900
+at_local: 22:00
+target_local: 2026-09-16T22:00:00+09:00
+target_utc: 2026-09-16T13:00:00+00:00
+wait_seconds: 7964
+expected_fingerprint: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91829d47ec176aa3e
+runner: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/run_nx10_soak.sh
+pid: 74617
+# NX-10 soak 예약 기록 (오너 지정 시각 실행)
+scheduled_at: 2026-09-16T11:39:27Z
+scheduled_local: 2026-09-16T20:39:27+0900
+at_local: 22:00
+target_local: 2026-09-16T22:00:00+09:00
+target_utc: 2026-09-16T13:00:00+00:00
+wait_seconds: 4832
+expected_fingerprint: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91829d47ec176aa3e
+runner: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/run_nx10_soak.sh
+pid: 79230
+start_check_at: 2026-09-16T12:04:17Z
+start_check_fingerprint: UNVERIFIED
+start_check_head: 1bd95e7d12491dd21a38e3d2141bfaa3f55ed213
+start_check_dirty: true
+aborted: true
+aborted_reason: fingerprint unverifiable (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python 로 계산 실패) — 확인되지 않은 트리에서 8시간을 쓰지 않는다
+aborted_at: 2026-09-16T12:04:17Z
+# NX-10 soak 예약 기록 (오너 지정 시각 실행)
+scheduled_at: 2026-09-16T12:04:19Z
+scheduled_local: 2026-09-16T21:04:19+0900
+at_local: 22:00
+target_local: 2026-09-16T22:00:00+09:00
+target_utc: 2026-09-16T13:00:00+00:00
+wait_seconds: 3340
+expected_fingerprint: 322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe
+runner: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/run_nx10_soak.sh
+pid: 86083
+start_check_at: 2026-09-16T12:13:11Z
+start_check_fingerprint: UNVERIFIED
+start_check_head: fd16368c8c5148026563109c9bb7c7ffdb432ab4
+start_check_dirty: true
+aborted: true
+aborted_reason: fingerprint unverifiable (/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python 로 계산 실패) — 확인되지 않은 트리에서 8시간을 쓰지 않는다
+aborted_at: 2026-09-16T12:13:11Z

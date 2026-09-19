@@ -14,30 +14,48 @@ import StockPanel from './dex/StockPanel';
 import WeatherExchangePanel from './dex/WeatherExchangePanel';
 import BottomPanels from './dex/BottomPanels';
 
+type MetricsResponse = { ok?: boolean; metrics?: MetricsData };
+type ExtractionResponse = ExtractionData & { ok?: boolean };
+type ABTestResponse = { ok?: boolean; report?: ABTestReport };
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function readStoredResult(): ExtractionData | null {
+  try {
+    const saved = sessionStorage.getItem('dex_last_result');
+    if (!saved) return null;
+    const parsed: unknown = JSON.parse(saved);
+    return parsed && typeof parsed === 'object' ? parsed as ExtractionData : null;
+  } catch {
+    return null;
+  }
+}
+
 const DataExtractionPage: React.FC = () => {
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
-  const [result, setResult] = useState<ExtractionData | null>(null);
+  const [result, setResult] = useState<ExtractionData | null>(readStoredResult);
   const [metrics, setMetrics] = useState<MetricsData | null>(null);
   const [abtestResults, setAbtestResults] = useState<ABTestReport | null>(null);
   const [abtestRunning, setAbtestRunning] = useState(false);
 
-  // Restore last result from sessionStorage + load metrics
-  useEffect(() => {
-    const saved = sessionStorage.getItem('dex_last_result');
-    if (saved) {
-      try { setResult(JSON.parse(saved)); } catch { /* ignore */ }
-    }
-    loadMetrics();
-  }, []);
-
-  const loadMetrics = async () => {
+  const loadMetrics = useCallback(async () => {
     try {
       const res = await fetch('/api/search/extraction-metrics');
-      const data = await res.json();
-      if (data.ok) setMetrics(data.metrics);
-    } catch { /* silent */ }
-  };
+      if (!res.ok) throw new Error(`Metrics request failed with status ${res.status}`);
+      const data = await res.json() as MetricsResponse;
+      if (data.ok === true && data.metrics) setMetrics(data.metrics);
+    } catch (error) {
+      console.error('Metrics load failed:', describeError(error));
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadMetrics(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadMetrics]);
 
   const handleSearch = useCallback(async () => {
     if (!query.trim() || searching) return;
@@ -48,13 +66,14 @@ const DataExtractionPage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query }),
       });
-      const data = await res.json();
-      if (data.ok) {
+      if (!res.ok) throw new Error(`Extraction request failed with status ${res.status}`);
+      const data = await res.json() as ExtractionResponse;
+      if (data.ok === true) {
         setResult(data);
         sessionStorage.setItem('dex_last_result', JSON.stringify(data));
       }
-    } catch (err: any) {
-      console.error('Search failed:', err);
+    } catch (error: unknown) {
+      console.error('Search failed:', describeError(error));
     } finally {
       setSearching(false);
     }
@@ -68,9 +87,12 @@ const DataExtractionPage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version_label: 'dashboard' }),
       });
-      const data = await res.json();
-      if (data.ok) setAbtestResults(data.report);
-    } catch { /* silent */ }
+      if (!res.ok) throw new Error(`A/B test request failed with status ${res.status}`);
+      const data = await res.json() as ABTestResponse;
+      if (data.ok === true && data.report) setAbtestResults(data.report);
+    } catch (error) {
+      console.error('A/B test failed:', describeError(error));
+    }
     setAbtestRunning(false);
   };
 

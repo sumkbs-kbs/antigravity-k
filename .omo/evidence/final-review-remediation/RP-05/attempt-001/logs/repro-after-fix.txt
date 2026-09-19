@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-10/reproduce_conversation_store_stale_cache.py", line 58, in <module>
+    main()
+    ~~~~^^
+  File "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-10/reproduce_conversation_store_stale_cache.py", line 39, in main
+    accepted = cached_reader.get_or_create(
+        project_id="project",
+        conversation_id="conversation",
+        expected_revision=1,
+    )
+  File "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/conversation_store.py", line 283, in get_or_create
+    raise StaleConversationRevisionError(
+    ...<7 lines>...
+    )
+antigravity_k.api.contracts.errors.StaleConversationRevisionError: Conversation revision does not match the authoritative store
+repro-exit=1

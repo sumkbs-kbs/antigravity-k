@@ -21,11 +21,49 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any
+from collections.abc import Mapping
+from typing import ClassVar, TypedDict, cast
 
-# ─── Antigravity-K 로거 네임스페이스 ───────────────────────────
+# ─── Ssak-Ai 로거 네임스페이스 ───────────────────────────
 
 ROOT_LOGGER_NAME = "antigravity_k"
+
+
+class LogInfo(TypedDict):
+    name: str
+    level: int
+    level_name: str
+    effective_level: int
+    effective_level_name: str
+    handlers: int
+
+
+class SetLevelResult(TypedDict):
+    name: str
+    previous_level: int
+    current_level: int
+    previous_level_name: str
+    current_level_name: str
+
+
+class SetAllLevelsResult(TypedDict):
+    target_level: int
+    target_level_name: str
+    updated_count: int
+    loggers: list[SetLevelResult]
+
+
+class EnableDebugResult(TypedDict):
+    success: bool
+    message: str
+    updated_count: int
+
+
+class DisableDebugResult(TypedDict):
+    success: bool
+    message: str
+    restored_count: int
+
 
 # antigravity_k.* 네임스페이스 아래 주요 서브로거들
 KNOWN_LOGGERS = frozenset(
@@ -37,7 +75,6 @@ KNOWN_LOGGERS = frozenset(
         "antigravity_k.api.auth_routes",
         "antigravity_k.api.system_api",
         "antigravity_k.api.git_api",
-        "antigravity_k.api.agent_api",
         "antigravity_k.api.filesystem",
         "antigravity_k.api.dependencies",
         "antigravity_k.api.approval",
@@ -80,9 +117,7 @@ KNOWN_LOGGERS = frozenset(
         "antigravity_k.engine.self_improvement",
         "antigravity_k.engine.self_evolution_coordinator",
         "antigravity_k.engine.context_shaper",
-        "antigravity_k.engine.agent_fabric",
         "antigravity_k.engine.cognitive_loop",
-        "antigravity_k.engine.agent_loop",
         "antigravity_k.engine.healing_loop",
         "antigravity_k.engine.deterministic_worker",
         "antigravity_k.engine.multiplexer",
@@ -102,7 +137,6 @@ KNOWN_LOGGERS = frozenset(
         "antigravity_k.knowledge",
         "antigravity_k.security",
         "antigravity_k.config",
-        "antigravity_k.logging_util",
         "antigravity_k.api_cache",
         "web_search",
         "data_extractor",
@@ -114,7 +148,6 @@ KNOWN_LOGGERS = frozenset(
         "antigravity_k.diff_engine",
         "antigravity_k.tdd_engine",
         "antigravity_k.approval_manager",
-        "antigravity_k.delegation_engine",
         "antigravity_k.max_engine",
         "antigravity_k.sandbox",
         "antigravity_k.external_brain",
@@ -162,12 +195,12 @@ class LogLevelManager:
     Thread-safe 하며, 원래 로그 레벨을 보관하여 debug mode 해제 시 복원할 수 있습니다.
     """
 
-    _lock = threading.Lock()
-    _debug_mode_active = False
-    _saved_levels: dict[str, int] = {}  # debug mode 진입 시 저장된 원래 레벨
+    _lock: ClassVar[threading.Lock] = threading.Lock()
+    _debug_mode_active: ClassVar[bool] = False
+    _saved_levels: ClassVar[dict[str, int]] = {}
 
     # 공통 로그 레벨 이름 → 숫자 매핑 (사용자에게 표시용)
-    LEVEL_NAMES = {
+    LEVEL_NAMES: ClassVar[dict[str, int]] = {
         "DEBUG": logging.DEBUG,
         "INFO": logging.INFO,
         "WARNING": logging.WARNING,
@@ -185,16 +218,16 @@ class LogLevelManager:
     @classmethod
     def _get_level_name(cls, level: int) -> str:
         """Python logging 레벨 숫자를 이름으로 변환."""
-        return logging.getLevelName(level) if isinstance(level, int) else str(level)
+        return str(logging.getLevelName(level))
 
     @classmethod
-    def discover_loggers(cls) -> list[dict[str, Any]]:
+    def discover_loggers(cls) -> list[LogInfo]:
         """현재 등록된 모든 로거를 탐색하여 레벨 정보를 반환합니다.
 
         Returns:
             ``[{name, level, level_name, effective_level, effective_level_name, handlers}, ...]``
         """
-        result: list[dict[str, Any]] = []
+        result: list[LogInfo] = []
         seen: set[str] = set()
 
         # root logger 포함
@@ -213,7 +246,7 @@ class LogLevelManager:
 
         # manager 로거 dict에서 antigravity_k 관련 로거 수집
         manager = logging.root.manager
-        logger_dict = getattr(manager, "loggerDict", {})
+        logger_dict = cast(Mapping[str, object], getattr(manager, "loggerDict", {}))
         for name, logger_ref in logger_dict.items():
             if name not in seen and name.startswith(ROOT_LOGGER_NAME):
                 seen.add(name)
@@ -257,11 +290,11 @@ class LogLevelManager:
                     }
                 )
 
-        result.sort(key=lambda x: x["name"])
+        result.sort(key=lambda x: str(x["name"]))
         return result
 
     @classmethod
-    def set_level(cls, logger_name: str, level: str | int) -> dict[str, Any]:
+    def set_level(cls, logger_name: str, level: str | int) -> SetLevelResult:
         """특정 로거의 레벨을 변경합니다.
 
         Args:
@@ -291,7 +324,7 @@ class LogLevelManager:
         }
 
     @classmethod
-    def set_all_levels(cls, level: str | int) -> dict[str, Any]:
+    def set_all_levels(cls, level: str | int) -> SetAllLevelsResult:
         """``antigravity_k.*`` 네임스페이스의 모든 로거 레벨을 한 번에 변경합니다.
 
         Args:
@@ -302,12 +335,12 @@ class LogLevelManager:
         """
         new_level = cls._normalize_level(level)
         loggers = cls.discover_loggers()
-        updated = []
+        updated: list[SetLevelResult] = []
 
         for info in loggers:
             if info["name"] == "root":
                 continue
-            result = cls.set_level(info["name"], new_level)
+            result = cls.set_level(str(info["name"]), new_level)
             updated.append(result)
 
         return {
@@ -318,7 +351,7 @@ class LogLevelManager:
         }
 
     @classmethod
-    def enable_debug_mode(cls) -> dict[str, Any]:
+    def enable_debug_mode(cls) -> EnableDebugResult:
         """디버그 모드를 활성화합니다.
 
         ``antigravity_k.*`` 네임스페이스의 모든 로거를 DEBUG로 변경하고,
@@ -340,7 +373,7 @@ class LogLevelManager:
                 continue
             with cls._lock:
                 cls._saved_levels[info["name"]] = info["level"]
-            cls.set_level(info["name"], logging.DEBUG)
+            _ = cls.set_level(str(info["name"]), logging.DEBUG)
 
         # httpx, httpcore 등 외부 라이브러리도 DEBUG로
         for ext_logger in ["httpx", "httpcore", "urllib3", "asyncio"]:
@@ -357,7 +390,7 @@ class LogLevelManager:
         }
 
     @classmethod
-    def disable_debug_mode(cls) -> dict[str, Any]:
+    def disable_debug_mode(cls) -> DisableDebugResult:
         """디버그 모드를 비활성화하고 원래 로그 레벨로 복원합니다.
 
         Returns:

@@ -1,0 +1,83 @@
+schema_version = 1
+pinned_at = "2026-08-21"
+
+[[upstreams]]
+repository = "https://github.com/unslothai/unsloth"
+commit_sha = "20c015f292685c9dbf1e4cea92bf69a0792a6ca6"
+license_spdx = "Apache-2.0"
+copied_files = []
+integration = "Interface analysis and optional remote Unsloth Studio integration; no upstream source is distributed."
+
+[[upstreams]]
+repository = "https://github.com/CodebuffAI/freebuff"
+commit_sha = "3dfaa35fae5ff4d0c6f894bafd0eb56d914f8807"
+license_spdx = "Apache-2.0"
+copied_files = []
+integration = "Interface and UX analysis; no upstream source is distributed."
+
+[[entrypoints]]
+name = "agk"
+kind = "cli"
+command = ["agk"]
+source_path = "src/antigravity_k/cli.py"
+
+[[entrypoints]]
+name = "task-resume"
+kind = "cli"
+command = ["agk", "task", "resume"]
+source_path = "src/antigravity_k/cli.py"
+
+[[entrypoints]]
+name = "fastapi-server"
+kind = "server"
+command = ["agk", "serve"]
+source_path = "src/antigravity_k/api/server.py"
+
+[[entrypoints]]
+name = "task-events"
+kind = "http-api"
+command = ["GET", "/api/tasks/{task_id}/events"]
+source_path = "src/antigravity_k/api/routes/task_api.py"
+
+[[entrypoints]]
+name = "react-dashboard"
+kind = "web-ui"
+command = ["npm", "run", "dev"]
+source_path = "dashboard/package.json"
+
+[distribution]
+source_roots = [
+    "src/antigravity_k",
+    "dashboard/src",
+    "dashboard/e2e",
+    "scripts",
+]
+manifest_roots = [
+    "src",
+    "dashboard",
+    "scripts",
+]
+prohibited_spdx = [
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    "AGPL-3.0",
+    "SSPL-1.0",
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+]
+prohibited_python_packages = ["pymupdf"]
+marker_platform_packages = ["colorama", "pywin32"]
+
+# 라이선스 메타데이터가 배포 lock/npm registry에 없는 런타임 의존성의 **사람 승인 선언**.
+# 형식: "<ecosystem>:<name>@<version>=<spdx>". 선언이 없으면 license gate는 unknown으로
+# 실패한다 (메타데이터 합성 금지). 승인 근거는 배포물에 동봉된 라이선스 전문이다.
+#   - npm:khroma@2.1.0 = MIT — khroma는 npm packument/package-lock에 license 필드가
+#     없지만 패키지 tarball이 `license` 파일을 포함한다:
+#     "The MIT License (MIT) / Copyright (c) 2019-present Fabio Spampinato, Andrew Maney"
+#     (dashboard/node_modules/khroma/license). mermaid의 런타임 전이 의존성이며,
+#     상류가 메타데이터를 채우면 이 선언을 제거하고 lock 판독으로 돌아간다.
+declared_licenses = [
+    "npm:khroma@2.1.0=MIT",
+]

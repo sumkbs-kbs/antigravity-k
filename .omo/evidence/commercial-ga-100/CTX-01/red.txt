@@ -1,0 +1,13 @@
+CTX-01 red / audit reproduction (pre-fix)
+========================================
+Finding: dashboard treated local message[] as conversation SoT.
+- ChatPage streamChatCompletion sent full updatedMessages array.
+- chatStore persisted full sessions in localStorage; no conversation_revision.
+- /compact (slash) mutated session_manager messages without revision CAS.
+- Concurrent tabs could overwrite history silently (last-write-wins locally).
+
+Expected after CTX-01:
+- Server ConversationStore is authoritative.
+- Client sends new_turn + expected revision.
+- append/compact use revision CAS; stale → HTTP 409 stale_conversation_revision.
+- /compact returns summary, retained_message_ids, new revision; tokens decrease.

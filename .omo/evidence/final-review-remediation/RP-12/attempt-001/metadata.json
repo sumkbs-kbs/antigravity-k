@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-12",
+  "attempt": 1,
+  "status": "IN_PROGRESS",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "candidate_sha": "a619bc9f024f09fcee9f8911dfce5476e086980f",
+  "candidate_checkout": "/Users/mr.k/program/coding/ssak_comp/ssak-rp12-candidate (git worktree, clean)",
+  "integration_commits": [
+    "5e02b03d remediation RP-01..RP-11 integration",
+    "5e799b19 ruff format 112 scripts (python-format gate was red at reviewed SHA)",
+    "fc1ce7f7 basedpyright fixes (gate verifier + val02)",
+    "a619bc9f seatbelt symlink-resolved interpreter roots (uv-venv defect)"
+  ],
+  "gate_status": {
+    "passed": 16,
+    "failed": 4,
+    "total": 20,
+    "failed_gates": [
+      "python-basedpyright (pre-existing debt: import cycles, playwright resolution)",
+      "dependency-audit-python (environment: pip-audit resolves system python)",
+      "security-bandit (pre-existing findings: audit_db SQL strings, autonomous_qa MD5)",
+      "python-tests (13 order/env-dependent tests fail only in the candidate env; main env same code 5887 passed)"
+    ],
+    "report": "logs/commercial-ga-merged.json (same-SHA split runs merged)",
+    "verifier": "FAIL — required_red lists the four gates (verifier hardened this session after passing a red report; fix committed)"
+  },
+  "provider_status": {
+    "local_ollama": "PASS — VAL-01 on candidate: 12/12 scenarios, exit 0 (streaming/error/cancel/real tool exec + Chroma + MLX train lifecycle), logs/val01.json",
+    "cloud": "NOT_RUN — no cloud credentials in environment (OPENROUTER/OPENAI/ANTHROPIC/GEMINI unset): BLOCKED_EXTERNAL"
+  },
+  "soak": {
+    "run_id": "rp12-soak-005",
+    "pid": 23106,
+    "started_utc": "2026-09-10T23:48:13Z",
+    "expected_end_utc": "2026-09-11T07:48:13Z",
+    "duration_seconds": 28800,
+    "sha": "a619bc9f024f09fcee9f8911dfce5476e086980f",
+    "checkout": "/Users/mr.k/program/coding/ssak_comp/ssak-rp12-candidate",
+    "workdir": "/tmp/ssak-rp12-run/work",
+    "output": "/tmp/ssak-rp12-run/val02.json",
+    "stdout_log": "/tmp/ssak-rp12-run/soak-stdout.log",
+    "launcher": "/tmp/ssak-rp12-run/run-soak.sh",
+    "reconnect": "ps -p $(cat /tmp/ssak-rp12-run/soak.pid); tail /tmp/ssak-rp12-run/soak-stdout.log; verify with ga_gate_verify.py --soak-artifact /tmp/ssak-rp12-run/val02.json --min-soak-seconds 28800"
+  },
+  "findings": [
+    "python-format gate was red at the reviewed SHA already (112 scripts unformatted) — fixed by commit 5e799b19; first gate execution caught it.",
+    "Release checkouts under /tmp are correctly BLOCKED by the FR-01 seatbelt profile (interpreter exec denied) — the sandbox works; relocated checkout to the user tree.",
+    "Real defect fixed: uv-managed venv interpreters are symlinks; seatbelt matches realpath so sandboxed execution failed with 'Operation not permitted' on standard uv environments (commit a619bc9f, reproduced on candidate).",
+    "ga_gate.py single sequential run self-corrupts the worktree venv editable during package-build (uv build rewrites the editable pth to a temp path); subsequent python-tests/sbom/api-e2e fail with ModuleNotFoundError. Gates were therefore executed as same-SHA split runs with the editable re-pinned between phases. Runner isolation fix tracked for RP-13/RP-14.",
+    "python-tests 13 failures reproduce only in the candidate env during full-suite runs (tracebacks show main-tree/miniforge paths mixed in — execution-context contamination); the same 13 pass when their files run serially, and the whole suite passes on main. Environment isolation defect to resolve before RP-14.",
+    "cloud provider execution BLOCKED_EXTERNAL (no credentials)."
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": "soak in flight (8h); cloud credentials absent; 4 red gates need remediation or explicit dispositions before RP-14."
+}

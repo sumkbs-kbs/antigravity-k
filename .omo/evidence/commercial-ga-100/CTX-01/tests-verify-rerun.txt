@@ -1,0 +1,4 @@
+Test Files  3 passed (3)
+      Tests  14 passed (14)
+   Duration  540ms
+Files: chatStore.revision.test.ts, chatStore.test.ts, projectStore.test.ts

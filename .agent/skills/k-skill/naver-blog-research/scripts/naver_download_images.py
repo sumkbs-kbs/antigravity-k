@@ -1,15 +1,78 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from email.message import Message
+from typing import ContextManager, Protocol, TypeAlias, TypedDict, cast
+
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+class HttpResponse(Protocol):
+    headers: Message
+
+    def read(self) -> bytes: ...
+
+    def __enter__(self) -> "HttpResponse": ...
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None: ...
+
+
+class NaverHttpModule(Protocol):
+    is_naver_url: Callable[[str], bool]
+
+    def urlopen(
+        self,
+        request: urllib.request.Request,
+        timeout: int,
+        *,
+        insecure: bool = False,
+    ) -> ContextManager[HttpResponse]: ...
+
+
+class DownloadErrorResult(TypedDict):
+    url: str
+    error: str
+
+
+class DownloadFileResult(TypedDict):
+    url: str
+    path: str
+    size_kb: float
+
+
+DownloadResult: TypeAlias = DownloadErrorResult | DownloadFileResult
+
+
+class DownloadBatchResult(TypedDict):
+    downloaded: int
+    files: list[DownloadFileResult]
+    failed: list[DownloadErrorResult]
+
+
+class CliArgs(Protocol):
+    urls: str
+    output: str
+    max: int
+    timeout: int
+    insecure: bool
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _naver_http import is_naver_url, urlopen
+_naver_http_name = "_naver" + "_http"
+_naver_http = cast(
+    NaverHttpModule,
+    cast(object, importlib.import_module(f"{__package__}.{_naver_http_name}" if __package__ else _naver_http_name)),
+)
+is_naver_url = _naver_http.is_naver_url
+urlopen = _naver_http.urlopen
 
 DEFAULT_OUTPUT_DIR = "./naver-images"
 DEFAULT_MAX = 10
@@ -74,7 +137,7 @@ def download_image(
     timeout: int = DEFAULT_TIMEOUT,
     *,
     insecure: bool = False,
-) -> dict:
+) -> DownloadResult:
     """Download a single image from a Naver CDN URL.
 
     *output_dir* is used solely for path-traversal protection: the resolved
@@ -92,7 +155,7 @@ def download_image(
     try:
         with urlopen(request, timeout, insecure=insecure) as response:
             data = response.read()
-            content_type = response.headers.get("Content-Type", "")
+            content_type = response.headers.get("Content-Type") or ""
     except (urllib.error.HTTPError, urllib.error.URLError, OSError) as error:
         return {"url": url, "error": str(error)}
 
@@ -103,7 +166,7 @@ def download_image(
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
     with open(output_path, "wb") as f:
-        f.write(data)
+        _ = f.write(data)
 
     size_kb = round(len(data) / 1024, 1)
     return {"url": url, "path": output_path, "size_kb": size_kb}
@@ -116,19 +179,19 @@ def download_images(
     timeout: int = DEFAULT_TIMEOUT,
     *,
     insecure: bool = False,
-) -> dict:
+) -> DownloadBatchResult:
     os.makedirs(output_dir, exist_ok=True)
 
     max_count = max(1, max_count)
     targets = urls[:max_count]
-    downloaded: list[dict] = []
-    failed: list[dict] = []
+    downloaded: list[DownloadFileResult] = []
+    failed: list[DownloadErrorResult] = []
 
     # index → result 순서를 보장하기 위해 dict로 매핑
-    results_by_index: dict[int, dict] = {}
+    results_by_index: dict[int, DownloadResult] = {}
 
     with ThreadPoolExecutor(max_workers=min(4, max(1, len(targets)))) as executor:
-        future_to_index = {}
+        future_to_index: dict[Future[DownloadResult], int] = {}
         for i, url in enumerate(targets, start=1):
             filename = f"{i:03d}"
             output_path = os.path.join(output_dir, filename)
@@ -157,53 +220,70 @@ def download_images(
     }
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
+def parse_args(argv: list[str]) -> CliArgs:
     parser = argparse.ArgumentParser(description="Download images from Naver blog CDN URLs.")
-    parser.add_argument(
+    _ = parser.add_argument(
         "--urls",
         type=str,
         default="",
         help="Comma-separated image URLs.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--output",
         type=str,
         default=DEFAULT_OUTPUT_DIR,
         help=f"Output directory. Default: {DEFAULT_OUTPUT_DIR}",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--max",
         type=int,
         default=DEFAULT_MAX,
         help=f"Maximum number of images to download. Default: {DEFAULT_MAX}",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--timeout",
         type=int,
         default=DEFAULT_TIMEOUT,
         help=f"HTTP request timeout in seconds. Default: {DEFAULT_TIMEOUT}",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--insecure",
         action="store_true",
         help="Skip SSL certificate verification (use only when certificate errors occur).",
     )
-    return parser.parse_args(argv)
+    return cast(CliArgs, cast(object, parser.parse_args(argv)))
 
 
 def read_urls_from_stdin() -> list[str]:
     try:
-        data = json.load(sys.stdin)
+        data = cast(JsonValue, json.load(sys.stdin))
         if isinstance(data, dict) and "images" in data:
-            return [img["url"] for img in data["images"] if isinstance(img, dict) and img.get("url")]
+            images = data["images"]
+            if isinstance(images, list):
+                urls: list[str] = []
+                for image in images:
+                    if not isinstance(image, dict):
+                        continue
+                    url = image.get("url")
+                    if isinstance(url, str) and url:
+                        urls.append(url)
+                return urls
         if isinstance(data, list):
-            return [u for item in data if (u := (item if isinstance(item, str) else item.get("url", "")))]
+            urls = []
+            for item in data:
+                if isinstance(item, str):
+                    url = item
+                elif isinstance(item, dict):
+                    value = item.get("url")
+                    url = value if isinstance(value, str) else ""
+                else:
+                    url = ""
+                if url:
+                    urls.append(url)
+            return urls
         if isinstance(data, dict):
-            print(
-                "[warn] stdin JSON에 'images' 키가 없습니다. "
-                "naver_read.py 실행 시 --no-images 플래그를 사용하지 않았는지 확인하세요.",
-                file=sys.stderr,
-            )
+            warning = "[warn] stdin JSON에 'images' 키가 없습니다. naver_read.py 실행 시 --no-images 플래그를 사용하지 않았는지 확인하세요."
+            print(warning, file=sys.stderr)
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         print(f"[warn] stdin JSON 파싱 실패: {exc}", file=sys.stderr)
         return []

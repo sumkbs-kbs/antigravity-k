@@ -1,0 +1,86 @@
+--- promote-gates attempt 2026-09-16T09:47:52Z ---
+# HEAD: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+# why: promotion moved scripts/tests files and .gitignore → fingerprint moved 157311cf… → ab980ba5…
+# excluded: clean-machine-runtime (needs a commit: exports --ref HEAD)
+# fingerprint before: ab980ba5b43b195d8a1d074861b76dc7a52ffe03d5fb75628e673d87a5c3bcd2
+promote-gates exit:1 end:2026-09-16T10:06:50Z report:gate-report-promote001.json
+# fingerprint after: 0f345d0ccc210f019c398bbfc425b23aae4d9051a2f3b3e230677359670a8194
+ga_gate_verify exit:1
+runner done:2026-09-16T10:06:50Z
+--- promote-gates attempt 2026-09-16T10:10:21Z ---
+# HEAD: 20d529fc1f17c8ff580eaf0d853dcd1ce92172d5
+# why: promotion moved scripts/tests files and .gitignore → fingerprint moved 157311cf… → ab980ba5…
+# excluded: clean-machine-runtime (needs a commit: exports --ref HEAD)
+# fingerprint before: 0f345d0ccc210f019c398bbfc425b23aae4d9051a2f3b3e230677359670a8194
+promote-gates exit:1 end:2026-09-16T10:25:33Z report:gate-report-promote002.json
+# fingerprint after: 0f345d0ccc210f019c398bbfc425b23aae4d9051a2f3b3e230677359670a8194
+ga_gate_verify exit:1
+runner done:2026-09-16T10:25:33Z
+--- promote-gates attempt 2026-09-16T10:31:12Z ---
+# HEAD: 89dd383b453dc0982b58810434fddea4eec849f4
+# why: promotion moved scripts/tests files and .gitignore → fingerprint moved 157311cf… → ab980ba5…
+# excluded: clean-machine-runtime (needs a commit: exports --ref HEAD)
+# fingerprint before: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91829d47ec176aa3e
+promote-gates exit:1 end:2026-09-16T10:46:58Z report:gate-report-promote003.json
+# fingerprint after: 92fcaeb5630e79c4a938e17e2143790ee175aec3bfe82ce91829d47ec176aa3e
+ga_gate_verify exit:1
+runner done:2026-09-16T10:46:58Z
+--- promote-gates attempt 2026-09-16T11:47:04Z ---
+# HEAD: 1bd95e7d12491dd21a38e3d2141bfaa3f55ed213
+# why: soak 회수 판정기의 기대 지문 결함 수정(scripts/collect_soak_result.py, 커밋 1bd95e7d) — 재장전 전 필수 23개 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: 322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe
+promote-gates exit:1 end:2026-09-16T12:02:52Z report:gate-report-promote004.json
+# fingerprint after: 322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe
+ga_gate_verify exit:1
+runner done:2026-09-16T12:02:52Z
+--- promote-gates attempt 2026-09-16T22:52:51Z ---
+# HEAD: 099cfc8ba0a3a3e773a724e335487fe54201364d
+# why: 미기재(환경변수 NX10_GATE_WHY 로 사유를 준다)
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639bafcf4
+promote-gates exit:1 end:2026-09-16T23:12:20Z report:gate-report-tailfix001.json
+# fingerprint after: 988550310d9a62eeff87e614a555398c44f358be3b6190be3e60461639bafcf4
+ga_gate_verify exit:1
+runner done:2026-09-16T23:12:20Z
+--- promote-gates attempt 2026-09-17T00:31:15Z ---
+# HEAD: c522b256cc7f345c657f45b4fe3231a752bde774
+# why: SC-3 동시 생성 결함(최초 생성이 lock 밖 + 고정 백업 tmp 이름)과 하네스 무한 대기(q.get 타임아웃 추가)를 고친 뒤 커밋 c522b256 에서 필수 23개를 재측정한다.
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: 5c90b63761159253b10662711b29d1f8cd7a4357174ec3ce952f150d5f6ddff9
+promote-gates exit:1 end:2026-09-17T00:50:17Z report:gate-report-sc3fix001.json
+# fingerprint after: 5c90b63761159253b10662711b29d1f8cd7a4357174ec3ce952f150d5f6ddff9
+ga_gate_verify exit:1
+runner done:2026-09-17T00:50:18Z
+--- promote-gates attempt 2026-09-17T02:24:52Z ---
+# HEAD: bde261dc962a4d009af6f3d14c3b401f15b44603
+# why: 2차 승격 배치(리허설 2종 승격) 뒤 새 지문 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: 50b82dd1d7a7ff052502cf5fe8a2210e9478f66e87f355192f1e3848a3ed9c8c
+promote-gates exit:1 end:2026-09-17T02:43:53Z report:gate-report-promote2b.json
+# fingerprint after: 50b82dd1d7a7ff052502cf5fe8a2210e9478f66e87f355192f1e3848a3ed9c8c
+ga_gate_verify exit:1
+runner done:2026-09-17T02:43:53Z
+--- promote-gates attempt 2026-09-17T02:50:33Z ---
+# HEAD: 5c979c0f5adaa41371219092d2df5ebcb4ab337d
+# why: 2차 승격 + basedpyright 가 드러낸 타입 오류 수정(5c979c0f) 뒤 새 지문 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: b6a74304dbd21148e83e7e4f4920068568a73e8166bce86c30828ea0890da5c8
+promote-gates exit:1 end:2026-09-17T03:07:03Z report:gate-report-promote2c.json
+# fingerprint after: b6a74304dbd21148e83e7e4f4920068568a73e8166bce86c30828ea0890da5c8
+ga_gate_verify exit:1
+runner done:2026-09-17T03:07:03Z
+--- promote-gates attempt 2026-09-17T21:19:41Z ---
+# HEAD: 8d762c3edad861e8005821c20062f4523d4cb62e
+# why: 3차 승격 배치(감시·통제 도구) + 호출자 경로 수정 뒤 커밋 8d762c3e 에서 필수 23개 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: af462f781371232e8e94db16b8973b41084cb4f3609bc4a62be1459ceb50dd7f
+--- promote-gates attempt 2026-09-17T21:27:48Z ---
+# HEAD: 22d653c931df6ee2f1ac66b0d26ed7db1b3620d9
+# why: 3차 승격(감시·통제 도구) + 호출자 경로 + 승격 뒤 basedpyright 28건 수리 뒤 커밋 22d653c9 에서 필수 23개 재측정
+# clean-machine-runtime: 포함(--ref HEAD = 커밋된 후보)
+# fingerprint before: df512a17ff464b3f658e1eae8816a0a371cdffef228f258d8fa749cfc62d06ae
+promote-gates exit:1 end:2026-09-17T21:51:42Z report:gate-report-promote3.json
+# fingerprint after: df512a17ff464b3f658e1eae8816a0a371cdffef228f258d8fa749cfc62d06ae
+ga_gate_verify exit:1
+runner done:2026-09-17T21:51:42Z

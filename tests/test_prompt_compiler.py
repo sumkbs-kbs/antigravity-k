@@ -13,6 +13,7 @@ def test_prompt_compilation_with_golden_patterns():
             role="worker",
             user_prompt="Write an async HTTP client",
             successful_action="use httpx.AsyncClient with context manager",
+            failing_action="use blocking requests",
             lesson="Never use blocking requests in async def",
         )
 
@@ -21,6 +22,7 @@ def test_prompt_compilation_with_golden_patterns():
 
         assert "role: worker" in compiled
         assert "httpx.AsyncClient" in compiled
+        assert "use blocking requests" in compiled
         assert "Never use blocking requests" in compiled
 
         saved_path = compiler.save_compiled_prompt("worker", compiled)

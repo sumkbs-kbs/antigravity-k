@@ -8,22 +8,26 @@ Tests cover:
 - Edge cases (empty files, empty dirs, hidden dirs)
 """
 
+import re
 import tempfile
 from pathlib import Path
+from typing import cast
 
+import antigravity_k.engine.code_tree_indexer as code_tree_indexer
 from antigravity_k.engine.code_tree_indexer import (
-    _RE_GO_FN,
-    _RE_JS_ARROW,
-    _RE_JS_FN,
-    _RE_OO_FN,
-    _RE_PHP_FN,
-    _RE_RB_FN,
-    _RE_RS_FN,
     IGNORE_DIRS,
     RE_COMMON_CLASS,
     RE_INTERFACE,
     CodeTreeIndexer,
 )
+
+_RE_GO_FN = cast(re.Pattern[str], getattr(code_tree_indexer, "_RE_GO_FN"))
+_RE_JS_ARROW = cast(re.Pattern[str], getattr(code_tree_indexer, "_RE_JS_ARROW"))
+_RE_JS_FN = cast(re.Pattern[str], getattr(code_tree_indexer, "_RE_JS_FN"))
+_RE_OO_FN = cast(re.Pattern[str], getattr(code_tree_indexer, "_RE_OO_FN"))
+_RE_PHP_FN = cast(re.Pattern[str], getattr(code_tree_indexer, "_RE_PHP_FN"))
+_RE_RB_FN = cast(re.Pattern[str], getattr(code_tree_indexer, "_RE_RB_FN"))
+_RE_RS_FN = cast(re.Pattern[str], getattr(code_tree_indexer, "_RE_RS_FN"))
 
 # ─── Helper ──────────────────────────────────────────────────────
 
@@ -32,7 +36,7 @@ def _create_test_project(tmpdir: str, extra_files: dict[str, str] | None = None)
     """테스트 프로젝트 디렉토리를 생성합니다."""
     root = Path(tmpdir)
     pkg = root / "mypkg"
-    pkg.mkdir(parents=True)
+    _ = pkg.mkdir(parents=True)
 
     files = {
         "mypkg/__init__.py": "",
@@ -58,8 +62,8 @@ def _create_test_project(tmpdir: str, extra_files: dict[str, str] | None = None)
 
     for rel_path, content in files.items():
         full_path = root / rel_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content, encoding="utf-8")
+        _ = full_path.parent.mkdir(parents=True, exist_ok=True)
+        _ = full_path.write_text(content, encoding="utf-8")
 
     return str(root)
 
@@ -103,13 +107,13 @@ class TestCodeTreeIndexer:
         """build_tree()가 .git 등 숨김 디렉토리를 스킵하는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / ".git").mkdir()
-            (root / ".git" / "config").write_text("dummy")
-            (root / ".venv").mkdir()
-            (root / ".venv" / "activate").write_text("dummy")
+            _ = (root / ".git").mkdir()
+            _ = (root / ".git" / "config").write_text("dummy")
+            _ = (root / ".venv").mkdir()
+            _ = (root / ".venv" / "activate").write_text("dummy")
             # 실제 소스 파일
-            (root / "src").mkdir()
-            (root / "src" / "app.py").write_text("def foo(): pass\n")
+            _ = (root / "src").mkdir()
+            _ = (root / "src" / "app.py").write_text("def foo(): pass\n")
 
             indexer = CodeTreeIndexer(str(root))
             tree = indexer.build_tree()
@@ -125,10 +129,10 @@ class TestCodeTreeIndexer:
         """IGNORE_DIRS의 디렉토리가 제외되는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "node_modules").mkdir()
-            (root / "node_modules" / "lodash.js").write_text("function map() {}\n")
-            (root / "src").mkdir()
-            (root / "src" / "index.js").write_text("function greet() {}\n")
+            _ = (root / "node_modules").mkdir()
+            _ = (root / "node_modules" / "lodash.js").write_text("function map() {}\n")
+            _ = (root / "src").mkdir()
+            _ = (root / "src" / "index.js").write_text("function greet() {}\n")
 
             indexer = CodeTreeIndexer(str(root))
             tree = indexer.build_tree()
@@ -141,7 +145,7 @@ class TestCodeTreeIndexer:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = _create_test_project(tmpdir)
             indexer = CodeTreeIndexer(project_root)
-            indexer.build_tree()
+            _ = indexer.build_tree()
 
             # 'helper' 함수 검색
             results = indexer.search("helper", max_files=5)
@@ -155,7 +159,7 @@ class TestCodeTreeIndexer:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = _create_test_project(tmpdir)
             indexer = CodeTreeIndexer(project_root)
-            indexer.build_tree()
+            _ = indexer.build_tree()
 
             # 'app' 검색 → main.py가 관련
             results = indexer.search("app")
@@ -169,7 +173,7 @@ class TestCodeTreeIndexer:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = _create_test_project(tmpdir)
             indexer = CodeTreeIndexer(project_root)
-            indexer.build_tree()
+            _ = indexer.build_tree()
 
             results = indexer.search("")
             assert len(results) == 0
@@ -179,7 +183,7 @@ class TestCodeTreeIndexer:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = _create_test_project(tmpdir)
             indexer = CodeTreeIndexer(project_root)
-            indexer.build_tree()
+            _ = indexer.build_tree()
 
             results = indexer.search("xyznonexistentkeyword12345")
             assert len(results) == 0
@@ -189,7 +193,7 @@ class TestCodeTreeIndexer:
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = _create_test_project(tmpdir)
             indexer = CodeTreeIndexer(project_root)
-            indexer.build_tree()
+            _ = indexer.build_tree()
 
             stats = indexer.stats()
 
@@ -212,9 +216,9 @@ class TestCodeTreeIndexer:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "test.py").write_text(content)
+            _ = (root / "test.py").write_text(content)
             indexer = CodeTreeIndexer(str(root))
-            indexer.build_tree()
+            _ = indexer.build_tree()
             stats = indexer.stats()
 
             # my_function, method(MyClass의 메서드), async_fn = 3
@@ -363,10 +367,10 @@ class TestCodeTreeIndexer:
         """인덱싱 불가능한 확장자(.png, .exe 등)가 스킵되는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "image.png").write_bytes(b"fake_png")
-            (root / "binary.bin").write_bytes(b"\x00\x01\x02")
-            (root / "data.csv").write_text("a,b,c\n")
-            (root / "code.py").write_text("def foo(): pass\n")
+            _ = (root / "image.png").write_bytes(b"fake_png")
+            _ = (root / "binary.bin").write_bytes(b"\x00\x01\x02")
+            _ = (root / "data.csv").write_text("a,b,c\n")
+            _ = (root / "code.py").write_text("def foo(): pass\n")
 
             indexer = CodeTreeIndexer(str(root))
             tree = indexer.build_tree()
@@ -381,13 +385,13 @@ class TestCodeTreeIndexer:
         """파일 추가 후 build_tree(force=True)가 새 파일을 감지하는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "original.py").write_text("def existing(): pass\n")
+            _ = (root / "original.py").write_text("def existing(): pass\n")
             indexer = CodeTreeIndexer(str(root))
             tree1 = indexer.build_tree()
             assert "original.py" in tree1
 
             # 새 파일 추가
-            (root / "newfile.py").write_text("def new_func(): pass\n")
+            _ = (root / "newfile.py").write_text("def new_func(): pass\n")
 
             # force=True로 재구축
             tree2 = indexer.build_tree(force=True)

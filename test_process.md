@@ -5,7 +5,7 @@
 > **최종 리포트**: `test_report.md`
 > **적용 엔진**: `TestHarness`, `GoalRunner` (Auto-Verify), `OrchestratorAgent` (Memory-Integrated), `OmniTDDEngine`, `QualityGate` (Antigravity Markdown/Information Density), `SelfCapabilityEngine`, `StreamProcessor` (CJK Precision & Advanced Markdown Rendering), `ArtifactEngine` (Planning Mode Override), `AutonomousCapabilityPolicy`, `MCPCapabilityAdvisor`, `CodexTransferEngine`, `CollectiveIntelligenceEngine`, `ModelRouter`, `RAGIndexer` (Hybrid Search + RRF), `ChainOfVerification`, `WebSearchEngine`, `BrowserSurfingAgent`, `ExternalBrainRouter`, `MemoryManager` (4-Tier Cognitive + Auto-Extract), `OutputQualityComparator`, `SelfImprovementLoop`, `CavemanCompressor`, `CavekitBackprop`, `GitNexusArchitect`, `CostGuard`, `HeartbeatMonitor`, `SkillLoader`
 
-본 문서는 Antigravity-K를 실제 사용자가 조작하는 환경과 최대한 동일하게 검증하기 위한 전문 QA 절차서입니다. 검증은 브라우저 DOM 조작, 보호 PIN 인증, API 호출, 정적 분석, 전체 테스트, 빌드, 출력 품질 비교, 채팅 출력 타이포그래피/Markdown 표시 품질, Agent Manager 프로젝트별 작업 관리, 출력물 DOM 안전성 검사, 자기 능력 인식(`/self`) 검증, MCP/Skills/로컬 PC capability 자율 판단 검사, Codex식 운영 강점 이식(`/codex`), 집단지성 모델 경쟁/비판/합성, 집단지성 벤치마크 누적 비교, RAG 컨텍스트 확장(자동 인덱싱), 자기검증 루프, 웹 검색 도구(Tavily/SearxNG), 비전-언어 자율 웹 서퍼(Browser-Use), External Brain 자동 위임, 4-Tier 인지 메모리 시스템, 정보 밀도 품질 검증, 한국어 한자 보존 CJK 정밀 필터, 자기 개선 피드백 루프, 출력 품질 비교기, GoalRunner 자동 검증을 모두 포함합니다.
+본 문서는 Ssak-Ai를 실제 사용자가 조작하는 환경과 최대한 동일하게 검증하기 위한 전문 QA 절차서입니다. 검증은 브라우저 DOM 조작, 보호 PIN 인증, API 호출, 정적 분석, 전체 테스트, 빌드, 출력 품질 비교, 채팅 출력 타이포그래피/Markdown 표시 품질, Agent Manager 프로젝트별 작업 관리, 출력물 DOM 안전성 검사, 자기 능력 인식(`/self`) 검증, MCP/Skills/로컬 PC capability 자율 판단 검사, Codex식 운영 강점 이식(`/codex`), 집단지성 모델 경쟁/비판/합성, 집단지성 벤치마크 누적 비교, RAG 컨텍스트 확장(자동 인덱싱), 자기검증 루프, 웹 검색 도구(Tavily/SearxNG), 비전-언어 자율 웹 서퍼(Browser-Use), External Brain 자동 위임, 4-Tier 인지 메모리 시스템, 정보 밀도 품질 검증, 한국어 한자 보존 CJK 정밀 필터, 자기 개선 피드백 루프, 출력 품질 비교기, GoalRunner 자동 검증을 모두 포함합니다.
 
 ---
 
@@ -27,7 +27,7 @@
 권장 서버 실행:
 
 ```bash
-cd /Users/mr.k/program/coding/ssak_comp/antigravity-k
+cd /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
 PYTHONPATH=src python -m uvicorn antigravity_k.api.server:app --host 127.0.0.1 --port 8012
 ```
 
@@ -76,7 +76,7 @@ cd dashboard && npm run build
 
 **절차**
 - `http://127.0.0.1:8012` 접속
-- `<title>`이 `Antigravity-K`인지 확인
+- `<title>`이 `Ssak-Ai`인지 확인
 - 사이드바 네비게이션 `AI 채팅`, `LLM Wiki`, `에이전트`, `설정` 존재 확인
 
 **통과 조건**
@@ -138,7 +138,7 @@ cd dashboard && npm run build
 
 ### Phase 5: Self-Test Loop
 
-**목적**: Antigravity-K가 스스로 주요 기능을 점검하는지 검증합니다.
+**목적**: Ssak-Ai가 스스로 주요 기능을 점검하는지 검증합니다.
 
 **실행**
 
@@ -272,7 +272,7 @@ PASS — Vite build 112ms
 
 ### Phase 14: 출력 품질 비교 검증
 
-**목적**: Antigravity-K 출력물을 Codex/Claude Code/Google Antigravity에서 기대하는 품질 계약과 비교합니다.
+**목적**: Ssak-Ai 출력물을 Codex/Claude Code/Google Antigravity에서 기대하는 품질 계약과 비교합니다.
 
 **검증 기준**
 - 코드-only 응답 금지
@@ -355,7 +355,7 @@ PASS — Vite build 112ms
 
 ### Phase 19: MCP Capability Upgrade
 
-**목적**: 최신 MCP transport와 서버 설정 안전성을 Antigravity-K가 자체 판단해 적용하는지 검증합니다.
+**목적**: 최신 MCP transport와 서버 설정 안전성을 Ssak-Ai가 자체 판단해 적용하는지 검증합니다.
 
 **절차**
 - `/mcp` 실행 후 최신 MCP capability matrix 확인
@@ -373,7 +373,7 @@ PASS — Vite build 112ms
 
 ### Phase 20: Autonomous Capability Policy
 
-**목적**: MCP, Skills, 내장 도구, 로컬 PC 제어 기능을 Antigravity-K가 목표 기반으로 자체 판단하여 자동 사용/승인 요청/차단하는지 검증합니다.
+**목적**: MCP, Skills, 내장 도구, 로컬 PC 제어 기능을 Ssak-Ai가 목표 기반으로 자체 판단하여 자동 사용/승인 요청/차단하는지 검증합니다.
 
 **절차**
 - `/capabilities <objective>` 실행 후 tool/MCP/Skills manifest 확인
@@ -924,7 +924,7 @@ print('Phase 25: ALL 5 CHECKS PASSED ✅')
 
 ## 5. 출력 품질 비교 매트릭스
 
-| 기능 | 목표 기준 | Antigravity-K v6.8 상태 |
+| 기능 | 목표 기준 | Ssak-Ai v6.8 상태 |
 |------|-----------|--------------------------|
 | 목표 계약 | 목표/성공 기준/위험 조건 고정 | `/goal` 계약 문서로 구현 |
 | 자율 판단 | 실행/승인/질문 필요 여부 판단 | `Autonomous Judgment Policy` 구현 |
@@ -1043,13 +1043,13 @@ python -m pytest tests/test_browser_surfing_agent.py -v --tb=short
 
 ## 9. 최종 판정
 
-2026-05-08 02:53 KST 기준 Antigravity-K v6.8는 실제 DOM 기반 사용자 흐름, 보호 PIN 인증, API, 하네스, 정적 분석, 전체 359개 단위 테스트, 멀티 에이전트 브라우저 제어(Browser-Use), Tavily & SearXNG 인프라 통합 검증을 모두 통과했습니다. 이번 회차에서는 **Agent Manager 기능 필요성/중복성/프로젝트별 관리 검증**을 추가하여 (1) 모바일 Agent Manager 접근 버튼, (2) Kanban WebSocket `tasks` payload, (3) 프로젝트별 `workspace` 필터, (4) task별 `project_path/project_name`, (5) 취소 상태 정합성을 완료했습니다. **랜덤화 테스트, 다중 모델 경쟁, 누적 벤치마크, 출력 표시 품질, 프로젝트별 작업 관리는 단일 모델 편향과 사용성 저하를 줄이기 위한 핵심 정책입니다.** 다음 회귀 테스트에서는 본 문서의 Phase 1~38을 동일 순서로 실행하고, 신규 결함은 즉시 결함 수정 이력에 누적합니다.
+2026-05-08 02:53 KST 기준 Ssak-Ai v6.8는 실제 DOM 기반 사용자 흐름, 보호 PIN 인증, API, 하네스, 정적 분석, 전체 359개 단위 테스트, 멀티 에이전트 브라우저 제어(Browser-Use), Tavily & SearXNG 인프라 통합 검증을 모두 통과했습니다. 이번 회차에서는 **Agent Manager 기능 필요성/중복성/프로젝트별 관리 검증**을 추가하여 (1) 모바일 Agent Manager 접근 버튼, (2) Kanban WebSocket `tasks` payload, (3) 프로젝트별 `workspace` 필터, (4) task별 `project_path/project_name`, (5) 취소 상태 정합성을 완료했습니다. **랜덤화 테스트, 다중 모델 경쟁, 누적 벤치마크, 출력 표시 품질, 프로젝트별 작업 관리는 단일 모델 편향과 사용성 저하를 줄이기 위한 핵심 정책입니다.** 다음 회귀 테스트에서는 본 문서의 Phase 1~38을 동일 순서로 실행하고, 신규 결함은 즉시 결함 수정 이력에 누적합니다.
 
 ---
 
 ## 10. Meta-Evolution 자율 진화 및 롤백 검증 (Phase 7)
 
-> **목적**: Antigravity-K 시스템이 `/evolve` 명령어를 통해 자율적으로 자신의 소스코드를 수정하고, 에러 발생 시 자동 롤백하는지 검증합니다.
+> **목적**: Ssak-Ai 시스템이 `/evolve` 명령어를 통해 자율적으로 자신의 소스코드를 수정하고, 에러 발생 시 자동 롤백하는지 검증합니다.
 
 **실행**
 ```bash
@@ -1080,7 +1080,7 @@ python3 -m pytest tests/test_meta_evolution_agent.py -v --tb=short
 
 ## 12. 오류 제로화 및 보호 모드 자율 판단 검증 (Phase 29)
 
-> **목적**: 정상적인 보호 흐름과 자율 capability 판단이 브라우저 콘솔 오류/경고 없이 동작하며, MCP/Skills/로컬 PC capability를 Antigravity-K가 자체 판단 가능한 출력으로 제시하는지 검증합니다.
+> **목적**: 정상적인 보호 흐름과 자율 capability 판단이 브라우저 콘솔 오류/경고 없이 동작하며, MCP/Skills/로컬 PC capability를 Ssak-Ai가 자체 판단 가능한 출력으로 제시하는지 검증합니다.
 
 **실행 방법 및 조건**
 1. **Fresh DOM load**: cache-busted URL로 대시보드 접속 후 신규 `console.error=0`, `console.warning=0` 확인.
@@ -1097,13 +1097,13 @@ python3 -m pytest tests/test_meta_evolution_agent.py -v --tb=short
 
 ## 13. Codex Capability Transfer 검증 (Phase 30)
 
-> **목적**: Codex식 작업 강점을 모델 내부 비공개 요소가 아니라 관찰 가능한 운영 계약, 도구 판단, 출력 품질, 검증 게이트로 Antigravity-K에 이식했는지 확인합니다.
+> **목적**: Codex식 작업 강점을 모델 내부 비공개 요소가 아니라 관찰 가능한 운영 계약, 도구 판단, 출력 품질, 검증 게이트로 Ssak-Ai에 이식했는지 확인합니다.
 
 **실행 방법 및 조건**
 1. **Slash command**: `/codex <objective>` 실행 시 `Codex Capability Transfer Manifest`가 출력되는지 확인.
 2. **Transfer boundary**: private model weights, hidden chain-of-thought, proprietary internal prompts는 복제하지 않는다고 명시하는지 확인.
 3. **Operating loop**: Observe, Contract, Select, Act, Verify, Report 루프가 표시되는지 확인.
-4. **Strength map**: Goal Contracting, Evidence-First Exploration, Scoped Implementation, Autonomous Tool Judgment, DOM-Grounded QA, Zero-Error Completion 등 강점이 Antigravity-K 구현 모듈로 매핑되는지 확인.
+4. **Strength map**: Goal Contracting, Evidence-First Exploration, Scoped Implementation, Autonomous Tool Judgment, DOM-Grounded QA, Zero-Error Completion 등 강점이 Ssak-Ai 구현 모듈로 매핑되는지 확인.
 5. **Prompt contract**: `OrchestratorAgent` 도구 프롬프트에 Codex-grade operating contract와 completion gates가 주입되는지 확인.
 6. **Command Palette**: `codex` 검색 시 `Codex Capability Transfer (/codex)`가 표시되고 채팅 입력창에 `/codex`가 프리필되는지 확인.
 7. **DOM clean console**: `/codex` 렌더링 후 신규 browser console error/warning 0건인지 확인.
@@ -1172,7 +1172,7 @@ print('Phase 31: ALL 5 CHECKS PASSED ✅')
 
 ## 15. 자기 능력 인식 및 출력 포렌식 검증 (Phase 32)
 
-> **목적**: Antigravity-K가 “자신이 무엇을 할 수 있는지”를 실제 런타임 capability에 근거해 설명하고, 사용자가 제공한 저품질 대화 사례처럼 내부 추론/혼합 언어/최신 정보 미검증 답변을 통과시키지 않는지 검증합니다.
+> **목적**: Ssak-Ai가 “자신이 무엇을 할 수 있는지”를 실제 런타임 capability에 근거해 설명하고, 사용자가 제공한 저품질 대화 사례처럼 내부 추론/혼합 언어/최신 정보 미검증 답변을 통과시키지 않는지 검증합니다.
 
 **검증 기준 및 절차**
 
@@ -1199,7 +1199,7 @@ curl -sS -H 'Content-Type: application/json' -H 'X-Access-Pin: 1935' \
 - `tests/test_output_quality.py` 7/7 PASS
 - `tests/test_stream_processor.py` 3/3 PASS
 - `tests/test_self_capability.py` 3/3 PASS
-- 자연어 자기소개 API가 `Antigravity-K Self Capability Report`를 반환
+- 자연어 자기소개 API가 `Ssak-Ai Self Capability Report`를 반환
 - 자연어 자기소개 API 응답에 `Thinking Process`, `WiFi` 문구가 없어야 함
 - 실제 8012 API 응답에서 슬래시 명령 수가 런타임 registry 기준으로 표시됨
 - 전체 `python -m pytest -q` 321/321 PASS
@@ -1210,7 +1210,7 @@ curl -sS -H 'Content-Type: application/json' -H 'X-Access-Pin: 1935' \
 
 ## 16. 집단지성 모델 경쟁 및 Thinking-only 방지 검증 (Phase 33)
 
-> **목적**: Antigravity-K의 모토인 “집단지성”을 실제 모델 라우팅 경로에 반영하여, 하나의 문제를 하나의 모델에 맡기지 않고 여러 중급 이상 모델이 독립 제안, 비판, 최종 합성을 수행하는지 검증합니다. 또한 Qwen3 계열의 thinking-only 응답과 내부 추론 노출을 차단합니다.
+> **목적**: Ssak-Ai의 모토인 “집단지성”을 실제 모델 라우팅 경로에 반영하여, 하나의 문제를 하나의 모델에 맡기지 않고 여러 중급 이상 모델이 독립 제안, 비판, 최종 합성을 수행하는지 검증합니다. 또한 Qwen3 계열의 thinking-only 응답과 내부 추론 노출을 차단합니다.
 
 **검증 기준 및 절차**
 
@@ -1344,7 +1344,7 @@ cd dashboard && npm run build
 
 ### [Phase 37] Codex식 채팅 출력 타이포그래피 및 Markdown 표시 검증
 
-> **목적**: 사용자가 Codex 화면에서 보는 것처럼 Antigravity-K assistant 답변도 긴 본문, 목록, 코드, 표를 읽기 좋은 문서형 출력으로 표시하는지 검증합니다.
+> **목적**: 사용자가 Codex 화면에서 보는 것처럼 Ssak-Ai assistant 답변도 긴 본문, 목록, 코드, 표를 읽기 좋은 문서형 출력으로 표시하는지 검증합니다.
 
 **검증 기준 및 절차**
 
@@ -1488,7 +1488,7 @@ python -m compileall -q src tests
 
 ### [Phase 43] K-Skill Framework 벤더링 및 통합 검증
 
-> **목적**: 한국 특화 69개 스킬(SRT/KTX 예매, 날씨, 공시, 카카오톡 제어 등)이 Antigravity-K의 `.agent/skills/k-skill`로 완전히 통합되고 구동되는지 검증합니다.
+> **목적**: 한국 특화 69개 스킬(SRT/KTX 예매, 날씨, 공시, 카카오톡 제어 등)이 Ssak-Ai의 `.agent/skills/k-skill`로 완전히 통합되고 구동되는지 검증합니다.
 
 **검증 기준 및 절차**
 1. **Vendoring 및 경로 패치**: `python3 scripts/` 등의 상대 경로가 `.agent/skills/k-skill/scripts/` 형태로 자동 패치되어 있는지 확인.
@@ -1514,7 +1514,7 @@ python -m compileall -q src tests
 
 ### [Phase 45] Antigravity 알고리즘 이식 및 자율 DOM QA 검증
 
-> **목적**: Antigravity-K가 타 코딩 에이전트(Codex, Claude Code) 대비 지닌 약점을 보완하기 위해, 최고 수준의 전문 QA 엔진인 Antigravity 본연의 마크다운 포맷팅 능력, 품질 게이트 지표, 자율 계획 모드(Artifacts) 생성 능력을 1:1 이식하고 이를 Browser Subagent 기반의 E2E 시각 테스트로 통과하는지 검증합니다.
+> **목적**: Ssak-Ai가 타 코딩 에이전트(Codex, Claude Code) 대비 지닌 약점을 보완하기 위해, 최고 수준의 전문 QA 엔진인 Antigravity 본연의 마크다운 포맷팅 능력, 품질 게이트 지표, 자율 계획 모드(Artifacts) 생성 능력을 1:1 이식하고 이를 Browser Subagent 기반의 E2E 시각 테스트로 통과하는지 검증합니다.
 
 **검증 기준 및 절차**
 1. **자율 브라우징 및 핀셋팅 우회**: `browser_subagent`가 `http://127.0.0.1:5173`에 접근하여, 보호된 시스템(PIN: 1935)에 자동으로 인증한 후 대시보드 무결성을 확인합니다.

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
 
+from antigravity_k.engine.atomic_write import write_text_atomically
 from antigravity_k.engine.vault_privacy_contracts import (
     VaultPrivacyAction,
     VaultPrivacyError,
@@ -131,11 +131,11 @@ def _apply_files(
             path.unlink()
         return
 
+    # NX-08-F01: 마스킹도 같은 원자성 계약으로 저장한다(자르고 쓰지 않는다).
+    # NX-10: writer 는 leaf 모듈(`atomic_write`)이 소유한다 — 예전처럼 `vault` 에서
+    # 함수 내부 임포트를 하면 `vault → vault_privacy → vault` 순환이 된다.
     for path, content in replacements.items():
-        with path.open("w", encoding="utf-8") as handle:
-            _ = handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
+        write_text_atomically(path, content)
 
 
 def _create_snapshot(vault_path: Path, mutation: VaultPrivacyMutation) -> str:

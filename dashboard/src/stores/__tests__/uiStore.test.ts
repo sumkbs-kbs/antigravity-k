@@ -7,14 +7,22 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useUiStore } from '../uiStore';
 
+// CR-10: 미관측 상태는 0/false가 아니라 null/'unknown'이다.
 const DEFAULT_SYSTEM_STATUS = {
-  healthy: false,
+  healthy: null,
   backends: {},
-  ragFiles: 0,
+  ragFiles: null,
   covActive: false,
-  cpuPercent: 0,
-  memoryMb: 0,
-  totalTokens: 0,
+  cpuPercent: null,
+  memoryPercent: null,
+  totalTokens: null,
+  version: null,
+  buildId: null,
+  uptimeSeconds: null,
+  startedAt: null,
+  processId: null,
+  observedAt: null,
+  state: 'unknown' as const,
 };
 
 beforeEach(() => {
@@ -30,33 +38,58 @@ beforeEach(() => {
 describe('useUiStore', () => {
   /* ─── systemStatus ─────────────────────────────────────── */
 
-  it('starts with unhealthy system status', () => {
-    expect(useUiStore.getState().systemStatus.healthy).toBe(false);
+  it('starts with UNKNOWN system status (not healthy, not zero)', () => {
+    const status = useUiStore.getState().systemStatus;
+    expect(status.healthy).toBeNull();
+    expect(status.state).toBe('unknown');
+    expect(status.observedAt).toBeNull();
+    expect(status.cpuPercent).toBeNull();
+    expect(status.version).toBeNull();
   });
 
-  it('updates system status', () => {
+  it('updates system status with live API values', () => {
     useUiStore.getState().setSystemStatus({
       healthy: true,
       cpuPercent: 45,
-      memoryMb: 2048,
+      memoryPercent: 41.5,
+      version: '0.1.0',
+      uptimeSeconds: 900,
+      processId: 4242,
+      state: 'live',
+      observedAt: 1_700_000_000_000,
       backends: { search: true },
     });
 
     const status = useUiStore.getState().systemStatus;
     expect(status.healthy).toBe(true);
     expect(status.cpuPercent).toBe(45);
-    expect(status.memoryMb).toBe(2048);
+    expect(status.memoryPercent).toBe(41.5);
+    expect(status.version).toBe('0.1.0');
+    expect(status.uptimeSeconds).toBe(900);
+    expect(status.processId).toBe(4242);
+    expect(status.state).toBe('live');
     expect(status.backends).toEqual({ search: true });
   });
 
   it('partial update merges into existing status', () => {
     useUiStore.getState().setSystemStatus({ healthy: true, cpuPercent: 50 });
-    useUiStore.getState().setSystemStatus({ memoryMb: 1024 });
+    useUiStore.getState().setSystemStatus({ memoryPercent: 41.5 });
 
     const status = useUiStore.getState().systemStatus;
     expect(status.healthy).toBe(true);
     expect(status.cpuPercent).toBe(50);
-    expect(status.memoryMb).toBe(1024);
+    expect(status.memoryPercent).toBe(41.5);
+  });
+
+  it('disconnect clears the health claim without faking zero', () => {
+    useUiStore.getState().setSystemStatus({ healthy: true, cpuPercent: 12, state: 'live', observedAt: 1 });
+    useUiStore.getState().setSystemStatus({ healthy: null, state: 'disconnected' });
+
+    const status = useUiStore.getState().systemStatus;
+    expect(status.healthy).toBeNull();
+    expect(status.state).toBe('disconnected');
+    // 마지막 성공 관측 시각은 보존되어 화면이 "언제 기준 값인지"를 말할 수 있다.
+    expect(status.observedAt).toBe(1);
   });
 
   /* ─── Pin Modal ────────────────────────────────────────── */

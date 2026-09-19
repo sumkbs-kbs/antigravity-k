@@ -9,18 +9,92 @@ These are foundational modules used across the entire engine:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from typing import Never
 
-from antigravity_k.engine.event_bus import EventBus
+from antigravity_k.engine.event_bus import EventBus, bridge_to_hook_event_bus
 from antigravity_k.engine.execution_mode import (
     BUILD_RESTRICTED_TOOLS,
     PLAN_ALLOWED_TOOLS,
     ExecutionMode,
 )
+from antigravity_k.engine.hook_event_bus import HookEventEmit
 from antigravity_k.engine.sampling_config import SAMPLING_PROFILES, SamplingProfile
+
+
+class _RecordingGlobalBus:
+    def __init__(self) -> None:
+        self.published: list[tuple[str, dict[str, object]]] = []
+
+    def publish(self, event_name: str, **kwargs: object) -> None:
+        self.published.append((event_name, kwargs))
+
+
+class _FakeHookBus:
+    _initialized = False
+
+    def __init__(self) -> None:
+        self.callbacks: list[Callable[[object], object]] = []
+
+    def subscribe_all(self, callback: Callable[[object], object]) -> None:
+        self.callbacks.append(callback)
+
+
+class TestHookEventBusBridge:
+    """HookEventBus → EventBus 브릿지: HOOK_KIND_TO_EVENT_NAME 변환."""
+
+    @staticmethod
+    def _setup(monkeypatch) -> tuple[_FakeHookBus, _RecordingGlobalBus, Callable[[object], object]]:
+        from antigravity_k.engine import event_bus as eb
+
+        hook_bus = _FakeHookBus()
+        global_bus = _RecordingGlobalBus()
+        monkeypatch.setattr(eb, "global_event_bus", global_bus)
+        monkeypatch.setattr("antigravity_k.engine.hook_event_bus.get_hook_event_bus", lambda: hook_bus)
+        bridge_to_hook_event_bus()
+        assert hook_bus.callbacks, "브릿지는 hook 버스에 구독해야 한다"
+        return hook_bus, global_bus, hook_bus.callbacks[0]
+
+    def test_bridge_publishes_plain_agent_turn_events(self, monkeypatch):
+        """직접 발행자가 없는 hook kind는 plain 이벤트 이름으로도 발행된다 (kanban 연동)."""
+        _hook_bus, global_bus, on_hook_event = self._setup(monkeypatch)
+        payload = {"panel_id": "auto_learner", "role": "AutoLearner", "task_type": "Vibe Coding Pipeline"}
+
+        on_hook_event(HookEventEmit(kind="agent-turn-start", payload=payload))
+        on_hook_event(HookEventEmit(kind="agent-turn-end", payload=payload))
+
+        names = [name for name, _ in global_bus.published]
+        assert "Hook:agent-turn-start" in names
+        assert "Hook:agent-turn-end" in names
+        assert ("AgentTurnStarted", payload) in global_bus.published
+        assert ("AgentTurnEnded", payload) in global_bus.published
+
+    def test_bridge_does_not_re_publish_directly_published_kinds(self, monkeypatch):
+        """직접 발행자가 있는 kind(tool-exec-start 등)는 이중 발행하지 않는다."""
+        _hook_bus, global_bus, on_hook_event = self._setup(monkeypatch)
+
+        on_hook_event(HookEventEmit(kind="tool-exec-start", payload={"name": "read_file"}))
+
+        names = [name for name, _ in global_bus.published]
+        assert "Hook:tool-exec-start" in names
+        assert "ToolExecutionStarted" not in names
+
 
 # ---------------------------------------------------------------------------
 # EventBus
 # ---------------------------------------------------------------------------
+
+
+def _append_value(values: list[object], value: object, **_kwargs: object) -> None:
+    values.append(value)
+
+
+def _raise_callback(**_kwargs: object) -> Never:
+    raise RuntimeError("boom")
+
+
+def _noop_callback(**_kwargs: object) -> None:
+    return None
 
 
 class TestEventBusSync:
@@ -29,16 +103,23 @@ class TestEventBusSync:
     def test_subscribe_and_publish(self):
         """A subscribed callback is called on publish."""
         bus = EventBus()
-        received = []
-        bus.subscribe("test_event", lambda **kw: received.append(kw))
+        received: list[dict[str, object]] = []
+
+        def callback(**kw: object) -> None:
+            received.append(kw)
+
+        bus.subscribe("test_event", callback)
         bus.publish("test_event", key="value")
         assert received == [{"key": "value"}]
 
     def test_unsubscribe_removes_callback(self):
         """After unsubscribe, the callback is not called."""
         bus = EventBus()
-        received = []
-        cb = lambda **kw: received.append(kw)  # noqa: E731
+        received: list[dict[str, object]] = []
+
+        def cb(**kw: object) -> None:
+            received.append(kw)
+
         bus.subscribe("evt", cb)
         bus.unsubscribe("evt", cb)
         bus.publish("evt", x=1)
@@ -52,17 +133,20 @@ class TestEventBusSync:
     def test_multiple_subscribers_all_called(self):
         """Multiple subscribers for the same event are all called."""
         bus = EventBus()
-        calls = []
-        bus.subscribe("evt", lambda **kw: calls.append("first"))
-        bus.subscribe("evt", lambda **kw: calls.append("second"))
+        calls: list[object] = []
+        bus.subscribe("evt", lambda **kw: _append_value(calls, "first", **kw))
+        bus.subscribe("evt", lambda **kw: _append_value(calls, "second", **kw))
         bus.publish("evt")
         assert calls == ["first", "second"]
 
     def test_subscribe_is_idempotent(self):
         """Subscribing the same callback twice does not duplicate it."""
         bus = EventBus()
-        calls = []
-        cb = lambda **kw: calls.append(1)  # noqa: E731
+        calls: list[object] = []
+
+        def cb(**_kwargs: object) -> None:
+            calls.append(1)
+
         bus.subscribe("evt", cb)
         bus.subscribe("evt", cb)  # duplicate
         bus.publish("evt")
@@ -71,16 +155,16 @@ class TestEventBusSync:
     def test_failing_callback_does_not_propagate(self):
         """A callback that raises does not crash publish."""
         bus = EventBus()
-        calls = []
-        bus.subscribe("evt", lambda **kw: (_ for _ in ()).throw(RuntimeError("boom")))  # noqa: E731
-        bus.subscribe("evt", lambda **kw: calls.append("survived"))  # noqa: E731
+        calls: list[object] = []
+        bus.subscribe("evt", _raise_callback)
+        bus.subscribe("evt", lambda **kw: _append_value(calls, "survived", **kw))
         bus.publish("evt")
         assert calls == ["survived"]
 
     def test_unsubscribe_nonexistent_is_noop(self):
         """Unsubscribing from a nonexistent event or callback is safe."""
         bus = EventBus()
-        bus.unsubscribe("nonexistent", lambda **kw: None)
+        bus.unsubscribe("nonexistent", _noop_callback)
 
 
 class TestEventBusAsync:
@@ -89,9 +173,9 @@ class TestEventBusAsync:
     def test_async_callback_called(self):
         """An async coroutine callback is invoked on publish."""
         bus = EventBus()
-        received = []
+        received: list[dict[str, object]] = []
 
-        async def async_cb(**kw):
+        async def async_cb(**kw: object) -> None:
             received.append(kw)
 
         bus.subscribe("evt", async_cb)
@@ -102,12 +186,12 @@ class TestEventBusAsync:
     def test_publish_async_gathers_coroutines(self):
         """publish_async awaits all async callbacks."""
         bus = EventBus()
-        results = []
+        results: list[object] = []
 
-        async def cb1(**kw):
+        async def cb1(**_kw: object) -> None:
             results.append("cb1")
 
-        async def cb2(**kw):
+        async def cb2(**_kw: object) -> None:
             results.append("cb2")
 
         bus.subscribe("evt", cb1)

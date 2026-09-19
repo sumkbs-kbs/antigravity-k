@@ -25,6 +25,12 @@ class TestModeManagerBasics:
         mgr = ModeManager()
         assert mgr.plan_artifact_path is None
 
+    def test_plan_quality_passed_property_reflects_state(self):
+        mgr = ModeManager()
+        assert mgr.plan_quality_passed is False
+        mgr.set_plan_quality_passed(True)
+        assert mgr.plan_quality_passed is True
+
     def test_empty_history_on_init(self):
         mgr = ModeManager()
         assert mgr.mode_history == []
@@ -46,7 +52,7 @@ class TestSwitchToPlan:
 
     def test_switch_to_plan_records_history(self):
         mgr = ModeManager()
-        mgr.switch_to_plan("testing")
+        _ = mgr.switch_to_plan("testing")
         assert len(mgr.mode_history) == 1
         transition = mgr.mode_history[0]
         assert transition.to_mode == ExecutionMode.PLAN
@@ -56,7 +62,7 @@ class TestSwitchToPlan:
         mgr = ModeManager()
         mgr.set_plan_artifact("/some/path")
         mgr.set_plan_quality_passed(True)
-        mgr.switch_to_plan()
+        _ = mgr.switch_to_plan()
         assert mgr.plan_artifact_path is None
         assert mgr.can_auto_transition_to_build is False
 
@@ -90,7 +96,7 @@ class TestSwitchToBuild:
         """Passing plan_artifact_path to switch_to_build sets it."""
         mgr = ModeManager(initial_mode=ExecutionMode.PLAN)
         mgr.set_plan_quality_passed(True)
-        mgr.switch_to_build(plan_artifact_path="/custom/plan.md")
+        _ = mgr.switch_to_build(plan_artifact_path="/custom/plan.md")
         assert mgr.plan_artifact_path == "/custom/plan.md"
 
     def test_build_idempotent(self):
@@ -119,7 +125,7 @@ class TestSwitchToInteractive:
     def test_switch_to_interactive_clears_artifact(self):
         mgr = ModeManager(initial_mode=ExecutionMode.BUILD)
         mgr.set_plan_artifact("/path")
-        mgr.switch_to_interactive()
+        _ = mgr.switch_to_interactive()
         assert mgr.plan_artifact_path is None
 
 
@@ -188,7 +194,37 @@ class TestToDict:
 
     def test_to_dict_contains_history(self):
         mgr = ModeManager()
-        mgr.switch_to_plan()
+        _ = mgr.switch_to_plan()
         d = mgr.to_dict()
         assert "history_count" in d
         assert d["history_count"] >= 1
+
+
+class TestPlanningModeStartedEvent:
+    """switch_to_plan이 Dashboard용 PlanningModeStarted 이벤트를 발행한다."""
+
+    def test_switch_to_plan_publishes_planning_mode_started(self, monkeypatch):
+        published: list[tuple[str, dict[str, object]]] = []
+
+        class _FakeBus:
+            def publish(self, event_name: str, **kwargs: object) -> None:
+                published.append((event_name, kwargs))
+
+        monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+        mgr = ModeManager()
+        assert mgr.switch_to_plan("프로젝트 분석 계획 수립") is True
+        assert ("PlanningModeStarted", {"goal": "프로젝트 분석 계획 수립"}) in published
+
+    def test_switch_to_plan_publishes_empty_goal_for_default_reason(self, monkeypatch):
+        published: list[tuple[str, dict[str, object]]] = []
+
+        class _FakeBus:
+            def publish(self, event_name: str, **kwargs: object) -> None:
+                published.append((event_name, kwargs))
+
+        monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+        mgr = ModeManager()
+        _ = mgr.switch_to_plan()
+        assert ("PlanningModeStarted", {"goal": ""}) in published

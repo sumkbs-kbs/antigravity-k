@@ -8,21 +8,55 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable, Mapping
 from html import unescape
-from typing import Any
+from typing import Protocol, cast, final
 
 PROXY_BASE_URL_ENV_VAR = "KSKILL_PROXY_BASE_URL"
 DEFAULT_PROXY_BASE_URL = "https://k-skill-proxy.nomadamas.org"
 
+JsonValue = object
+JsonObject = dict[str, JsonValue]
 
+
+class _CliArgs(Protocol):
+    command: str
+    question: str
+    symptoms: str
+    item_name: list[str]
+    limit: int
+    proxy_base_url: str | None
+
+
+class _HttpResponseLike(Protocol):
+    def __enter__(self) -> _HttpResponseLike: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object | None,
+    ) -> bool | None: ...
+
+    def read(self) -> bytes: ...
+
+
+def _load_json(text: str) -> object:
+    return cast(object, json.loads(text))
+
+
+@final
 class ApiError(RuntimeError):
+    status_code: int | None
+    url: str | None
+
     def __init__(self, message: str, *, status_code: int | None = None, url: str | None = None):
         super().__init__(message)
         self.status_code = status_code
         self.url = url
 
 
-def summarize_text(value: Any) -> str:
+def summarize_text(value: object | None) -> str:
     if value is None:
         return ""
     text = unescape(str(value))
@@ -31,9 +65,9 @@ def summarize_text(value: Any) -> str:
     return text
 
 
-def resolve_proxy_base_url(explicit_base_url: str | None = None, env: dict[str, str] | None = None) -> str:
-    env = env or os.environ
-    candidate = summarize_text(explicit_base_url or env.get(PROXY_BASE_URL_ENV_VAR))
+def resolve_proxy_base_url(explicit_base_url: str | None = None, env: Mapping[str, str] | None = None) -> str:
+    environment = env or os.environ
+    candidate = summarize_text(explicit_base_url or environment.get(PROXY_BASE_URL_ENV_VAR))
     if candidate.casefold() in {"off", "false", "0", "disable", "disabled", "none"}:
         raise ValueError("KSKILL_PROXY_BASE_URL 가 비활성화되어 있습니다.")
     if candidate and candidate != "replace-me":
@@ -41,7 +75,7 @@ def resolve_proxy_base_url(explicit_base_url: str | None = None, env: dict[str, 
     return DEFAULT_PROXY_BASE_URL
 
 
-def build_drug_interview(question: str | None = None, symptoms: str | None = None) -> dict[str, Any]:
+def build_drug_interview(question: str | None = None, symptoms: str | None = None) -> JsonObject:
     return {
         "domain": "drug",
         "question": summarize_text(question),
@@ -64,7 +98,7 @@ def build_drug_interview(question: str | None = None, symptoms: str | None = Non
     }
 
 
-EASY_FIELD_MAP = {
+EASY_FIELD_MAP: dict[str, str] = {
     "item_name": "item_name",
     "company_name": "company_name",
     "efficacy": "efficacy",
@@ -77,7 +111,7 @@ EASY_FIELD_MAP = {
     "item_seq": "item_seq",
 }
 
-SAFE_STAD_FIELD_MAP = {
+SAFE_STAD_FIELD_MAP: dict[str, str] = {
     "item_name": "item_name",
     "company_name": "company_name",
     "efficacy": "efficacy",
@@ -89,39 +123,48 @@ SAFE_STAD_FIELD_MAP = {
 }
 
 
-def normalize_easy_drug_item(item: dict[str, Any]) -> dict[str, Any]:
-    normalized = {key: summarize_text(item.get(source_key)) for key, source_key in EASY_FIELD_MAP.items()}
+def normalize_easy_drug_item(item: Mapping[str, object]) -> JsonObject:
+    normalized: JsonObject = {
+        key: summarize_text(item.get(source_key)) for key, source_key in EASY_FIELD_MAP.items()
+    }
     normalized["source"] = "drug_easy_info"
     return normalized
 
 
-def normalize_safe_stad_item(item: dict[str, Any]) -> dict[str, Any]:
-    normalized = {key: summarize_text(item.get(source_key)) for key, source_key in SAFE_STAD_FIELD_MAP.items()}
+def normalize_safe_stad_item(item: Mapping[str, object]) -> JsonObject:
+    normalized: JsonObject = {
+        key: summarize_text(item.get(source_key)) for key, source_key in SAFE_STAD_FIELD_MAP.items()
+    }
     normalized["source"] = "safe_standby_medicine"
     return normalized
 
 
-def read_json_response(request: urllib.request.Request | str) -> dict[str, Any]:
+def read_json_response(request: urllib.request.Request | str) -> JsonObject:
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
+        raw_response = cast(object, urllib.request.urlopen(request, timeout=30))
+        with cast(_HttpResponseLike, raw_response) as response:
+            payload = _load_json(response.read().decode("utf-8"))
+            if isinstance(payload, dict):
+                return cast(JsonObject, payload)
+            raise ApiError("MFDS drug proxy returned a non-object JSON payload")
     except urllib.error.HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
         try:
-            payload = json.loads(body)
+            payload = _load_json(body)
         except json.JSONDecodeError:
             payload = None
 
-        if isinstance(payload, dict) and payload.get("message"):
+        payload_map = cast(Mapping[str, object], payload)
+        if isinstance(payload, dict) and payload_map.get("message"):
             raise ApiError(
-                str(payload["message"]),
+                str(payload_map["message"]),
                 status_code=error.code,
-                url=getattr(error, "url", None),
+                url=error.url,
             ) from error
         raise ApiError(
             f"MFDS drug proxy request failed with HTTP {error.code}",
             status_code=error.code,
-            url=getattr(error, "url", None),
+            url=error.url,
         ) from error
     except urllib.error.URLError as error:
         raise ApiError(f"MFDS drug proxy request failed: {error.reason}") from error
@@ -132,8 +175,8 @@ def lookup_drugs(
     *,
     limit: int = 5,
     base_url: str | None = None,
-    request_json: Any = read_json_response,
-) -> dict[str, Any]:
+    request_json: Callable[[urllib.request.Request | str], JsonObject] = read_json_response,
+) -> JsonObject:
     resolved_base_url = resolve_proxy_base_url(base_url)
     url = f"{resolved_base_url}/v1/mfds/drug-safety/lookup"
     params: list[tuple[str, str]] = [("itemName", item_name) for item_name in item_names]
@@ -151,18 +194,18 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     interview = subparsers.add_parser("interview", help="print the mandatory symptom follow-up interview")
-    interview.add_argument("--question", default="")
-    interview.add_argument("--symptoms", default="")
+    _ = interview.add_argument("--question", default="")
+    _ = interview.add_argument("--symptoms", default="")
 
     lookup = subparsers.add_parser("lookup", help="look up official MFDS drug safety records through k-skill-proxy")
-    lookup.add_argument("--item-name", action="append", required=True)
-    lookup.add_argument("--limit", type=int, default=5)
-    lookup.add_argument("--proxy-base-url")
+    _ = lookup.add_argument("--item-name", action="append", required=True)
+    _ = lookup.add_argument("--limit", type=int, default=5)
+    _ = lookup.add_argument("--proxy-base-url")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    args = cast(_CliArgs, cast(object, build_parser().parse_args(argv)))
 
     if args.command == "interview":
         print(

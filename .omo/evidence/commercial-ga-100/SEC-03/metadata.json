@@ -1,0 +1,65 @@
+{
+  "task_id": "SEC-03",
+  "title": "WebSocket Origin allowlist + 단기 1회성 ticket",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §SEC-03",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §SEC-03",
+  "status": "REVIEW_R1_APPROVE",
+  "branch": "codex/sec-03-ws-origin-ticket",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-sec-03",
+  "base_sha": "ec144cd",
+  "commit": "71b48a7",
+  "reviewer": "sec_03_verify (독립 세션 — Freebuff, 2026-09-07)",
+  "roles": {
+    "implementer": "sec_03_impl (Freebuff 세션, 2026-09-06~07)",
+    "reviewer": "sec_03_verify (구현자와 상이한 세션 필요)"
+  },
+  "acceptance_criteria": [
+    {
+      "criterion": "잘못된/missing Origin과 재사용·만료 ticket, query credential이 거절된다",
+      "evidence": [
+        "src/antigravity_k/security/ws_origin.py — Origin allowlist (loopback + 등록 project host)",
+        "src/antigravity_k/security/ws_ticket.py — TokenService 서명 단기(30초) JWT, jti 1회성 소비, replay 거절, 만료 항목 지연 청소",
+        "tests/test_sec03_ws_origin_ticket.py — 18건 (origin 차단/replay/만료/credential 비노출 truth-table)"
+      ]
+    },
+    {
+      "criterion": "ticket이 로그와 browser history에 credential을 노출하지 않는다",
+      "evidence": [
+        "query ?token=/?pin= 장기 bearer 채널 제거 — workspace_websocket 게이트가 ticket만 수용",
+        "dashboard useEventWebSocket/TerminalSession — 저장된 bearer를 fetchWsTicket()으로 교환해 ?ticket= 로 단 한 번 사용",
+        "subprotocol bearer 채널 제거 — MockWebSocket protocols 검증 (테스트)",
+        "ticket은 30초 만료 단기 JWT — 유출되어도 재사용 불가 (jti 1회성)"
+      ]
+    },
+    {
+      "criterion": "정상 reconnect와 task event replay가 유지된다",
+      "evidence": [
+        "tests/test_workspace_websocket.py + test_workspace_websocket_live.py — 기존 스위트 ticket 플로우로 마이그레이션 후 전부 통과",
+        "dashboard useEventWebSocket reconnect 경로도 ticket 재발급 유지 (scheduleReconnect → connect → fetchWsTicket)"
+      ]
+    },
+    {
+      "criterion": "cross-site browser 시나리오가 side effect와 event read 모두 차단된다",
+      "evidence": [
+        "tests/test_sec03_ws_origin_ticket.py — 악의적 Origin + 유효 ticket 조합도 거절 (origin이 1차 게이트)",
+        "credential 없는 연결은 보호 서버에서 4401 거절 (익명 open_loopback 서버는 기존 계약 유지)"
+      ]
+    }
+  ],
+  "verification": {
+    "target_suites": "tests/test_sec03_ws_origin_ticket.py(18) + test_workspace_websocket + test_workspace_websocket_live + test_system_api_memory_suite = 99 passed",
+    "full_suite": "5569 passed / 9 failed / 13 skipped — 실패 목록 baseline(ec144cd)과 byte-identical (회귀 0)",
+    "backend_lint": "ruff check/format: clean (변경 파일 전부)",
+    "mypy": "Success: no issues found in 465 source files",
+    "dashboard": "tsc -b 0 errors, eslint clean, vitest 748/749 (SearchPanel 1건은 baseline 선행 — ec144cd 수정분과 동일 실패)"
+  },
+  "notes": [
+    "base는 d094791에서 시작했으나 커밋 전 baseline이 ec144cd(dashboard tsc fix)로 진행되어 rebase — ChatPage/taskExecutionProjection의 중복 tsc-fix는 동일 내용이라 자동 소멸",
+    "rebase 충돌 1건(test_system_api_memory_suite start_session lambda 기본값) — production 시그니처(project_path: str | None = None)에 맞춰 SEC-03 측 수용",
+    "test_desktop_context_api의 1건 실패는 worktree의 gitignored data/projects.json이 폴더명(Ssak-Ai-sec-03)으로 자동 생성된 환경 아티팩트 — env 파일 정렬 후 통과, 코드 무관",
+    "구현 세부와 진행 로그는 docs/ 진행문서 및 커밋 71b48a7 참조"
+  ],
+  "generated_at": "2026-09-07",
+  "generated_by": "Freebuff agent (implementer session)",
+  "review_note": "독립 재현 4/4 PASS, 구현자 테스트 44 passed, 회귀 9=9"
+}

@@ -1,0 +1,86 @@
+Using CPython 3.13.12 interpreter at: /Users/mr.k/miniforge3/bin/python3
+Creating virtual environment at: .venv
+   Building antigravity-k @ file:///Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-02
+      Built antigravity-k @ file:///Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-02
+Installed 64 packages in 73ms
+.F.FFFF.                                                                 [100%]
+=================================== FAILURES ===================================
+_______ test_five_token_message_with_1005_aux_fits_under_operator_limit ________
+tests/test_final_prompt_budget.py:73: in test_five_token_message_with_1005_aux_fits_under_operator_limit
+    fit = fit_final_prompt(
+src/antigravity_k/engine/context_budget_enforcer.py:477: in fit_final_prompt
+    raise PromptBudgetExceededError(
+E   antigravity_k.engine.context_budget.PromptBudgetExceededError: final prompt input 1006 exceeds budget 1000
+_______ test_fit_preserves_prompt_cache_prefix_when_only_suffix_shrinks ________
+tests/test_final_prompt_budget.py:123: in test_fit_preserves_prompt_cache_prefix_when_only_suffix_shrinks
+    assert fit.cache_prefix == original_prefix
+E   AssertionError: assert 'System: \n\n\n' == 'System: STAB...OOL_GUIDE\n\n'
+E
+E     - System: STABLE_SYSTEM_PREFIX_BYTES
+E     + System:
+E
+E
+E     - STABLE_TOOL_GUIDE
+E     -
+_______________ test_structured_tool_evidence_survives_final_fit _______________
+tests/test_final_prompt_budget.py:138: in test_structured_tool_evidence_survives_final_fit
+    fit = fit_final_prompt(
+src/antigravity_k/engine/context_budget_enforcer.py:477: in fit_final_prompt
+    raise PromptBudgetExceededError(
+E   antigravity_k.engine.context_budget.PromptBudgetExceededError: final prompt input 253 exceeds budget 250
+__________ test_oversized_single_component_is_bounded_or_typed_error ___________
+tests/test_final_prompt_budget.py:157: in test_oversized_single_component_is_bounded_or_typed_error
+    fit = fit_final_prompt(
+src/antigravity_k/engine/context_budget_enforcer.py:477: in fit_final_prompt
+    raise PromptBudgetExceededError(
+E   antigravity_k.engine.context_budget.PromptBudgetExceededError: final prompt input 86 exceeds budget 80
+____________ test_hard_limit_is_min_of_declared_empirical_operator _____________
+src/antigravity_k/engine/model_memory_calibration.py:99: in load_model_memory_budget
+    artifact = ModelMemoryCalibrationArtifact.model_validate(json.loads(raw))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 3 validation errors for ModelMemoryCalibrationArtifact
+E   measurements.0.context_tokens
+E     Input should be greater than or equal to 1024 [type=greater_than_equal, input_value=500, input_type=int]
+E       For further information visit https://errors.pydantic.dev/2.13/v/greater_than_equal
+E   measurements.1.context_tokens
+E     Input should be greater than or equal to 1024 [type=greater_than_equal, input_value=900, input_type=int]
+E       For further information visit https://errors.pydantic.dev/2.13/v/greater_than_equal
+E   measurements
+E     Tuple should have at least 1 item after validation, not 0 [type=too_short, input_value=[{'context_tokens': 500, ...3000, 'outcome': 'oom'}], input_type=list]
+E       For further information visit https://errors.pydantic.dev/2.13/v/too_short
+
+The above exception was the direct cause of the following exception:
+tests/test_final_prompt_budget.py:219: in test_hard_limit_is_min_of_declared_empirical_operator
+    hard = resolve_hard_token_limit(config, "qwen3.6:latest")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/antigravity_k/engine/context_budget.py:218: in resolve_hard_token_limit
+    memory = _model_memory_budget(config, model_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/antigravity_k/engine/context_budget.py:91: in _model_memory_budget
+    return load_model_memory_budget(paths, model_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/antigravity_k/engine/model_memory_calibration.py:101: in load_model_memory_budget
+    raise ModelMemoryArtifactError(path, str(error)) from error
+E   antigravity_k.engine.model_memory_calibration.ModelMemoryArtifactError: /private/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/pytest-of-mr.k/pytest-1180/test_hard_limit_is_min_of_decl0/mem.json: 3 validation errors for ModelMemoryCalibrationArtifact
+E   measurements.0.context_tokens
+E     Input should be greater than or equal to 1024 [type=greater_than_equal, input_value=500, input_type=int]
+E       For further information visit https://errors.pydantic.dev/2.13/v/greater_than_equal
+E   measurements.1.context_tokens
+E     Input should be greater than or equal to 1024 [type=greater_than_equal, input_value=900, input_type=int]
+E       For further information visit https://errors.pydantic.dev/2.13/v/greater_than_equal
+E   measurements
+E     Tuple should have at least 1 item after validation, not 0 [type=too_short, input_value=[{'context_tokens': 500, ...3000, 'outcome': 'oom'}], input_type=list]
+E       For further information visit https://errors.pydantic.dev/2.13/v/too_short
+
+During handling of the above exception, another exception occurred:
+/Users/mr.k/miniforge3/lib/python3.13/contextlib.py:195: in __exit__
+    exc.__traceback__ = traceback
+    ^^^^^^^^^^^^^^^^^
+E   TypeError: super(type, obj): obj (instance of ModelMemoryArtifactError) is not an instance or subtype of type (ModelMemoryArtifactError).
+=========================== short test summary info ============================
+FAILED tests/test_final_prompt_budget.py::test_five_token_message_with_1005_aux_fits_under_operator_limit
+FAILED tests/test_final_prompt_budget.py::test_fit_preserves_prompt_cache_prefix_when_only_suffix_shrinks
+FAILED tests/test_final_prompt_budget.py::test_structured_tool_evidence_survives_final_fit
+FAILED tests/test_final_prompt_budget.py::test_oversized_single_component_is_bounded_or_typed_error
+FAILED tests/test_final_prompt_budget.py::test_hard_limit_is_min_of_declared_empirical_operator
+5 failed, 3 passed in 0.21s

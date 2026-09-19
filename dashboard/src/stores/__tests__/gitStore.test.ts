@@ -16,17 +16,15 @@ import { useGitStore } from '../gitStore';
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
-const mockOkResponse = (data: any) => ({
+const mockOkResponse = (data: unknown) => ({
   ok: true,
   json: () => Promise.resolve(data),
 });
 
 const mockFailResponse = (error = 'API error') => ({
   ok: false,
-  json: () => Promise.resolve({ error }),
+  json: () => Promise.resolve({ ok: false, error }),
 });
-
-const mockNetworkError = () => Promise.reject(new Error('Network failure'));
 
 beforeEach(() => {
   // Reset store state between tests
@@ -112,7 +110,10 @@ describe('gitStore', () => {
     it('sets status on success', async () => {
       mockFetch.mockResolvedValue(mockOkResponse({
         ok: true, branch: 'main', upstream: 'origin/main', ahead: 1, behind: 0,
-        files: [{ file_path: 'test.ts', x: 'M', y: ' ' }],
+        files: [{
+          file_path: 'test.ts', x: 'M', y: ' ',
+          staged_status: 'modified', unstaged_status: 'unchanged',
+        }],
         counts: { staged: 1, unstaged: 0, untracked: 0, total: 1 },
       }));
       await useGitStore.getState().fetchStatus();
@@ -133,11 +134,37 @@ describe('gitStore', () => {
       await useGitStore.getState().fetchStatus();
       expect(useGitStore.getState().status.error).toBe('Network failure');
     });
+
+    it('rejects a malformed success response without corrupting status', async () => {
+      mockFetch.mockResolvedValue(mockOkResponse({ ok: true, branch: 42 }));
+
+      await useGitStore.getState().fetchStatus();
+
+      const { status } = useGitStore.getState();
+      expect(status.branch).toBe('');
+      expect(status.files).toEqual([]);
+      expect(status.loading).toBe(false);
+      expect(status.error).toBe('Invalid Git status response');
+    });
+
+    it('normalizes a non-Error network rejection', async () => {
+      mockFetch.mockRejectedValue('offline');
+
+      await useGitStore.getState().fetchStatus();
+
+      expect(useGitStore.getState().status.error).toBe('Unknown Git error');
+    });
   });
 
   describe('fetchLog', () => {
     it('sets commits on success', async () => {
-      mockFetch.mockResolvedValue(mockOkResponse({ ok: true, commits: [{ hash: 'abc' }] }));
+      mockFetch.mockResolvedValue(mockOkResponse({
+        ok: true,
+        commits: [{
+          hash: 'abc', short_hash: 'abc', author_name: 'me', author_email: 'me@example.com',
+          date: '2026-01-01', message: 'fix', refs: '',
+        }],
+      }));
       await useGitStore.getState().fetchLog();
       expect(useGitStore.getState().log.commits.length).toBe(1);
     });
@@ -196,6 +223,14 @@ describe('gitStore', () => {
     it('returns false on network error', async () => {
       mockFetch.mockRejectedValue(new Error('Network error'));
       const result = await useGitStore.getState().stageFiles(['test.ts']);
+      expect(result).toBe(false);
+    });
+
+    it('returns false on a malformed success response', async () => {
+      mockFetch.mockResolvedValue(mockOkResponse({ ok: 'yes' }));
+
+      const result = await useGitStore.getState().stageFiles(['test.ts']);
+
       expect(result).toBe(false);
     });
   });

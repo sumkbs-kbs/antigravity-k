@@ -1,0 +1,37 @@
+{
+  "rehearsal": "OBS-01 DR",
+  "executed_at": "2026-09-09T23:52:32+0900",
+  "scenarios": [
+    {
+      "scenario": "backup_restore",
+      "projects_before": 2,
+      "backup_created": true,
+      "recovered_ids": [
+        "default",
+        "proj_04508688",
+        "proj_33e93012"
+      ],
+      "restore_ok": true,
+      "active_preserved": true,
+      "ok": true
+    },
+    {
+      "scenario": "db_corruption",
+      "task_created": true,
+      "corruption_detected": true,
+      "reinit_ok": true,
+      "write_after_recovery": true,
+      "ok": true
+    },
+    {
+      "scenario": "project_migration",
+      "switch_ok": true,
+      "migrated_id": "proj_a060d5b6",
+      "migrated_path": "/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/agk-dr-csnppbxk/project_migration/mig-new",
+      "path_points_to_new_root": true,
+      "active_after_migration": true,
+      "ok": true
+    }
+  ],
+  "all_ok": true
+}

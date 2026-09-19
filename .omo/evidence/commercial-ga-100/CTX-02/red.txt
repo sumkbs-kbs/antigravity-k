@@ -1,0 +1,15 @@
+CTX-02 red reproduction (pre-fix gap)
+
+Gap: message-only budget checks treated a 5-token user message as under a
+1000-token operator limit, while the final serialized prompt also carried a
+~1005-token aux blob (system/tools/skills/memory/artifacts). Provider invoke
+therefore saw ~1010 input tokens and overflowed.
+
+Repro sketch (TokenEstimator):
+  message = "a" * 18          # 5 tokens
+  aux     = "x" * 4018        # 1005 tokens
+  operator context_token_limit = 1000
+  ContextCompressor.needs_compression([{"role":"user","content":message}]) == False
+  final serialized System+aux+message > 1000
+
+Fix: PromptComponentLedger + fit_final_prompt + tool_loop pre-invoke recheck.

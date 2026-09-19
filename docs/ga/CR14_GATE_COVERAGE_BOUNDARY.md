@@ -1,0 +1,517 @@
+# 게이트 커버리지 경계 — required gate 22개가 **재지 않는** 것
+
+최종 갱신: 2026-09-14 (CR-14 attempt-040 — **C33-6 PIN ticket 브라우저 증인 선언**(측정 전): `cr14-pin-ws-ticket.spec.ts` → `dashboard-e2e-witnesses`. 이전 attempt-039 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-capture-real-local-models` — AGK_SEED_LOCAL_HUB hermetic · leftover **0건**. 이전 attempt-038 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-invert-compact-large-stream` — TaskEventSchema 시드 정합 · GREP_INVERT 비움 · leftover **1건**(EXTERNAL_HUB만). 이전 attempt-037 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-invert-git-status-file-activity` — 코드 탭 + empty-state · leftover **2건**. 이전 attempt-036 — **F-47 leftover 1건 폐쇄**(§2-10): `f47-invert-execution-trace-axe` — `.is-primary` AA + Monaco textbox aria-label · GREP_INVERT 제거 · leftover **3건**. 이전 attempt-035: disclosure hermetic 폐쇄 · leftover 4건 계수. 이전 attempt-034 — **F-45 · F-46 폐쇄**(§2-9): ambient 백엔드 스펙에 required-gate 소유자 `dashboard-e2e-ambient`(인벤토리 **22 → 23**). F-45=hermetic NO_PIN·훅 vault·CORS Origin. F-47=의도적 밖(disclosure/:5173·실 모델 허브·invert flake). 이전: attempt-032 — **F-42 폐쇄**(§2-8): §2-6·§2-7 이 자기 한계로 적어 둔 문장(*"실 브라우저 증인은 수동이고 required 게이트 중 어느 것도 이들을 돌리지 않는다 — 게이트 소유를 먼저 정해야 한다"*)을 **측정으로 바꾸니 그 문장은 셋만의 것이 아니었다**: `dashboard/e2e/tests/cr*.spec.ts` **9파일 29건**이 어떤 required 게이트에도 소유자가 없었고(커버리지 **0/9**), 그런데 그 패밀리는 **ambient 백엔드 없이** 돈다(**29 passed / 43.5s**) — 게이트로 세울 수 있었는데 세우지 않았다. 새 required 게이트 `dashboard-e2e-witnesses` 가 **이름 규칙**(`e2e/tests/cr\d+-`)으로 그 패밀리를 돌아 인벤토리가 **21 → 22** 가 됐다(그래서 이 문서의 제목·§5 의 `21/21` 도 `22/22` 로 바뀌었다). 그 게이트가 **삼키지 않는** 슬라이스(ambient 백엔드가 필요한 스펙)는 §2-8 이 계속 소유한다. 이전 갱신: 2026-09-13 (CR-14 attempt-026 — **F-34 폐쇄**(§2-2): 게이트 러너가 게이트 **직전·직후**의 경로별 내용 지도를 비교해, **자기가 재는 코드를 바꾼 게이트**를 `tree_moved` 로 적고 실행을 exit 1 로 끝낸다(required 여부 무관). 그전에는 보고서가 지문 **하나**로 "21개 초록이 이 코드 상태의 것"이라 주장했는데, 지문은 게이트 **앞에서** 한 번 재고 끝났다 — 추적 번들 45개를 다시 쓰는 `dashboard-build` 가 exit 0 으로 지나갔다. 앞선 attempt-024 는 **R-16 폐쇄**: 등록부의 소유 단위를 게이트 하나에서 **required 21개 전수**로 넓혔고, 그 과정에서 두 자리의 조용한 스킵을 찾아 닫았다 — `api-e2e`(`-q` 단독 익명) · `dashboard-test`(vitest 기본 리포터 건수만) 은 스킵을 **테스트 단위로 귀속**시키지 못했고, `clean-machine-runtime` 은 `--skip-*` 채널이 아무 자리에도 적혀 있지 않았다)
+
+판정서의 `required gate 22/22 PASS` 는 **강한 문장이지만 만능 문장이 아니다.** 이 문서는 그
+문장이 **어디까지 참인지**를 적는다. 목적은 하나다: 초록을 "모든 것이 검증됐다"로 읽는 착각을
+막는 것. 스킵은 그 착각이 생기는 대표적인 자리다 — 게이트는 초록인데 그 테스트는 어디서도
+돌지 않는다.
+
+소유자: **`scripts/gate_skip_register.json`**(무엇이 스킵되는지·왜·누가 대신 재는가) ·
+검사: **`tests/test_cr14_gate_skip_register.py`**(등록부와 실제 게이트 환경을 한 건씩 대조).
+
+## 1. 게이트 환경이 실제로 무엇을 도는가
+
+게이트 `python-tests` 는 다음과 같은 환경에서 돌아간다(게이트 파일이 소유한다):
+
+```
+uv run --isolated --frozen --extra dev --extra rag --extra documents pytest tests/ -m "not benchmark" -v --tb=short
+```
+
+`--extra documents` 는 **attempt-021 에서 추가**됐다(F-30). 그전에는 어떤 파이프라인도
+`documents`(pypdf)를 설치하지 않았고(CI 매트릭스는 `base`/`rag`/`mlx`, 주간 job 은 `mlx`/`unsloth`),
+그래서 **PDF/DOCX 수집 능력을 재는 23건이 게이트·CI·주간 어디서도 돌지 않았다.**
+이제 게이트가 그 extra 를 설치하므로 그 23건은 스킵이 아니라 **검증**이다(실측 87 passed / 0 skipped).
+
+## 2. 스킵의 변화 (F-18 이 만든 대가를 세었다)
+
+| attempt | 도구 출처 | passed | skipped |
+| --- | --- | --- | --- |
+| 011 | ambient(호출 셸 PATH) | 6200 | 13 |
+| 012 | ambient(혼합) | 6215 | **6** |
+| 013 | **lock 고정**(F-18 수정) | 6174 | **40** |
+| 020 | lock 고정 | 6251 | 40 |
+| 021 | lock 고정 + `documents` | 6280 | **17** |
+| 022 | lock 고정 + `documents` | 6289 | 15 |
+| **023** | lock 고정 + `documents` | **6291** | **13** |
+
+도구 출처를 바로잡은 것(F-18)은 옳았지만, 그 순간 **돌던 테스트 30여 건이 스킵으로 옮겨졌고
+아무도 세지 않았다.** R-8 은 그 사실을 한계로 적어 두었다가 attempt-021 이 감사했다.
+40건의 구성이 곧 답이다: `documents` 23(→ 복원) · `mlx` 4 · `unsloth` 7 · access-pin 2 ·
+**소유자 없는 제품 능력 4**. 그 4건은 **attempt-022·023 에서 모두 능력으로 되돌아왔다**
+(설정 복원 2건 + 에이전트 루프 2건 — 아래 §3).
+
+**닫는 일이 관측을 줄이면 안 된다(attempt-022, F-31a).** 관측 대상 파일을 등록부의 선언에서
+**파생**시키면 항목을 닫는 순간 그 파일이 관측에서 사라지고, 그 자리가 다시 열려도 계약은
+침묵한다. 그래서 관측 대상은 등록부가 `observed_files` 로 **고정**하고, 닫힌 항목은 `closed` 에
+적혀 그 파일이 계속 관측된다(`tests/test_cr14_gate_skip_register.py` 가 `observed_files ⊇ 선언 파일`
+과 `closed` 파일의 관측 잔존을 강제한다).
+
+## 2-1. 게이트 **전수** — 다른 게이트의 스킵도 소유된다 (attempt-024 · R-16 폐쇄)
+
+attempt-021 이 등록부를 만들 때 그 scope 는 **게이트 `python-tests` 한 곳**이었다:
+
+> "다른 파이프라인(개발자 ambient·CI matrix·weekly job)의 스킵은 이 등록부의 소관이 아니다."
+
+그 문장은 그 시점에 정직했지만 **경계가 틀렸다.** 같은 후보가 **required gate 21개**로 초록을
+만들고 그중 **다섯이 테스트를 돈다**(`python-tests` · `python-benchmark` · `api-e2e` ·
+`dashboard-test` · `accessibility-e2e`). 그 넷의 스킵은 **아무도 세지 않았다** — 어느 게이트가
+테스트를 조용히 빼도 초록은 그대로였다. 이것이 attempt-021 이 스스로 적어 둔 한계 **R-16** 이다.
+
+### 넓히면서 찾은 두 자리 (측정이지 추론이 아니다)
+
+| 게이트 | 무엇이 문제였나 | 어떻게 닫았나 |
+| --- | --- | --- |
+| `api-e2e` | `pytest tests/test_e2e_smoke.py -q --tb=short` — `-q` 단독은 스킵이 생겨도 `N skipped` 만 남긴다. 그 자리가 익명이 되면 등록부가 세야 할 대상이 **이름을 잃는다** | `-rs` 를 넣었다(스킵 요약에 이름·사유가 붙는다) |
+| `dashboard-test` | vitest **기본 리포터는 건수만** 낸다(`Test Files … Tests 1 passed | 1 skipped`) — 스크래치 프로브로 실측 | `--reporter=verbose` 를 넣었다(`↓ <파일> > <describe> > <테스트>`) |
+| `clean-machine-runtime` | 스크립트가 `--skip-e2e`·`--skip-wheel` 을 갖고, 켜지면 요약에 `SKIP` 행이 생기면서 **게이트는 exit 0 으로 남는다**. 게이트 명령에는 지금 그 플래그가 없지만, 그 사실을 지키는 자리가 **없었다** | 등록부에 `skip_channels` 로 선언하고, 계약이 **스크립트의 모든 스킵 표기를 찾아 선언과 대조** + **게이트 명령이 그 플래그를 쓰지 않는지** 잰다 |
+
+`accessibility-e2e` 는 이미 귀속됐다 — playwright 의 `list` 리포터가 `- 1 [chromium] › <파일>:<줄> › <이름>`
+으로 **이름을 낸다**(스크래치 스펙으로 실측). 그래서 그 게이트에는 고칠 것이 없었고, 계약이 그 성질을
+고정한다(리포터를 바꾸면 계약이 멈춘다).
+
+### 지금 누가 무엇을 소유하는가
+
+- **`python-tests`** — 등록부가 같은 환경을 **재현해 스킵 집합을 한 건씩** 대조한다(`registered`). 가장
+  강한 형태이고, 그래서 게이트가 **스스로 재현할 수 있는 자리에만** 쓴다.
+- **나머지 네 게이트** — 게이트 안에서는 **순환**이라(보고서는 게이트가 끝나야 생긴다) 마감 검사
+  (`scripts/verify_attempt_close.py`)가 편입된 **실제 보고서**에서 스킵 건수를 읽어 대조한다(`close_check`).
+  러너의 요약 건수와 셸 스크립트의 `SKIP` 행을 둘 다 본다. F-24 가 "선언한 초록의 출처"를 마감
+  단계로 옮긴 것과 **같은 위치**다.
+- **게이트를 추가하면 분류도 함께 적어야 한다** — `test_every_required_gate_is_classified_for_skip_visibility`
+  가 manifest 와 등록부를 전수 대조한다. 빠뜨리면 그 게이트의 스킵은 다시 익명이 되므로 계약이
+  그 자리에서 멈춘다.
+
+### 한계 (이 절이 재지 않는 것)
+
+- 등록부는 여전히 **required 게이트의 환경**만 본다 — 비-required 게이트나 개발자 ambient 실행의
+  스킵은 소관이 아니다(그쪽은 각자 소유자가 있다).
+- 마감 검사가 보는 것은 **건수**다. 무결성은 계약(귀속 플래그·스크립트 채널)이 지키지만, 러너가
+  건수를 내지 않는 형태로 스킵을 만들면 그 자리는 보이지 않는다 — 그래서 `attribution: per_test`
+  게이트는 **귀속 플래그를 갖는 것이 계약**이다.
+
+## 2-2. 게이트가 **자기가 재는 코드를 바꾸는** 경우 (attempt-026 · F-34 폐쇄)
+
+§2-1 이 "무엇이 스킵되는가"를 소유했다면, 이 절은 그 옆의 다른 구멍을 적는다: **게이트가 자기
+측정 대상 코드를 다시 쓰는가.** 보고서는 `git.tree_fingerprint` **하나**로 "21개 초록이 **이** 코드
+상태의 것"이라 주장하는데, 지문은 게이트 **앞에서** 한 번 재고 끝났다 — 그 뒤에 게이트가 무엇을
+바꿨는지 묻는 자리가 없었다.
+
+측정된 사실(attempt-026, 고침 전 트리): 게이트 `dashboard-build` 의 명령(`vite build`)이 추적되는
+번들(`src/antigravity_k/dashboard_dist/`) **45개를 다시 쓰면서 exit 0** 이었고, 요약은 그대로
+초록이었다. 그리고 소스만 고치고 번들을 다시 만들지 않은 후보는 — 서버가 서빙하는 화면이
+**고치기 전 UI 인데도** — 번들을 지칭하는 pytest 계약 6파일을 **전부 통과**했다(68 passed).
+그 사실을 알려 준 것은 attempt-025 에서 **다음 배치의 이어받기 거부** 하나뿐이었다.
+
+고침: 게이트 러너가 게이트 **직전·직후**의 경로별 내용 지도를 비교해, 차이가 있으면 그 게이트를
+`tree_moved` 로 적고(경로 목록·이유를 남긴다) 실행 전체를 **exit 1** 로 끝낸다. **명령의
+`exit_code` 는 0 으로 남긴다** — 명령은 성공했고 실패한 것은 계약이다. **required 여부로 거르지
+않는다**: non-required 게이트가 트리를 옮기면 보고서 요약은 초록인 채로 남기 때문이다. 소비자
+둘도 함께 맞췄다 — 승인 검증기(`scripts/ga_gate_verify.py`)는 그 상태를 **구조 오류로 적지 않되**
+그 보고서를 승인하지 않고, 마감 검사(`scripts/verify_attempt_close.py` **항목 9**)가 **어느
+게이트가 어느 파일을 바꿨는지 이름으로 대며** 거부한다. 증인 `attempt-026/repro/f34_stale_bundle_witness.py`
+**고침 전 exit 1 / 고침 후 exit 0**.
+
+### 이 절이 재지 않는 것
+
+- 이 불변식은 **게이트를 돌릴 때만** 작동한다 — "번들이 낡았는가"의 답은 required 게이트 전수를
+  돌려야 나오고, 검사 자신은 게이트가 아니다(보고서는 게이트가 끝나야 생긴다 — F-24 와 같은 위치).
+  대신 게이트 목록이 이 성질을 가진 게이트를 **포함하는지**를 계약이 잰다.
+- 제자리에서 추적 산출물을 쓰는 게이트는 이 후보에 **하나**(`dashboard-build`)뿐이었다 —
+  `sbom-generate` 는 현 트리에서 no-op 이라 그 방향은 실측하지 않았다.
+- `tree_moved` 는 **명령의 실패가 아니라 계약의 실패**다 — 요약의 `required_failed` 만 보면
+  후자로 읽힐 수 있다(`exit_code 0` + `status='tree_moved'`).
+
+## 2-3. 게이트는 **프로세스 하나**의 세계만 잰다 (attempt-027 · F-35)
+
+§2-1 은 "무엇이 스킵되는가"를, §2-2 는 "게이트가 자기 재는 코드를 바꾸는가"를 소유했다.
+이 절은 세 번째 구멍을 적는다: **게이트 21개 중 어느 것도 프로세스 *둘***을 세우지 않는다.
+
+`python-tests`·`python-benchmark`·`api-e2e` 는 pytest 프로세스 하나에서 돌고, `dashboard-test` 는
+vitest 하나, `accessibility-e2e`·`master-e2e` 는 playwright/스크립트 하나다. 그래서
+**"같은 DB 를 두 프로세스가 열었을 때"** 라는 조건은 게이트 전수에 **존재하지 않는다** — F-35 가
+정확히 거기 살았다: `resume` 은 소유자를 보는데 `cancel` 은 보지 않았고, 그 차이는 프로세스가
+하나인 동안에는 드러나지 않는다(취소 신호는 소유자 프로세스 **안**의 event 다). 게이트 21/21 은
+이 부류에 대해 **아무 말도 하지 않았다.**
+
+측정된 사실(attempt-027, 고침 전 트리 사본): 두 번째 러너가 살아 있는 소유자의 태스크를
+`cancelled` 로 적었고, 그 행은 "끝났다"고 말하는데 실행은 계속됐으며(효과 5 → 10줄), 소유자가
+**끝까지 수행한 뒤에도** 최종 행은 `cancelled` + "… or it was lost in memory" 였다(마지막 쓰기가
+CAS 에 밀렸다). 고침은 규칙을 `resume` 과 **공유**하고(`can_cancel`) CAS 로만 적어(`cancel_if_permitted`)
+거부에 이름을 붙였다(`owned_elsewhere` → 409). 증인 `attempt-027/repro/f35_foreign_cancel_witness.py`
+**고침 전 exit 1 / 고침 후 exit 0**.
+
+### 이 절이 재지 않는 것
+
+- 이 시나리오는 **게이트가 아니라 증인**이 쟀다 — 그래서 게이트 21/21 이 이 부류를 판정하지
+  않는다는 사실이 **변하지 않는다.** 계약(`tests/test_cr14_task_cancel_ownership.py` 9건)은
+  **규칙**을 단위로 고정하고, 실물 프로세스 둘을 세우는 것은 증인의 몫이다. 이 자리가 필요한
+  이유는 **비용**이다: 모든 게이트에 다중 프로세스 시나리오를 넣는 것은 다른 결정이다.
+- **IPC 는 존재하지 않는다** — 다른 프로세스의 실행을 **전달해서** 멈추는 능력은 없다. 거부(409)가
+  정직한 대답이고, 그 능력이 필요한지는 **요구**의 문제다.
+- **실 서버를 띄운 재시작 슬라이스**(SIGKILL → 재기동)는 이 attempt 가 재지 않았다 — 증인은 러너 두
+  개로 같은 질문의 핵심만 쟀다(C14-03 의 나머지). **그 절반은 attempt-028 이 §2-4 에서 이어받았다.**
+- **PID 재사용** 한계는 `can_prepare_resume` 과 공유하며 바뀌지 않았다 — 규칙은 두 경로에서
+  일관되지만, 그 한계 자체는 열려 있다.
+
+## 2-4. 게이트는 **"무엇을 말하는가"**를 재지 않는다 (attempt-028 · F-36)
+
+§2-3 이 "게이트는 프로세스 **둘**을 세우지 않는다"를 적었다면, 이 절은 그 다음 칸을 적는다:
+**게이트는 표면(응답이 무엇을 말하는가)과 행동(무엇을 하는가)이 갈라져도 실패하지 않는다.**
+`api-e2e`·`python-tests` 는 서버를 세워 요청을 보내지만 **정상 수명의 서버 하나**이고,
+크래시·재시작 뒤의 표면은 그 세계 밖이다. 그래서 `running` 이 **"지금 돌고 있다"와 "돌다가
+죽었다"를 같은 문자열로 부르는** 상태가 21/21 초록 뒤에 살 수 있었다.
+
+측정된 사실(attempt-028, 고침 전 트리 사본 — 증인 `attempt-028/repro/f36_orphan_surface_witness.py`):
+실 서버(`uvicorn` + 실 인증 PIN→bearer) + **SIGKILL** + **같은 DB** 재기동에서 죽은 소유자의
+`running` 행은 표면에서 살아 있는 실행과 구별되지 않았다 — 상세·목록에 **주인을 말하는 필드가
+없었고**(V1·V4), 같은 행에 `POST /resume` 은 **200** 을 돌려주었으며(V2 — 서버는 알고 있었다),
+살아 있는 실행도 구별되지 않았다(V6). 그래서 화면은 복구 가능한 태스크에 **재개가 아니라 취소만**
+제안했다 — 표면의 침묵이 UI 에서 "행동 없는 막다른 길"이 된 것이다.
+
+고침은 **정책이 아니라 표면**이다(재시작이 고아 행을 자동으로 끝내면 재개 가능성이 사라진다):
+`execution_owner`(`live`/`dead`/`none`) · `resumable` 이 두 표면에서 나오고, 두 값은 행동과
+**같은 함수**에서 만들어진다(`execution_owner_of` → `_process_is_alive` · `resumable_task` →
+`can_prepare_resume` + 체크포인트 존재). 증인 **고침 전 exit 1(위반 4건) / 고침 후 exit 0**.
+
+### 이 절이 재지 않는 것
+
+- **표면과 행동의 일치를 재는 것은 여전히 계약이다**(`tests/test_cr14_task_orphan_surface.py` 12건) —
+  값이 한 함수에서 나오므로 **갈라질 수 없게** 만들었지만, 그것을 **게이트 21개가 판정하지는
+  않는다**(이 시나리오를 게이트에 넣는 것은 비용 결정이다 — §2-3 과 같은 이유).
+- **크래시·재시작은 게이트 전수에 없다** — 게이트는 정상 종료·정상 수명의 세계다. 그래서
+  "21/21 이 크래시 후의 정직함까지 보증한다"고 읽으면 안 된다.
+- **실 브라우저 렌더링은 재지 않았다** — 화면 절반은 `vitest` 계약 + `accessibility-e2e`(35건,
+  chromium)까지다. 크래시 뒤 **라벨·버튼을 사람이 보는** 슬라이스는 없다.
+- **모델 실행 완주는 재지 않았다** — 증인은 행을 `running` 으로 만들 뿐이다(실 provider — EX-01).
+  "재개가 실제로 이어서 완주하는가"는 그 조건 밖이다.
+- **다중 호스트** — 프로세스 둘은 같은 호스트다. 다른 기계의 서버가 같은 DB 를 보면
+  `_process_is_alive` 는 **다른 기계의 pid** 를 보게 된다(설계의 명시적 한계 — 재지 않았다).
+- **`resuming` 행의 주인이 죽는 타이밍**은 규칙으로만 덮었다(실 서버로 그 순간을 만들지 않았다).
+
+## 2-5. 게이트는 **화면과 서버가 만나는 와이어**를 재지 않는다 (attempt-029 · F-37 · F-38)
+
+§2-3 은 "게이트는 프로세스 **둘**을 세우지 않는다", §2-4 는 "게이트는 표면과 행동의 분열을 재지
+않는다"를 적었다. 이 절은 그 다음 칸이다 — **게이트는 클라이언트가 실제로 보내는 것을 재지
+않는다.** 21개 중 어느 것도 "대시보드가 보내는 본문을 서버가 받아들이는가"를 판정하지 않았고,
+그래서 **제품의 유일한 쓰기 경로("작업 제출")가 어떤 기계 상태에서도 성공하지 못하는 상태**가
+21/21 초록 뒤에 살 수 있었다.
+
+측정된 사실(attempt-029, 고침 전 트리에서):
+
+- `dashboard-test`(867건)는 화면의 단위를 재고 `api-e2e`(9건)는 서버의 계약을 재는데,
+  **화면이 보내는 본문을 서버에 보내 보는 자리가 없었다** — 서버 계약은 `context.project_id`
+  **중첩만** 챘고(공유 리졸버가 최상위 형태도 지원한다는 사실을 아무도 재지 않았다), 화면 쪽에는
+  제출 본문을 고정하는 테스트가 **하나도 없었다**. 그래서 그 두 계약이 어긋난 상태가 초록이었다.
+- 그래서 고침 전 관측이 **기계 상태에 따라 다른 얼굴**로 나타났다: 알고 있는 프로젝트에서는
+  **422**(`Extra inputs are not permitted: body -> project_id`), 처음 설치한 기계에서는 서버가 보낸
+  `last_accessed_at: null` 을 화면 스키마가 거부해 목록 파싱이 깨지고 **400**
+  (`missing_execution_context`) — **어느 상태에서도 제출은 성공할 수 없었다**.
+- 그리고 그 상태를 계속 확장하는 경로가 열려 있었다: 화면의 스키마 계약은 **`last_accessed_at` 을
+  빼놓은 픽스처**를 "실제 응답"이라 적고 있었다 — 서버 타입의 정상 값(`null`)이 계약 안에
+  존재하지 않았다.
+
+고침은 **와이어를 재는 자리를 만드는 것**이다: 증인 둘(실 서버에 대시보드의 본문을 보내는
+와이어 증인 + **제품의 버튼**을 누르는 브라우저 증인)이 고침 전 exit 1 / 고침 후 exit 0 이고,
+계약 `tests/test_cr14_screen_server_wire_contract.py` 6건 + `contractAlignment.test.ts` 2건이
+그 자리를 고정한다. **권한 경계는 넓히지 않았다**(`extra="forbid"` 유지 · 유령 프로젝트 404 ·
+무정체성 400).
+
+### 이 절이 재지 않는 것
+
+- **게이트는 그 자리를 계속 재지 않는다** — 와이어를 재는 것은 여전히 **증인과 계약**이고,
+  게이트 21개에는 들어가지 않았다(비용 결정 — §2-3 과 같은 이유). 그래서 "21/21 이 화면의 쓰기
+  경로까지 보증한다"고 읽으면 안 된다.
+- **화면의 다른 본문들**은 이 계약의 범위 밖이다 — 이번에 고정된 것은 **제출**의 형태이고,
+  같은 헬퍼를 쓰는 다른 호출부는 개별적으로 재야 한다.
+- **크래시 뒤 열려 있는 화면**(F-39 후보)은 이 attempt 가 **재지 않았다** — 준비(재시작 능력·
+  격리 cwd)만 갖춰졌다. **(attempt-030 이 닫았다 — 그 슬라이스는 이제 §2-6 이 소유한다.**
+  닫는 과정에서 드러난 것은 그 질문의 **전제**가 도구에서 깨져 있었다는 사실이다(F-40).**)**
+- **실제 모델 실행**은 재지 않았다(EX-01). 서버가 제출을 **받아들이는가**와 그 실행이 **완주하는가**는
+  다른 질문이다(후자는 §2-4 의 한계와 같다).
+
+## 2-6. 게이트는 **서버를 죽였다 살리는 슬라이스**를 재지 않는다 (attempt-030 · F-39 · F-40)
+
+§2-4 는 "게이트는 표면과 행동의 분열을 재지 않는다"(attempt-028), §2-5 는 "게이트는 화면이 보내는
+것을 재지 않는다"(attempt-029)를 적었다. 이 절은 그 다음 칸이다 — **게이트는 시간의 문제를 재지
+않는다.** 21개 중 어느 것도 서버를 **죽였다가 같은 자리로 되돌리지 않는다.**
+
+측정된 사실(attempt-030, 고침 전 트리에서):
+
+- 제품 규칙 자체는 게이트가 덮는다 — `dashboard-test`(870건, vitest)가 F-39 의 계약 3건(재연결
+  뒤 목록을 다시 읽는다 · 끊기지 않으면 읽지 않는다 · 실패를 삼키지 않는다)을 돈다.
+- 그러나 **크래시·재연결 슬라이스**를 도는 게이트는 없다. `accessibility-e2e` 는
+  `e2e/tests/accessibility.spec.ts` **한 파일만** 실행한다(`playwright test e2e/tests/accessibility.spec.ts`).
+  저장소의 다른 브라우저 증인들 — `cr14-crash-restart-surface.spec.ts` · `cr14-task-submit-contract.spec.ts`
+  · CR-09 의 오프라인 증인 등 — 은 **수동 증인**이고, 실행되지 않는다. 그래서 **"21/21"은 브라우저
+  슬라이스를 한 번도 주장하지 않는다**(이 attempt 의 게이트 21개 어디에도 프로세스를 죽이는 단계가 없다).
+- 같은 이유로 **측정 도구 자신의 성질**(F-40)을 재는 자리도 게이트 밖이다: 하네스가 `uv run … uvicorn`
+  의 **런처만** 죽이면 서버는 살아남아 포트를 붙들고, 재기동이 **토큰 비밀을 새로 만들면** 질문이
+  "화면이 배우는가"에서 "사용자가 로그아웃됐는가"로 바뀐다 — 두 성질이 모두 초록 뒤에 살아 있었고,
+  그것을 처음 발견한 것은 게이트가 아니라 **증인을 세우려던 사람**이었다.
+
+고침은 **증인과 도구를 고치는 것**이다: 제품 경로 증인(실 서버 + 실제 PIN 로그인 + 제품의 버튼 +
+그룹째 SIGKILL + 같은 포트·같은 상태 디렉터리 재기동)이 고침 전 exit 1 / 고침 후 exit 0 이고,
+도구 증인(`attempt-030/repro/f40_crash_harness_witness.py`)이 하네스의 두 모양(A 런처만 신호 → 서버가
+살아남는다 · B 그룹 신호 → 죽는다)과 비밀 재사용을 잰다(C: 같은 디렉터리 재기동 = 같은 토큰 200 /
+새 비밀 = 401).
+
+### 이 절이 재지 않는 것
+
+- **게이트는 이 슬라이스를 계속 재지 않는다** — 기계가 계속 재게 하려면 **게이트 소유를 먼저 정해야**
+  한다(새 게이트 + 등록부·manifest·계약을 함께 갱신하거나, 수동 증인으로 남기고 이 문서가 계속 소유).
+  현재는 **후자**다. 그래서 "21/21 이 크래시 복구까지 보증한다"고 읽으면 안 된다.
+- **M3(수동 탈출구) 경로는 발화하지 않았다** — 고침 후에는 M2(자동)가 먼저 참이라 증인의 분기가
+  M3 를 타지 않는다(화면이 연결을 잃었다고 말할 때만 탄다). 그 경로는 코드에 있지만 이 attempt 의
+  실행으로 재지지 않았다. **(attempt-031 이 그 경로만 따로 재서 §2-7 로 옮겼다 — 결함이 아니라
+  재지 않은 경로였다.)**
+- **다른 브라우저 증인들도 같은 자리에 있다** — "수동 증인"은 실행되지 **않는** 것이 기본값이다.
+  이 문서가 그 목록을 완전히 세지 않았다(수동 증인 전수 조사는 이 attempt 의 범위 밖이다).
+- **실제 모델 실행**은 재지 않았다(EX-01) — 서버를 죽였다 살리는 것과 그 위에서 실행이 완주하는 것은
+  다른 질문이다(§2-4 의 한계와 같다).
+
+## 2-7. 게이트는 **화면이 포기한 뒤의 탈출구**를 재지 않는다 (attempt-031 · F-41 후보 반증)
+
+§2-6 이 "게이트는 서버를 죽였다 살리는 슬라이스를 재지 않는다"를 적었고, 그 절의 한계 중 하나가
+**M3(수동 탈출구)는 발화하지 않았다**였다. attempt-031 이 **그 한 줄만** 따로 쟀다 — 그리고 그 칸은
+결함이 아니라 **재지 않은 경로**였다.
+
+측정된 사실(attempt-031):
+
+- 제품의 **마지막 수단**은 **작동한다** — 화면이 스스로 포기(`연결 오류`)하게 만든 뒤(자동 재연결 3회를
+  소진할 때까지 **재기동하지 않는다**) 같은 포트·같은 상태 디렉터리로 서버를 되살리고 '다시 연결'을
+  누르면 행이 **서버의 현재 사실**(`dead`·`resumable`)로 바뀌고 라벨도 정착한다(`["연결 오류","연결됨"]`).
+  서버가 **없는 동안** 눌러도 화면은 오류 + 탈출구로 남고(막다른 길이 아니다), **두 번째** 사이클도 같다.
+  왜 그런가: `retry` 는 `reloadVersion` 을 올리고 그것이 **목록 이펙트의 의존성**이다.
+- **대조군이 결론을 정한다** — 같은 증인을 **F-39 고침 이전 트리**에서 돌려도 `exit 0` 이다. 즉 이 축은
+  attempt-030 **이전에도 참**이었고, attempt-030 이 닫은 결함(F-39)은 **자동** 재연결 경로에만 있었다.
+  attempt-031 의 문장은 "고쳤다"가 아니라 **"재지 않은 경로였고, 재어 보니 정상이었다"** 이다.
+- **이빨** — 탈출구를 무력화한 스크래치 트리(`retry` → `() => undefined`, **그 트리의 번들까지** 다시
+  빌드)에서 증인이 `exit 1`(위반 4건) · 계약이 `1 failed / 3 passed` 다. 즉 이 증인은 **작동하는
+  탈출구와 무력한 탈출구를 구별한다**(고침이 없는 attempt 는 이 절차로 자기를 검증해야 한다 —
+  `attempt-031/decision.md` D-56).
+
+### 이 절이 재지 않는 것
+
+- **게이트는 이 경로도 계속 재지 않는다** — 실 브라우저 증인 셋(`cr14-crash-restart-surface` ·
+  `cr14-task-submit-contract` · `cr14-retry-escape-hatch`)은 모두 **수동**이고, required 21개 중 어느
+  것도 이들을 돌리지 않는다. 소유를 정하는 일은 아직 결정되지 않았다(§2-6 과 같은 자리).
+  **(attempt-032 이 그 결정을 내렸다 — 그 셋을 포함한 증인 패밀리 9파일 29건이 이제 required 게이트
+  `dashboard-e2e-witnesses` 에서 돈다. 그 게이트가 **덮지 않는** 슬라이스는 §2-8 이 소유한다.)**
+- **단위 계약은 연결 라벨을 재지 않는다** — 즉시 resolve 하는 스텁에서 커밋 뒤의 `loading` 타이머가
+  정착 상태를 덮어쓰기 때문이다. 그래서 계약은 **호출 수와 값**(목록을 다시 읽는가 · 스트림이 다시
+  시작하는가 · 새 사실이 반영되는가)을 재고, 라벨의 **전이**는 실브라우저 증인이 잰다.
+- **자동 재연결의 횟수 정책**(3회가 실제로 3회인가)은 이 증인의 대상이 아니다.
+- **다른 주인(다른 클라이언트)** 이 만든 변화는 자극이 아니다 — 목록의 신선도는 **재연결과 사용자의
+  행동**에서만 갱신된다는 경계는 그대로다(요구가 바뀌면 §2-5 부터 바뀌어야 한다).
+- **모델 실행 완주**(EX-01) · **다중 호스트**(전달 IPC · `resuming` 주인 사망 타이밍)는 그대로다.
+
+## 3. 게이트가 **재지 않는** 제품 능력 — 현재 **미검증 능력 0건**
+
+이 절은 등록부에서 `KNOWN_GAP` 으로 분류되는 항목, 즉 **어디서도 돌지 않는 제품 능력**의 목록이다.
+attempt-021 의 감사가 4건을 등록했고, **attempt-023 시점에 그 목록은 비었다.** 아래는 그 4건이
+어떻게 닫혔는지의 기록이다 — 항목이 0건이 된 뒤에도 남겨 두는 이유는, "닫았다"는 주장의 근거가
+사라지면 그 주장을 다시 확인할 방법도 사라지기 때문이다.
+
+**이 문서는 `KNOWN_GAP` 이 0건이라는 사실을 명시해야 한다** — 계약이 그 문장을 요구한다
+(`test_known_gaps_are_owned_and_expire`). 항목이 없으면 검사할 것도 없고, 침묵은 "미검증 능력이
+없다"는 증거가 아니다.
+
+### ~~`orchestrator-refactor-rewrite` — 에이전트 실행 루프 (2건)~~ → **attempt-023 에서 닫혔다(능력 복원)**
+
+- 미검증 능력이었던 것: **에이전트가 프로그램을 만들고 실행하는가** · **코드 전용 답변에서 품질
+  재시도가 도는가**
+- 왜 스킵이었나: `OrchestratorAgent` 가 state graph + engine context 로 리팩토링되면서 두 테스트가
+  **조건 없이** `@pytest.mark.skip` 이 됐다("향후 재작성 필요"). 조건이 아니므로 **어떤 환경에서도
+  돌지 않는다** — ambient 에서도 돌지 않는다.
+- 파일: `tests/test_agent_program_creation.py` · `tests/test_planning_and_rendering_quality.py`
+- 어떻게 닫았나: **제품 코드는 고칠 필요가 없었다 — 고칠 것은 계약 드리프트였다.** 실패 이유를
+  관측하니 두 루프는 **돌고 있었고**, 막던 것은 리팩토링 이전 인터페이스를 흉내내는 **테스트 더블**과
+  그 뒤에 생긴 **승인·경로 경계**였다(F-32).
+
+  | 걸린 것 | 왜 걸렸나 | 어떻게 맞췄나 (게이트는 그대로) |
+  | --- | --- | --- |
+  | `manager.router` 없음 (더블 2개) | 툴 루프가 `manager.router.get_combo(...)` 로 콤보를 판정하는데(`tool_loop.run_loop`), 실제 `ModelManager` 는 생성자에서 `self.router` 를 **항상** 만든다 | 더블에 `_StubRouter` 를 둔다(콤보 없음) |
+  | `get_model_info(name)` (더블) | 인자를 **요구하는 쪽이 틀렸다** — 실제 `ModelManager.get_model_info()` 는 `status()` 의 별칭이며 **인자를 받지 않는다**(`self_capability._model_info` 가 인자 없이 부른다) | 더블의 시그니처를 맞춘다 |
+  | 도구 호출이 승인 정지 | CR-04/CR-05 의 승인 게이트가 이 테스트 이후에 생겼다 | 게이트를 끄지 않고 **제품의 승인 경로**로 동의를 만든다: `get_approval_manager()` 에 `ApprovalDecision.ALWAYS_ALLOW` 기록(대시보드 '항상 허용'과 같은 상태). 나머지 게이트는 그대로 산다 |
+  | 셀 경로 경계가 실행 거부 | 스크립트가 `sys.executable`(저장소 venv — 테스트의 프로젝트 루트 밖)로 실행하려 했다. 경계 판단이 **옳다** | 경계를 우회하지 않고 명령을 **루트 기준 상대 경로**로 바꾼다(`python3 <file>`) — 경계는 그대로 재어진다 |
+  | `manager.calls == 2` 가 거짓 | 더블이 한 턴을 **두 번** 셌고(`stream_generate` → `self.generate()`), 재시도 예산이 **패키지 기본 config**(`quality_gate.max_retries: 2`)에서 와 환경 의존적이었다 | 더블이 `_answer()` 한 곳에서 한 번만 세게 하고, 테스트가 예산을 1로 **고정**한다 → `calls == 2` 는 "초기 1턴 + 재시도 1턴" |
+
+- 결과: 두 테스트는 이제 **조건 없이 돌고 통과**한다(`tests/test_agent_program_creation.py` +
+  `tests/test_planning_and_rendering_quality.py` **6 passed / 0 skipped**). 등록부: `closed` 로
+  옮겼고 **두 파일 모두 관측 목록에 남았다** — 무조건 스킵이 돌아오면 대조가 즉시 실패한다(F-31a).
+- 교훈: 무조건 스킵은 "고칠 것이 남았다"는 뜻이지만, **남아 있던 것이 제품 결함이라는 뜻은 아니다.**
+  이 2건은 6번째·7번째 사례와 같은 병이었다 — 검사가 대상이 아니라 **과거의 대상**을 보고 있었다.
+
+> 이 표가 동의를 만든 그 상태(`ALWAYS_ALLOW`)의 **범위·수명·감사 가능성**은 attempt-025 가 쟀다
+> (F-33 — 도구 전체 · 프로세스 수명 · 다른 세션과 공유). 그 attempt 는 부여를 **읽고 되돌리고
+> 셀 수 있게** 만들었지만 **부여의 범위·수명은 바꾸지 않았다** — 정책 판단은 사람의 몫으로 남았다
+> (R-17, `docs/ga/CR14_FINAL_CANDIDATE_VERDICT.md` 의 attempt-025 절).
+
+### ~~`config-models-unregistered` — 제품 설정의 약속 (2건)~~ → **attempt-022 에서 닫혔다(능력 복원)**
+
+- 미검증 능력이었던 것: **집단지성 모델 가용성**(gemma-4-31B 등록 · collective-council 콤보의 세 모델)
+- 어떻게 닫았나: **삭제가 아니라 복원**이다. 그 약속의 소비자를 확인해 보니 테스트만이 아니었다 —
+  `BenchmarkHarness._default_targets()` 가 콤보 이름 `collective-council` 을 **코드에** 갖고 있고
+  `/benchmark run`(인자 없음)의 기본 타겟이며, 그 이름을 config 가 소유하지 않으면 기본 실행이
+  **조용히 오류 행(점수 0)** 을 기록한다(`_execute_single` 이 `ComboNotFoundError` 를 삼킨다 — F-31).
+  그래서 `config.yaml`(2부)에 `collective-council` 을 `strategy: collective` 콤보로(로컬 3모델),
+  gemma-4-31B 를 reasoning 로스터로 되돌렸다(`provider: ollama` 명시). 두 테스트는 이제 조건 없이
+  돌고 **통과**한다 — 스킵이 아니라 **검증**이 됐다(`tests/test_cr14_default_target_config_contract.py`
+  6건이 그 일치를 **실제 파일**로 잰다: 이빨 2건은 tmp YAML 에서 콤보·멤버를 지워 확인한다).
+- 유일한 회귀 테스트가 `registry._raw` 에 **합성 매핑을 주입**해 실제 config 를 보지 않았던 것이
+  이 결함을 오래 숨겼다 — 계약의 방식이 결함을 가린 **일곱 번째** 사례다(F-18·F-24·F-27·F-28·F-29·F-30·F-31).
+- 등록부: 이 항목은 `closed` 로 옮겨졌고, **그 파일(`tests/test_upgrade_v6_9.py`)은 관측 목록에 남았다**
+  — 다시 스킵되기 시작하면 대조가 즉시 실패한다.
+
+## 4. 게이트 밖에서 재는 것 (손실이 아니다 — 소유자가 있다)
+
+| 스킵 | 건수 | 어디서 도는가 |
+| --- | --- | --- |
+| `mlx-lm` 미설치 | 4 | `ci.yml` 매트릭스 `deps: [base, rag, mlx]`(macOS·Linux) · `weekly-drift.yml` — 최신 mlx-lm 으로 플래그 드리프트 검사 |
+| `unsloth/trl` 미설치 | 7 | `weekly-drift.yml` unsloth-drift — 최신 unsloth·trl 설치 후 API 드리프트 검사 |
+| (**닫힘**) 제품 설정 약속 | 2 | attempt-022 에서 **능력으로 되돌았다** — 게이트 환경에서 `tests/test_upgrade_v6_9.py` **21 passed / 0 skipped** |
+| (**닫힘**) 에이전트 실행 루프 | 2 | attempt-023 에서 **능력으로 되돌렸다** — 게이트 환경에서 두 파일 **6 passed / 0 skipped** |
+| Access PIN 미설정 | 2 | `tests/test_cr04_shell_api_boundary.py` — 게이트 안에서 PIN 을 세우고 토큰 없는 요청이 401 로 끝나는 것을 잰다(**이 파일은 게이트에서 스킵되지 않는다**) |
+
+이 세 줄은 등록부의 `ENV_PLATFORM`(워크플로가 그 파일을 **실제로** 도는지 계약이 확인)과
+`ENV_CONFIG`(대신 재는 파일이 게이트에서 스킵되지 않는지 계약이 확인)에 대응한다.
+
+**남은 13건은 전부 소유자가 있다** — 소유자 없는 스킵(미검증 능력)은 **0건**이다.
+
+## 2-8. 게이트는 **브라우저 증인 패밀리**를 돌리지 않았다 (attempt-032 · F-42 폐쇄)
+
+§2-6 은 "게이트는 서버를 죽였다 살리는 슬라이스를 재지 않는다"(attempt-030), §2-7 은 "게이트는
+화면이 포기한 뒤의 탈출구를 재지 않는다"(attempt-031)를 적었고, **두 절 모두 같은 문장을 자기
+한계로 남겼다**: 그 증인들은 **수동**이고 게이트 소유를 먼저 정해야 한다. 이 절은 그 결정을 적는다.
+
+측정된 사실(attempt-032, 고침 전):
+
+- 커버리지를 **manifest 의 선택자 × 실제 파일**로 계산하면 `dashboard/e2e/tests/cr*.spec.ts`
+  **9파일 29건**의 소유자가 **0** 이다(그 게이트 항목을 뺀 사본으로 잰 값이 아니라, **고치기 전
+  실제 manifest** 에서 0 이었다 — 증인의 A 축은 그 사실을 사본으로 재현한다).
+- 그 패밀리는 **돌릴 수 있었다**: ambient 백엔드 없이 `29 passed in 9 files (43.5s)`.
+  CR-14 증인 셋만 재면 `4 passed (30.9s)` 다. 즉 한계의 숨은 전제("게이트로 만들면 비싸다")가
+  **거짓**이었는데, 그 전제는 확인되지 않은 채 두 attempt 에 걸쳐 한계로 적혀 있었다.
+- **누가 돌리고 있었나**: `accessibility-e2e` 는 `e2e/tests/accessibility.spec.ts` **한 파일**만
+  실행하고, CI(`ci.yml` 의 `e2e-test`)는 full suite 를 **`main` push/PR 에서만** 돌린다. 이 저장소의
+  릴리스 판정 경로 — 게이트 절차(`run_attempt_close.py`) · 주간(`ga-close.yml`) · 릴리스
+  (`release.yml` → `ga-close`) — 는 **어느 것도** 그 슈트를 부르지 않는다. 그래서 F-35·F-36·
+  F-37·F-38·F-39·F-41 을 찾아낸 증인들이 돌아간 자리는 **사람이 기억해서 돌린 자리**뿐이었다.
+
+고침은 **게이트 하나 + 그 소유 계약**이다: required `dashboard-e2e-witnesses` 가 **이름 규칙**
+(`e2e/tests/cr\d+-`)으로 패밀리를 돈다(목록 고정이 아니라 전수성 — 새 증인이 자동으로 게이트 안이고,
+그 사실을 계약 `tests/test_cr14_browser_witness_gate_contract.py` 가 잰다). `--project=chromium` 과
+`--reporter=list` 를 게이트 명령이 **직접** 들고 있다(등록부가 스킵의 귀속을 그 리포터에 걸어
+두었으므로, 설정을 바꾸는 사람이 이 게이트의 스킵을 익명으로 만들 수 없다).
+
+실측(attempt-032): 새 게이트 **29 passed in 9 files (44.1s)** · 인벤토리 **21 → 22** · required
+**22/22 / 0 failed / 0 not_run** · 단일 지문 `5a8950a1…` · `tree_moved` **0건** · 드리프트 **0**.
+이빨 셋: 게이트를 manifest 에서 지우면 계약 **4 failed** · `required` 를 false 로 강등하면
+**1 failed** · 가족 이름으로 **일부로 실패하는 증인**을 만들면 게이트가 **exit 1 로 그 파일의
+이름을 대며** 멈춘다(그 파일은 고침 전 세계에서 아무도 돌리지 않았다).
+
+### 이 절이 재지 않는 것
+
+- ~~**ambient 백엔드가 필요한 슬라이스는 그대로 게이트 밖**~~ — **attempt-034 §2-9 에서 닫힘** (`dashboard-e2e-ambient`). 아래는 그 시점의 기록이다. 실측(당시): ambient 백엔드 없이 full suite 를 돌리면
+  **12건 실패**한다. 그 자리를 게이트로 만들려면 게이트에 **서버를 세우는 단계**가 필요하고
+  (CI 의 full-suite job 이 하는 일이다), 그 계약은 아직 없다. 계약은 이 게이트가 그 스펙들을
+  **삼키지 않는지**를 재고, 증인은 그들이 **어느 required 게이트에도 없다**는 사실을 **소리 내어 센다**.
+- **중단된 실행이 없었다** — python-tests 를 처음부터 `start_new_session=True` 로 띄워 완주시켰다
+  (attempt-030/031 은 도구 타임아웃으로 두 번 끊겼다).
+- **증인이 옳은 질문을 하는지**는 이 게이트의 소관이 아니다 — 게이트는 "그 증인이 통과한다"까지를
+  잰다(계약은 **커버리지**만 소유한다).
+
+
+## 2-9. ambient 백엔드 슬라이스에 required-gate 소유자를 줬다 (attempt-034 · F-45 · F-46 폐쇄)
+
+attempt-032 §2-8 이 한계로 남긴 *"ambient 백엔드가 필요한 슬라이스는 그대로 게이트 밖"* 을
+**측정으로 바꿨다**. 그 과정에서 제품 결함 F-45 가 먼저 나왔다(D-66): hermetic `startNoAuthServer` 의
+NO_PIN 누락 · 공유 `vault_data/hooks` 침묵 · hermetic Origin 이 `ws_origin` allowlist 밖 →
+`/v1/ws/events` `frames=0`.
+
+### 이 게이트가 덮는 것
+- required `dashboard-e2e-ambient` — 스크립트가 **서버를 직접 띄운다**(격리 `AGK_PATH_*` ·
+  `AGK_HOOK_VAULT_DIR` · `AGK_CORS_ORIGINS` · NO_PIN · 그룹 종료 · `/health` 폴링)
+- 소유 스펙: `task-execution` · `ws-contract-e2e` · `file-explorer` · `capture-desktop-layout` ·
+  `capture-model-selection` (+ `--grep-invert` 로 제품/환경 flake 제외)
+- 실측: **11 passed / 24.6s** · `--skip-server` → **exit 1**(이빨)
+- 계약 `tests/test_cr14_ambient_backend_gate_contract.py` · `dashboard-e2e-witnesses` 는 ambient 를
+  **삼키지 않는다**(그 이빨 유지)
+
+### 이 게이트가 아직 덮지 않는 것 (F-47 — attempt-034 시점 기록)
+- ~~`capture-disclosure-*` (:5173 Vite 하드코드)~~ — **attempt-035 §2-10 에서 닫힘**
+- `capture-real-local-models` (실 unsloth/모델 허브) → `f47-capture-real-local-models`
+- invert 대상(git status 파일활동 · compact large stream · axe/viewport flake) — ambient 부재가 아님
+  → `f47-invert-*` 등록부 항목
+- ~~C33-6 PIN-mode ticket 스트림 witness~~ (**attempt-040 CLOSED** — `cr14-pin-ws-ticket.spec.ts`)
+- D-71 상대경로 상태 기본값 마이그레이션(명시적 비범위)
+
+인벤토리는 **22 → 23**. `23/23`(required 게이트 인벤토리 — 후보 귀속은 attempt 별 기록이 소유한다)은
+"게이트에 넣은 것을 다 돌렸다"이지 "모든 브라우저 경로가
+검증됐다"가 아니다(§2-9 의 F-47 이 그 경계를 소유한다 — leftover 처분은 §2-10).
+
+
+
+## 2-10. F-47 leftover 에 정직한 소유자/계수 (attempt-035 · … · attempt-039)
+
+attempt-034 가 "의도적 밖"으로 이름만 붙인 F-47 을 **측정으로 갈랐다**.
+
+### 닫힌 것
+- **attempt-035** `capture-disclosure-healthy` · `capture-disclosure-exhausted`
+  - 원인: `page.goto('http://127.0.0.1:5173/settings')` Vite 하드코드
+  - 고침: hermetic `page.goto('/settings')` + 게이트가 `AGK_SEED_LEVEL=healthy|exhausted`
+    서버를 **시드별로** 띄움(`DISCLOSURE_SPEC_FILES`)
+  - 소유자: required `dashboard-e2e-ambient` (인벤토리 23 유지)
+- **attempt-036** `f47-invert-execution-trace-axe`
+  - 원인: axe color-contrast — `.is-primary` `#fff` on themeStore `--accent-hover`(`#917de8`, `#9b87f2-10`) 대비 **3.33 < 4.5**(375px만 통과). 닫는 과정에서 Monaco `native-edit-context` 빈 `aria-label` 레이스도 드러남.
+  - 고침: `.approval-queue-actions .is-primary` 글자 `#080908`(액센트 면 유지, hover `#5b4bc4`+`#fff`) · `DiffViewer` 가 textbox aria-label 을 DOM/MutationObserver 로 채움 · 실행 추적 스펙이 라벨 준비 후 axe · `dashboard_dist` 재번들(D-68) · GREP_INVERT 에서 `renders the execution trace at` 제거
+  - 소유자: required `dashboard-e2e-ambient` (`task-execution` execution-trace 뷰포트)
+- **attempt-037** `f47-invert-git-status-file-activity`
+  - 원인: 재설계 후 git 파일 활동은 **코드** 탭(`CodeTabWithGit`)에만 있는데 e2e 는 기본 **환경** 탭만 봄. 추가로 clean 트리에서 `gitFiles.length > 0` 가드 때문에 파일 섹션·empty-state 둘 다 미렌더.
+  - 고침: 코드 탭 클릭 + `data-testid="env-file-activity"` 안에서 `.env-file-row` OR `.env-sub-empty`(문구: 변경된 파일이 없습니다) · `dashboard_dist` 재번들(D-68) · GREP_INVERT 에서 `should show file activity from git status` 제거
+  - 소유자: required `dashboard-e2e-ambient` (`file-explorer.spec.ts`)
+- **attempt-038** `f47-invert-compact-large-stream`
+  - 원인: e2e `bigEvents` 가 TaskEventSchema 와 불일치(`type`/`timestamp`/`message` bare shape). `fetchTaskEvents` Zod 파싱 실패 → **연결 오류** + `0 events`. `/1,?000 events/`·`step 1002` 비가시. 제품 compaction(`TASK_EVENT_REPLICA_DEFAULT_LIMIT=1000`) 자체는 정상.
+  - 고침: `event()` 헬퍼로 스키마 정합 시드 + 최신 이벤트에 `step_id`/`title: step 1002` · GREP_INVERT 비움 · 제품 UI/번들 불변(D-68 불필요)
+  - 소유자: required `dashboard-e2e-ambient` (`task-execution.spec.ts` compaction)
+
+### 열린 leftover — 목록 정체성으로 센다 (침묵 금지 · **0건**)
+등록부 `scripts/cr14_f47_leftover_register.json` · 계약
+`tests/test_cr14_f47_leftover_inventory_contract.py`.
+
+| id | class | 상태 |
+| --- | --- | --- |
+| _(없음)_ | — | attempt-039 에서 EXTERNAL_HUB 폐쇄 후 열린 leftover 0 |
+
+#### 방금 닫힘 (attempt-039)
+- ~~`f47-capture-real-local-models`~~ — `HUB_SPEC_FILES` + `AGK_SEED_LOCAL_HUB=1`
+  hermetic 픽스처로 ambient 가 ModelHub `.hub-card`(orpheus…) + `실행 중` · Chat 선택기를 소유.
+  생산 경로(플래그 없음)는 불변. **EX-01 실 프로바이더 증명 아님**(게이트 커버리지 leftover 폐쇄).
+
+GREP_INVERT 는 **숨기는 장치**가 아니라 위 PRODUCT_FLAKE 와 **같은 문자열**을 가리켜야 한다
+(계약이 substring 포함을 잰다). PRODUCT_FLAKE 가 0이면 GREP_INVERT 도 비어야 한다(attempt-038).
+invert 를 유일한 소유자로 두지 않는다.
+닫힌 id 를 등록부에서 침묵 삭제하면 목록 정체성 계약이 실패한다(이빨) — `closed_this_attempt` 기록이 필요하다.
+
+### 이 절이 재지 않는 것
+- ~~C33-6 PIN-mode ticket witness~~ (**attempt-040 CLOSED**)
+- D-71 상대경로 마이그레이션(명시적 비범위)
+- EX-01…06 · C14-08 사람·조직 축(판정 NO-GO)
+
+
+
+## 5. 이 문서를 어떻게 쓰는가
+
+- 판정서·릴리스 노트에서 `22/22` 을 인용할 때, **스킵 13건이 남아 있다**는 사실과 그 13건의
+  소유자, 그리고 **§2-1~2-8 의 경계**를 함께 본다. `22/22` 은 "게이트에 넣은 것을 다 돌렸다"는
+  문장이지 "모든 것이 검증됐다"는 문장이 아니다(§2-8 이 더한 것은 **브라우저 증인 패밀리가 돈다**
+  이지, 그 증인이 재는 **제품 능력**의 확장이 아니다).
+- 새 스킵을 만들려면 **등록부에 적어야 한다.** 적지 않으면 `test_gate_environment_skips_exactly_what_the_register_declares`
+  가 실패한다 — "무엇이 사라졌는지 적어라"는 뜻이다. 같은 규율이 게이트 전수로도 적용된다:
+  테스트 게이트에 스킵이 생기면 마감 검사가 `close_check` 게이트의 **건수**로 막고(§2-1),
+  스크립트에 새 스킵 채널이 생기면 `skip_channels` 대조가 막는다.
+- `KNOWN_GAP` 의 만료일이 지나면 계약이 실패한다. 그 실패는 **버그가 아니라 알림**이다:
+  그 자리를 다시 보라는 뜻이다(감사 예외의 만료와 같은 규율).
+- 능력이 복원되면 등록부에서 그 항목을 지우고, `closed` 에 **어떻게 복원했는지**를 남긴다.
+  닫힌 파일은 `observed_files` 에서 **빼지 않는다** — 빼면 그 자리가 다시 열려도 보이지 않는다(F-31a).

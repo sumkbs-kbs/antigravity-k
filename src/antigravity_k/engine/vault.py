@@ -5,40 +5,78 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
+import stat
 import subprocess
 import threading
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import Generator, Mapping, Sequence
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Callable, Literal, cast, final, overload, override
 
 import yaml
 from filelock import SoftFileLock
 
 # RAG Imports
+# NX-10: 원자적 저장은 leaf 모듈이 소유한다(vault ↔ vault_privacy 순환 임포트 제거).
+# `write_text_atomically` 는 여기로 다시 바인딩되어 기존 호출자/테스트 이름이 유지된다.
+from antigravity_k.engine.atomic_write import write_text_atomically
 from antigravity_k.engine.chunker import MarkdownChunker
 from antigravity_k.engine.event_bus import global_event_bus
+from antigravity_k.engine.vault_git import VaultCommitError, commit_output, vault_stage_transaction
 from antigravity_k.engine.vector_store import VectorStore
 
 if TYPE_CHECKING:
-    from antigravity_k.engine.vault_privacy import VaultPrivacyMutation, VaultPrivacyResult
+    from antigravity_k.engine.vault_privacy_contracts import VaultPrivacyMutation, VaultPrivacyResult
 
 logger = logging.getLogger(__name__)
 
+
+class JSONMetadata(dict[str, object]):
+    @overload
+    def __getitem__(self, key: Literal["title"]) -> str: ...
+
+    @overload
+    def __getitem__(self, key: Literal["tags"]) -> list[str]: ...
+
+    @overload
+    def __getitem__(self, key: str) -> object: ...
+
+    @override
+    def __getitem__(self, key: str) -> object:
+        return super().__getitem__(key)
+
+
+class JSONExportRecord(dict[str, object]):
+    @overload
+    def __getitem__(self, key: Literal["content"]) -> str: ...
+
+    @overload
+    def __getitem__(self, key: Literal["path"]) -> str: ...
+
+    @overload
+    def __getitem__(self, key: str) -> object: ...
+
+    @override
+    def __getitem__(self, key: str) -> object:
+        return super().__getitem__(key)
+
+
+def _error_text(value: object) -> str:
+    return value if isinstance(value, str) else str(value)
+
+
 # YAML frontmatter delimiter: a line that is exactly "---" (optionally with
-# trailing whitespace). Used to split frontmatter from body precisely, instead
-# of the previous naive str.split("---\n", 2) which mis-split horizontal rules.
-_FRONTMATTER_DELIMITER = re.compile(r"^---[ \t]*$", re.MULTILINE)
+# trailing whitespace and an optional CR — the file may use CRLF endings).
+# Used to split frontmatter from body precisely, instead of the previous naive
+# str.split("---\n", 2) which mis-split horizontal rules.
+#
+# NX-08-F02: `\r?` 를 붙이기 전에는 `---\r\n` 이 **구분자로 인식되지 않아** CRLF 파일의
+# frontmatter 가 통째로 본문으로 취급됐다(metadata 소실).
+_FRONTMATTER_DELIMITER = re.compile(r"^---[ \t]*\r?$", re.MULTILINE)
 
 
-class VaultCommitError(RuntimeError):
-    """Raised when a Git auto-commit fails after acquiring the vault lock.
-
-    Callers (API handlers) should translate this into a 5xx/503 response so the
-    user is not silently told a write succeeded when version control failed.
-    """
-
-
+@final
 class VaultEngine:
     """Git-first markdown vault with concurrent-safe writes.
 
@@ -66,21 +104,21 @@ class VaultEngine:
                 VectorStore for semantic retrieval.
 
         """
-        self.vault_path = Path(vault_path).resolve()
+        self.vault_path: Path = Path(vault_path).resolve()
         # In-process lock (re-entrant so internal helpers may re-enter).
-        self._lock = threading.RLock()
+        self._lock: threading.RLock = threading.RLock()
         # Cross-process lock. Placed inside .git so it is co-located with the
         # index it guards; created alongside the repo in _ensure_git_repo.
-        self._lock_file = self.vault_path / ".git" / ".agk_vault.lock"
-        self._file_lock = SoftFileLock(str(self._lock_file), timeout=30)
+        self._lock_file: Path = self.vault_path / ".git" / ".agk_vault.lock"
+        self._file_lock: SoftFileLock = SoftFileLock(str(self._lock_file), timeout=30)
         self._ensure_git_repo()
 
         self.sync_rag = sync_rag
         if self.sync_rag:
             chroma_path = self.vault_path / ".chroma"
             chroma_path.mkdir(parents=True, exist_ok=True)
-            self.vector_store = VectorStore(str(chroma_path))
-            self.chunker = MarkdownChunker()
+            self.vector_store: VectorStore = VectorStore(str(chroma_path))
+            self.chunker: MarkdownChunker = MarkdownChunker()
 
     @contextmanager
     def _acquire_vault_lock(self) -> Generator[None, None, None]:
@@ -121,7 +159,7 @@ class VaultEngine:
 
         resolved = (self.vault_path / candidate).resolve()
         try:
-            resolved.relative_to(self.vault_path)
+            _ = resolved.relative_to(self.vault_path)
         except ValueError as exc:
             raise ValueError(f"Path '{relative_path}' escapes the vault root {self.vault_path}") from exc
         return resolved
@@ -134,11 +172,11 @@ class VaultEngine:
         check is the guard for the cross-process case.
         """
         with self._lock:
-            self.vault_path.mkdir(parents=True, exist_ok=True)
+            _ = self.vault_path.mkdir(parents=True, exist_ok=True)
             git_dir = self.vault_path / ".git"
             if not git_dir.exists():
                 try:
-                    subprocess.run(
+                    _ = subprocess.run(
                         ["git", "init"],
                         cwd=self.vault_path,
                         check=True,
@@ -147,60 +185,48 @@ class VaultEngine:
                     )
                     logger.info("Initialized Git repository at %s", self.vault_path)
                 except subprocess.CalledProcessError as e:
-                    logger.error("Failed to initialize Git repo: %s", e.stderr)
+                    logger.error("Failed to initialize Git repo: %s", _error_text(cast(object, e.stderr)))
 
     def _auto_commit(self, file_path: str, message: str = "Auto-commit via VaultEngine"):
-        """Stage the file and commit changes to the local Git repository.
+        # OBS-01: vault commit 성공/실패를 운영 metric에 기록
+        from antigravity_k.engine.operational_metrics import record_vault_commit
 
-        Must be called while holding the vault lock (see ``_acquire_vault_lock``).
-        Treats "nothing to commit" (git exit code 1) as a non-error, since a
-        no-op write is not a failure. Any other git failure raises
-        ``VaultCommitError`` so the caller can surface it instead of silently
-        reporting success.
-
-        Args:
-            file_path (str): Path of the file to stage, relative to the vault.
-            message (str): Commit message.
-
-        Raises:
-            VaultCommitError: If ``git add`` fails or ``git commit`` fails for
-                a reason other than "nothing to commit".
-
-        """
-        try:
-            # Stage the specific file.
-            subprocess.run(
-                ["git", "add", file_path],
-                cwd=self.vault_path,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr or ""
-            logger.error("Failed to stage %s: %s", file_path, stderr)
-            raise VaultCommitError(f"git add failed for {file_path}: {stderr}") from e
-
-        # Commit the changes. ``git commit`` exits 1 when there is nothing to
-        # commit; that is a normal no-op, not a failure.
-        result = subprocess.run(
-            ["git", "commit", "-m", message],
-            cwd=self.vault_path,
-            capture_output=True,
-            text=True,
-        )
+        with vault_stage_transaction(self.vault_path, file_path) as commit_env:
+            try:
+                result = subprocess.run(
+                    ["git", "commit", "--only", file_path, "-m", message],
+                    cwd=self.vault_path,
+                    env=commit_env,
+                    capture_output=True,
+                    text=True,
+                )
+            except OSError as e:
+                raise VaultCommitError(f"git commit failed for {file_path}: {e}") from e
         if result.returncode == 0:
             logger.info("Git commit successful: %s", message)
+            record_vault_commit("success")
+            if commit_env is not None:
+                try:
+                    _ = subprocess.run(
+                        ["git", "add", file_path],
+                        cwd=self.vault_path,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                except subprocess.CalledProcessError as e:
+                    output = _error_text(cast(object, e.stderr))
+                    raise VaultCommitError(f"git add failed for {file_path}: {output}") from e
             return
-
-        combined = (result.stdout or "") + (result.stderr or "")
-        if "nothing to commit" in combined or "no changes added" in combined:
+        output = commit_output(result)
+        if "nothing to commit" in output or "no changes added" in output:
             logger.debug("Nothing to commit for %s (no-op)", file_path)
             return
-
-        # Any other non-zero status is a real failure the caller must see.
-        logger.error("Git commit failed: %s", combined.strip())
-        raise VaultCommitError(f"git commit failed for {file_path}: {combined.strip()}")
+        logger.error("Git commit failed for %s (exit %d): %s", file_path, result.returncode, output)
+        record_vault_commit("commit_error")
+        raise VaultCommitError(
+            f"git commit failed for {file_path} (exit {result.returncode}): {output}",
+        )
 
     def create_snapshot(self, message: str) -> str | None:
         """Create a filesystem checkpoint (snapshot) by committing all current changes.
@@ -215,7 +241,7 @@ class VaultEngine:
         """
         with self._acquire_vault_lock():
             try:
-                subprocess.run(
+                _ = subprocess.run(
                     ["git", "add", "."],
                     cwd=self.vault_path,
                     check=True,
@@ -242,7 +268,7 @@ class VaultEngine:
                     return commit_hash
                 logger.error("Snapshot commit failed: %s", combined.strip())
             except subprocess.CalledProcessError as e:
-                logger.error("Failed to create snapshot: %s", e.stderr)
+                logger.error("Failed to create snapshot: %s", _error_text(cast(object, e.stderr)))
         return None
 
     def apply_privacy_mutation(self, mutation: VaultPrivacyMutation) -> VaultPrivacyResult:
@@ -263,11 +289,8 @@ class VaultEngine:
         )
 
     def restore_privacy_snapshot(self, snapshot_commit: str, paths: tuple[str, ...]) -> bool:
-        from antigravity_k.engine.vault_privacy import (
-            VaultPrivacyAction,
-            VaultPrivacyMutation,
-            resolve_vault_privacy_paths,
-        )
+        from antigravity_k.engine.vault_privacy import resolve_vault_privacy_paths
+        from antigravity_k.engine.vault_privacy_contracts import VaultPrivacyAction, VaultPrivacyMutation
         from antigravity_k.engine.vault_privacy_derivatives import sync_vault_privacy_derivatives
         from antigravity_k.engine.vault_privacy_git import (
             restore_vault_privacy_paths,
@@ -289,18 +312,35 @@ class VaultEngine:
             )
         return True
 
-    def restore_snapshot(self, commit_hash: str) -> bool:
-        """Restore the filesystem to a specific snapshot (commit hash).
+    def restore_snapshot(self, commit_hash: str, scope: Sequence[str] | None = None) -> bool:
+        """Restore paths to a specific snapshot (commit hash).
 
-        Refuses to run in a dangerous root path (``/``, home, Desktop, or any
-        path that is a direct child of the home directory) because
-        ``git reset --hard`` + ``git clean -fd`` would destroy unrelated files.
+        Two modes:
+
+        * ``scope=None`` — legacy full restore. Refuses to run in a dangerous
+          root path (``/``, home, Desktop, or any path that is a direct child
+          of the home directory) because ``git reset --hard`` + ``git clean
+          -fd`` would destroy unrelated files. Callers must not use this mode
+          to roll back concurrent task work (BR-01); it remains only for
+          explicit operator-initiated full restores.
+
+        * ``scope=<paths>`` — task-scoped restore (DAT-02). Only the given
+          paths are returned to their ``commit_hash`` state. Tracked paths are
+          restored via ``git checkout <commit> -- <path>`` (discarding both
+          modifications and deletions) and task-owned untracked files are
+          removed file-by-file. A scoped restore never touches paths outside
+          ``scope``, so concurrent writers' committed, uncommitted, and
+          untracked changes are preserved. Path traversal (``..``) or escaping
+          absolute paths in ``scope`` raise ``ValueError`` before any git
+          command runs.
 
         Returns:
             True on success, False on failure or when the vault path is deemed
             unsafe.
 
         """
+        if scope is not None:
+            return self._restore_snapshot_scoped(commit_hash, scope)
         # Safety check: never ``git reset --hard`` in a dangerous root path.
         if not self._is_safe_restore_target():
             return False
@@ -308,7 +348,7 @@ class VaultEngine:
         with self._acquire_vault_lock():
             try:
                 # 1. Reset hard to the specific commit.
-                subprocess.run(
+                _ = subprocess.run(
                     ["git", "reset", "--hard", commit_hash],
                     cwd=self.vault_path,
                     check=True,
@@ -316,7 +356,7 @@ class VaultEngine:
                     text=True,
                 )
                 # 2. Clean untracked files.
-                subprocess.run(
+                _ = subprocess.run(
                     ["git", "clean", "-fd"],
                     cwd=self.vault_path,
                     check=True,
@@ -326,8 +366,147 @@ class VaultEngine:
                 logger.info("Successfully restored snapshot to %s", commit_hash)
                 return True
             except subprocess.CalledProcessError as e:
-                logger.error("Failed to restore snapshot %s: %s", commit_hash, e.stderr)
+                logger.error(
+                    "Failed to restore snapshot %s: %s",
+                    commit_hash,
+                    _error_text(cast(object, e.stderr)),
+                )
         return False
+
+    def _restore_snapshot_scoped(self, commit_hash: str, scope: Sequence[str]) -> bool:
+        """DAT-02: restore only ``scope`` paths to ``commit_hash`` state.
+
+        Discard semantics per path (task-owned changes only):
+
+        * tracked, modified in worktree → ``git checkout <commit> -- path``
+        * tracked, deleted in worktree → ``git checkout <commit> -- path``
+        * tracked, committed by the task (path differs between ``commit_hash``
+          and HEAD) → ``git checkout <commit> -- path`` + stage the revert
+        * untracked (task-created) → unlink
+
+        Never runs ``git reset --hard`` / ``git clean -fd``.
+        """
+        # Validate scope before touching the working tree: reject empty scope,
+        # absolute paths, and traversal escapes up front.
+        normalized_scope: list[str] = []
+        seen: set[str] = set()
+        for raw in scope:
+            text = str(raw).strip()
+            if not text:
+                continue
+            candidate = Path(text)
+            if candidate.is_absolute() or ".." in candidate.parts:
+                logger.error("[SAFETY] Refusing scoped restore with escape path: %s", text)
+                raise ValueError(f"Scope path escapes the vault: {text}")
+            normalized_text = text.replace("\\", "/").rstrip("/")
+            if normalized_text in seen:
+                continue
+            seen.add(normalized_text)
+            normalized_scope.append(normalized_text)
+        if not normalized_scope:
+            return False
+
+        with self._acquire_vault_lock():
+            try:
+                # Resolve the snapshot commit to a tree so we can tell tracked
+                # paths apart from task-created (untracked) ones.
+                tree_res = subprocess.run(
+                    ["git", "ls-tree", "-r", "--name-only", "-z", commit_hash],
+                    cwd=self.vault_path,
+                    check=True,
+                    capture_output=True,
+                )
+                snapshot_paths = {
+                    entry.decode("utf-8", errors="replace") for entry in tree_res.stdout.split(b"\x00") if entry
+                }
+                # NX-08-D1: git 은 실행 비트만 추적하므로 복구가 파일 권한을 바꿔 버린다
+                # (0600 note 가 0644 로 돌아오는 것을 실측). 복구는 **내용만** 되돌리고
+                # 권한은 현재 값을 유지한다 — 운영자가 좁혀 둔 권한을 복구가 넓히지 않는다.
+                original_modes = self._scope_modes(normalized_scope)
+
+                restored: list[str] = []
+                removed: list[str] = []
+                for rel_path in normalized_scope:
+                    target = self.vault_path / rel_path
+                    if rel_path in snapshot_paths:
+                        # Path existed in the snapshot → checkout restores both
+                        # modified and deleted worktree states.
+                        _ = subprocess.run(
+                            ["git", "checkout", commit_hash, "--", rel_path],
+                            cwd=self.vault_path,
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        )
+                        restored.append(rel_path)
+                    elif target.exists() or target.is_symlink():
+                        # Task-created (untracked or newly committed) path →
+                        # discard the file itself. If the task committed it, the
+                        # revert commit below also stages the removal.
+                        if target.is_dir() and not target.is_symlink():
+                            shutil.rmtree(target)
+                        else:
+                            target.unlink()
+                        removed.append(rel_path)
+                    # Neither in snapshot nor on disk → nothing to discard.
+
+                if removed:
+                    # Stage deletions of task-created paths so the revert commit
+                    # (if any task commits exist) records them. Only paths that
+                    # HEAD tracks need staging — never-tracked + deleted files
+                    # have nothing to stage (git add would fail with a fatal
+                    # pathspec error).
+                    head_res = subprocess.run(
+                        ["git", "ls-tree", "-r", "--name-only", "-z", "HEAD"],
+                        cwd=self.vault_path,
+                        check=True,
+                        capture_output=True,
+                    )
+                    head_paths = {
+                        entry.decode("utf-8", errors="replace") for entry in head_res.stdout.split(b"\x00") if entry
+                    }
+                    to_stage = [p for p in removed if p in head_paths]
+                    if to_stage:
+                        _ = subprocess.run(
+                            ["git", "add", "--", *to_stage],
+                            cwd=self.vault_path,
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        )
+                for rel_path in restored:
+                    mode = original_modes.get(rel_path)
+                    if mode is None:
+                        continue
+                    with suppress(OSError):
+                        os.chmod(self.vault_path / rel_path, mode)
+
+                if restored or removed:
+                    logger.info(
+                        "Scoped restore to %s: restored=%d removed=%d scope=%d",
+                        commit_hash,
+                        len(restored),
+                        len(removed),
+                        len(normalized_scope),
+                    )
+                return True
+            except subprocess.CalledProcessError as e:
+                logger.error(
+                    "Failed scoped restore of snapshot %s: %s",
+                    commit_hash,
+                    _error_text(cast(object, e.stderr)),
+                )
+        return False
+
+    def _scope_modes(self, scope: Sequence[str]) -> dict[str, int]:
+        """복구 전 파일 권한을 기록한다(없는 파일은 기록하지 않는다)."""
+        modes: dict[str, int] = {}
+        for rel_path in scope:
+            try:
+                modes[rel_path] = stat.S_IMODE((self.vault_path / rel_path).stat().st_mode)
+            except OSError:
+                continue
+        return modes
 
     def _is_safe_restore_target(self) -> bool:
         """Return True if the vault path is safe for a destructive reset/clean.
@@ -350,7 +529,7 @@ class VaultEngine:
             return False
         return True
 
-    def parse_markdown(self, content: str) -> tuple[dict[str, Any], str]:
+    def parse_markdown(self, content: str) -> tuple[JSONMetadata, str]:
         """Parse a markdown string containing YAML frontmatter.
 
         Frontmatter is delimited by a line that is exactly ``---`` (RFC-style).
@@ -369,13 +548,13 @@ class VaultEngine:
 
         """
         if not content.startswith("---\n") and not content.startswith("---\r\n"):
-            return {}, content
+            return JSONMetadata(), content
 
         # Find frontmatter delimiters: lines that are exactly "---".
         delim_positions = [m.start() for m in _FRONTMATTER_DELIMITER.finditer(content)]
         # Need at least the opening + closing delimiter.
         if len(delim_positions) < 2:
-            return {}, content
+            return JSONMetadata(), content
 
         # The opening delimiter is at position 0. The closing delimiter is the
         # next delimiter that starts at the beginning of a line (guaranteed by
@@ -384,43 +563,44 @@ class VaultEngine:
         # Find the first delimiter after the opening line.
         closing = next((p for p in delim_positions[1:] if p >= open_end), None)
         if closing is None:
-            return {}, content
+            return JSONMetadata(), content
 
         # Extract the YAML between the opening and closing delimiters. Account
         # for the trailing newline of the opening "---" line.
         yaml_start = content.index("\n", open_end) + 1
         frontmatter_str = content[yaml_start:closing]
-        # Body starts after the closing delimiter line.
-        body_start = content.index("\n", closing + 3) + 1
-        body_content = content[body_start:]
+        # Body starts after the closing delimiter line. NX-08-F03: 닫는 구분자가 파일 끝이라
+        # 뒤에 개행이 없을 수 있다 — 예전 코드는 여기서 `ValueError: substring not found` 로 죽었다.
+        closing_newline = content.find("\n", closing + 3)
+        body_content = "" if closing_newline == -1 else content[closing_newline + 1 :]
 
         try:
-            parsed = yaml.safe_load(frontmatter_str)
+            parsed = cast(object, yaml.safe_load(frontmatter_str))
         except yaml.YAMLError as e:
             logger.error("YAML parsing error in frontmatter: %s", e)
-            return {}, body_content
+            return JSONMetadata(), body_content
 
         # Normalize: only accept a mapping as metadata.
-        if isinstance(parsed, dict):
-            metadata: dict[str, Any] = parsed
+        if isinstance(parsed, Mapping):
+            metadata = JSONMetadata(cast(Mapping[str, object], parsed))
         elif parsed is None:
-            metadata = {}
+            metadata = JSONMetadata()
         else:
             logger.warning(
                 "Frontmatter parsed to %s, expected a mapping; normalizing to empty metadata.",
                 type(parsed).__name__,
             )
-            metadata = {}
+            metadata = JSONMetadata()
         return metadata, body_content
 
-    def format_markdown(self, metadata: dict[str, Any], content: str) -> str:
+    def format_markdown(self, metadata: Mapping[str, object], content: str) -> str:
         """Format metadata dictionary and body content into a markdown string with frontmatter."""
         if not metadata:
             return content
         frontmatter = yaml.dump(metadata, sort_keys=False, default_flow_style=False)
         return f"---\n{frontmatter}---\n{content}"
 
-    def read_note(self, relative_path: str) -> tuple[dict[str, Any], str]:
+    def read_note(self, relative_path: str) -> tuple[JSONMetadata, str]:
         """Read a note and return its metadata and content.
 
         Uses the cross-process file lock (shared with writers) so that a read
@@ -447,7 +627,7 @@ class VaultEngine:
     def write_note(
         self,
         relative_path: str,
-        metadata: dict[str, Any],
+        metadata: Mapping[str, object],
         content: str,
         commit_message: str | None = None,
     ):
@@ -471,12 +651,9 @@ class VaultEngine:
 
             formatted_content = self.format_markdown(metadata, content)
 
-            # Write + fsync so a concurrent reader (or git staging in another
-            # commit) never observes a partial buffer.
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(formatted_content)
-                f.flush()
-                os.fsync(f.fileno())
+            # NX-08-F01: 자르고 쓰지 않는다. 임시 파일 → fsync → 원자적 교체.
+            # (예전 `open(..., "w")` 는 fsync 실패나 프로세스 종료 시 이전 내용을 지웠다.)
+            write_text_atomically(file_path, formatted_content)
 
             message = commit_message or f"Update note: {relative_path}"
             self._auto_commit(str(relative_path), message)
@@ -489,7 +666,7 @@ class VaultEngine:
                 # 1. Delete old chunks for this file.
                 self.vector_store.delete_file_chunks(str(relative_path))
                 # 2. Chunk the new content.
-                chunks = self.chunker.chunk_document(str(relative_path), metadata, content)
+                chunks = self.chunker.chunk_document(str(relative_path), JSONMetadata(metadata), content)
                 # 3. Upsert new chunks.
                 self.vector_store.upsert_chunks(chunks)
             except Exception:
@@ -499,13 +676,15 @@ class VaultEngine:
         self._sync_to_wiki(relative_path, metadata, content)
 
         # 지식 진화 트리거 (Agentic GraphRAG)
-        global_event_bus.publish(
+        event_title = metadata.get("title")
+        publish = cast(Callable[..., None], global_event_bus.publish)
+        publish(
             "WikiNoteUpdated",
             relative_path=str(relative_path),
-            title=metadata.get("title", ""),
+            title=event_title if isinstance(event_title, str) else "",
         )
 
-    def _sync_to_wiki(self, relative_path: str, metadata: dict[str, Any], content: str):
+    def _sync_to_wiki(self, relative_path: str, metadata: Mapping[str, object], content: str) -> None:
         """Vault에 기록된 노트를 LLM Wiki(SQLite + Markdown)에 동기화합니다.
 
         실패 시 Vault 기록에는 영향을 주지 않습니다 (best-effort).
@@ -514,28 +693,34 @@ class VaultEngine:
             from antigravity_k.knowledge.wiki import LLMWiki
 
             wiki = LLMWiki()
-            title = metadata.get("title", Path(relative_path).stem)
+            title_value = metadata.get("title")
+            title: str = title_value if isinstance(title_value, str) else Path(relative_path).stem
             # 경로에서 카테고리 추론: .agent/memory/* → agent_memory, 기타 → vault
             parts = Path(relative_path).parts
             if "memory" in parts:
-                category = "agent_memory"
+                category: str = "agent_memory"
             elif "decisions" in parts or "adr" in parts:
                 category = "decision"
             else:
-                category = metadata.get("type", "vault")
+                category_value = metadata.get("type")
+                category = category_value if isinstance(category_value, str) else "vault"
 
-            tags = metadata.get("tags", [])
-            if isinstance(tags, str):
-                tags = [t.strip() for t in tags.split(",")]
+            tags_value = metadata.get("tags", [])
+            if isinstance(tags_value, str):
+                tags: list[str] = [tag.strip() for tag in tags_value.split(",")]
+            elif isinstance(tags_value, list):
+                tags = [tag for tag in cast(list[object], tags_value) if isinstance(tag, str)]
+            else:
+                tags = []
 
             # 기존 동일 제목 항목이 있으면 업데이트, 없으면 신규
             existing = wiki.search(title, limit=1)
             if existing and existing[0].entry.title == title:
                 entry_id = existing[0].entry.id
                 if entry_id is not None:
-                    wiki.update_entry(entry_id, content=content, tags=tags)
+                    _ = wiki.update_entry(entry_id, content=content, tags=tags)
             else:
-                wiki.add_entry(
+                _ = wiki.add_entry(
                     title=title,
                     content=content,
                     category=category,
@@ -568,19 +753,20 @@ class VaultEngine:
                             logger.exception("Error reading %s during search", file_path)
         return results
 
-    def export_notes(self, include_assets: bool = False, redact: bool = True) -> list[dict[str, Any]]:
+    def export_notes(self, include_assets: bool = False, redact: bool = True) -> list[JSONExportRecord]:
         from antigravity_k.engine.secret_scanner import redact_full
 
-        def redact_value(value):
+        def redact_value(value: object) -> object:
             if isinstance(value, str):
                 return redact_full(value)
-            if isinstance(value, dict):
-                return {key: redact_value(item) for key, item in value.items()}
+            if isinstance(value, Mapping):
+                mapping = cast(Mapping[str, object], value)
+                return {key: redact_value(item) for key, item in mapping.items()}
             if isinstance(value, list):
-                return [redact_value(item) for item in value]
+                return [redact_value(item) for item in cast(list[object], value)]
             return value
 
-        records = []
+        records: list[JSONExportRecord] = []
         with self._file_lock:
             for file_path in self.vault_path.rglob("*.md"):
                 if ".git" in file_path.parts or ".chroma" in file_path.parts:
@@ -589,8 +775,10 @@ class VaultEngine:
                     metadata, content = self.parse_markdown(file_path.read_text(encoding="utf-8"))
                 except (OSError, UnicodeDecodeError):
                     continue
-                safe_metadata = redact_value(metadata) if redact else metadata
-                record = {"path": str(file_path.relative_to(self.vault_path)), "metadata": safe_metadata}
+                safe_metadata: object = redact_value(metadata) if redact else metadata
+                record = JSONExportRecord()
+                record["path"] = str(file_path.relative_to(self.vault_path))
+                record["metadata"] = safe_metadata
                 if include_assets:
                     record["content"] = redact_full(content) if redact else content
                 records.append(record)

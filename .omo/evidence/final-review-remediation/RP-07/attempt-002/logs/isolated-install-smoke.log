@@ -1,0 +1,117 @@
+ISOLATED_ROOT=/tmp/rp07-isolated.ibbm75
+Using CPython 3.13.12 interpreter at: /Users/mr.k/miniforge3/bin/python3
+Creating virtual environment at: /tmp/rp07-isolated.ibbm75/venv
+Activate with: source /tmp/rp07-isolated.ibbm75/venv/bin/activate
+Using Python 3.13.12 environment at: /tmp/rp07-isolated.ibbm75/venv
+Resolved 63 packages in 221ms
+Prepared 3 packages in 37ms
+Installed 63 packages in 103ms
+ + aiofiles==24.1.0
+ + annotated-doc==0.0.5
+ + annotated-types==0.8.0
+ + antigravity-k==0.1.0 (from file:///Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.omo/evidence/final-review-remediation/RP-07/attempt-002/artifacts/antigravity_k-0.1.0-py3-none-any.whl)
+ + anyio==4.15.1
+ + attrs==26.1.0
+ + certifi==2026.7.22
+ + cffi==2.1.1
+ + click==8.5.0
+ + croniter==6.2.4
+ + cryptography==50.0.1
+ + deprecated==1.3.1
+ + fastapi==0.141.1
+ + filelock==3.32.6
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httptools==0.8.0
+ + httpx==0.28.1
+ + httpx-sse==0.4.3
+ + idna==3.19
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + limits==5.8.0
+ + linkify-it-py==2.2.0
+ + markdown-it-py==4.2.0
+ + mcp==1.30.0
+ + mdit-py-plugins==0.6.1
+ + mdurl==0.1.2
+ + nest-asyncio==1.6.0
+ + networkx==3.6.1
+ + numpy==2.5.3
+ + packaging==26.3
+ + platformdirs==4.11.8
+ + prometheus-client==0.26.0
+ + psutil==6.1.1
+ + pycparser==3.0
+ + pydantic==2.13.5
+ + pydantic-core==2.46.5
+ + pydantic-settings==2.15.0
+ + pygments==2.21.0
+ + pyjwt==2.13.0
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==1.2.3
+ + python-multipart==0.0.32
+ + pyyaml==6.0.3
+ + rank-bm25==0.2.2
+ + referencing==0.37.0
+ + rich==15.0.0
+ + rpds-py==2026.6.3
+ + shellingham==1.5.4
+ + six==1.17.0
+ + slowapi==0.1.10
+ + sse-starlette==3.4.11
+ + starlette==1.6.0
+ + textual==8.2.8
+ + typer==0.27.2
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.4
+ + uvicorn==0.52.4
+ + uvloop==0.22.1
+ + watchfiles==1.2.0
+ + websockets==17.1
+ + wrapt==2.4.0
+{'cwd': '/private/tmp/rp07-isolated.ibbm75/outside', 'package_path': '/private/tmp/rp07-isolated.ibbm75/venv/lib/python3.13/site-packages/antigravity_k/__init__.py', 'resource_path': '/private/tmp/rp07-isolated.ibbm75/venv/lib/python3.13/site-packages/antigravity_k/config.yaml', 'registry_default_path': '/private/tmp/rp07-isolated.ibbm75/venv/lib/python3.13/site-packages/antigravity_k/config.yaml', 'agent_defaults': {'default_entry': 'unified', 'headroom': True, 'max_repairs': 2, 'adaptive': True}, 'reasoning_default': 'qwen3.8'}
+
+ Usage: agk [OPTIONS] COMMAND [ARGS]...
+
+ Ssak-Ai command line interface
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --version                     Print the Ssak-Ai version and exit.            │
+│ --install-completion          Install completion for the current shell.      │
+│ --show-completion             Show completion for the current shell, to copy │
+│                               it or customize the installation.              │
+│ --help                        Show this message and exit.                    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ serve           Run the FastAPI server with optional session limits seeding. │
+│ dev             Run local development server with auto-reload and optional   │
+│                 seed limits.                                                 │
+│ models          List configured model profiles.                              │
+│ status          Print mode status and basic project configuration.           │
+│ run                                                                          │
+│ recipes         List training data-recipe presets (unsloth Data Recipes      │
+│                 style).                                                      │
+│ train-recipe    Apply a data recipe: source → dataset → training config.     │
+│ fuse-and-serve  Fuse LoRA adapter with base model and register into Ollama.  │
+│ session         Show session limits and data-use disclosure before you       │
+│                 start.                                                       │
+│ start           Connect an external coding agent (claude/codex/...) to local │
+│                 models.                                                      │
+│ doctor          Run a full environment diagnostic with automated             │
+│                 self-healing capabilities.                                   │
+│ mode            Manage execution mode (Plan/Build/Interactive).              │
+│ tui             Launch the Textual Terminal UI (TUI).                        │
+│ ask             Run the unified agent: explores code, searches web,          │
+│                 writes/fixes code, or answers.                               │
+│ autopilot       Launch full autonomous self-driving flight mission for       │
+│                 Qwen3.8-27B.                                                 │
+│ fast            Execute direct fast-path kernel query with <5ms latency      │
+│                 (Zero LLM overhead).                                         │
+│ key             Manage API keys                                              │
+│ memory          Manage project memory                                        │
+│ task            Manage durable agent tasks                                   │
+│ error           Inspect runtime errors for agentic AI                        │
+│ model           Manage models and set defaults                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+CLEANUP=isolated virtual environment removed

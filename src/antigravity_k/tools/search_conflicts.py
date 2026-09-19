@@ -10,11 +10,15 @@ type ConflictSet = tuple[str, str]
 _TOKEN_PATTERN: Final[re.Pattern[str]] = re.compile(r"[^\W_]+", re.UNICODE)
 _YEAR_PATTERN: Final[re.Pattern[str]] = re.compile(r"\b(?:19|20)\d{2}\b")
 _METRIC_FACT_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"\b(?P<label>"
-    r"version|context\s+length|parameter\s+count|memory|price|latency|throughput"
-    r"|버전|컨텍스트\s*길이|파라미터\s*수|메모리|가격|지연\s*시간|처리량"
-    r")\s*(?:(?:is|was|are|were)|[=:]|은|는|이|가)?\s*"
-    r"(?P<value>v?\d+(?:\.\d+){0,3}(?:\s*(?:[kmgt]?b|[kmgt]?\s*tokens?|ms|s|%|usd|dollars?|원|개|만|억))?)",
+    "".join(
+        (
+            r"\b(?P<label>",
+            r"version|context\s+length|parameter\s+count|memory|price|latency|throughput",
+            r"|버전|컨텍스트\s*길이|파라미터\s*수|메모리|가격|지연\s*시간|처리량",
+            r")\s*(?:(?:is|was|are|were)|[=:]|은|는|이|가)?\s*",
+            r"(?P<value>v?\d+(?:\.\d+){0,3}(?:\s*(?:[kmgt]?b|[kmgt]?\s*tokens?|ms|s|%|usd|dollars?|원|개|만|억))?)",
+        ),
+    ),
     re.IGNORECASE,
 )
 _TITLE_STOPWORDS: Final[frozenset[str]] = frozenset(
@@ -66,7 +70,8 @@ def source_conflict_sets(sources: Iterable[CitationEvidence]) -> tuple[ConflictS
             source_id=source.source_id,
             subject_terms=frozenset(
                 token.casefold()
-                for token in _TOKEN_PATTERN.findall(source.title)
+                for match in _TOKEN_PATTERN.finditer(source.title)
+                for token in (match.group(0),)
                 if len(token) >= 2 and not token.isdecimal() and token.casefold() not in _TITLE_STOPWORDS
             ),
             years=frozenset(_YEAR_PATTERN.findall(f"{source.title} {source.text}")),

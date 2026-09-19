@@ -27,11 +27,17 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+
+from pydantic import JsonValue
 
 logger = logging.getLogger("antigravity_k.engine.self_repair")
+
+type FailureValue = str | float
+type FailureRecord = dict[str, FailureValue]
+type RepairDetails = dict[str, JsonValue]
 
 
 # ── 보호 도구 목록 (IronClaw is_protected_tool_name 패턴) ──
@@ -88,7 +94,7 @@ class RepairLevel(str, Enum):
 # ── 데이터 클래스 ──
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StuckJobPolicy:
     """Stuck Job 감지 정책."""
 
@@ -98,7 +104,7 @@ class StuckJobPolicy:
     max_total_failures: int = 8  # 작업 내 총 실패 허용 횟수
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class StuckDetection:
     """Stuck 감지 결과."""
 
@@ -118,7 +124,7 @@ class StuckDetection:
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class RepairResult:
     """복구 시도 결과."""
 
@@ -127,7 +133,7 @@ class RepairResult:
     action_taken: str = ""
     message: str = ""
     fingerprint: str = ""
-    details: dict[str, Any] = field(default_factory=dict)
+    details: RepairDetails = field(default_factory=dict)
 
 
 # ── 메인 엔진 ──
@@ -140,18 +146,18 @@ class SelfRepairEngine:
     GoalRunner의 Repair Loop(Step 5)를 실시간 자율 복구로 강화합니다.
     """
 
-    def __init__(self, policy: StuckJobPolicy | None = None):
+    def __init__(self, policy: StuckJobPolicy | None = None) -> None:
         """Initialize the SelfRepairEngine.
 
         Args:
             policy (StuckJobPolicy | None): StuckJobPolicy | None policy.
 
         """
-        self.policy = policy or StuckJobPolicy()
+        self.policy: StuckJobPolicy = policy or StuckJobPolicy()
         self._notified_fingerprints: set[str] = set()
-        self._job_failure_history: dict[str, list[dict[str, Any]]] = {}
+        self._job_failure_history: dict[str, list[FailureRecord]] = {}
         self._job_start_times: dict[str, float] = {}
-        self._max_fingerprint_cache = 500
+        self._max_fingerprint_cache: int = 500
 
     # ── 보호 도구 필터 (IronClaw defense-in-depth) ──
 
@@ -169,7 +175,7 @@ class SelfRepairEngine:
     def register_job(self, job_id: str) -> None:
         """새 작업을 등록합니다."""
         self._job_start_times[job_id] = time.time()
-        self._job_failure_history.setdefault(job_id, [])
+        _ = self._job_failure_history.setdefault(job_id, [])
 
     def record_failure(
         self,
@@ -179,7 +185,8 @@ class SelfRepairEngine:
         args_hash: str = "",
     ) -> None:
         """도구 실패를 기록합니다."""
-        self._job_failure_history.setdefault(job_id, []).append(
+        history = self._job_failure_history.setdefault(job_id, [])
+        history.append(
             {
                 "tool_name": tool_name,
                 "error": error[:300],
@@ -195,14 +202,17 @@ class SelfRepairEngine:
 
     # ── Stuck 감지 ──
 
-    def detect_stuck(self, job_state: dict[str, Any]) -> StuckDetection:
+    def detect_stuck(self, job_state: Mapping[str, JsonValue]) -> StuckDetection:
         """작업 상태를 분석하여 Stuck 여부를 감지합니다.
 
         IronClaw 패턴: InProgress → Stuck → Failed 3단계 전이.
         """
-        job_id = str(job_state.get("job_id", ""))
-        current = JobState(job_state.get("state", "in_progress"))
-        tool_name = str(job_state.get("current_tool", ""))
+        job_id_value = job_state.get("job_id", "")
+        state_value = job_state.get("state", "in_progress")
+        tool_value = job_state.get("current_tool", "")
+        job_id = str(job_id_value)
+        current = JobState(state_value if isinstance(state_value, str) else "in_progress")
+        tool_name = str(tool_value)
 
         # 보호 도구는 Stuck 판정에서 제외
         if tool_name and self.is_protected_tool(tool_name):
@@ -348,7 +358,7 @@ class SelfRepairEngine:
             # 가장 오래된 절반 제거 (set은 순서 없으므로 임의 제거)
             excess = len(self._notified_fingerprints) - self._max_fingerprint_cache // 2
             for _ in range(excess):
-                self._notified_fingerprints.pop()
+                _ = self._notified_fingerprints.pop()
 
         return True
 
@@ -361,7 +371,7 @@ class SelfRepairEngine:
 
     # ── 상태 보고 ──
 
-    def get_repair_stats(self) -> dict[str, Any]:
+    def get_repair_stats(self) -> dict[str, int]:
         """복구 엔진 통계를 반환합니다."""
         total_failures = sum(len(history) for history in self._job_failure_history.values())
         active_jobs = len(self._job_start_times)
@@ -374,5 +384,5 @@ class SelfRepairEngine:
 
     def cleanup_job(self, job_id: str) -> None:
         """완료된 작업의 이력을 정리합니다."""
-        self._job_failure_history.pop(job_id, None)
-        self._job_start_times.pop(job_id, None)
+        _ = self._job_failure_history.pop(job_id, None)
+        _ = self._job_start_times.pop(job_id, None)

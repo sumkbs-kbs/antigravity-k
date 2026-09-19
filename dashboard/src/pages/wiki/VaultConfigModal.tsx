@@ -17,14 +17,21 @@ const VaultConfigModal: React.FC<Props> = ({ visible, onClose }) => {
   const [path, setPath] = useState('');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { if (visible) setPath(vaultPath); }, [visible, vaultPath]);
+  useEffect(() => {
+    if (!visible) return undefined;
+    const timer = setTimeout(() => setPath(vaultPath), 0);
+    return () => clearTimeout(timer);
+  }, [visible, vaultPath]);
 
   if (!visible) return null;
 
   const handleSave = async () => {
     setSaving(true);
-    await updateVaultConfig(path);
-    setSaving(false);
+    try {
+      await updateVaultConfig(path);
+    } finally {
+      setSaving(false);
+    }
     onClose();
   };
 

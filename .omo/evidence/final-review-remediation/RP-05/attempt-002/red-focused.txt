@@ -1,0 +1,22 @@
+Command: uv run --no-sync pytest -q tests/test_fr05_conversation_authoritative_reads.py -k 'public_record_return_does_not_alias_store_cache or corrupt_payload_does_not_reuse_cached_record or cached_process_rejects_stale_fork_after_remote_append'
+Exit: 1
+
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+test_public_record_return_does_not_alias_store_cache[get]
+E       AssertionError: assert 99 == 1
+E        +  where 99 = ConversationRecord(... revision=99, messages=[] ...).revision
+
+test_public_record_return_does_not_alias_store_cache[get_or_create]
+E       AssertionError: assert 99 == 1
+E        +  where 99 = ConversationRecord(... revision=99, messages=[] ...).revision
+
+TestCrossWorkerReads.test_corrupt_payload_does_not_reuse_cached_record
+E       AssertionError: assert ConversationRecord(... revision=1 ...) is None
+
+test_cached_process_rejects_stale_fork_after_remote_append
+E       Failed: DID NOT RAISE StaleConversationRevisionError
+
+4 failed, 8 deselected in 0.74s
+
+Binary observable: all four regressions fail before the production patch for the intended behavioral reasons.

@@ -1,0 +1,31 @@
+NX-02 증거 생성 명령 (cwd = /Users/mr.k/program/coding/ssak_comp/Ssak-Ai)
+==========================================================================
+기준선 커밋/브랜치: ffb0ebb312b76d86742d3e4065628a9704f8268e (codex/m1-task-events)
+before 트리 동일성 확인 (exit 0 = 동일):
+  diff -q /tmp/nx01-before/src/antigravity_k/engine/conversation_store.py \
+          <(git show HEAD:src/antigravity_k/engine/conversation_store.py)
+
+1) before/after 드라이버 (원본 손실 여부)
+   NX02_TREE=before-head PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/tmp/nx01-before/src \
+     .venv/bin/python docs/qa/2026-09-16-followup/nx02/repro_nx02_view_only.py \
+     > docs/qa/2026-09-16-followup/nx02/before-run-output.json.txt        # exit 3
+   NX02_TREE=after-working-tree PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
+     .venv/bin/python docs/qa/2026-09-16-followup/nx02/repro_nx02_view_only.py \
+     > docs/qa/2026-09-16-followup/nx02/after-run-output.json.txt         # exit 0
+
+2) 마이그레이션 3-모드 (dry-run / apply / apply / verify-only)
+   절차와 출력: migration-report.txt (fixture = legacy 1건, storage = /tmp/nx02-mig/conversations)
+   PYTHONDONTWRITEBYTECODE=1 .venv/bin/python scripts/migrate_conversation_storage.py \
+     --storage-dir /tmp/nx02-mig/conversations [--apply|--verify-only]
+
+3) 회귀
+   130 passed  : tests/test_nx02_history_journal.py + conversation/session/context 관련 12파일
+   6448 passed : tests/ 전체 (아래 두 파일 제외, 모두 작업 트리와 무관한 기존 사유)
+     --ignore=tests/test_benchmark_performance.py            (wall-clock 민감, NX-03 handoff 참조)
+     --deselect tests/test_cr14_fence_movement_detection.py  (git history 만 읽는 fence 검사)
+
+4) 정적 검사
+   .venv/bin/ruff check <변경 파일 7개>            → All checks passed!
+   .venv/bin/python -m mypy <변경 모듈 5개>        → Success: no issues found in 5 source files
+
+환경: macOS(darwin), Python 3.13(.venv), pytest 9.x, `-p no:randomly`

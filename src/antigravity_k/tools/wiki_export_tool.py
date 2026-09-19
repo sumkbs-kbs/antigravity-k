@@ -1,13 +1,35 @@
 """Wiki Export Tool module."""
 
+from __future__ import annotations
+
 import logging
 import os
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import TypeAlias, cast, override
 
 from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
+
+JsonMap: TypeAlias = dict[str, object]
+
+
+def _as_text(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _as_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in cast(list[object], value) if isinstance(item, str)]
+
+
+def _as_map(value: object) -> JsonMap:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
 
 
 class WikiExportTool(BaseTool):
@@ -16,21 +38,21 @@ class WikiExportTool(BaseTool):
     사용자의 로컬 지식베이스(Wiki)에 마크다운 파일로 내보냅니다.
     """
 
-    category = ToolCategory.FILE_IO
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.LOW
-    icon = "📝"
-    tags = ["wiki", "knowledge", "export", "markdown", "obsidian"]
+    category: ToolCategory = ToolCategory.FILE_IO
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.LOW
+    icon: str = "📝"
+    tags: list[str] = ["wiki", "knowledge", "export", "markdown", "obsidian"]
 
     def __init__(self):
         """Initialize the WikiExportTool."""
         super().__init__()
-        self._name = "export_to_wiki"
-        self._description = (
+        self._name: str = "export_to_wiki"
+        self._description: str = (
             "Export structured knowledge, troubleshooting logs, or architectural "
             "decisions to a Markdown file in the user's Wiki directory."
         )
-        self._schema = {
+        self._schema: JsonMap = {
             "type": "object",
             "properties": {
                 "title": {
@@ -55,6 +77,7 @@ class WikiExportTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -65,6 +88,7 @@ class WikiExportTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -75,29 +99,31 @@ class WikiExportTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> Mapping[str, object]:
         """Parameters Schema.
 
         Returns:
-            dict[str, Any]: The dict[str, any] result.
+            Mapping[str, object]: The tool parameter schema.
 
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> object:
         """Execute.
 
         Args:
             **kwargs: kwargs.
 
         Returns:
-            Any: The any result.
+            object: The execution result.
 
         """
-        title = kwargs.get("title") or ""
-        tags = kwargs.get("tags", [])
-        content = kwargs.get("content")
-        filename_raw = kwargs.get("filename")
+        title = _as_text(kwargs.get("title"))
+        tags = _as_string_list(kwargs.get("tags", []))
+        content = _as_text(kwargs.get("content"))
+        filename_raw = _as_text(kwargs.get("filename"))
 
         # Create safe filename
         if not filename_raw:
@@ -120,8 +146,8 @@ class WikiExportTool(BaseTool):
             config_path = os.path.join(project_root, "config.yaml")
             if os.path.exists(config_path):
                 with open(config_path, encoding="utf-8") as f:
-                    config = yaml.safe_load(f)
-                    configured_dir = config.get("wiki_dir")
+                    config = _as_map(cast(object, yaml.safe_load(f)))
+                    configured_dir = _as_text(config.get("wiki_dir"))
                     if configured_dir:
                         wiki_dir = configured_dir
         except Exception:
@@ -144,18 +170,18 @@ class WikiExportTool(BaseTool):
             frontmatter += f"tags: [{tags_str}]\n"
         frontmatter += f"date: {date_str}\n---\n\n"
 
-        full_content = frontmatter + (content or "")
+        full_content = frontmatter + content
 
         try:
             with open(target_path, "w", encoding="utf-8") as f:
-                f.write(full_content)
+                _ = f.write(full_content)
             return f"✅ Successfully exported knowledge to Wiki at: {target_path}"
         except OSError:
             # Fallback to root if permission denied
             fallback_path = os.path.join(project_root, safe_filename)
             try:
                 with open(fallback_path, "w", encoding="utf-8") as f:
-                    f.write(full_content)
+                    _ = f.write(full_content)
                 return f"⚠️ Permission denied to write to {wiki_dir}. Saved to fallback path: {fallback_path}"
             except OSError as e2:
                 logger.exception("Unhandled exception")

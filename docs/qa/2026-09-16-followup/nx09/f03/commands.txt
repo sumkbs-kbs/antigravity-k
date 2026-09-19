@@ -1,0 +1,39 @@
+# NX-09-F03 commands (2026-09-16)
+
+## 1. 증인 (실 브라우저 + 실 서버 + 가짜 provider)
+cd dashboard && npx tsc -b --pretty false          # 타입
+cd dashboard && pnpm build                          # UI 증인의 전제 (NX-09-F04)
+cd dashboard && NX09_ARTIFACT_DIR=<repo>/docs/qa/2026-09-16-followup/nx09 \
+  npx playwright test e2e/tests/nx09-user-journey.spec.ts -g "T4" --reporter=line --workers=1
+# → 1 passed · t4-observation.json: imageReachedProvider=true, imageSurfaces=["/api/chat"],
+#   secondTurnWithImage=0, chipVisible=true
+cd dashboard && NX09_ARTIFACT_DIR=<repo>/docs/qa/2026-09-16-followup/nx09 \
+  npx playwright test e2e/tests/nx09-user-journey.spec.ts --reporter=line --workers=1
+# → 8 passed (T4 expected-fail 제거 후)
+
+## 2. 추적 탐침 (실 uvicorn + provider 대역, in-process 계측)
+uv run --project . --no-sync python docs/qa/2026-09-16-followup/nx09/f03_probe_trace.py \
+  docs/qa/2026-09-16-followup/nx09/f03/probe-trace.json
+# → images_reached_provider: [{"path": "/api/chat", "body_len": 48156, "has_image": true}]
+# 수정 전 같은 탐침: prompt_message 호출 0회 · images_reached_provider []
+
+## 3. 계약 시험 / 회귀
+uv run --project . --no-sync python -m pytest tests/test_nx09_f03_multimodal_attachments.py -q
+uv run --project . --no-sync python -m pytest -q tests/test_inference_providers.py \
+  tests/test_model_manager_generate.py tests/test_model_manager_lifecycle.py \
+  tests/test_model_manager_stream.py tests/test_task_context_snapshot.py tests/test_orchestrator.py \
+  tests/test_orchestrator_handlers.py tests/test_tool_loop.py tests/test_ctx01_reject_fixes.py \
+  tests/test_ctx02_reject_fixes.py tests/test_ctx03_compress_observability.py \
+  tests/test_conversation_api_ctx01.py
+uv run --project . --no-sync python -m pytest -q tests/ \
+  -k "tool_loop or orchestrator or agent_runtime or inference or multimodal or snapshot or chat or provider or attachment"
+
+## 4. 정적검사
+uv run --project . --no-sync ruff check src/antigravity_k/engine/ src/antigravity_k/api/routes/chat.py
+uv run --project . --no-sync mypy src/antigravity_k/engine/multimodal.py
+cd dashboard && npx tsc -b --pretty false
+cd dashboard && npx eslint e2e/tests/nx09-user-journey.spec.ts
+
+## 5. 되돌리기(파생 산출물)
+# dashboard_dist 는 빌드 산출물이다 — 최종 상태에서는 커밋본으로 되돌린다(그 사실이 F04 다).
+# git checkout -- src/antigravity_k/dashboard_dist && git clean -f src/antigravity_k/dashboard_dist

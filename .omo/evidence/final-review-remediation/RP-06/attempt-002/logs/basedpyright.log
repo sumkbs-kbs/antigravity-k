@@ -1,0 +1,93 @@
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:33:23 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:36:36 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:40:24 - warning: Type of parameter "fn" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:40:28 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:43:9 - warning: Type of "detail" is partially unknown
+    Type of "detail" is "Any | dict[Unknown, Unknown]" (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:44:9 - warning: Type of "false_details" is partially unknown
+    Type of "false_details" is "list[Unknown | Any]" (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:44:34 - warning: Type of "key" is partially unknown
+    Type of "key" is "Unknown | Any" (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:44:39 - warning: Type of "value" is partially unknown
+    Type of "value" is "Unknown | Any" (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:46:69 - warning: Argument type is partially unknown
+    Argument corresponds to parameter "iterable" in function "join"
+    Argument type is "list[Unknown | Any]" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:47:103 - warning: Argument type is partially unknown
+    Argument corresponds to parameter "detail" in function "__init__"
+    Argument type is "Any | dict[Unknown, Unknown]" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:74:46 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:96:51 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:111:43 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:125:46 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:163:26 - warning: Type of parameter "store" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:163:33 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:165:5 - warning: Type of "payload" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:165:15 - warning: Type of "_require_collection" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:165:15 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:166:16 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:175:31 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:187:33 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:203:33 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:233:32 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:264:34 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:265:54 - warning: "_citation_line_ranges" is private and used outside of the module in which it is declared (reportPrivateUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:265:77 - warning: "_normalize_citation_id" is private and used outside of the module in which it is declared (reportPrivateUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:276:25 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:276:25 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:364:5 - warning: Result of call expression is of type "DatasetSplitPaths" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:366:46 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:381:32 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:394:40 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:396:86 - warning: "_case_score" is private and used outside of the module in which it is declared (reportPrivateUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:487:44 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:490:31 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:514:38 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:518:30 - warning: Type of "platform" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:540:28 - warning: Type of "output" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:540:28 - warning: Argument type is Any
+    Argument corresponds to parameter "output" in function "run_staging" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/scripts/val01_staging.py:541:5 - warning: Type of "summary" is Any (reportAny)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:56:20 - warning: Type of "to_dict" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:56:36 - warning: Type of "r" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:56:41 - warning: Type of "_chroma_scenarios" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:65:20 - warning: Type of "to_dict" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:65:36 - warning: Type of "r" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:65:41 - warning: Type of "_chroma_scenarios" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:66:36 - warning: Type of "r" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:68:13 - warning: Type of "record" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:75:64 - warning: Argument type is partially unknown
+    Argument corresponds to parameter "value" in function "setattr"
+    Argument type is "(self: Unknown, file_path: Unknown) -> None" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:75:71 - warning: Type of parameter "self" is unknown (reportUnknownLambdaType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:75:77 - warning: Type of parameter "file_path" is unknown (reportUnknownLambdaType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:76:20 - warning: Type of "to_dict" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:76:36 - warning: Type of "r" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:76:41 - warning: Type of "_chroma_scenarios" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:90:9 - warning: Type of "record" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:90:18 - warning: Type of "_record" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:91:16 - warning: Type of "ok" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:92:38 - warning: Type of "failure_mode" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:98:9 - warning: Type of "record" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:98:18 - warning: Type of "_record" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:99:16 - warning: Type of "ok" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:100:35 - warning: Type of "failure_mode" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:105:9 - warning: Type of "missing" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:105:19 - warning: Type of "_missing_required" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:107:38 - warning: Type of "m" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:111:9 - warning: Type of "missing" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:111:19 - warning: Type of "_missing_required" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:136:16 - warning: Type of "_missing_required" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:150:51 - warning: Argument type is partially unknown
+    Argument corresponds to parameter "value" in function "setattr"
+    Argument type is "(output: Unknown) -> dict[str, dict[str, int | list[str]]]" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:150:58 - warning: Type of parameter "output" is unknown (reportUnknownLambdaType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:152:16 - warning: Type of "main" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:156:16 - warning: Type of "main" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_fr07_staging_verdicts.py:159:16 - warning: Type of "main" is Any (reportAny)
+0 errors, 74 warnings, 0 notes

@@ -1,5 +1,7 @@
 """Tests for DialecticEngine (dialectic_engine.py)."""
 
+from typing import cast
+
 import pytest
 
 from antigravity_k.engine.dialectic_engine import (
@@ -39,7 +41,9 @@ class TestDialecticEngine:
         engine = DialecticEngine()
         workflow = engine.create_workflow("What is AI?")
         assert workflow["query"] == "What is AI?"
-        assert len(workflow["steps"]) == 3  # thesis, antithesis, synthesis
+        assert isinstance(workflow["steps"], list)
+        steps = cast(list[object], workflow["steps"])
+        assert len(steps) == 3  # thesis, antithesis, synthesis
         assert workflow["steps"][0]["name"] == "Generate Thesis"
         assert workflow["steps"][1]["name"] == "Generate Antithesis"
         assert workflow["steps"][2]["name"] == "Generate Synthesis"
@@ -48,7 +52,9 @@ class TestDialecticEngine:
         engine = DialecticEngine()
         workflow = engine.create_workflow("Test", use_council=True)
         # thesis + 3 council + synthesis = 5 steps
-        assert len(workflow["steps"]) == 5
+        assert isinstance(workflow["steps"], list)
+        steps = cast(list[object], workflow["steps"])
+        assert len(steps) == 5
 
     def test_parse_structured_response(self):
         engine = DialecticEngine()
@@ -152,7 +158,7 @@ class TestAutocodingState:
         state = AutocodingState.create("Build")
         state = state.advance_to_coach()
         with pytest.raises(ValueError, match="Cannot advance to coach"):
-            state.advance_to_coach()
+            _ = state.advance_to_coach()
 
     def test_advance_turn_approved(self):
         state = AutocodingState.create("Build")

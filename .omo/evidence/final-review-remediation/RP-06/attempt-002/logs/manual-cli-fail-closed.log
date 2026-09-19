@@ -1,0 +1,14 @@
+
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]
+Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 27021.29it/s]
+
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]
+Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 23876.49it/s]
+{
+  "total": 12,
+  "passed": 12,
+  "failed": 0,
+  "missing_required": [],
+  "failure_modes": []
+}
+cli-exit=0

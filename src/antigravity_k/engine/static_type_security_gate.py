@@ -90,45 +90,51 @@ class StaticTypeSecurityGate:
         try:
             tree = ast.parse(code, filename=file_path)
             for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
                 # Check for eval() or exec()
-                if isinstance(node, ast.Call):
-                    func_name = ""
-                    if isinstance(node.func, ast.Name):
-                        func_name = node.func.id
+                func_name = ""
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
 
-                    if func_name in ("eval", "exec"):
+                if func_name in ("eval", "exec"):
+                    issues.append(
+                        SecurityIssue(
+                            category="ArbitraryCodeExecution",
+                            severity="HIGH",
+                            message=f"Dangerous dynamic code execution via `{func_name}()`. Replace with safe parsing.",
+                            line_number=node.lineno,
+                            culprit_code=ast.unparse(node) if hasattr(ast, "unparse") else func_name,
+                        )
+                    )
+                elif (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "system"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "os"
+                ):
+                    issues.append(
+                        SecurityIssue(
+                            category="CommandInjectionRisk",
+                            severity="MEDIUM",
+                            message="Use of `os.system()`. Prefer `subprocess.run(..., check=True)` with argument lists.",
+                            line_number=node.lineno,
+                            culprit_code="os.system()",
+                        )
+                    )
+
+                # Check for shell=True in subprocess
+                for kw in node.keywords:
+                    if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
                         issues.append(
                             SecurityIssue(
-                                category="ArbitraryCodeExecution",
+                                category="ShellInjectionRisk",
                                 severity="HIGH",
-                                message=f"Dangerous dynamic code execution via `{func_name}()`. Replace with safe parsing.",
+                                message="`shell=True` in subprocess invocation is vulnerable to command injection.",
                                 line_number=node.lineno,
-                                culprit_code=ast.unparse(node) if hasattr(ast, "unparse") else func_name,
+                                culprit_code=ast.unparse(node) if hasattr(ast, "unparse") else "shell=True",
                             )
                         )
-                    elif func_name == "system" and hasattr(node.func, "id") and node.func.id == "system":
-                        issues.append(
-                            SecurityIssue(
-                                category="CommandInjectionRisk",
-                                severity="MEDIUM",
-                                message="Use of `os.system()`. Prefer `subprocess.run(..., check=True)` with argument lists.",
-                                line_number=node.lineno,
-                                culprit_code="os.system()",
-                            )
-                        )
-
-                    # Check for shell=True in subprocess
-                    for kw in getattr(node, "keywords", []):
-                        if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
-                            issues.append(
-                                SecurityIssue(
-                                    category="ShellInjectionRisk",
-                                    severity="HIGH",
-                                    message="`shell=True` in subprocess invocation is vulnerable to command injection.",
-                                    line_number=node.lineno,
-                                    culprit_code=ast.unparse(node) if hasattr(ast, "unparse") else "shell=True",
-                                )
-                            )
         except Exception:
             # If code doesn't parse as Python, skip AST checks
             pass

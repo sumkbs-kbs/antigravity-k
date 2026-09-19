@@ -69,7 +69,7 @@ const MultiTerminalPanel: React.FC = () => {
       {/* ── Terminal Content Area ──────────────────────────── */}
       <div className="multi-terminal-content">
         {sessions.length === 0 ? (
-          <div className="terminal-empty" onClick={() => addSession()}>
+          <div className="terminal-empty" onClick={() => addSession()} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addSession(); } }}>
             <span className="terminal-empty-icon">💻</span>
             <span className="terminal-empty-text">Click to open a new terminal</span>
           </div>

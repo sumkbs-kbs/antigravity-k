@@ -1,0 +1,52 @@
+{
+  "task_id": "EVO-02",
+  "title": "실측 개선 지표 — expected/measured 분리 및 pending_evaluation 상태",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §EVO-02",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §EVO-02",
+  "status": "DONE",
+  "branch": "codex/evo-02-measured-eval",
+  "result_sha": "f8c85f75ef34cb4b2cc9da4d6abc902881d2b6c6",
+  "merge_commit": "b6fbba9",
+  "implementer": "evo_02_impl (Freebuff 세션, 2026-09-09)",
+  "reviewer": "evo_02_verify (독립 세션, 2026-09-10)",
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "expected와 measured metric field가 분리됐다",
+      "evidence": "EvolutionResult에 measured_after_metric과 expected_improvement 분리 (f8c85f7)"
+    },
+    {
+      "id": "AC-2",
+      "text": "재평가 전 상태가 pending이다",
+      "evidence": "evaluation_state=pending_evaluation, runner 없으면 실측 생성 안 함"
+    },
+    {
+      "id": "AC-3",
+      "text": "frozen held-out 평가 provenance가 있다",
+      "evidence": "benchmark_provenance: suite_name/env_hash 16자리 sha256/evaluated_at"
+    },
+    {
+      "id": "AC-4",
+      "text": "regression promotion이 거절된다",
+      "evidence": "improvement <= 0 시 regression_rejected + promotion_rejected 이벤트 기록"
+    },
+    {
+      "id": "AC-5",
+      "text": "UI/API가 예상·실측·신뢰구간을 구분한다",
+      "evidence": "get_report pending_evaluations 카운트 및 상태별 summary 문구"
+    }
+  ],
+  "implementation": {
+    "modified_files": [
+      "src/antigravity_k/engine/self_evolution_coordinator.py"
+    ],
+    "new_files": [
+      "tests/test_evo02_measured_evaluation.py"
+    ]
+  },
+  "verification": {
+    "target_suite": "tests/test_evo02_measured_evaluation.py 12 passed",
+    "lint": "ruff check clean",
+    "typecheck": "mypy clean"
+  }
+}

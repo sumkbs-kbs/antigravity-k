@@ -18,8 +18,8 @@ const WeatherExchangePanel: React.FC<Props> = ({ weather, exchange }) => {
       {/* Weather */}
       <GlassPanel title="☀️ 날씨 데이터" count={weather.length}>
         {weather.length > 0 ? (
-          weather.map((w, i) => (
-            <div key={i} style={{
+          weather.map(w => (
+            <div key={`${w.location ?? ''}:${w.temperature ?? ''}:${w.condition ?? ''}`} style={{
               display: 'flex', alignItems: 'center', gap: 12,
               padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
             }}>
@@ -44,8 +44,8 @@ const WeatherExchangePanel: React.FC<Props> = ({ weather, exchange }) => {
       {/* Exchange */}
       <GlassPanel title="💱 환율 데이터" count={exchange.length}>
         {exchange.length > 0 ? (
-          exchange.map((e, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' }}>
+          exchange.map(e => (
+            <div key={`${e.currency_pair ?? ''}:${e.rate ?? ''}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' }}>
               <span style={{ fontSize: 18 }}>💲</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 500, fontSize: 13 }}>{e.currency_pair}</div>

@@ -4,7 +4,15 @@ Tests pure-logic methods (properties, _format_markdown) without
 needing Playwright, asyncio, or external dependencies.
 """
 
+from collections.abc import Callable, Mapping
+from typing import cast
+
 from antigravity_k.tools.self_test_tool import SelfTestTool
+
+
+def _format_markdown(tool: SelfTestTool, report: Mapping[str, object]) -> str:
+    formatter = cast(Callable[[Mapping[str, object]], str], getattr(tool, "_format_markdown"))
+    return formatter(report)
 
 
 class TestSelfTestToolInit:
@@ -20,10 +28,12 @@ class TestSelfTestToolInit:
     def test_parameters_schema(self):
         tool = SelfTestTool()
         schema = tool.parameters_schema
-        assert "scope" in schema["properties"]
-        assert "verbose" in schema["properties"]
-        assert "run_hygiene_scan" in schema["properties"]
-        assert schema["properties"]["scope"]["enum"] == ["full", "api_only", "ui_only"]
+        properties = cast(dict[str, object], schema["properties"])
+        assert "scope" in properties
+        assert "verbose" in properties
+        assert "run_hygiene_scan" in properties
+        scope = cast(dict[str, object], properties["scope"])
+        assert cast(list[str], scope["enum"]) == ["full", "api_only", "ui_only"]
 
 
 class TestFormatMarkdown:
@@ -31,7 +41,7 @@ class TestFormatMarkdown:
 
     def test_full_report_with_all_statuses(self):
         tool = SelfTestTool()
-        report = {
+        report: dict[str, object] = {
             "total": 10,
             "passed": 7,
             "healed": 1,
@@ -54,8 +64,8 @@ class TestFormatMarkdown:
                 {"intent_id": "TEST-004", "status": "skipped", "message": "Not applicable", "duration_ms": 0},
             ],
         }
-        md = tool._format_markdown(report)
-        assert "# 🧪 Antigravity-K Self-Test Report" in md
+        md = _format_markdown(tool, report)
+        assert "# 🧪 Ssak-Ai Self-Test Report" in md
         assert "| 총 테스트 | 10 |" in md
         assert "| ✅ 통과 | 7 |" in md
         assert "| 🔧 자가치유 | 1 |" in md
@@ -72,7 +82,7 @@ class TestFormatMarkdown:
 
     def test_empty_report(self):
         tool = SelfTestTool()
-        report = {
+        report: dict[str, object] = {
             "total": 0,
             "passed": 0,
             "healed": 0,
@@ -83,7 +93,7 @@ class TestFormatMarkdown:
             "hygiene_issues": [],
             "results": [],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         assert "| 총 테스트 | 0 |" in md
         assert "| 합격률 | 0% |" in md
         assert "| 소요시간 | 0ms |" in md
@@ -91,7 +101,7 @@ class TestFormatMarkdown:
 
     def test_all_passed_report(self):
         tool = SelfTestTool()
-        report = {
+        report: dict[str, object] = {
             "total": 5,
             "passed": 5,
             "healed": 0,
@@ -104,7 +114,7 @@ class TestFormatMarkdown:
                 {"intent_id": "T1", "status": "passed", "message": "OK", "duration_ms": 100},
             ],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         assert "| 총 테스트 | 5 |" in md
         assert "| ✅ 통과 | 5 |" in md
         assert "| ❌ 실패 | 0 |" in md
@@ -125,7 +135,7 @@ class TestFormatMarkdown:
                 {"intent_id": "F1", "status": "failed", "message": "Crash", "duration_ms": 300},
             ],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         assert "| 총 테스트 | 3 |" in md
         assert "| ❌ 실패 | 3 |" in md
         assert "| 합격률 | 0% |" in md
@@ -144,7 +154,7 @@ class TestFormatMarkdown:
             "hygiene_issues": ["src/test_bad_file.py", "src/bad/test_helpers.py"],
             "results": [],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         assert "> [!WARNING]" in md
         assert "test_bad_file.py" in md
         assert "test_helpers.py" in md
@@ -166,7 +176,7 @@ class TestFormatMarkdown:
                 {"intent_id": "H1", "status": "healed", "message": "Auto-fixed", "duration_ms": 50, "healed": True},
             ],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         assert "H1" in md
         assert "Auto-fixed" in md
 
@@ -186,7 +196,7 @@ class TestFormatMarkdown:
                 {"intent_id": "T", "status": "passed", "message": "OK", "duration_ms": 250.7},
             ],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         assert "1235ms" in md or "1234ms" in md
 
     def test_multiple_hygiene_issues(self):
@@ -204,14 +214,14 @@ class TestFormatMarkdown:
             "hygiene_issues": issues,
             "results": [],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         for issue in issues:
             assert issue in md
 
     def test_minimal_report(self):
         """A report with only required keys should not crash."""
         tool = SelfTestTool()
-        report = {
+        report: dict[str, object] = {
             "total": 0,
             "passed": 0,
             "healed": 0,
@@ -222,7 +232,7 @@ class TestFormatMarkdown:
             "hygiene_issues": [],
             "results": [],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         assert isinstance(md, str)
         assert len(md) > 0
 
@@ -242,14 +252,14 @@ class TestFormatMarkdown:
                 {"intent_id": "U1", "status": "unknown_status", "message": "Unrecognized", "duration_ms": 0},
             ],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         assert "U1" in md
         assert "❓" in md
 
     def test_report_without_results_key(self):
         """Missing 'results' key should not crash."""
         tool = SelfTestTool()
-        report = {
+        report: dict[str, object] = {
             "total": 0,
             "passed": 0,
             "healed": 0,
@@ -259,6 +269,6 @@ class TestFormatMarkdown:
             "duration_ms": 0,
             "hygiene_issues": [],
         }
-        md = tool._format_markdown(report)
+        md = _format_markdown(tool, report)
         assert isinstance(md, str)
         assert "## 상세 결과" in md

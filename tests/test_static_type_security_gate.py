@@ -33,3 +33,10 @@ def run_dynamic(expr):
     assert any(i.category == "ArbitraryCodeExecution" for i in report.issues)
     feedback = report.format_for_model()
     assert "Security & Type Audit Failures" in feedback
+
+
+def test_audit_os_system_call():
+    report = StaticTypeSecurityGate.audit_code("import os\nos.system('ls')", "shell.py")
+
+    assert report.passed is False
+    assert any(issue.category == "CommandInjectionRisk" for issue in report.issues)

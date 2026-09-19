@@ -24,9 +24,12 @@ const NewDocModal: React.FC<Props> = ({ visible, onClose }) => {
   const handleCreate = async () => {
     if (!path || !path.endsWith('.md')) return;
     setSaving(true);
-    const tagArr = tags.split(',').map(t => t.trim()).filter(Boolean);
-    await createDocument(path, title || path.split('/').pop()?.replace('.md', '') || 'untitled', tagArr);
-    setSaving(false);
+    try {
+      const tagArr = tags.split(',').map(t => t.trim()).filter(Boolean);
+      await createDocument(path, title || path.split('/').pop()?.replace('.md', '') || 'untitled', tagArr);
+    } finally {
+      setSaving(false);
+    }
     setPath(''); setTitle(''); setTags('');
     onClose();
   };

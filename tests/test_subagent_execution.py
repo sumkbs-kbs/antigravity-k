@@ -4,7 +4,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from types import SimpleNamespace
+from typing import cast
 
+from antigravity_k.engine.direct_task_execution import TaskStoreRunnerPort
 from antigravity_k.engine.orchestrator.agent import OrchestratorAgent
 from antigravity_k.engine.subagent_execution import start_subagent_stream
 from antigravity_k.engine.task_state_store import (
@@ -60,7 +62,7 @@ def test_subagent_stream_reuses_parent_task_and_records_events(tmp_path) -> None
     with parent.bind_task_execution("parent-task", store):
         stream = start_subagent_stream(
             child,
-            task_runner=SimpleNamespace(state_store=store),
+            task_runner=cast(TaskStoreRunnerPort, cast(object, SimpleNamespace(state_store=store))),
             messages=[{"role": "user", "content": "inspect this"}],
             target_model="qwen3.6:latest",
             subagent_kind="agent_spawn",
@@ -85,7 +87,7 @@ def test_subagent_stream_creates_a_durable_task_when_unbound(tmp_path) -> None:
     # When: the child stream has no parent execution context.
     stream = start_subagent_stream(
         child,
-        task_runner=SimpleNamespace(state_store=store),
+        task_runner=cast(TaskStoreRunnerPort, cast(object, SimpleNamespace(state_store=store))),
         messages=[{"role": "user", "content": "inspect this"}],
         target_model="qwen3.6:latest",
         subagent_kind="browser_subagent",

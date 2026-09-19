@@ -1,4 +1,4 @@
-"""Antigravity-K Textual TUI — Terminal User Interface."""
+"""Ssak-Ai Textual TUI — Terminal User Interface."""
 
 from .app import AgkTUI, run_tui
 

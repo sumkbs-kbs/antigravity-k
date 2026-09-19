@@ -8,108 +8,149 @@
 
 import os
 import sys
+from typing import Callable, cast, final, override
 
 import pytest
 
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from antigravity_k.i18n import I18n, set_locale, t
+from antigravity_k import i18n as i18n_module
+from antigravity_k.i18n import I18n, set_locale
 from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from antigravity_k.tools.tool_registry import ToolRegistry
+
+
+def _install(registry: ToolRegistry, tool: object) -> ToolRegistry:
+    method = cast(Callable[..., ToolRegistry], getattr(registry, "install"))
+    return method(tool)
+
+
+def _install_many(registry: ToolRegistry, *tools: type[BaseTool]) -> ToolRegistry:
+    method = cast(Callable[..., ToolRegistry], getattr(registry, "install_many"))
+    return method(*tools)
+
+
+_translate = cast(Callable[..., str], getattr(i18n_module, "t"))
+
+
+def _translate_i18n(instance: I18n, key: str, **kwargs: object) -> str:
+    method = cast(Callable[..., str], getattr(instance, "t"))
+    return method(key, **kwargs)
+
 
 # ─────────────────── Mock Tools ───────────────────
 
 
+@final
 class MockReadTool(BaseTool):
-    category = ToolCategory.FILE_IO
-    render_in = RenderIn.TOOLBAR
-    risk_level = RiskLevel.SAFE
-    icon = "📄"
-    tags = ["file", "read"]
+    category: ToolCategory = ToolCategory.FILE_IO
+    render_in: RenderIn = RenderIn.TOOLBAR
+    risk_level: RiskLevel = RiskLevel.SAFE
+    icon: str = "📄"
+    tags: list[str] = ["file", "read"]
 
     @property
-    def name(self):
+    @override
+    def name(self) -> str:
         return "mock_read"
 
     @property
-    def description(self):
+    @override
+    def description(self) -> str:
         return "Mock read tool"
 
     @property
-    def parameters_schema(self):
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         return {"type": "object", "properties": {}}
 
-    def execute(self, **kwargs):
+    @override
+    def execute(self, **kwargs: object) -> str:
         return "read result"
 
 
+@final
 class MockWriteTool(BaseTool):
-    category = ToolCategory.FILE_IO
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.LOW
-    icon = "✏️"
-    tags = ["file", "write"]
+    category: ToolCategory = ToolCategory.FILE_IO
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.LOW
+    icon: str = "✏️"
+    tags: list[str] = ["file", "write"]
 
     @property
-    def name(self):
+    @override
+    def name(self) -> str:
         return "mock_write"
 
     @property
-    def description(self):
+    @override
+    def description(self) -> str:
         return "Mock write tool"
 
     @property
-    def parameters_schema(self):
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         return {"type": "object", "properties": {}}
 
-    def execute(self, **kwargs):
+    @override
+    def execute(self, **kwargs: object) -> str:
         return "write result"
 
 
+@final
 class MockExecTool(BaseTool):
-    category = ToolCategory.CODE_EXEC
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.HIGH
-    icon = "⚡"
-    tags = ["exec", "dangerous"]
+    category: ToolCategory = ToolCategory.CODE_EXEC
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.HIGH
+    icon: str = "⚡"
+    tags: list[str] = ["exec", "dangerous"]
 
     @property
-    def name(self):
+    @override
+    def name(self) -> str:
         return "mock_exec"
 
     @property
-    def description(self):
+    @override
+    def description(self) -> str:
         return "Mock exec tool"
 
     @property
-    def parameters_schema(self):
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         return {"type": "object", "properties": {}}
 
-    def execute(self, **kwargs):
+    @override
+    def execute(self, **kwargs: object) -> str:
         return "exec result"
 
 
+@final
 class MockSecurityTool(BaseTool):
-    category = ToolCategory.SECURITY
-    render_in = RenderIn.BACKGROUND
-    risk_level = RiskLevel.SAFE
-    icon = "🛡️"
-    tags = ["security", "scan"]
+    category: ToolCategory = ToolCategory.SECURITY
+    render_in: RenderIn = RenderIn.BACKGROUND
+    risk_level: RiskLevel = RiskLevel.SAFE
+    icon: str = "🛡️"
+    tags: list[str] = ["security", "scan"]
 
     @property
-    def name(self):
+    @override
+    def name(self) -> str:
         return "mock_security"
 
     @property
-    def description(self):
+    @override
+    def description(self) -> str:
         return "Mock security scanner"
 
     @property
-    def parameters_schema(self):
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         return {"type": "object", "properties": {}}
 
-    def execute(self, **kwargs):
+    @override
+    def execute(self, **kwargs: object) -> str:
         return "scan passed"
 
 
@@ -138,7 +179,8 @@ class TestBaseToolMetadata:
         assert meta["render_in"] == "contextual"
         assert meta["risk_level"] == "high"
         assert meta["icon"] == "⚡"
-        assert "exec" in meta["tags"]
+        tags = cast(list[str], meta["tags"])
+        assert "exec" in tags
 
     def test_to_tool_call_schema(self):
         """LLM 스키마가 여전히 올바르게 동작하는지 확인."""
@@ -171,38 +213,38 @@ class TestToolRegistry:
     def test_install_class(self):
         """클래스로 도구를 등록할 수 있는지 확인."""
         reg = ToolRegistry()
-        reg.install(MockReadTool)
+        _ = _install(reg, MockReadTool)
         assert "mock_read" in reg
         assert len(reg) == 1
 
     def test_install_instance(self):
         """인스턴스로 도구를 등록할 수 있는지 확인."""
         reg = ToolRegistry()
-        reg.install(MockReadTool())
+        _ = _install(reg, MockReadTool())
         assert "mock_read" in reg
 
     def test_install_many(self):
         """여러 도구를 한번에 등록할 수 있는지 확인."""
         reg = ToolRegistry()
-        reg.install_many(MockReadTool, MockWriteTool, MockExecTool)
+        _ = _install_many(reg, MockReadTool, MockWriteTool, MockExecTool)
         assert len(reg) == 3
 
     def test_install_chaining(self):
         """체이닝 패턴이 동작하는지 확인."""
         reg = ToolRegistry()
-        reg.install(MockReadTool).install(MockWriteTool)
+        _ = _install(_install(reg, MockReadTool), MockWriteTool)
         assert len(reg) == 2
 
     def test_install_invalid(self):
         """잘못된 타입 등록 시 에러가 발생하는지 확인."""
         reg = ToolRegistry()
         with pytest.raises(TypeError):
-            reg.install("not_a_tool")
+            _ = _install(reg, "not_a_tool")
 
     def test_get_tool(self):
         """이름으로 도구를 조회할 수 있는지 확인."""
         reg = ToolRegistry()
-        reg.install(MockReadTool)
+        _ = _install(reg, MockReadTool)
         tool = reg.get("mock_read")
         assert tool is not None
         assert tool.name == "mock_read"
@@ -215,7 +257,7 @@ class TestToolRegistry:
     def test_filter_by_category(self):
         """카테고리별 필터링이 동작하는지 확인."""
         reg = ToolRegistry()
-        reg.install_many(MockReadTool, MockWriteTool, MockExecTool, MockSecurityTool)
+        _ = _install_many(reg, MockReadTool, MockWriteTool, MockExecTool, MockSecurityTool)
 
         file_tools = reg.filter_by_category(ToolCategory.FILE_IO)
         assert len(file_tools) == 2
@@ -226,7 +268,7 @@ class TestToolRegistry:
     def test_filter_by_risk(self):
         """위험도별 필터링이 동작하는지 확인."""
         reg = ToolRegistry()
-        reg.install_many(MockReadTool, MockWriteTool, MockExecTool, MockSecurityTool)
+        _ = _install_many(reg, MockReadTool, MockWriteTool, MockExecTool, MockSecurityTool)
 
         safe_tools = reg.filter_by_risk(RiskLevel.SAFE)
         assert len(safe_tools) == 2  # MockRead + MockSecurity
@@ -237,7 +279,7 @@ class TestToolRegistry:
     def test_filter_by_render(self):
         """렌더 위치별 필터링이 동작하는지 확인."""
         reg = ToolRegistry()
-        reg.install_many(MockReadTool, MockWriteTool, MockExecTool, MockSecurityTool)
+        _ = _install_many(reg, MockReadTool, MockWriteTool, MockExecTool, MockSecurityTool)
 
         toolbar_tools = reg.get_toolbar_tools()
         assert len(toolbar_tools) == 1
@@ -250,7 +292,7 @@ class TestToolRegistry:
     def test_to_llm_schemas(self):
         """LLM 스키마 목록 생성이 동작하는지 확인."""
         reg = ToolRegistry()
-        reg.install_many(MockReadTool, MockWriteTool)
+        _ = _install_many(reg, MockReadTool, MockWriteTool)
 
         schemas = reg.to_llm_schemas()
         assert len(schemas) == 2
@@ -259,7 +301,7 @@ class TestToolRegistry:
     def test_to_llm_schemas_filtered(self):
         """이름 기반 LLM 스키마 필터링이 동작하는지 확인."""
         reg = ToolRegistry()
-        reg.install_many(MockReadTool, MockWriteTool, MockExecTool)
+        _ = _install_many(reg, MockReadTool, MockWriteTool, MockExecTool)
 
         schemas = reg.to_llm_schemas(names=["mock_read"])
         assert len(schemas) == 1
@@ -267,7 +309,7 @@ class TestToolRegistry:
     def test_to_metadata_list(self):
         """메타데이터 목록이 올바르게 생성되는지 확인."""
         reg = ToolRegistry()
-        reg.install_many(MockReadTool, MockExecTool)
+        _ = _install_many(reg, MockReadTool, MockExecTool)
 
         metas = reg.to_metadata_list()
         assert len(metas) == 2
@@ -276,7 +318,7 @@ class TestToolRegistry:
     def test_summary(self):
         """레지스트리 요약이 생성되는지 확인."""
         reg = ToolRegistry()
-        reg.install_many(MockReadTool, MockExecTool)
+        _ = _install_many(reg, MockReadTool, MockExecTool)
 
         summary = reg.summary()
         assert "2 tools installed" in summary
@@ -284,8 +326,8 @@ class TestToolRegistry:
     def test_overwrite_warning(self):
         """중복 등록 시 덮어쓰기가 되는지 확인."""
         reg = ToolRegistry()
-        reg.install(MockReadTool)
-        reg.install(MockReadTool)  # 중복 → 경고 후 덮어쓰기
+        _ = _install(reg, MockReadTool)
+        _ = _install(reg, MockReadTool)  # 중복 → 경고 후 덮어쓰기
         assert len(reg) == 1  # 여전히 1개
 
 
@@ -303,25 +345,25 @@ class TestI18n:
     def test_translation_ko(self):
         """한국어 번역이 동작하는지 확인."""
         i18n = I18n(locale_code="ko")
-        msg = i18n.t("agent.task_complete")
+        msg = _translate_i18n(i18n, "agent.task_complete")
         assert msg == "작업이 완료되었습니다."
 
     def test_translation_en(self):
         """영어 번역이 동작하는지 확인."""
         i18n = I18n(locale_code="en")
-        msg = i18n.t("agent.task_complete")
+        msg = _translate_i18n(i18n, "agent.task_complete")
         assert msg == "Task completed successfully."
 
     def test_translation_ja(self):
         """일본어 번역이 동작하는지 확인."""
         i18n = I18n(locale_code="ja")
-        msg = i18n.t("agent.task_complete")
+        msg = _translate_i18n(i18n, "agent.task_complete")
         assert msg == "タスクが完了しました。"
 
     def test_translation_with_params(self):
         """매개변수가 포함된 번역이 동작하는지 확인."""
         i18n = I18n(locale_code="ko")
-        msg = i18n.t("agent.greeting", agent_name="PM")
+        msg = _translate_i18n(i18n, "agent.greeting", agent_name="PM")
         assert "PM" in msg
 
     def test_fallback_to_english(self):
@@ -332,14 +374,14 @@ class TestI18n:
     def test_missing_key_returns_key(self):
         """번역 키가 없으면 키 자체를 반환하는지 확인."""
         i18n = I18n(locale_code="ko")
-        msg = i18n.t("nonexistent.key")
+        msg = _translate_i18n(i18n, "nonexistent.key")
         assert msg == "nonexistent.key"
 
     def test_add_custom_translations(self):
         """동적 번역 추가가 동작하는지 확인."""
         i18n = I18n(locale_code="ko")
         i18n.add_translations("ko", {"custom.hello": "안녕!"})
-        assert i18n.t("custom.hello") == "안녕!"
+        assert _translate_i18n(i18n, "custom.hello") == "안녕!"
 
     def test_add_new_locale(self):
         """새로운 언어를 동적으로 추가할 수 있는지 확인."""
@@ -354,12 +396,12 @@ class TestI18n:
 
         i18n.locale = "en"
         assert i18n.locale == "en"
-        assert i18n.t("agent.task_complete") == "Task completed successfully."
+        assert _translate_i18n(i18n, "agent.task_complete") == "Task completed successfully."
 
     def test_global_t_function(self):
         """글로벌 t() 함수가 동작하는지 확인."""
         set_locale("en")
-        msg = t("agent.task_complete")
+        msg = _translate("agent.task_complete")
         assert msg == "Task completed successfully."
 
         # 원복
@@ -374,4 +416,4 @@ class TestI18n:
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    _ = pytest.main([__file__, "-v"])

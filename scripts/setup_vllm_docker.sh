@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Antigravity-K: vLLM Docker 기반 구동 설정 (대량 처리용)
+# Ssak-Ai: vLLM Docker 기반 구동 설정 (대량 처리용)
 # ============================================================================
 # vLLM = 고성능 배치 추론 서버 (continuous batching, PagedAttention)
 # Apple Silicon에서는 vllm-mlx 또는 vllm-metal 플러그인 사용
@@ -44,7 +44,7 @@ create_compose_file() {
 
     cat > "${PROJECT_DIR}/docker-compose.vllm.yml" << 'COMPOSE_EOF'
 # ============================================================================
-# Antigravity-K: vLLM 서버 Docker Compose
+# Ssak-Ai: vLLM 서버 Docker Compose
 # ============================================================================
 # 사용법:
 #   docker compose -f docker-compose.vllm.yml up -d
@@ -177,7 +177,7 @@ print_summary() {
 
 # ─── 메인 ─────────────────────────────────────────────────────────────────────
 main() {
-    echo -e "\n${CYAN}Antigravity-K — vLLM / vmlx / LM Studio 설치 & 구성${NC}\n"
+    echo -e "\n${CYAN}Ssak-Ai — vLLM / vmlx / LM Studio 설치 & 구성${NC}\n"
 
     check_docker
     create_compose_file

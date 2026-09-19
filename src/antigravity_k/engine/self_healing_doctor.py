@@ -55,10 +55,10 @@ class DoctorReport:
 
 
 class SelfHealingDoctor:
-    """Audits and self-repairs Antigravity-K runtime environment."""
+    """Audits and self-repairs Ssak-Ai runtime environment."""
 
     def __init__(self, project_root: str | Path):
-        self.project_root = Path(project_root).resolve()
+        self.project_root: Path = Path(project_root).resolve()
 
     def run_health_check(self, auto_heal: bool = True) -> DoctorReport:
         """Run full health audit and apply automated repairs."""
@@ -104,9 +104,9 @@ class SelfHealingDoctor:
 
         return DiagnosticCheck("Directory Structure", "WARNING", f"Missing directories: {', '.join(missing)}")
 
-    def _check_ast_syntax(self, auto_heal: bool) -> list[DiagnosticCheck]:
+    def _check_ast_syntax(self, _auto_heal: bool) -> list[DiagnosticCheck]:
         syntax_checks: list[DiagnosticCheck] = []
-        broken_files = []
+        broken_files: list[tuple[str, str]] = []
 
         for root, dirs, files in os.walk(self.project_root / "src"):
             dirs[:] = [d for d in dirs if not d.startswith(".") and d not in _IGNORE_DIRS]
@@ -115,7 +115,7 @@ class SelfHealingDoctor:
                     full_p = Path(root) / f
                     try:
                         content = full_p.read_text(encoding="utf-8")
-                        ast.parse(content)
+                        _ = ast.parse(content)
                     except SyntaxError as se:
                         rel = str(full_p.relative_to(self.project_root))
                         broken_files.append((rel, str(se)))
@@ -144,7 +144,7 @@ class SelfHealingDoctor:
 
         return DiagnosticCheck("Git Worktree Cleanliness", "WARNING", "Stale worktrees directory present.")
 
-    def _check_model_alignment(self, auto_heal: bool) -> DiagnosticCheck:
+    def _check_model_alignment(self, _auto_heal: bool) -> DiagnosticCheck:
         config_p = self.project_root / "src" / "antigravity_k" / "config.yaml"
         if not config_p.exists():
             return DiagnosticCheck("Model Configuration", "WARNING", "config.yaml not found.")

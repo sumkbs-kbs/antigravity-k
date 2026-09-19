@@ -1,0 +1,17 @@
+=== NX-02 focused regression (working tree, uncommitted) ===
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/test_nx02_history_journal.py tests/test_cr01_conversation_identity.py tests/test_fr05_conversation_authoritative_reads.py tests/test_conversation_store_ctx01.py tests/test_conversation_api_ctx01.py tests/test_ctx01_reject_fixes.py tests/test_fr_context_end_to_end.py tests/test_obs01_operational_metrics.py tests/test_conversation_store_soft_max_rss.py tests/test_val02_conversation_multiprocess.py tests/test_nx01_compaction_retention.py tests/test_nx03_session_delete_race.py tests/test_request_execution_context_contract.py -q -p no:randomly
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+130 passed, 1 warning in 45.28s
+
+=== full suite (excluding the pre-existing CR-14 git-fence test and the wall-clock benchmark file) ===
+$ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest tests/ -q -p no:randomly --ignore=tests/test_benchmark_performance.py --deselect tests/test_cr14_fence_movement_detection.py
+6448 passed, 9 skipped, 13 deselected, 1 warning in 577.72s (0:09:37)
+
+=== ruff ===
+All checks passed!
+
+=== mypy ===
+pyproject.toml: note: unused section(s): module = ['tests.*']
+Success: no issues found in 5 source files

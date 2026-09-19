@@ -3,7 +3,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
@@ -16,21 +16,21 @@ class InitDeepContextTool(BaseTool):
     files to keep agent context window localized and prevent bloating.
     """
 
-    category = ToolCategory.CODE_EXEC
-    render_in = RenderIn.TOOLBAR
-    risk_level = RiskLevel.LOW
-    icon = "🧠"
-    tags = ["context", "agents.md", "init", "deep"]
+    category: ToolCategory = ToolCategory.CODE_EXEC
+    render_in: RenderIn = RenderIn.TOOLBAR
+    risk_level: RiskLevel = RiskLevel.LOW
+    icon: str = "🧠"
+    tags: list[str] = ["context", "agents.md", "init", "deep"]
 
     def __init__(self):
         """Initialize the InitDeepContextTool."""
         super().__init__()
-        self._name = "init_deep_context"
-        self._description = (
-            "Generates hierarchical AGENTS.md files across the project directories to provide localized context"
+        self._name: str = "init_deep_context"
+        self._description: str = (
+            "Generates hierarchical AGENTS.md files across the project directories to provide localized context "
+            "for AI agents, preventing context bloat."
         )
-        "for AI agents, preventing context bloat."
-        self._schema = {
+        self._schema: dict[str, object] = {
             "type": "object",
             "properties": {
                 "root_path": {
@@ -42,6 +42,7 @@ class InitDeepContextTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -52,6 +53,7 @@ class InitDeepContextTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -62,7 +64,8 @@ class InitDeepContextTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         """Parameters Schema.
 
         Returns:
@@ -71,7 +74,8 @@ class InitDeepContextTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -81,7 +85,8 @@ class InitDeepContextTool(BaseTool):
             Any: The any result.
 
         """
-        root_path = kwargs.get("root_path")
+        raw_root_path = kwargs.get("root_path")
+        root_path = raw_root_path if isinstance(raw_root_path, str) else ""
         if not root_path or not os.path.exists(root_path):
             return f"Error: Invalid root path {root_path}"
 
@@ -123,8 +128,8 @@ Agents working in this directory should read this file to understand local archi
 - Add specific business logic rules here.
 - Document cross-file dependencies within this module.
 """
-                        with open(agents_file, "w", encoding="utf-8") as f:
-                            f.write(content)
+                        with agents_file.open("w", encoding="utf-8") as file:
+                            _ = file.write(content)
                         generated_count += 1
 
             return f"Successfully generated {generated_count} AGENTS.md files starting from {root_path}."

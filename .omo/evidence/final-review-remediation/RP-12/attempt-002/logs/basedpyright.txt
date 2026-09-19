@@ -1,0 +1,242 @@
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:97:17 - warning: Result of call expression is of type "_Process | None" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:187:21 - warning: Type of "payload" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:188:21 - warning: Type of "models" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:188:30 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:188:57 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:191:39 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:191:39 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:191:58 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:191:79 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py:191:103 - warning: Type of "m" is Any (reportAny)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:59:36 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:74:43 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:80:33 - warning: Argument type is Any
+    Argument corresponds to parameter "x" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:82:30 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:84:32 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:86:24 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:87:27 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:88:28 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:89:39 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:90:33 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:99:60 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:181:9 - warning: Type of "data" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:184:40 - warning: Argument type is partially unknown
+    Argument corresponds to parameter "data" in function "from_dict"
+    Argument type is "dict[Unknown, Unknown]" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:213:14 - warning: Type annotation for attribute `_lock` is required because this class is not decorated with `@final` (reportUnannotatedClassAttribute)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:260:21 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:260:31 - warning: Type of "k" is unknown (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:275:16 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:298:17 - warning: Type of "data" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:300:28 - warning: Return type, "dict[Unknown, Unknown]", is partially unknown (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:315:16 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:339:17 - warning: Type of "data" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:340:47 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:340:86 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:341:28 - warning: Return type, "dict[Unknown, Unknown]", is partially unknown (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:352:53 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:356:13 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:359:23 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:359:38 - warning: Type of "m" is unknown (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:368:23 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:374:33 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:374:40 - warning: Type of "s" is unknown (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:382:29 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:382:36 - warning: Type of "s" is unknown (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:386:50 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:392:20 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:398:31 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:411:13 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:420:17 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:438:5 - warning: Type of "data" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:439:42 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:441:5 - warning: Type of "client_secret" is partially unknown
+    Type of "client_secret" is "Unknown | None" (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:441:21 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:442:16 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:442:41 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:474:16 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:503:34 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:504:26 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:557:16 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:591:9 - warning: Type of "payload" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:595:45 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:598:5 - warning: Type of "expires_in" is partially unknown
+    Type of "expires_in" is "Unknown | None" (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:598:18 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:602:46 - warning: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:607:26 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:608:24 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:608:24 - warning: Argument type is partially unknown
+    Argument corresponds to parameter "object" in function "__new__"
+    Argument type is "Unknown | Literal['Bearer']" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:609:28 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:609:57 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:611:20 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:611:20 - warning: Argument type is partially unknown
+    Argument corresponds to parameter "object" in function "__new__"
+    Argument type is "Unknown | str | None" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:611:63 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:666:5 - warning: Type of "payload" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:667:45 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:670:5 - warning: Type of "expires_in" is partially unknown
+    Type of "expires_in" is "Unknown | None" (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:670:18 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:674:46 - warning: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:679:26 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:680:24 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:680:24 - warning: Argument type is partially unknown
+    Argument corresponds to parameter "object" in function "__new__"
+    Argument type is "Unknown | str" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:681:28 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:681:57 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:683:20 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:683:41 - warning: Type of "get" is partially unknown
+    Type of "get" is "Overload[(key: Unknown, default: None = None, /) -> (Unknown | None), (key: Unknown, default: Unknown, /) -> Unknown, (key: Unknown, default: _T@get, /) -> (Unknown | _T@get)]" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:689:5 - warning: Result of call expression is of type "bool" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:706:57 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:714:16 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:725:29 - warning: Type `Any` is not allowed (reportExplicitAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:735:31 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:735:41 - warning: Type of "k" is unknown (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/mcp_oauth.py:742:26 - warning: Type `Any` is not allowed (reportExplicitAny)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/rag_indexer.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/rag_indexer.py:435:40 - warning: Argument type is Any
+    Argument corresponds to parameter "raw" in function "_normalize_citation_id" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/rag_indexer.py:435:49 - warning: Type of "raw" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/rag_indexer.py:959:13 - warning: Result of call expression is of type "str" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/sandbox.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/sandbox.py:342:17 - warning: Type of "append" is partially unknown
+    Type of "append" is "(object: Unknown, /) -> None" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/sandbox.py:345:13 - warning: Type of "extend" is partially unknown
+    Type of "extend" is "(iterable: Iterable[Unknown], /) -> None" (reportUnknownMemberType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/sandbox.py:349:17 - warning: Type of "denied" is unknown (reportUnknownVariableType)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/scheduled_job_store.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/scheduled_job_store.py:111:17 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/scheduled_job_store.py:119:17 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/scheduled_job_store.py:152:17 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/scheduled_job_store.py:163:17 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/scheduled_job_store.py:192:17 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/scheduled_job_store.py:214:17 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/scheduled_job_store.py:260:17 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/scheduled_job_store.py:270:17 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/task_events.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/task_events.py:82:9 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/task_state_store.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/task_state_store.py:142:21 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/task_state_store.py:148:21 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/task_state_store.py:302:17 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/knowledge/wiki_privacy.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/knowledge/wiki_privacy.py:84:13 - warning: Implicit string concatenation not allowed (reportImplicitStringConcatenation)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/egress_policy.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/egress_policy.py:78:12 - warning: Return type is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/egress_policy.py:78:16 - warning: Argument type is Any
+    Argument corresponds to parameter "arg1" in function "min" (reportAny)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:6:8 - warning: Import "urllib.parse" is not accessed (reportUnusedImport)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:58:13 - warning: Type of "payload" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:62:9 - warning: Type of "item" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:62:17 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:66:31 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:66:31 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:67:29 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:67:29 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:68:33 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:68:33 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:69:33 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:69:33 - warning: Argument type is Any
+    Argument corresponds to parameter "x" in function "__new__" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:70:32 - warning: Type of "get" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/ssak_search_client.py:70:32 - warning: Argument type is Any
+    Argument corresponds to parameter "object" in function "__new__" (reportAny)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/system_tools.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/system_tools.py:380:57 - warning: "_minimal_child_env" is private and used outside of the module in which it is declared (reportPrivateUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/system_tools.py:391:42 - warning: "_python_runtime_read_paths" is private and used outside of the module in which it is declared (reportPrivateUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/tools/system_tools.py:712:43 - warning: "_run_with_sandbox" is protected and used outside of the class in which it is declared (reportPrivateUsage)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_command_execution_boundary.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_command_execution_boundary.py:119:9 - warning: Type of "return_value" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_command_execution_boundary.py:119:9 - warning: Type of "get_target_for_role" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_command_execution_boundary.py:120:9 - warning: Type of "return_value" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_command_execution_boundary.py:120:9 - warning: Type of "run_sync" is Any (reportAny)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:24:9 - warning: Type of "return_value" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:24:9 - warning: Type of "__enter__" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:25:56 - warning: Type of "api_base" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:38:5 - warning: Type of "poll" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:47:60 - warning: Type of "api_base" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:58:5 - warning: Type of "log_file" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:59:12 - warning: Type of "name" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:60:20 - warning: Type of "name" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:60:20 - warning: Argument type is Any
+    Argument corresponds to parameter "path" in function "stat" (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:77:13 - warning: Result of call expression is of type "str" and is not used; assign to variable "_" if this is intentional (reportUnusedCallResult)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:112:26 - warning: "tokens" is not accessed (reportUnusedParameter)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:112:42 - warning: "skip_special_tokens" is not accessed (reportUnusedParameter)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:131:26 - warning: "tokens" is not accessed (reportUnusedParameter)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:131:42 - warning: "skip_special_tokens" is not accessed (reportUnusedParameter)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:135:9 - warning: Type annotation for attribute `cache_implementation` is required because this class is not decorated with `@final` (reportUnannotatedClassAttribute)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:138:9 - warning: Type annotation for attribute `generation_config` is required because this class is not decorated with `@final` (reportUnannotatedClassAttribute)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:161:26 - warning: "tokens" is not accessed (reportUnusedParameter)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:161:42 - warning: "skip_special_tokens" is not accessed (reportUnusedParameter)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:165:9 - warning: Type annotation for attribute `cache_implementation` is required because this class is not decorated with `@final` (reportUnannotatedClassAttribute)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:168:9 - warning: Type annotation for attribute `generation_config` is required because this class is not decorated with `@final` (reportUnannotatedClassAttribute)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_local_runtime.py:188:26 - warning: "_load_mlx_model" is protected and used outside of the class in which it is declared (reportPrivateUsage)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_media_gen.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_media_gen.py:8:5 - warning: "_download_asset" is private and used outside of the module in which it is declared (reportPrivateUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_media_gen.py:35:56 - warning: Type of parameter "tmp_path" is unknown (reportUnknownParameterType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_media_gen.py:35:56 - warning: Type annotation is missing for parameter "tmp_path" (reportMissingParameterType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_media_gen.py:36:5 - warning: Type of "destination" is unknown (reportUnknownVariableType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_media_gen.py:41:65 - warning: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_media_gen.py:44:12 - warning: Type of "read_bytes" is unknown (reportUnknownMemberType)
+/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_ssak_search_client.py
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_ssak_search_client.py:11:5 - warning: "_refine_query" is private and used outside of the module in which it is declared (reportPrivateUsage)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_ssak_search_client.py:110:5 - warning: Type of "res_empty" is Any (reportAny)
+  /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_ssak_search_client.py:119:9 - warning: Type of "res" is Any (reportAny)
+0 errors, 162 warnings, 0 notes

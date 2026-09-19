@@ -5,14 +5,20 @@
 메인 에이전트의 컨텍스트를 보호하면서 독립된 공간에서 복잡한 웹 조작을 수행합니다.
 """
 
+from __future__ import annotations
+
 import logging
 import time
-from typing import Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, override
 
 from antigravity_k.engine.subagent_execution import start_subagent_stream
 from antigravity_k.engine.task_runner import get_task_runner
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+
+if TYPE_CHECKING:
+    from .tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +29,13 @@ class BrowserSubagentTool(BaseTool):
     테스트가 완료되면 결과 리포트와 함께 생성된 녹화 비디오 경로를 반환합니다.
     """
 
-    category = ToolCategory.WEB
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.MEDIUM
-    icon = "🤖🌐"
-    tags = ["browser", "subagent", "qa", "test", "automation", "video"]
+    category: ToolCategory = ToolCategory.WEB
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.MEDIUM
+    icon: str = "🤖🌐"
+    tags: list[str] = ["browser", "subagent", "qa", "test", "automation", "video"]
 
-    def __init__(self, model_manager=None, tool_registry=None):
+    def __init__(self, model_manager: object | None = None, tool_registry: ToolRegistry | None = None) -> None:
         """Initialize the BrowserSubagentTool.
 
         Args:
@@ -38,14 +44,14 @@ class BrowserSubagentTool(BaseTool):
 
         """
         super().__init__()
-        self._name = "browser_subagent"
-        self._description = (
+        self._name: str = "browser_subagent"
+        self._description: str = (
             "Spawns an autonomous browser subagent to perform actions in the browser with the given task description. "
             "The subagent has access to browser automation tools to interact with web pages and read files. "
             "It automatically records a video of its session. "
             "Return a detailed QA report of its findings and actions. Use this for complex, multi-step browser interactions."  # noqa: E501
         )
-        self._schema = {
+        self._schema: dict[str, object] = {
             "type": "object",
             "properties": {
                 "Task": {
@@ -59,10 +65,11 @@ class BrowserSubagentTool(BaseTool):
             },
             "required": ["Task"],
         }
-        self._model_manager = model_manager
-        self._tool_registry = tool_registry
+        self._model_manager: object | None = model_manager
+        self._tool_registry: ToolRegistry | None = tool_registry
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -73,6 +80,7 @@ class BrowserSubagentTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -83,27 +91,31 @@ class BrowserSubagentTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> Mapping[str, object]:
         """Parameters Schema.
 
         Returns:
-            dict[str, Any]: The dict[str, any] result.
+            Mapping[str, object]: The tool parameter schema.
 
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> object:
         """Execute.
 
         Args:
             **kwargs: kwargs.
 
         Returns:
-            Any: The any result.
+            object: The execution result.
 
         """
-        task = kwargs.get("Task", "")
-        url = kwargs.get("Url", "")
+        task_value = kwargs.get("Task", "")
+        url_value = kwargs.get("Url", "")
+        task = task_value if isinstance(task_value, str) else ""
+        url = url_value if isinstance(url_value, str) else ""
 
         if not task:
             return "Error: No Task description provided."
@@ -132,7 +144,7 @@ class BrowserSubagentTool(BaseTool):
             tool_registry=self._tool_registry,
         )
 
-        target_model = sub_orchestrator._get_model_for_role("WORKER")
+        target_model = sub_orchestrator.get_model_for_role("WORKER")
 
         system_prompt = (
             "You are an autonomous Browser QA Sub-Agent. Your primary objective is to navigate the web, "

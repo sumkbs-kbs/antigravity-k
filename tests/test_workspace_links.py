@@ -1,6 +1,21 @@
 """Tests for workspace_links module."""
 
-from antigravity_k.api.routes.workspace_links import _generate_links_for_path
+from collections.abc import Callable
+from typing import TypedDict, cast
+
+import antigravity_k.api.routes.workspace_links as workspace_links
+
+
+class _WorkspaceLinkPayload(TypedDict):
+    name: str
+    path: str
+    links: dict[str, str]
+
+
+_generate_links_for_path = cast(
+    Callable[[str, str], _WorkspaceLinkPayload],
+    cast(object, getattr(workspace_links, "_generate_links_for_path")),
+)
 
 
 class TestGenerateLinksForPath:

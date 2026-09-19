@@ -1,7 +1,7 @@
 """ToolsetManager — 시나리오별 도구 그룹 관리 시스템.
 
 =================================================
-Hermes Agent의 toolsets.py 패턴을 Antigravity-K에 이식.
+Hermes Agent의 toolsets.py 패턴을 Ssak-Ai에 이식.
 
 시나리오별 도구 조합을 프리셋으로 관리:
 - coding: 파일 + 터미널 + 테스트 + Git
@@ -20,14 +20,29 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import TypedDict, TypeVar
+
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 logger = logging.getLogger("antigravity_k.engine.toolset_manager")
+
+ToolsetDefinition = TypedDict(
+    "ToolsetDefinition", {"description": str, "tools": list[str], "includes": list[str]}, total=False
+)
+ToolsetSummary = TypedDict(
+    "ToolsetSummary",
+    {"description": str, "tools": list[str], "includes": list[str], "resolved_count": int, "is_active": bool},
+)
+
+
+_ConfigValue = TypeVar("_ConfigValue")
+_TOOLSET_ADAPTER: TypeAdapter[ToolsetDefinition] = TypeAdapter(ToolsetDefinition)
+_CONFIG_MAP_ADAPTER: TypeAdapter[dict[str, JsonValue]] = TypeAdapter(dict[str, JsonValue])
 
 
 # ── 기본 Toolset 정의 ──
 
-_BUILTIN_TOOLSETS: dict[str, dict[str, Any]] = {
+_BUILTIN_TOOLSETS: dict[str, ToolsetDefinition] = {
     "coding": {
         "description": "코딩 및 개발 도구 (파일 편집, 터미널, 테스트, Git)",
         "tools": [
@@ -149,7 +164,7 @@ class ToolsetManager:
 
     def __init__(
         self,
-        custom_toolsets: dict[str, dict[str, Any]] | None = None,
+        custom_toolsets: Mapping[str, ToolsetDefinition] | None = None,
         active_toolset: str = "full",
     ):
         """Initialize the ToolsetManager.
@@ -159,10 +174,9 @@ class ToolsetManager:
             active_toolset (str): str active toolset.
 
         """
-        self._toolsets = dict(_BUILTIN_TOOLSETS)
-        if custom_toolsets:
-            self._toolsets.update(custom_toolsets)
-        self._active = active_toolset
+        self._toolsets: dict[str, ToolsetDefinition] = dict(_BUILTIN_TOOLSETS)
+        self._toolsets.update(custom_toolsets or {})
+        self._active: str = active_toolset
 
     @property
     def active_toolset(self) -> str:
@@ -225,9 +239,9 @@ class ToolsetManager:
             return True
         return tool_name in self.resolve(self._active)
 
-    def list_toolsets(self) -> dict[str, dict[str, Any]]:
+    def list_toolsets(self) -> dict[str, ToolsetSummary]:
         """등록된 모든 toolset 정보를 반환합니다."""
-        result = {}
+        result: dict[str, ToolsetSummary] = {}
         for name, ts in self._toolsets.items():
             result[name] = {
                 "description": ts.get("description", ""),
@@ -254,12 +268,25 @@ class ToolsetManager:
         logger.info("Custom toolset added: %s", name)
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any] | None = None) -> "ToolsetManager":
+    def from_config(cls, config: Mapping[str, _ConfigValue] | None = None) -> "ToolsetManager":
         """config.yaml의 `toolsets` 섹션에서 인스턴스를 생성합니다."""
         if not isinstance(config, Mapping):
             return cls()
 
-        active = config.get("active", "full")
-        custom = config.get("custom", {})
+        active_value = config.get("active")
+        active = active_value if isinstance(active_value, str) else "full"
+        custom_value = config.get("custom")
+        custom: dict[str, ToolsetDefinition] = {}
+        try:
+            config_items = _CONFIG_MAP_ADAPTER.validate_python(custom_value)
+        except ValidationError:
+            config_items = {}
+        for raw_name, raw_definition in config_items.items():
+            if not isinstance(raw_definition, dict):
+                continue
+            try:
+                custom[raw_name] = _TOOLSET_ADAPTER.validate_python(raw_definition)
+            except ValidationError:
+                logger.warning("Invalid toolset definition ignored: %s", raw_name)
 
         return cls(custom_toolsets=custom, active_toolset=active)

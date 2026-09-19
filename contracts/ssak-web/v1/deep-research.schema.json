@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ssak-ai.local/contracts/ssak-web/v1/deep-research.schema.json",
+  "title": "ssak-web v1 deep research result",
+  "description": "ssak_deep_research 결과. 소스별 성공/실패를 보존하고, 성공 소스가 0개면 status는 error/blocked 다.",
+  "$ref": "envelope.schema.json",
+  "allOf": [
+    {
+      "properties": {
+        "data": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["query", "max_sources", "sources", "source_failures"],
+          "properties": {
+            "query": { "type": "string", "minLength": 1 },
+            "max_sources": { "type": "integer", "minimum": 1 },
+            "token_budget_per_source": { "type": ["integer", "null"], "minimum": 1 },
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["url", "evidence_id", "status"],
+                "properties": {
+                  "url": { "type": "string", "minLength": 1 },
+                  "title": { "type": ["string", "null"] },
+                  "evidence_id": { "type": "string", "minLength": 1 },
+                  "token_count": { "type": ["integer", "null"], "minimum": 0 },
+                  "status": { "type": "string", "enum": ["ok", "partial", "failed"] }
+                }
+              }
+            },
+            "aggregated_context": {
+              "type": ["string", "null"],
+              "description": "합성용 문맥. 어떤 소스에서 왔는지는 evidence_id로 역추적 가능해야 한다."
+            },
+            "source_failures": {
+              "type": "array",
+              "items": { "$ref": "envelope.schema.json#/$defs/source_failure" }
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "sources": { "maxItems": 0 } }, "required": ["sources"] },
+              "then": {
+                "properties": { "aggregated_context": { "type": "null" } },
+                "description": "성공 소스가 없으면 합성 문맥을 만들어내지 않는다."
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

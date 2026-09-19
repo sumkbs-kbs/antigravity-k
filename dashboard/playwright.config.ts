@@ -1,7 +1,7 @@
 /**
  * Playwright E2E Configuration
  * =============================
- * Browser-based end-to-end tests for Antigravity-K Dashboard.
+ * Browser-based end-to-end tests for Ssak-Ai Dashboard.
  *
  * Prerequisites:
  *   - Backend server running on AGK_BACKEND_URL (default: http://127.0.0.1:8012)

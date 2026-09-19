@@ -1,0 +1,20 @@
+{
+  "tree": "after",
+  "python": "3.13.12",
+  "pythonpath": "../../../../src",
+  "port": 63674,
+  "endpoint": "/api/tasks/task-live/events/stream",
+  "check_interval_seconds": "0.5",
+  "guard_disabled_by_driver": false,
+  "login_status": 200,
+  "epoch_before": 1,
+  "stream_status": 200,
+  "stream_content_type": "text/event-stream; charset=utf-8",
+  "frames_before_epoch_change": 2,
+  "frames_after_epoch_change": 1,
+  "revocation_frame_seen": true,
+  "seconds_to_revocation": 1.112,
+  "stream_ended_after_revocation": true,
+  "epoch_after": 2,
+  "new_request_with_revoked_bearer_status": 401
+}

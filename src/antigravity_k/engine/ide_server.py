@@ -4,11 +4,12 @@ import logging
 import os
 import subprocess
 import threading
-from typing import Any
+from typing import Final, final
 
 logger = logging.getLogger(__name__)
 
 
+@final
 class IDEServer:
     """Manages the lifecycle of the code-server daemon to provide a Web IDE."""
 
@@ -20,12 +21,12 @@ class IDEServer:
             workspace_dir (str): str workspace dir.
 
         """
-        self.port = port
-        self.workspace_dir = workspace_dir
-        self.process: subprocess.Popen[Any] | None = None
-        self._lock = threading.Lock()
+        self.port: Final = port
+        self.workspace_dir: Final = workspace_dir
+        self.process: subprocess.Popen[bytes] | None = None
+        self._lock: Final = threading.Lock()
 
-    def start(self):
+    def start(self) -> None:
         """Start the embedded code-server (IDE) process."""
         with self._lock:
             if self.process and self.process.poll() is None:
@@ -56,18 +57,18 @@ class IDEServer:
                     self.workspace_dir,
                 )
             except FileNotFoundError:
-                logger.error("code-server executable not found in PATH.")
+                logger.info("Optional IDE unavailable: code-server executable not found in PATH.")
                 # We do not raise here to prevent crashing the main orchestrator if code-server is missing
                 self.process = None
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the embedded code-server and release resources."""
         with self._lock:
             if self.process and self.process.poll() is None:
                 logger.info("Stopping IDE Server...")
                 self.process.terminate()
                 try:
-                    self.process.wait(timeout=5)
+                    _ = self.process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     self.process.kill()
                 self.process = None

@@ -1,0 +1,228 @@
+NX-10 승격 실행 — 2026-09-16T09:35:29Z (호스트 시각 18:35:29)
+저장소: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+브랜치: codex/m1-task-events · HEAD 20d529fc
+
+=== 1. 전제조건 ===
+  [WARN] soak 판정 확인을 건너뛴다(--allow-incomplete-soak) — 동결 해제가 다른 경로로 확인됐다는 뜻이어야 한다
+  작업 트리(이동 대상 외 변경이 있는지 눈으로 확인한다):
+     M README.md
+     M dashboard/e2e/helpers/hermeticBackend.ts
+     M dashboard/src/App.tsx
+     M dashboard/src/api/client.ts
+     M dashboard/src/api/clientSchema.ts
+     M dashboard/src/api/fixtures/arc01_request_execution_context.json
+     M dashboard/src/components/Chat/ChatPage.tsx
+     M dashboard/src/components/UI/PinModal.tsx
+     M dashboard/src/pages/SettingsPage.tsx
+     M dashboard/src/stores/chatStore.ts
+     M dashboard/src/stores/uiStore.ts
+     M dashboard/src/styles/index.css
+     M deploy/README.md
+     M deploy/k8s/deployment.yaml
+     M deploy/k8s/namespace.yaml
+     M docs/08_CHANGELOG.md
+     M docs/09_OPERATION_GUIDE.md
+     M docs/10_FINAL_READINESS_REPORT.md
+     M docs/11_COMMERCIAL_GA_100_PLAN.md
+     M docs/12_COMMERCIAL_GA_100_CHECKLIST.md
+
+=== 2. 이동 전 해시·지문 기록 ===
+  이동 전 코드지문(ga_gate.worktree_fingerprint): 157311cf106f6e1d
+  [STOP] 스테이징 원본 없음: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/nx10/verify_docs_commands.py
+NX-10 승격 실행 — 2026-09-16T09:36:52Z (호스트 시각 18:36:52)
+저장소: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+브랜치: codex/m1-task-events · HEAD 20d529fc
+
+=== 1. 전제조건 ===
+  [WARN] soak 판정 확인을 건너뛴다(--allow-incomplete-soak) — 동결 해제가 다른 경로로 확인됐다는 뜻이어야 한다
+  [OK  ] 이동표 6건이 스테이징에 있다(STAGING_ROOT=docs/qa/2026-09-16-followup)
+  작업 트리(이동 대상 외 변경이 있는지 눈으로 확인한다):
+     M README.md
+     M dashboard/e2e/helpers/hermeticBackend.ts
+     M dashboard/src/App.tsx
+     M dashboard/src/api/client.ts
+     M dashboard/src/api/clientSchema.ts
+     M dashboard/src/api/fixtures/arc01_request_execution_context.json
+     M dashboard/src/components/Chat/ChatPage.tsx
+     M dashboard/src/components/UI/PinModal.tsx
+     M dashboard/src/pages/SettingsPage.tsx
+     M dashboard/src/stores/chatStore.ts
+     M dashboard/src/stores/uiStore.ts
+     M dashboard/src/styles/index.css
+     M deploy/README.md
+     M deploy/k8s/deployment.yaml
+     M deploy/k8s/namespace.yaml
+     M docs/08_CHANGELOG.md
+     M docs/09_OPERATION_GUIDE.md
+     M docs/10_FINAL_READINESS_REPORT.md
+     M docs/11_COMMERCIAL_GA_100_PLAN.md
+     M docs/12_COMMERCIAL_GA_100_CHECKLIST.md
+
+=== 2. 이동 전 해시·지문 기록 ===
+  이동 전 코드지문(ga_gate.worktree_fingerprint): 157311cf106f6e1d
+  c2337637f906 nx10/verify_docs_commands.py
+  beeefba23ef6 nx10/collect_soak_result.py
+  4e08dcbca8be nx01/cue_lexicon_probe.py
+  8c34a5b1bff9 nx10/promote/test_docs_toolchain_contract.py
+  6eb9f46a3305 nx10/promote/test_soak_recovery_judge.py
+  2da9b1443ef2 nx10/promote/test_cue_lexicon_contract.py
+
+=== 3. 이동 (mv — 사본을 남기지 않는다) ===
+  mv nx10/verify_docs_commands.py → scripts/verify_docs_commands.py
+  mv nx10/collect_soak_result.py → scripts/collect_soak_result.py
+  mv nx01/cue_lexicon_probe.py → scripts/cue_lexicon_probe.py
+  mv nx10/promote/test_docs_toolchain_contract.py → tests/test_docs_toolchain_contract.py
+  mv nx10/promote/test_soak_recovery_judge.py → tests/test_soak_recovery_judge.py
+  mv nx10/promote/test_cue_lexicon_contract.py → tests/test_cue_lexicon_contract.py
+
+=== 3b. .gitignore 에 data/auth_hash.bak* 추가 (인증 해시 사본이 git add -A 에 걸리지 않게) ===
+  기준선: 추적 중인데 무시되는 파일 567건(새 규칙 이전)
+  추가: data/auth_hash.bak* (백업: .gitignore.bak-20260916T093652Z)
+  [OK  ] 사본이 이제 무시된다(git check-ignore, 전역 exclude 끔)
+  [OK  ] 새 규칙으로 무시된 추적 파일 0건(기준선 567건 불변, git ls-files -i -c)
+
+=== 4. 게이트 (하나라도 실패하면 되돌린다) ===
+  [4-1] ruff check (6개 파일)
+All checks passed!
+  [4-2] ruff format --check
+6 files already formatted
+  [4-3] 승격된 계약 시험
+...............................xxxxxxxxxxxxxxxxxxxx                      [100%]
+31 passed, 20 xfailed in 0.60s
+  [4-4] 승격된 검사기 자체 실행(문서-사실 정합 · 참조 경로 · 링크)
+  File "/Users/mr.k/miniforge3/lib/python3.13/pathlib/_local.py", line 537, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/mr.k/program/.gitignore'
+
+=== ROLLBACK — 게이트 실패로 스테이징 위치에 되돌린다 ===
+  mv scripts/verify_docs_commands.py → nx10/verify_docs_commands.py
+  mv scripts/collect_soak_result.py → nx10/collect_soak_result.py
+  mv scripts/cue_lexicon_probe.py → nx01/cue_lexicon_probe.py
+  mv tests/test_docs_toolchain_contract.py → nx10/promote/test_docs_toolchain_contract.py
+  mv tests/test_soak_recovery_judge.py → nx10/promote/test_soak_recovery_judge.py
+  mv tests/test_cue_lexicon_contract.py → nx10/promote/test_cue_lexicon_contract.py
+  .gitignore 복원(백업본에서)
+  (.gitignore 백업은 감사용으로 남긴다: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/promote/.gitignore.bak-20260916T093652Z)
+  되돌림 후 해시(§2 와 같아야 한다):
+  c2337637f906 nx10/verify_docs_commands.py
+  beeefba23ef6 nx10/collect_soak_result.py
+  4e08dcbca8be nx01/cue_lexicon_probe.py
+  8c34a5b1bff9 nx10/promote/test_docs_toolchain_contract.py
+  6eb9f46a3305 nx10/promote/test_soak_recovery_judge.py
+  2da9b1443ef2 nx10/promote/test_cue_lexicon_contract.py
+RESULT: ROLLED_BACK — 승격되지 않았다(계획 §3 게이트를 고친 뒤 다시 실행).
+NX-10 승격 실행 — 2026-09-16T09:46:02Z (호스트 시각 18:46:02)
+저장소: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+브랜치: codex/m1-task-events · HEAD 20d529fc
+
+=== 1. 전제조건 ===
+  [WARN] soak 판정 확인을 건너뛴다(--allow-incomplete-soak) — 동결 해제가 다른 경로로 확인됐다는 뜻이어야 한다
+  [OK  ] 이동표 6건이 스테이징에 있다(STAGING_ROOT=docs/qa/2026-09-16-followup)
+  작업 트리(이동 대상 외 변경이 있는지 눈으로 확인한다):
+     M README.md
+     M dashboard/e2e/helpers/hermeticBackend.ts
+     M dashboard/src/App.tsx
+     M dashboard/src/api/client.ts
+     M dashboard/src/api/clientSchema.ts
+     M dashboard/src/api/fixtures/arc01_request_execution_context.json
+     M dashboard/src/components/Chat/ChatPage.tsx
+     M dashboard/src/components/UI/PinModal.tsx
+     M dashboard/src/pages/SettingsPage.tsx
+     M dashboard/src/stores/chatStore.ts
+     M dashboard/src/stores/uiStore.ts
+     M dashboard/src/styles/index.css
+     M deploy/README.md
+     M deploy/k8s/deployment.yaml
+     M deploy/k8s/namespace.yaml
+     M docs/08_CHANGELOG.md
+     M docs/09_OPERATION_GUIDE.md
+     M docs/10_FINAL_READINESS_REPORT.md
+     M docs/11_COMMERCIAL_GA_100_PLAN.md
+     M docs/12_COMMERCIAL_GA_100_CHECKLIST.md
+
+=== 2. 이동 전 해시·지문 기록 ===
+  이동 전 코드지문(ga_gate.worktree_fingerprint): 157311cf106f6e1d
+  b26f877273c3 nx10/verify_docs_commands.py
+  7cc6c92f7a45 nx10/collect_soak_result.py
+  40eab36d3c0a nx01/cue_lexicon_probe.py
+  8c34a5b1bff9 nx10/promote/test_docs_toolchain_contract.py
+  6eb9f46a3305 nx10/promote/test_soak_recovery_judge.py
+  2da9b1443ef2 nx10/promote/test_cue_lexicon_contract.py
+
+=== 3. 이동 (mv — 사본을 남기지 않는다) ===
+  mv nx10/verify_docs_commands.py → scripts/verify_docs_commands.py
+  mv nx10/collect_soak_result.py → scripts/collect_soak_result.py
+  mv nx01/cue_lexicon_probe.py → scripts/cue_lexicon_probe.py
+  mv nx10/promote/test_docs_toolchain_contract.py → tests/test_docs_toolchain_contract.py
+  mv nx10/promote/test_soak_recovery_judge.py → tests/test_soak_recovery_judge.py
+  mv nx10/promote/test_cue_lexicon_contract.py → tests/test_cue_lexicon_contract.py
+
+=== 3b. .gitignore 에 data/auth_hash.bak* 추가 (인증 해시 사본이 git add -A 에 걸리지 않게) ===
+  기준선: 추적 중인데 무시되는 파일 567건(새 규칙 이전)
+  추가: data/auth_hash.bak* (백업: .gitignore.bak-20260916T094603Z)
+  [OK  ] 사본이 이제 무시된다(git check-ignore, 전역 exclude 끔)
+  [OK  ] 새 규칙으로 무시된 추적 파일 0건(기준선 567건 불변, git ls-files -i -c)
+
+=== 4. 게이트 (하나라도 실패하면 되돌린다) — 리허설과 ** 같은 함수**를 부른다 ===
+
+=== 승격 게이트 (root=/Users/mr.k/program/coding/ssak_comp/Ssak-Ai) ===
+
+  [1] ruff check (6개 파일) — 승격 위치가 정적 게이트에 들어왔는가
+      OK: All checks passed!
+
+  [2] ruff format --check — CI 의 정적 게이트 두 번째
+      OK: 6 files already formatted
+
+  [3] 계약 시험 3파일 — 도구를 승격 위치에서 찾아 해석하는가
+      OK: 31 passed, 20 xfailed in 0.62s
+
+  [4] verify_docs_commands.py 자체 실행 — 자기 파일 위치의 깊이에 의존하지 않는가
+      OK: 결과: ALL OK
+
+  [5] collect_soak_result.py --selftest + 회수 기록 경로가 증거 디렉터리인가
+      OK: 6개 자기시험 통과
+      OK: OUT = /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10
+
+  [6] cue_lexicon_probe.py 자체 실행 — 승격 위치에서 antigravity_k 를 찾고 돈다
+      OK: === 1~3. 메시지 → kind 판정 (합성 코퍼스) ===
+
+  [7] 승격 파일 6종이 대상 위치에 있다(사본·누락 0건)
+      OK: 6개 확인
+
+  PROMOTION_GATES: 7/7 passed
+  커밋되지 않은 새 파일(승격 6건이 스테이징 대상으로 보여야 한다):
+?? scripts/collect_soak_result.py
+?? scripts/cue_lexicon_probe.py
+?? scripts/verify_docs_commands.py
+?? tests/test_cue_lexicon_contract.py
+?? tests/test_docs_toolchain_contract.py
+?? tests/test_nx01_compaction_retention.py
+?? tests/test_nx02_history_journal.py
+?? tests/test_nx02_journal_retention.py
+?? tests/test_nx03_session_delete_race.py
+?? tests/test_nx03_tombstone_gc.py
+?? tests/test_nx05_auth_epoch_revocation.py
+?? tests/test_nx05_sse_live_revocation.py
+?? tests/test_nx06_deploy_readiness.py
+?? tests/test_nx07_doc_consistency.py
+?? tests/test_nx08_vault_durability.py
+?? tests/test_nx09_f03_multimodal_attachments.py
+?? tests/test_soak_recovery_judge.py
+
+=== 5. 이동 뒤 해시·지문 ===
+  이동 후 코드지문(ga_gate.worktree_fingerprint): ab980ba5b43b195d
+  [OK  ] 지문 이동: 157311cf106f6e1d → ab980ba5b43b195d (승격이 지문에 반영됐다)
+  ※ 지문이 바뀌는 것은 정상이다 — 승격은 코드 이동이다. 바뀌면 **새 지문에서 게이트를 다시 돌린다**:
+    $PY scripts/ga_gate.py --manifest scripts/commercial_ga_gates.json --output gate-report-promote001.json
+    $PY scripts/ga_gate_verify.py --report gate-report-promote001.json
+    (동결 트리의 21/22 는 이제 옛 지문의 값이다 — 후보를 그대로 물려받지 않는다)
+  이어서 사람이 손봐야 하는 문서 참조(자동 수정하지 않는다 — 경로를 문자열로 바꾸면 링크가 조용히 깨진다):
+    · docs/qa/2026-09-16-followup/nx10/CLOSURE_RUNBOOK.md — 회수·점검 명령의 nx10/collect_soak_result.py → scripts/
+    · docs/qa/2026-09-16-followup/nx10/CLOSURE_RUNBOOK.md §5 — 미룬 코드 작업에서 승격 항목을 '완료'로
+    · docs/19_RELIABILITY_AND_CONNECTOME_CHECKLIST.md — 산출물 목록의 nx10/verify_docs_commands.py → scripts/
+    · docs/qa/2026-09-16-followup/nx01/cue-lexicon-measurement.md — 측정기 경로 → scripts/
+    · nx10/handoff.md · nx10/BATCH_FREEZE.md — 승격 완료 사실과 실행 기록
+    · scripts/verify_docs_commands.py 의 REFERENCED_PATHS/문서 목록에 새 승격 파일 3종 추가
+RESULT: APPLIED — 2026-09-16T09:46:05Z
+기록: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/promote/promotion-applied.txt

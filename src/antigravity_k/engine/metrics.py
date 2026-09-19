@@ -1,4 +1,4 @@
-"""Prometheus metrics registry and ASGI app for the Antigravity-K API.
+"""Prometheus metrics registry and ASGI app for the Ssak-Ai API.
 
 Exposes standard RED (Rate, Errors, Duration) metrics for HTTP requests plus a
 few process-level gauges. The metrics are served at ``/metrics`` via the
@@ -11,9 +11,11 @@ register duplicate collectors.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import time
-from typing import Callable, TypeVar, cast
+from collections.abc import Awaitable, Callable
+from typing import TypeAlias, TypeVar, cast
 
 from prometheus_client import (
     CollectorRegistry,
@@ -43,6 +45,7 @@ _UPTIME = "process_uptime_seconds"
 
 _metrics: dict[str, MetricWrapperBase] = {}
 _START_TIME = time.time()
+_ASGIApp: TypeAlias = Callable[..., Awaitable[object]]
 
 
 def _get_or_create(name: str, factory: Callable[[], _T]) -> _T:
@@ -164,8 +167,8 @@ def render_metrics() -> bytes:
     return generate_latest(REGISTRY)
 
 
-def metrics_asgi_app():
+def metrics_asgi_app() -> _ASGIApp:
     """Return the prometheus_client ASGI app for mounting at /metrics."""
-    from prometheus_client import make_asgi_app
-
-    return make_asgi_app(registry=REGISTRY)
+    module = importlib.import_module("prometheus_client")
+    factory = cast(Callable[..., _ASGIApp], getattr(module, "make_asgi_app"))
+    return factory(registry=REGISTRY)

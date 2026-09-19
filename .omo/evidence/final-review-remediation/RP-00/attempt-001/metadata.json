@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "task_id": "RP-00",
+  "attempt": 1,
+  "status": "DONE",
+  "owner": "zcode-remediation-agent",
+  "base_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tested_sha": "8794aaecabf5664a7ee560b104e0115d915aabb7",
+  "tree_clean_before_run": false,
+  "dirty_files_at_start": [
+    ".omo/start-work/ledger.jsonl (modified, preserved)",
+    "docs/13_COMMERCIAL_GA_100_PROGRESS.md (modified, preserved)",
+    "vault_data (submodule dirty, preserved per plan section 2)",
+    "docs/14_FINAL_REVIEW_REMEDIATION_PLAN.md (untracked, this plan)",
+    "docs/15_FINAL_REVIEW_REMEDIATION_CHECKLIST.md (untracked, this checklist)",
+    "docs/qa/2026-09-10/ (untracked, review evidence)"
+  ],
+  "environment": {
+    "os": "Darwin arm64 (macOS 26.6.2)",
+    "python": "3.13.12 (conda-forge)",
+    "uv": "0.11.8",
+    "node": "v22.23.1",
+    "sandbox_backend": "macOS sandbox-exec available at /usr/bin/sandbox-exec",
+    "recorded_at": "2026-09-10"
+  },
+  "required_scenarios": [
+    {"id": "R00-01", "required": true, "expected": "final report + VAL/RC criteria read", "observed": "docs/qa/2026-09-10/FINAL_REVIEW.md and plan docs read; findings FR-01..FR-10 confirmed as target list", "verdict": "PASS"},
+    {"id": "R00-02", "required": true, "expected": "HEAD/status/user changes recorded, vault_data preserved", "observed": "HEAD == reviewed SHA 8794aae; dirty files listed in this metadata; no stash/reset/clean executed", "verdict": "PASS"},
+    {"id": "R00-03", "required": true, "expected": "delta vs previous review recorded", "observed": "HEAD equals reviewed SHA, so all FR-01..FR-10 findings are STILL_OPEN by definition", "verdict": "PASS"},
+    {"id": "R00-04", "required": true, "expected": "OS/Python/uv/Node/sandbox backend recorded", "observed": "see environment block; sandbox-exec present", "verdict": "PASS"},
+    {"id": "R00-05", "required": true, "expected": "evidence attempt dirs + assignment recorded", "observed": ".omo/evidence/final-review-remediation/RP-00..RP-07/attempt-001/ created", "verdict": "PASS"},
+    {"id": "R00-06", "required": true, "expected": "raw command logging convention set, secrets excluded", "observed": "commands.jsonl per task; synthetic data only; no real credentials in evidence", "verdict": "PASS"},
+    {"id": "R00-07", "required": true, "expected": "independent reviewer confirms baseline", "observed": "single-agent session: independent review deferred to RP-14; recorded as INCOMPLETE for sign-off purposes", "verdict": "PARTIAL"}
+  ],
+  "commands_log": "commands.jsonl",
+  "reviewer": null,
+  "review_verdict": null,
+  "blocked_reason": "Independent reviewer sign-off (R00-07) not available in single-agent session; deferred to RP-14 independent review pass."
+}

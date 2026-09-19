@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useAgentMonitorStore, type AgentStatus, type LogEntry, type TaskProgress } from '../../stores/agentMonitorStore';
+import { useAgentMonitorStore, type AgentStatus } from '../../stores/agentMonitorStore';
 
 /* ─── Constants ────────────────────────────────────────────── */
 
@@ -67,14 +67,15 @@ function formatUptime(seconds: number): string {
 /* ─── Agent Status Card ────────────────────────────────────── */
 
 const AgentStatusCard: React.FC = () => {
-  const { agentStatus, activeTool, uptime, memoryMb, cpuPercent, totalTokens } = useAgentMonitorStore();
+  const {
+    agentStatus, activeTool, uptime, uptimeObservedAt, memoryPercent, cpuPercent, totalTokens,
+  } = useAgentMonitorStore();
   const cfg = STATUS_CONFIG[agentStatus];
 
   // Live tool duration counter
   const [toolDuration, setToolDuration] = useState(0);
   useEffect(() => {
     if (!activeTool || activeTool.status !== 'running') {
-      setToolDuration(0);
       return;
     }
     const interval = setInterval(() => {
@@ -103,8 +104,11 @@ const AgentStatusCard: React.FC = () => {
       <div className="agent-status-metrics">
         <div className="metric-item">
           <span className="metric-icon">⏱</span>
-          <span className="metric-label">Uptime</span>
-          <span className="metric-value">{formatUptime(uptime)}</span>
+          {/* CR-10: API 서버 프로세스 가동 시간이다(탭 열린 시간이 아님). 미관측이면 UNKNOWN. */}
+          <span className="metric-label">API Uptime</span>
+          <span className="metric-value" data-testid="agent-uptime">
+            {uptimeObservedAt === null ? 'UNKNOWN' : formatUptime(uptime)}
+          </span>
         </div>
         <div className="metric-item">
           <span className="metric-icon">🧠</span>
@@ -114,7 +118,7 @@ const AgentStatusCard: React.FC = () => {
         <div className="metric-item">
           <span className="metric-icon">💾</span>
           <span className="metric-label">RAM</span>
-          <span className="metric-value">{memoryMb}%</span>
+          <span className="metric-value">{memoryPercent}%</span>
         </div>
         <div className="metric-item">
           <span className="metric-icon">⚙️</span>
@@ -243,6 +247,20 @@ const TaskProgressList: React.FC = () => {
 
 /* ─── Execution Timeline ────────────────────────────────────── */
 
+const TIMELINE_EVENT_COLORS: Record<string, string> = {
+  tool_start: '#7aa2f7',
+  tool_end: '#9ece6a',
+  task_start: '#7aa2f7',
+  task_end: '#9ece6a',
+  error: '#f7768e',
+  plan: '#e0af68',
+  approval: '#e0af68',
+  mode_change: '#7c82a8',
+  agent_turn: '#7aa2f7',
+  quality: '#e0af68',
+  anti_pattern: '#f7768e',
+};
+
 const ExecutionTimeline: React.FC = () => {
   const timeline = useAgentMonitorStore(s => s.timeline);
 
@@ -256,9 +274,7 @@ const ExecutionTimeline: React.FC = () => {
           timeline.slice(0, 30).map(event => (
             <div key={event.id} className="agent-timeline-event">
               <span className="agent-timeline-dot" style={{
-                background: event.type.includes('error') ? '#f7768e' :
-                            event.type.includes('start') ? '#7aa2f7' :
-                            event.type.includes('end') ? '#9ece6a' : '#7c82a8',
+                background: TIMELINE_EVENT_COLORS[event.type] ?? '#7c82a8',
               }} />
               <span className="agent-timeline-time">{formatTime(event.timestamp)}</span>
               <span className="agent-timeline-label">{event.label}</span>

@@ -4,9 +4,11 @@ import logging
 import subprocess
 import threading
 import time
+from pathlib import Path
 
-from .heartbeat import HeartbeatMonitor
+from .heartbeat import HeartbeatMonitor, HeartbeatResult
 from .model_manager import ModelManager
+from .operational_alert_store import AlertSeverity, OperationalAlertStore, OperationalAlertStoreError
 from .vault import VaultEngine
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,7 @@ class AmbientWatchdog:
         model_manager: ModelManager,
         vault_engine: VaultEngine | None,
         heartbeat: HeartbeatMonitor | None = None,
+        alert_store_path: str | Path | None = None,
     ):
         """Initialize the AmbientWatchdog.
 
@@ -35,23 +38,39 @@ class AmbientWatchdog:
             heartbeat (HeartbeatMonitor | None): HeartbeatMonitor | None heartbeat.
 
         """
-        self.project_root = project_root
-        self.model_manager = model_manager
-        self.vault_engine = vault_engine
-        self.heartbeat = heartbeat or HeartbeatMonitor(project_root=project_root)
+        self.project_root: str = project_root
+        self.model_manager: ModelManager = model_manager
+        self.vault_engine: VaultEngine | None = vault_engine
+        self.heartbeat: HeartbeatMonitor = heartbeat or HeartbeatMonitor(project_root=project_root)
+        self._alert_store: OperationalAlertStore = OperationalAlertStore(
+            alert_store_path or Path(project_root) / ".antigravity" / "operational_alerts.json",
+        )
 
-        self._running = False
+        self._running: bool = False
         self._thread: threading.Thread | None = None
-        self._poll_interval = 5.0
-        self._debounce_time = 10.0
+        self._poll_interval: float = 5.0
+        self._debounce_time: float = 10.0
 
-        self._last_diff_hash = ""
-        self._last_change_time = 0.0
-        self._analyzing = False
-        self._heartbeat_counter = 0  # IronClaw heartbeat cycle counter
+        self._last_diff_hash: str = ""
+        self._last_change_time: float = 0.0
+        self._analyzing: bool = False
+        self._heartbeat_counter: int = 0  # IronClaw heartbeat cycle counter
 
         # 콜백 큐 (오케스트레이터로 메시지 전달용)
         self.notification_queue: list[str] = []
+
+    def _queue_notification(
+        self,
+        message: str,
+        *,
+        source: str,
+        severity: AlertSeverity = "warning",
+    ) -> None:
+        try:
+            _ = self._alert_store.record(source, message, severity=severity)
+        except OperationalAlertStoreError:
+            logger.exception("Operational alert persistence failed")
+        self.notification_queue.append(message)
 
     def start(self):
         """Start the ambient watchdog background monitor."""
@@ -126,11 +145,12 @@ class AmbientWatchdog:
         self._heartbeat_counter = 0
 
         try:
-            results = self.heartbeat.execute_due_tasks()
+            results: list[HeartbeatResult] = self.heartbeat.execute_due_tasks()
             for result in results:
                 if not result.success:
-                    self.notification_queue.append(
+                    self._queue_notification(
                         f"\u26a0\ufe0f [Heartbeat] {result.task_title}: {result.message}",
+                        source="heartbeat",
                     )
         except Exception:
             logger.exception("Heartbeat execution error")
@@ -167,15 +187,31 @@ Keep it very brief, like a friend tapping them on the shoulder.
 
             if response != "OK" and response.startswith("⚠️"):
                 # 알림 큐에 삽입
-                self.notification_queue.append(response)
+                self._queue_notification(response, source="watchdog")
                 logger.info("Proactive Watchdog queued a notification.")
         except Exception:
             logger.exception("Proactive analysis failed")
 
     def pop_notifications(self) -> list[str]:
         """오케스트레이터가 주기적으로 호출하여 알림을 가져갑니다."""
-        if not self.notification_queue:
+        try:
+            pending = self._alert_store.pending()
+        except OperationalAlertStoreError:
+            logger.exception("Operational alert read failed")
+            pending = ()
+        if not self.notification_queue and not pending:
             return []
         notifs = list(self.notification_queue)
         self.notification_queue.clear()
+        pending_ids: list[str] = []
+        known_messages = set(notifs)
+        for alert in pending:
+            pending_ids.append(alert.alert_id)
+            if alert.message not in known_messages:
+                notifs.append(alert.message)
+                known_messages.add(alert.message)
+        try:
+            self._alert_store.acknowledge(pending_ids)
+        except OperationalAlertStoreError:
+            logger.exception("Operational alert acknowledgement failed")
         return notifs

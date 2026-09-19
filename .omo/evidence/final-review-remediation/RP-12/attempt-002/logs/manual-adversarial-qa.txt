@@ -1,0 +1,4 @@
+PASS sql-bound-values: injection payload returned zero rows
+PASS search-scheme: file URL rejected before urllib open
+PASS media-scheme: file URL rejected without destination write
+PASS shell-boundary: disabled sandbox refused command without side effect

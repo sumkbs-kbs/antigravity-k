@@ -1,6 +1,6 @@
-# Antigravity-K Agent Protocol (AGENTS.md)
+# Ssak-Ai Agent Protocol (AGENTS.md)
 
-Welcome, AI Agent. This document outlines the core principles, architecture, and interaction protocols for the Antigravity-K system, inspired by the Tolaria project.
+Welcome, AI Agent. This document outlines the core principles, architecture, and interaction protocols for the Ssak-Ai system, inspired by the Tolaria project.
 
 ## Core Principles
 

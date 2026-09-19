@@ -1,0 +1,42 @@
+# 승격 위치 계약 시험 기록 (gates3.sh · A)
+실행: 2026-09-17T12:16:31Z · 루트: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai · HEAD: de50af93
+명령: pytest tests/test_soak_watch_contract.py tests/test_soak_control_contract.py -v -p no:randomly
+대상 파일(승격 위치):
+  tests/test_soak_watch_contract.py (sha256 263ea2da0777)
+  tests/test_soak_control_contract.py (sha256 31e065364265)
+대상 도구(승격 위치):
+  scripts/soak_watch.py (sha256 fc8599af9d48)
+  scripts/soak_watch_loop.py (sha256 c38d16d58845)
+  scripts/soak_control.sh (sha256 7aaf57954c5b)
+exit: 0
+--- 출력 ---
+============================= test session starts ==============================
+platform darwin -- Python 3.13.12, pytest-9.1.1, pluggy-1.6.0 -- /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+configfile: pyproject.toml
+plugins: cov-7.1.0, asyncio-1.4.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 18 items
+
+tests/test_soak_watch_contract.py::test_repo_root_walk_up_survives_the_move PASSED [  5%]
+tests/test_soak_watch_contract.py::test_selftests_actually_check_something PASSED [ 11%]
+tests/test_soak_watch_contract.py::test_allowance_arithmetic_is_pinned PASSED [ 16%]
+tests/test_soak_watch_contract.py::test_budget_over_run_is_flagged PASSED [ 22%]
+tests/test_soak_watch_contract.py::test_warmup_holds_the_alarm_but_still_prints_the_numbers PASSED [ 27%]
+tests/test_soak_watch_contract.py::test_reading_a_run_does_not_write_into_it PASSED [ 33%]
+tests/test_soak_watch_contract.py::test_no_run_means_no_verdict PASSED   [ 38%]
+tests/test_soak_watch_contract.py::test_foreign_workdir_harness_is_not_a_run PASSED [ 44%]
+tests/test_soak_watch_contract.py::test_python_without_a_workdir_declaration_is_not_the_soak PASSED [ 50%]
+tests/test_soak_watch_contract.py::test_loop_writes_only_where_it_is_told PASSED [ 55%]
+tests/test_soak_watch_contract.py::test_loop_attaches_to_a_run_already_in_flight PASSED [ 61%]
+tests/test_soak_control_contract.py::test_script_parses PASSED           [ 66%]
+tests/test_soak_control_contract.py::test_selftest_covers_the_lifecycle PASSED [ 72%]
+tests/test_soak_control_contract.py::test_an_immediate_run_records_what_it_means_to_measure PASSED [ 77%]
+tests/test_soak_control_contract.py::test_unknown_subcommand_is_rejected PASSED [ 83%]
+tests/test_soak_control_contract.py::test_status_without_a_schedule_is_not_a_false_green PASSED [ 88%]
+tests/test_soak_control_contract.py::test_harvest_refuses_to_judge_a_live_run PASSED [ 94%]
+tests/test_soak_control_contract.py::test_run_refuses_when_a_soak_is_already_live PASSED [100%]
+
+======================== 18 passed in 258.71s (0:04:18) ========================
+판정: exit=0 · 18 passed · 실패 0 · 수집 노드 tests/test_soak_watch_contract.py:: 11

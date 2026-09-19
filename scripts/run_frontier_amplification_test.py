@@ -32,7 +32,7 @@ from antigravity_k.engine.tool_masker import ActiveToolMasker
 
 def run_frontier_tests():
     print("=" * 70)
-    print("🔥 Running Antigravity-K Qwen3.8-27B Frontier Amplification Test Suite")
+    print("🔥 Running Ssak-Ai Qwen3.8-27B Frontier Amplification Test Suite")
     print("=" * 70)
 
     passed_count = 0
@@ -125,7 +125,8 @@ def run_frontier_tests():
     print("\n[8/8] Testing Active Tool Masking...")
     masker = ActiveToolMasker(mode=ExecutionMode.PLAN)
     filtered = masker.filter_tools([{"name": "read_file"}, {"name": "deploy"}, {"name": "payment"}])
-    if len(filtered) == 1 and filtered[0]["name"] == "read_file":
+    filtered_names = [getattr(item, "name", None) for item in filtered]
+    if len(filtered) == 1 and filtered_names == ["read_file"]:
         print("  ✅ Dangerous and non-plan tools filtered in PLAN mode")
         passed_count += 1
     else:
@@ -133,7 +134,7 @@ def run_frontier_tests():
 
     print("\n" + "=" * 70)
     print(
-        f"🏆 Final Frontier Amplification Score: {passed_count}/{total_tests} ({(passed_count/total_tests)*100:.0f}%)"
+        f"🏆 Final Frontier Amplification Score: {passed_count}/{total_tests} ({(passed_count / total_tests) * 100:.0f}%)"
     )
     print("=" * 70)
     return passed_count == total_tests

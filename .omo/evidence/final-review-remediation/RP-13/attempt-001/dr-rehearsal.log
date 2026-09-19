@@ -1,0 +1,49 @@
+Corrupted registry preserved at /var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/agk-dr-cjycfzh4/backup_restore/registry/projects.json.corrupt-1789104148
+Registry recovered from backup /var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/agk-dr-cjycfzh4/backup_restore/registry/projects.json.bak
+{
+  "rehearsal": "OBS-01 DR",
+  "executed_at": "2026-09-11T14:22:28+0900",
+  "scenarios": [
+    {
+      "scenario": "backup_restore",
+      "projects_before": 2,
+      "backup_created": true,
+      "recovered_ids": [
+        "default",
+        "proj_24699111",
+        "proj_3420291a"
+      ],
+      "restore_ok": true,
+      "active_preserved": true,
+      "ok": true
+    },
+    {
+      "scenario": "db_corruption",
+      "task_created": true,
+      "corruption_detected": true,
+      "reinit_ok": true,
+      "write_after_recovery": true,
+      "ok": true
+    },
+    {
+      "scenario": "orphan_worktrees",
+      "dry_run_target_count": 1,
+      "dry_run_detected_orphan": true,
+      "dry_run_did_not_delete": true,
+      "orphan_removed": true,
+      "recent_preserved": true,
+      "dirty_preserved": true,
+      "ok": true
+    },
+    {
+      "scenario": "project_migration",
+      "switch_ok": true,
+      "migrated_id": "proj_3382ba95",
+      "migrated_path": "/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/agk-dr-cjycfzh4/project_migration/mig-new",
+      "path_points_to_new_root": true,
+      "active_after_migration": true,
+      "ok": true
+    }
+  ],
+  "all_ok": true
+}

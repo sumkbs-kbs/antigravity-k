@@ -109,7 +109,7 @@ Okay, I need to help the user by introducing myself.
 Looking at the persistent context, I should list tools.
 --- End of Thinking ---
 
-Antigravity-K AI 파트너입니다.당신의프로젝트를지원합니다.
+Ssak-Ai AI 파트너입니다.당신의프로젝트를지원합니다.
 read_file: 읽기, write_file: 文件 작성, 미래 예측은 정확히 답변できません.
 로컬LLM모델의을확인하고어떻게 내가업グレード될수 있는지 검토합니다.
 """

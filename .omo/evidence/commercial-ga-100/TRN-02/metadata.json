@@ -1,0 +1,56 @@
+{
+  "task_id": "TRN-02",
+  "title": "학습 subprocess 감독 — timeout·무출력 hang·cancel·프로세스 그룹 종료",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §TRN-02",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §TRN-02",
+  "status": "IMPLEMENTATION_DONE_REVIEW_PENDING",
+  "branch": "codex/trn-02-timeout-resource",
+  "base_sha": "21d77bb",
+  "implementer": "trn_02_impl (Freebuff 세션, 2026-09-08)",
+  "reviewer": "trn_02_verify (할당 대기)",
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "무출력 hung process가 timeout 허용 오차 안에 종료된다",
+      "evidence": "tests/test_trn02_timeout_resource.py::TestSuperviseCommand::test_timeout_kills_hung_process_within_grace (elapsed < 10s), test_no_output_hang_detected; run_training 경로 test_timeout_sec_applies_to_real_process"
+    },
+    {
+      "id": "AC-2",
+      "text": "cancel이 parent/descendant 모두 종료하고 GPU/메모리 reservation을 반환한다",
+      "evidence": "test_cancel_event_terminates_group, test_kills_parent_and_descendant_together (spawned child PID存活 검증), API 경로 test_cancel_sets_termination_cancelled"
+    },
+    {
+      "id": "AC-3",
+      "text": "중복 cancel과 late child registration이 idempotent하다",
+      "evidence": "test_duplicate_cancel_is_idempotent (2nd cancel → ok:false), test_terminate_process_group_is_idempotent, test_cancel_before_launch_is_idempotent"
+    },
+    {
+      "id": "AC-4",
+      "text": "checkpoint가 있으면 명시적 resume 가능, 없으면 실패 원인을 보존한다",
+      "evidence": "termination/detail 필드가 TrainingRunResult.error와 job.view에 보존됨 (training_jobs_api.py run_training 결과 반영); resume은 TRN-01 resolved recipe 경로 유지"
+    }
+  ],
+  "implementation": {
+    "new_files": [
+      "src/antigravity_k/finetune/training_supervision.py",
+      "tests/test_trn02_timeout_resource.py"
+    ],
+    "modified_files": [
+      "src/antigravity_k/engine/lora_pipeline.py",
+      "src/antigravity_k/finetune/training_adapter.py",
+      "src/antigravity_k/finetune/trainer.py",
+      "src/antigravity_k/api/routes/training_jobs_api.py",
+      "tests/test_training_jobs_api.py",
+      "tests/test_trn01_recipe_single_source.py",
+      "tests/test_tool_sandbox_coverage.py"
+    ],
+    "design": "training_supervision.supervise_command 단일 진실원 — engine(lora_pipeline)과 finetune(training_adapter)이 공유. POSIX start_new_session으로 프로세스 그룹 생성, watchdog 스레드가 timeout/no-output/cancel 감독, SIGTERM→grace(5s)→SIGKILL. stdlib-only로 순환 import 방지."
+  },
+  "verification": {
+    "target_suite": "uv run --no-sync pytest tests/test_trn02_timeout_resource.py -q → 15 passed",
+    "adjacent_suites": "tests/test_training_jobs_api.py + test_trn01_recipe_single_source.py + test_lora_dpo.py + test_lora_pipeline_coverage.py → 86 passed",
+    "full_regression": "uv run --no-sync pytest tests/ -q -m 'not slow and not benchmark' → 5589 passed, 0 failed, 36 skipped",
+    "lint": "ruff check → All checks passed (sandbox ALLOWLIST에 finetune/training_supervision.py INTERNAL_FIXED 등록)",
+    "typecheck": "mypy 5 source files → no issues"
+  }
+}

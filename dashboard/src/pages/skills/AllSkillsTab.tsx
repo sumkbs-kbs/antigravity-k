@@ -1,5 +1,5 @@
 import React from 'react';
-import { Skill, esc } from './types';
+import { Skill } from './types';
 import SkillCard from './SkillCard';
 import EmptyState from './EmptyState';
 

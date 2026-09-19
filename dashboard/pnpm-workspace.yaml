@@ -1,0 +1,16 @@
+allowBuilds:
+  esbuild: true
+overrides:
+  dompurify: 3.4.14
+  # CR-14 F-06: mermaid 는 uuid 를 `^9 || ^10 || ^11.1.0 || ^12 || ^13 || ^14.0.0` 로 선언한다.
+  # 해석 결과가 취약 범위(`<11.1.1`, GHSA-w5hq-g745-h8pq)에 남지 않도록 **선언 범위 안의 최소 패치**로 고정한다.
+  # 상향(12+)은 CJS 를 버리므로 11.x 중 최소 패치(11.1.1)를 쓴다.
+  uuid: 11.1.1
+  # CR-14 F-09 (dev 도구 체인, GHSA-2883-xcg3-v3hh): `@eslint/eslintrc` 가 js-yaml 을 `^4.3.0` 로
+  # 선언하는데 pnpm 해석만 취약 범위(`<4.3.2`)에 남아 npm lock 과 갈라졌다. 선언 범위 안의 최소 패치.
+  js-yaml: 4.3.2
+  # CR-14 F-09 (dev 도구 체인, GHSA-4mjr-xmp4-gh2g 외 2건): `typed-rest-client@2.3.1` 이 qs 를 6.15.1 로
+  # **정확히 고정**했고 상류 수정은 typed-rest-client 3.x(`qs: ^6.16.0`)에만 있다 — 그런데 stryker(core 9·10)는
+  # `~2.3.0` 만 허용한다. 즉 선언 범위 안에 수정판이 없어 **같은 벤더의 후속 메이저가 선언한 버전**으로 고정한다.
+  # dev 전용(출하 SBOM 에 없음)이며, `pnpm run stryker:quick` 으로 도구 호환을 실측 확인한다.
+  qs: 6.16.0

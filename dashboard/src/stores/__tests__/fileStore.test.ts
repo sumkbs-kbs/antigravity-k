@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useFileStore } from '../fileStore';
+import { useProjectStore } from '../projectStore';
 
 beforeEach(() => {
   useFileStore.setState({
@@ -13,6 +14,17 @@ beforeEach(() => {
     isLoading: false,
     workspacePath: '/',
     expandedPaths: new Set(),
+  });
+  useProjectStore.setState({
+    projects: [],
+    activeProjectId: null,
+    activeProjectName: 'Ssak-Ai',
+    activeProjectPath: '/',
+    projectRevision: null,
+    switchEpoch: 0,
+    isSwitching: false,
+    lastSwitchError: null,
+    hydrated: false,
   });
 });
 
@@ -67,6 +79,7 @@ describe('useFileStore', () => {
 
   it('loadDirectory returns items on success', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({
         ok: true,
         items: [
@@ -92,10 +105,24 @@ describe('useFileStore', () => {
     vi.restoreAllMocks();
   });
 
+  it('loadDirectory returns empty array for a non-OK HTTP response', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({ detail: 'Workspace unavailable' }),
+    });
+
+    const items = await useFileStore.getState().loadDirectory('.');
+    expect(items).toEqual([]);
+
+    vi.restoreAllMocks();
+  });
+
   /* ─── createFolder ─────────────────────────────────────── */
 
   it('createFolder returns true on success', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
 
@@ -118,6 +145,7 @@ describe('useFileStore', () => {
 
   it('getWorkspace returns the workspace path', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: true, workspace: '/home/project' }),
     });
 
@@ -143,6 +171,7 @@ describe('useFileStore', () => {
 
   it('renamePath returns ok on success', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
 
@@ -154,6 +183,7 @@ describe('useFileStore', () => {
 
   it('renamePath returns error detail on API failure', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: false, detail: 'File already exists' }),
     });
 
@@ -168,6 +198,7 @@ describe('useFileStore', () => {
 
   it('deletePath returns true on success', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
 
@@ -190,6 +221,7 @@ describe('useFileStore', () => {
 
   it('refreshTree updates treeData from workspace', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({
         ok: true,
         items: [
@@ -204,6 +236,113 @@ describe('useFileStore', () => {
     const state = useFileStore.getState();
     expect(state.treeData).toHaveLength(2);
     expect(state.isLoading).toBe(false);
+
+    vi.restoreAllMocks();
+  });
+
+  it('filters malformed directory entries from a successful response', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        ok: true,
+        items: [
+          { name: 'valid.ts', path: 'valid.ts', is_dir: false },
+          { name: 'invalid', path: 'invalid', is_dir: 'no' },
+        ],
+      }),
+    });
+
+    const items = await useFileStore.getState().loadDirectory('.');
+    expect(items).toEqual([{ name: 'valid.ts', path: 'valid.ts', is_dir: false }]);
+
+    vi.restoreAllMocks();
+  });
+
+  it('returns an empty list when an error response has invalid JSON', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: () => Promise.reject(new Error('invalid json')),
+    });
+
+    const items = await useFileStore.getState().loadDirectory('.');
+    expect(items).toEqual([]);
+
+    vi.restoreAllMocks();
+  });
+  /* ─── WS-04 F1: epoch isolation ───────────────────────── */
+
+  it('does not merge stale B tree after switch to C', async () => {
+    useProjectStore.getState().applyActiveProject({
+      id: 'proj_b', name: 'B', path: '/tmp/b', is_active: true, tasks: [],
+    }, 1);
+
+    let resolveB: (value: unknown) => void = () => {};
+    const bResponse = new Promise((resolve) => { resolveB = resolve; });
+
+    global.fetch = vi.fn().mockImplementation(() => bResponse);
+
+    const refreshPromise = useFileStore.getState().refreshTree();
+
+    // Switch to C while B list is in-flight
+    useProjectStore.getState().applyActiveProject({
+      id: 'proj_c', name: 'C', path: '/tmp/c', is_active: true, tasks: [],
+    }, 2);
+
+    // Stale B resolves after switch
+    resolveB({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        items: [{ name: 'from-b.ts', path: 'from-b.ts', is_dir: false }],
+      }),
+    });
+
+    await refreshPromise;
+
+    const tree = useFileStore.getState().treeData;
+    expect(tree.find((i) => i.name === 'from-b.ts')).toBeUndefined();
+    // clearForProjectSwitch / event listener emptied tree; stale must not refill
+    expect(tree).toEqual([]);
+
+    vi.restoreAllMocks();
+  });
+
+  it('clearForProjectSwitch resets tree and expanded paths', () => {
+    useFileStore.setState({
+      treeData: [{ name: 'a', path: 'a', is_dir: false }],
+      expandedPaths: new Set(['a']),
+      isLoading: true,
+    });
+    useFileStore.getState().clearForProjectSwitch();
+    const s = useFileStore.getState();
+    expect(s.treeData).toEqual([]);
+    expect(s.expandedPaths.size).toBe(0);
+    expect(s.isLoading).toBe(false);
+  });
+
+  it('getWorkspace does not apply stale workspacePath after switch', async () => {
+    useProjectStore.getState().applyActiveProject({
+      id: 'proj_b', name: 'B', path: '/tmp/b', is_active: true, tasks: [],
+    }, 1);
+
+    let resolveB: (value: unknown) => void = () => {};
+    const bResponse = new Promise((resolve) => { resolveB = resolve; });
+    global.fetch = vi.fn().mockImplementation(() => bResponse);
+
+    const wsPromise = useFileStore.getState().getWorkspace();
+
+    useProjectStore.getState().applyActiveProject({
+      id: 'proj_c', name: 'C', path: '/tmp/c', is_active: true, tasks: [],
+    }, 2);
+
+    resolveB({
+      ok: true,
+      json: async () => ({ ok: true, workspace: '/tmp/stale-b' }),
+    });
+
+    await wsPromise;
+    expect(useFileStore.getState().workspacePath).not.toBe('/tmp/stale-b');
 
     vi.restoreAllMocks();
   });

@@ -1,0 +1,120 @@
+{
+  "dependency_locks": [
+    {
+      "path": "uv.lock",
+      "sha256": "cd6b8281a7efe3c0c8e24a71f1621e17d9b041d1c3f77e001308da401d1aed23"
+    },
+    {
+      "path": "dashboard/pnpm-lock.yaml",
+      "sha256": "38427bbca3cfbb89da921ffb515b456840b6bb1938c449827215470f7b229a06"
+    },
+    {
+      "path": "dashboard/package-lock.json",
+      "sha256": "662596899ebc407c2699ce2dc3e92b8ddeb13ce6fb9dcd6a2c6aa1dffc976d98"
+    }
+  ],
+  "gates": [
+    {
+      "category": "dashboard",
+      "command": [
+        "pnpm",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 0.171161,
+      "exit_code": 0,
+      "finding_ids": [
+        "OPS-02"
+      ],
+      "finished_at": "2026-09-16T05:56:29.535272+00:00",
+      "id": "dashboard-install",
+      "required": true,
+      "started_at": "2026-09-16T05:56:29.364102+00:00",
+      "status": "passed",
+      "stderr": "",
+      "stdout": "Already up to date\nDone in 140ms using pnpm v11.3.0\n",
+      "task_ids": [
+        "REL-02"
+      ]
+    },
+    {
+      "category": "dashboard",
+      "command": [
+        "pnpm",
+        "run",
+        "lint"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 5.474604,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-16T05:56:35.214733+00:00",
+      "id": "dashboard-lint",
+      "required": true,
+      "started_at": "2026-09-16T05:56:29.740107+00:00",
+      "status": "passed",
+      "stderr": "$ eslint .\n",
+      "stdout": "Already up to date\nDone in 131ms using pnpm v11.3.0\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/e2e/tests/accessibility-hard-gate.spec.ts\n  64:6  warning  'ViewportName' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/e2e/tests/accessibility-inventory.spec.ts\n  12:29  warning  'Page' is defined but never used      @typescript-eslint/no-unused-vars\n  43:69  warning  'testInfo' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/e2e/tests/auth-bootstrap.spec.ts\n  11:24  warning  Unexpected empty object pattern  no-empty-pattern\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/e2e/tests/capture-desktop-layout.spec.ts\n  1:16  warning  'expect' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/api/client.ts\n  7:10  warning  'createAccessPinHeaders' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Chat/ActivityTimeline.tsx\n  35:15  warning  Error: Cannot call impure function during render\n\n`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Chat/ActivityTimeline.tsx:35:15\n  33 |   if (items.length === 0) return null;\n  34 |\n> 35 |   const now = Date.now();\n     |               ^^^^^^^^^^ Cannot call impure function\n  36 |   const chipLabels: string[] = [];\n  37 |   for (let i = items.length - 1; i >= 0 && chipLabels.length < 3; i -= 1) {\n  38 |     if (!chipLabels.includes(items[i].label)) chipLabels.push(items[i].label);  react-hooks/purity\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Chat/ChatPage.tsx\n  721:6  warning  React Hook useCallback has a missing dependency: 'addToast'. Either include it or remove the dependency array  react-hooks/exhaustive-deps\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Chat/EnvironmentPanel.tsx\n  109:34  warning  Error: Cannot call impure function during render\n\n`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Chat/EnvironmentPanel.tsx:109:34\n  107 |   const isStreaming = useChatStore((s) => s.isStreaming);\n  108 |\n> 109 |   const [now, setNow] = useState(Date.now());\n      |                                  ^^^^^^^^^^ Cannot call impure function\n  110 |   const [activityExpanded, setActivityExpanded] = useState(true);\n  111 |   const [errorsExpanded, setErrorsExpanded] = useState(true);\n  112 |  react-hooks/purity\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Editor/ChangePanel.tsx\n  134:5  warning  'approveChange' is assigned a value but never used  @typescript-eslint/no-unused-vars\n  136:5  warning  'approveAll' is assigned a value but never used     @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Editor/FolderBrowser.tsx\n  107:7   warning  Error: Calling setState synchronously within an effect can trigger cascading renders\n\nEffects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:\n* Update external systems with the latest state from React.\n* Subscribe for updates from some external system, calling setState in a callback function when external state changes.\n\nCalling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Editor/FolderBrowser.tsx:107:7\n  105 |   useEffect(() => {\n  106 |     if (folderBrowserVisible) {\n> 107 |       setHistory([]);\n      |       ^^^^^^^^^^ Avoid calling setState() directly within an effect\n  108 |       setHistoryIdx(-1);\n  109 |       const timer = setTimeout(() => void loadBrowse('', true), 0);\n  110 |       return () => clearTimeout(timer);                                                                                                                                                                                                                             react-hooks/set-state-in-effect\n  113:6   warning  React Hook useEffect has a missing dependency: 'loadBrowse'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/exhaustive-deps\n  190:33  warning  Compilation Skipped: Existing memoization could not be preserved\n\nReact Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. The inferred dependencies did not match the manually specified dependencies, which could cause the value to change more or less frequently than expected. The inferred dependency was `browseData`, but the source dependencies were [browseData?.items, searchFilter]. Inferred less specific property than source.\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Editor/FolderBrowser.tsx:190:33\n  188 |\n  189 |   // Filtered items\n> 190 |   const filteredItems = useMemo(() => {\n      |                                 ^^^^^^^\n> 191 |     if (!browseData?.items) return [];\n      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n> 192 |     if (!searchFilter.trim()) return browseData.items;\n      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n> 193 |     const q = searchFilter.trim().toLowerCase();\n      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n> 194 |     return browseData.items.filter(it => it.name.toLowerCase().includes(q));\n      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n> 195 |   }, [browseData?.items, searchFilter]);\n      | ^^^^ Could not preserve existing manual memoization\n  196 |\n  197 |   if (!folderBrowserVisible) return null;\n  198 |  react-hooks/preserve-manual-memoization\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/Layout/Sidebar.tsx\n  25:38  warning  'useCallback' is defined but never used        @typescript-eslint/no-unused-vars\n  45:9   warning  'location' is assigned a value but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/components/shared/__tests__/SessionDisclosurePanel.test.tsx\n  8:26  warning  'fireEvent' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/features/task-execution/taskExecutionApi.ts\n  3:10  warning  'createAccessPinHeaders' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/pages/AgentStartPage.test.tsx\n  1:32  warning  'vi' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/pages/ModelHubPage.tsx\n   94:10  warning  Error: Calling setState synchronously within an effect can trigger cascading renders\n\nEffects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:\n* Update external systems with the latest state from React.\n* Subscribe for updates from some external system, calling setState in a callback function when external state changes.\n\nCalling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/pages/ModelHubPage.tsx:94:10\n  92 |\n  93 |   useEffect(() => {\n> 94 |     void loadModels(false);\n     |          ^^^^^^^^^^ Avoid calling setState() directly within an effect\n  95 |   }, [loadModels]);\n  96 |\n  97 |   const handleSelectModel = async (modelId: string) => {  react-hooks/set-state-in-effect\n  108:19  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-explicit-any\n  142:28  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-explicit-any\n  240:60  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-explicit-any\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/pages/SettingsPage.tsx\n  366:12  warning  Error: Calling setState synchronously within an effect can trigger cascading renders\n\nEffects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:\n* Update external systems with the latest state from React.\n* Subscribe for updates from some external system, calling setState in a callback function when external state changes.\n\nCalling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/pages/SettingsPage.tsx:366:12\n  364 |   useEffect(() => {\n  365 |     if (mobileGuideOpen) {\n> 366 |       void loadNetworkAccessInfo();\n      |            ^^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect\n  367 |     }\n  368 |   }, [mobileGuideOpen, loadNetworkAccessInfo]);\n  369 |  react-hooks/set-state-in-effect\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/pages/StudioPage.tsx\n  154:24  warning  'setTokensPerSec' is assigned a value but never used  @typescript-eslint/no-unused-vars\n  175:10  warning  'logTail' is assigned a value but never used          @typescript-eslint/no-unused-vars\n  378:60  warning  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any\n  381:86  warning  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/stores/chatStore.ts\n  179:23  warning  'activeSessionId' is assigned a value but never used  @typescript-eslint/no-unused-vars\n  357:15  warning  'activeSession' is assigned a value but never used    @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/stores/fileStore.ts\n  98:29  warning  '_epoch' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/utils/__tests__/exhaustedNotification.test.ts\n  7:36  warning  'beforeEach' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/src/utils/monacoRuntime.test.ts\n  15:10  warning  'configureLocalMonacoRuntime' is defined but never used  @typescript-eslint/no-unused-vars\n\n/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/dashboard/vite.backendHealth.ts\n  64:3  warning  Unused eslint-disable directive (no problems were reported from 'no-console')\n  67:5  warning  Unused eslint-disable directive (no problems were reported from 'no-console')\n  70:3  warning  Unused eslint-disable directive (no problems were reported from 'no-console')\n\n\u2716 36 problems (0 errors, 36 warnings)\n  0 errors and 3 warnings potentially fixable with the `--fix` option.\n\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    },
+    {
+      "category": "dashboard",
+      "command": [
+        "pnpm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 3.408761,
+      "exit_code": 0,
+      "finding_ids": [
+        "master E2E/Ruff/format"
+      ],
+      "finished_at": "2026-09-16T05:56:38.840697+00:00",
+      "id": "dashboard-typecheck",
+      "required": true,
+      "started_at": "2026-09-16T05:56:35.431927+00:00",
+      "status": "passed",
+      "stderr": "$ tsc -b --pretty false\n",
+      "stdout": "Already up to date\nDone in 132ms using pnpm v11.3.0\n",
+      "task_ids": [
+        "QLT-01"
+      ]
+    }
+  ],
+  "generated_at": "2026-09-16T05:56:29.235001+00:00",
+  "git": {
+    "dirty": true,
+    "sha": "20d529fc1f17c8ff580eaf0d853dcd1ce92172d5",
+    "tree_fingerprint": "b7850c76610d6751efd2c7c943cedcb56a4791b24ddf56cc899278dde651eb8b",
+    "tree_fingerprint_scope": "code (docs/ and .omo/ excluded)"
+  },
+  "manifest": {
+    "path": "scripts/commercial_ga_gates.json",
+    "sha256": "a40867c743a9df5ba5854548476fcc53913e5364968a01e30e00c3e03b2eadb7"
+  },
+  "merged": false,
+  "output_decoding": {
+    "encoding": "utf-8",
+    "errors": "backslashreplace"
+  },
+  "platform": {
+    "machine": "arm64",
+    "python_implementation": "CPython",
+    "python_version": "3.13.12",
+    "release": "25.6.0",
+    "system": "Darwin"
+  },
+  "schema_version": 1,
+  "summary": {
+    "failed": 0,
+    "passed": 3,
+    "required_failed": 0,
+    "total": 3
+  }
+}

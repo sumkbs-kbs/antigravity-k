@@ -2,7 +2,7 @@
 
 import logging
 import subprocess
-from typing import Any
+from typing import override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
@@ -15,21 +15,21 @@ class DatabaseMigrationTool(BaseTool):
     AI가 Alembic 리비전을 생성하거나 적용하고, 직접 SQL 쿼리를 실행할 수 있게 해줍니다.
     """
 
-    category = ToolCategory.DANGEROUS
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.CRITICAL
-    icon = "🗄️"
-    tags = ["database", "db", "sql", "alembic", "migration"]
+    category: ToolCategory = ToolCategory.DANGEROUS
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.CRITICAL
+    icon: str = "🗄️"
+    tags: list[str] = ["database", "db", "sql", "alembic", "migration"]
 
     def __init__(self):
         """Initialize the DatabaseMigrationTool."""
         super().__init__()
-        self._name = "db_migration"
-        self._description = (
+        self._name: str = "db_migration"
+        self._description: str = (
             "Executes database migrations or arbitrary SQL commands. "
             "Supported actions: 'alembic_upgrade', 'alembic_revision', 'alembic_downgrade', 'execute_sql'."
         )
-        self._schema = {
+        self._schema: dict[str, object] = {
             "type": "object",
             "properties": {
                 "action": {
@@ -59,6 +59,7 @@ class DatabaseMigrationTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -69,6 +70,7 @@ class DatabaseMigrationTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -79,7 +81,8 @@ class DatabaseMigrationTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         """Parameters Schema.
 
         Returns:
@@ -88,7 +91,8 @@ class DatabaseMigrationTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -98,22 +102,22 @@ class DatabaseMigrationTool(BaseTool):
             Any: The any result.
 
         """
-        action = kwargs.get("action")
+        action = _string_value(kwargs.get("action"))
 
         if action == "alembic_upgrade":
-            rev = kwargs.get("revision", "head")
+            rev = _string_value(kwargs.get("revision"), default="head")
             return self._run_subprocess(["alembic", "upgrade", rev])
 
         elif action == "alembic_downgrade":
-            rev = kwargs.get("revision", "-1")
+            rev = _string_value(kwargs.get("revision"), default="-1")
             return self._run_subprocess(["alembic", "downgrade", rev])
 
         elif action == "alembic_revision":
-            msg = kwargs.get("message", "auto_migration")
+            msg = _string_value(kwargs.get("message"), default="auto_migration")
             return self._run_subprocess(["alembic", "revision", "--autogenerate", "-m", msg])
 
         elif action == "execute_sql":
-            sql = kwargs.get("sql")
+            sql = _string_value(kwargs.get("sql"))
             if not sql:
                 return "Error: 'sql' parameter required for execute_sql."
             # Note: This is a stub for raw SQL. In a real project, this would connect
@@ -125,10 +129,14 @@ class DatabaseMigrationTool(BaseTool):
     def _run_subprocess(self, cmd: list[str]) -> str:
         try:
             logger.info("Running command: %s", " ".join(cmd))
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                return f"Command failed (exit code {result.returncode}):\n{result.stderr}"
             return f"Success:\n{result.stdout}"
-        except subprocess.CalledProcessError as e:
-            return f"Command failed (exit code {e.returncode}):\n{e.stderr}"
         except Exception as e:
             logger.exception("Unhandled exception")
             return f"Execution error: {str(e)}"
+
+
+def _string_value(value: object, *, default: str = "") -> str:
+    return value if isinstance(value, str) else default

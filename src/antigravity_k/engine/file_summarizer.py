@@ -1,4 +1,4 @@
-"""Antigravity-K: File Summarizer (Freebuff-Style Content Summary).
+"""Ssak-Ai: File Summarizer (Freebuff-Style Content Summary).
 
 =============================================================
 CodeTreeIndexer가 선정한 관련 파일의 핵심 내용을 요약하여
@@ -12,7 +12,8 @@ CodeTreeIndexer가 선정한 관련 파일의 핵심 내용을 요약하여
 
 import logging
 import os
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Protocol, cast, final, runtime_checkable
 
 logger = logging.getLogger("antigravity_k.file_summarizer")
 
@@ -22,6 +23,19 @@ MAX_SUMMARY_CHARS = 1500
 MAX_SUMMARIZE_FILES = 8
 
 
+@runtime_checkable
+class _ModelManagerLike(Protocol):
+    def generate(self, **kwargs: object) -> str: ...
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    raw_items = cast(list[object], value)
+    return [item for item in raw_items if isinstance(item, str)]
+
+
+@final
 class FileSummarizer:
     """파일 내용을 경량 요약하여 컨텍스트에 주입합니다.
 
@@ -29,17 +43,17 @@ class FileSummarizer:
     필요시 model_manager.generate()를 사용한 LLM 요약으로 업그레이드 가능.
     """
 
-    def __init__(self, model_manager=None):
+    def __init__(self, model_manager: object | None = None):
         """Initialize the FileSummarizer.
 
         Args:
             model_manager: 선택적 ModelManager (LLM 요약 시 사용)
         """
-        self.model_manager = model_manager
+        self.model_manager: object | None = model_manager
 
     def summarize_files(
         self,
-        file_list: list[dict[str, Any]],
+        file_list: Sequence[Mapping[str, object]],
         project_root: str,
         query: str = "",
     ) -> str:
@@ -53,6 +67,7 @@ class FileSummarizer:
         Returns:
             요약된 컨텍스트 문자열 (마크다운 형식)
         """
+        _ = query
         if not file_list:
             return ""
 
@@ -60,7 +75,8 @@ class FileSummarizer:
         total_chars = 0
 
         for entry in file_list[:MAX_SUMMARIZE_FILES]:
-            rel_path = entry.get("file", "unknown")
+            rel_path_value = entry.get("file", "unknown")
+            rel_path = rel_path_value if isinstance(rel_path_value, str) else "unknown"
             abs_path = rel_path
             if not os.path.isabs(rel_path):
                 abs_path = os.path.join(project_root, rel_path)
@@ -80,8 +96,8 @@ class FileSummarizer:
             summary = self._summarize_single_file(
                 rel_path,
                 content,
-                entry.get("functions", []),
-                entry.get("classes", []),
+                _string_list(entry.get("functions", [])),
+                _string_list(entry.get("classes", [])),
             )
 
             entry_str = f"\n📄 **{rel_path}**\n{summary}\n"
@@ -152,7 +168,8 @@ class FileSummarizer:
         known_classes: list[str],
     ) -> str:
         """파일에서 핵심 구조(시그니처, 클래스 헤더)만 추출합니다."""
-        extracted = []
+        _ = (content, known_functions, known_classes)
+        extracted: list[str] = []
         char_count = 0
 
         # 클래스/함수 시그니처 추출
@@ -208,6 +225,7 @@ class FileSummarizer:
         total_lines: int,
     ) -> str:
         """큰 파일을 통계 기반으로 요약합니다."""
+        _ = ext
         parts = [f"_{total_lines} lines, {len(content)} chars_"]
 
         if known_functions:
@@ -239,7 +257,8 @@ class FileSummarizer:
         Returns:
             LLM 요약 텍스트
         """
-        if not self.model_manager:
+        manager = self.model_manager
+        if not isinstance(manager, _ModelManagerLike):
             return self._summarize_single_file(file_path, content, [], [])
 
         lines = content.split("\n")
@@ -265,7 +284,7 @@ Provide only the essential facts in 3-5 bullet points:
 - Key imports/dependencies
 """
         try:
-            summary = self.model_manager.generate(
+            summary = manager.generate(
                 prompt=prompt,
                 target="default",
                 max_tokens=256,

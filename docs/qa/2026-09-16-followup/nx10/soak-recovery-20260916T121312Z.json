@@ -1,0 +1,57 @@
+{
+  "collected_at": "2026-09-16T22:09:18Z",
+  "verdict": "FAIL",
+  "judged_run_start": "2026-09-16T12:13:12Z",
+  "runner": {
+    "generated_at": "2026-09-16T12:13:12Z",
+    "soak_seconds": "28800",
+    "report": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json",
+    "workdir": "/tmp/nx10-soak-work-20260916T121312Z",
+    "command": "PYTHONPATH=src /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/.venv/bin/python scripts/val02_staging.py --output /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/docs/qa/2026-09-16-followup/nx10/soak-28800.json --scenarios SC-1,SC-2,SC-3,SC-4,SC-5,SC-6 --soak-seconds 28800 --workdir /tmp/nx10-soak-work-20260916T121312Z",
+    "start_time": "2026-09-16T12:13:12Z",
+    "start_head": "fd16368c8c5148026563109c9bb7c7ffdb432ab4",
+    "start_dirty": "true",
+    "start_fingerprint": "322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe",
+    "exit": "1",
+    "end_time": "2026-09-16T20:13:16Z",
+    "end_head": "3a16d5f16ef01789022de0e3496d58cd76777b75",
+    "end_dirty": "true",
+    "end_fingerprint": "322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe"
+  },
+  "checks": [
+    {
+      "label": "① 지표(all_pass·missing_required)",
+      "ok": false,
+      "detail": "all_pass=False"
+    },
+    {
+      "label": "② 실행 exit==0",
+      "ok": false,
+      "detail": "exit=1"
+    },
+    {
+      "label": "② 실행 벽시계 ≥ 28800s",
+      "ok": true,
+      "detail": "28804s"
+    },
+    {
+      "label": "③ 시작 지문 == 종료 지문",
+      "ok": true,
+      "detail": "322b4d3ba062a0d9…"
+    },
+    {
+      "label": "③ 기대 지문 == 시작 지문",
+      "ok": true,
+      "detail": "322b4d3ba062a0d9…"
+    },
+    {
+      "label": "③ 지금 트리 == 시작 지문(측정 후 코드 무변경)",
+      "ok": true,
+      "detail": "동일"
+    }
+  ],
+  "report_file": "soak-28800.json",
+  "report_present": true,
+  "duration_seconds": 28804.0,
+  "worktree_fingerprint_now": "322b4d3ba062a0d9420d7db406b4fa91dd1c5e2b8f857f80cc907eb209723ffe"
+}

@@ -1,0 +1,10 @@
+{
+  "rounds": 60,
+  "wins": {
+    "done": 45,
+    "cancelled": 15
+  },
+  "overwrite_failures": 0,
+  "f2_stream_probes": 20,
+  "f2_completed_leaks": 0
+}

@@ -1,0 +1,69 @@
+[main]	INFO	profile include tests: None
+[main]	INFO	profile exclude tests: None
+[main]	INFO	cli include tests: None
+[main]	INFO	cli exclude tests: None
+[main]	INFO	running on Python 3.13.12
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/engine/audit_db.py:214
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/engine/audit_db.py:254
+[manager]	WARNING	Test in comment: values is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: are is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: replaced is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: never is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: bound is not a test name or id, ignoring
+[tester]	WARNING	nosec encountered (B104), but no failed test on file src/antigravity_k/engine/mcp_oauth.py:456
+[manager]	WARNING	Test in comment: sandbox is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: deny is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: list is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: not is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: file is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: creation is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: explicit is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: unsandboxed is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: compatibility is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: mode is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: execution is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: mode is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: is is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: selected is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: by is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: SandboxRunner is not a test name or id, ignoring
+[tester]	WARNING	nosec encountered (B108), but no failed test on file src/antigravity_k/engine/sandbox.py:345
+[tester]	WARNING	nosec encountered (B108), but no failed test on file src/antigravity_k/engine/sandbox.py:345
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/engine/task_state_store.py:379
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/engine/task_state_store.py:380
+[manager]	WARNING	Test in comment: placeholders is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: contain is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: only is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: one is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: per is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: bound is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: value is not a test name or id, ignoring
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/knowledge/memory_service.py:263
+[manager]	WARNING	Test in comment: columns is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: are is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlisted is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: above is not a test name or id, ignoring
+[tester]	WARNING	nosec encountered (B608), but no failed test on file src/antigravity_k/knowledge/wiki.py:280
+Working... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:04
+Run started:2026-09-11 01:06:40.258416+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 117379
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 13
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 302
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 8
+		High: 294
+Files skipped (0):

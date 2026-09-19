@@ -82,7 +82,7 @@ def _remaining_markdown_entries(
             continue
         raw_rows: list[sqlite3.Row] = connection.execute(
             "SELECT id, title, category, tags, content, created_at FROM wiki_entries "
-            + "WHERE category = ? AND title = ? ORDER BY updated_at DESC, id DESC LIMIT 1",
+            "WHERE category = ? AND title = ? ORDER BY updated_at DESC, id DESC LIMIT 1",
             key,
         ).fetchall()
         rows = WIKI_ROWS.validate_python(

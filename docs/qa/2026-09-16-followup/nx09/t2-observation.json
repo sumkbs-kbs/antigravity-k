@@ -1,0 +1,27 @@
+{
+  "conversationId": "mu3nwnaxj1n738au",
+  "snapshotStatus": 200,
+  "snapshot": {
+    "conversation_id": "mu3nwnaxj1n738au",
+    "project_id": "default",
+    "revision": 2,
+    "message_count": 2,
+    "summary": null,
+    "retained_message_ids": [
+      "msg_e8eed61560b3",
+      "msg_665e2efa0d2f"
+    ]
+  },
+  "messageRoles": [
+    "user",
+    "assistant"
+  ],
+  "restoredFromServer": true,
+  "historyCalls": [
+    "→ GET http://127.0.0.1:56973/v1/conversations/mu3nwnaxj1n738au?project_id=default",
+    "← 200 http://127.0.0.1:56973/v1/conversations/mu3nwnaxj1n738au?project_id=default",
+    "→ GET http://127.0.0.1:56973/v1/conversations/mu3nwnaxj1n738au?project_id=default",
+    "← 200 http://127.0.0.1:56973/v1/conversations/mu3nwnaxj1n738au?project_id=default"
+  ],
+  "freshBodyText": "SSAK-AI / RESEARCH GROUP\n[chat]\n[studio]\n[models]\n[git]\n[skills]\n[history]\nSYS · 05:30:35Z\nBUILD:\nv0.1.0\nUPTIME:\nUNKNOWN\nNODE:\nUNKNOWN\nCPU:\nUNKNOWN\nMEM:\nUNKNOWN\nVAULT:\n0 INDEXED\nLINK:\nUNKNOWN\nSsak-Ai\n// V0.8.0\n∨\n🔍\n🔔\n📝\n// 01 · 새 채팅\nAI 채팅\n+\n🔀\n// 02 · 풀 리퀘스트\nGit\n⏱️\n// 03 · 예약 / 실행\n🧩\n// 04 · 플러그인\n⋯\n// 05 · 탐색 / 스킬\n// PROJECTS\n+\n📁\nnx09-journey\n⎇ codex/m1-task-events\n●148\n/var/folders/0c/ncf5ly7d36q53dy94lv6x_7w0000gn/T/agk-nx09-x9wbOs\n// ACTIVE (1)\n+ NEW\n▶ restored\n✎\n✕\n// RECENTS\nrestored\n✎\n✕\nMK\nmr.k // OPERATOR\nılı\nVOICE\n[?]\nSsak-Ai Dashboard\nnx09-journey\n/\nrestored\n✎\n⌗\n⌘\n🕓\n◫\n□\nNX-09 T2 영속성 요청\n🤖\n✦\nSsak-Ai\n\n🛡️ [정밀 엔지니어링 모드]\n\n🏢\n⚠️ 응답 없음\n\n🔁 [Quality Revision] 피드백을 반영해 응답을 다시 생성했습니다.\n\nNX09-FAKE-PROVIDER-응답\n\n📊\nTokens Used: In: 9 | Out: 7\n📋 복사\n📁\nnx09-journey\n🖥️\n로컬\n⑂\nmain\n+\n🛡️!\n전체 액세스\n⌄\n🌐\nSearch\n‹/›\nCode\n⊞\nMCP\n⌄\n로컬 모델 감지 중...\n⌄\n🎙️\nılı\n환경\n코드\n변경\n✕\n◇\n에이전트 상태\n대기 중\n0초\n경과\n0\n도구 호출\n0\n파일 수정\n0\n파일 읽기\n⚡\n실시간 활동\n0개\n⌄\n아직 활동이 없습니다.\n📊\n토큰 사용량\n입력 (Prompt)\n0\n출력 (Completion)\n0\n총 사용량\n0\n📝\n파일 변경 추적\n변경된 파일이 없습니다.\n⚠\n에러 / 경고\n⌄\n✓ 에러 없음"
+}

@@ -114,7 +114,7 @@ def mock_web_search_tool():
 class TestE2EStockSearch:
     """주식 검색 파이프라인 E2E: 주가 쿼리 → 데이터 추출 → LLM 포맷."""
 
-    def test_extract_stock_from_search_result(self, extractor):
+    def test_extract_stock_from_search_result(self, extractor: DataExtractor) -> None:
         """검색 결과에서 주식 데이터 추출 → 형식화까지."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_STOCK], query="한화에어로스페이스 주가")
         assert len(result.stock_prices) >= 1
@@ -132,7 +132,7 @@ class TestE2EStockSearch:
         assert "+1.51%" in text or "1.51%" in text
         assert "012450" in text
 
-    def test_extract_multiple_stocks(self, extractor):
+    def test_extract_multiple_stocks(self, extractor: DataExtractor) -> None:
         """여러 종목이 포함된 검색 결과에서 각각 추출."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_MIXED], query="한화에어로스페이스 주가")
         assert len(result.stock_prices) >= 1
@@ -142,7 +142,7 @@ class TestE2EStockSearch:
         assert hanwha.ticker == "012450"
         assert hanwha.close_price is not None
 
-    def test_manwon_extraction_in_pipeline(self, extractor):
+    def test_manwon_extraction_in_pipeline(self, extractor: DataExtractor) -> None:
         """TOP 1 JSON answer.text의 만원 패턴 → 정수 변환."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_STOCK], query="한화에어로스페이스 주가")
         assert len(result.stock_prices) >= 1
@@ -151,7 +151,7 @@ class TestE2EStockSearch:
         sp = result.stock_prices[0]
         assert sp.close_price in (943000, 950000)
 
-    def test_change_percent_in_pipeline(self, extractor):
+    def test_change_percent_in_pipeline(self, extractor: DataExtractor) -> None:
         """파이프라인에서 등락률 추출."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_STOCK], query="한화에어로스페이스 주가")
         assert len(result.stock_prices) >= 1
@@ -159,7 +159,7 @@ class TestE2EStockSearch:
         assert sp.change_percent is not None
         assert abs(sp.change_percent - 1.51) < 0.01
 
-    def test_ticker_validation_in_pipeline(self, extractor):
+    def test_ticker_validation_in_pipeline(self, extractor: DataExtractor) -> None:
         """종목코드 검증 + 오탐 방지."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_STOCK], query="한화에어로스페이스 주가")
         assert len(result.stock_prices) >= 1
@@ -178,7 +178,7 @@ class TestE2EStockSearch:
 class TestE2EWeatherSearch:
     """날씨 검색 파이프라인 E2E."""
 
-    def test_extract_weather_from_search(self, extractor):
+    def test_extract_weather_from_search(self, extractor: DataExtractor) -> None:
         """날씨 검색 결과에서 기온/습도 추출."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_WEATHER], query="서울 날씨")
         assert len(result.weather) >= 1
@@ -193,7 +193,7 @@ class TestE2EWeatherSearch:
             assert "28.5°C" in text or "28.5" in text
             assert "65%" in text
 
-    def test_weather_without_stock(self, extractor):
+    def test_weather_without_stock(self, extractor: DataExtractor) -> None:
         """날씨 쿼리에서는 주식 데이터 제거."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_WEATHER], query="서울 날씨")
         assert len(result.stock_prices) == 0
@@ -207,7 +207,7 @@ class TestE2EWeatherSearch:
 class TestE2EExchangeSearch:
     """환율 검색 파이프라인 E2E."""
 
-    def test_extract_exchange_from_search(self, extractor):
+    def test_extract_exchange_from_search(self, extractor: DataExtractor) -> None:
         """환율 검색 결과에서 환율/변동률 추출."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_EXCHANGE], query="원달러 환율")
         assert len(result.exchange_rates) >= 1
@@ -229,7 +229,7 @@ class TestE2EExchangeSearch:
 class TestE2EMixedQuery:
     """혼합 쿼리 파이프라인 E2E."""
 
-    def test_stock_and_dates(self, extractor):
+    def test_stock_and_dates(self, extractor: DataExtractor) -> None:
         """주식 + 날짜 동시 추출."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_MIXED], query="한화에어로스페이스 주가")
         # 주식 추출
@@ -238,7 +238,7 @@ class TestE2EMixedQuery:
         assert len(result.dates_found) >= 1
         assert "2026년 7월 16일" in result.dates_found
 
-    def test_full_pipeline_to_llm_format(self, extractor):
+    def test_full_pipeline_to_llm_format(self, extractor: DataExtractor) -> None:
         """전체 파이프라인 → LLM 포맷 문자열."""
         result = extractor.extract_all([MOCK_SEARCH_RESULT_STOCK], query="한화에어로스페이스 주가")
         text = result.format_for_llm()
@@ -291,7 +291,7 @@ class TestE2EShortcut:
 class TestE2EEdgeCases:
     """파이프라인 엣지 케이스."""
 
-    def test_no_matching_data(self, extractor):
+    def test_no_matching_data(self, extractor: DataExtractor) -> None:
         """관련 데이터가 없는 검색 결과 → 빈 결과."""
         no_data = """
         [웹 검색 결과] 쿼리: '인사말' (SelfHosted, 0개)
@@ -300,7 +300,7 @@ class TestE2EEdgeCases:
         result = extractor.extract_all([no_data], query="인사말")
         assert result.has_data() is False
 
-    def test_malformed_json_graceful(self, extractor):
+    def test_malformed_json_graceful(self, extractor: DataExtractor) -> None:
         """잘못된 JSON → graceful fallback."""
         malformed = """
         Markdown Content:
@@ -310,7 +310,7 @@ class TestE2EEdgeCases:
         # JSON 파싱 실패해도 크래시 없이 빈 결과
         assert isinstance(result, ExtractionResult)
 
-    def test_empty_search_result(self, extractor):
+    def test_empty_search_result(self, extractor: DataExtractor) -> None:
         """빈 검색 결과 → 빈 결과."""
         result = extractor.extract_all([], query="")
         assert result.has_data() is False

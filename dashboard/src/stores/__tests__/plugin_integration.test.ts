@@ -452,6 +452,7 @@ describe('Cross-store hook integration (Phase 10)', () => {
 
     // Mock fetch to simulate successful commit
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
 

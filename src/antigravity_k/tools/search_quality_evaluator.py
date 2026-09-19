@@ -9,6 +9,8 @@ from types import MappingProxyType
 from typing import Final
 from urllib.parse import urlsplit
 
+from pydantic import JsonValue, TypeAdapter, ValidationError
+
 from .search_conflicts import source_conflict_sets
 from .web_search_models import SearchResult
 from .web_search_quality import canonicalize_url, source_id_for_url
@@ -69,6 +71,8 @@ _STOPWORDS = frozenset(
         "및",
     },
 )
+_URL_LIST_ADAPTER: Final[TypeAdapter[list[JsonValue]]] = TypeAdapter(list[JsonValue])
+_GRADED_RELEVANCE_ADAPTER: Final[TypeAdapter[dict[str, JsonValue]]] = TypeAdapter(dict[str, JsonValue])
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,16 +92,26 @@ class SearchGoldenCase:
             raise ValueError("golden case requires a non-empty case_id")
         if not isinstance(query, str) or not query.strip():
             raise ValueError("golden case requires a non-empty query")
-        if not isinstance(relevant_urls, list) or not all(isinstance(url, str) for url in relevant_urls):
+        try:
+            relevant_url_values = _URL_LIST_ADAPTER.validate_python(relevant_urls)
+        except ValidationError:
             raise ValueError("golden case relevant_urls must be a list of strings")
-        canonical_urls = tuple(filter(None, (canonicalize_url(url) for url in relevant_urls)))
+        validated_urls: list[str] = []
+        for url in relevant_url_values:
+            if not isinstance(url, str):
+                raise ValueError("golden case relevant_urls must be a list of strings")
+            validated_urls.append(url)
+        canonical_urls = tuple(filter(None, (canonicalize_url(url) for url in validated_urls)))
         if not canonical_urls:
             raise ValueError("golden case requires at least one valid relevant URL")
-        if not isinstance(graded_relevance, dict):
-            raise TypeError("golden case graded_relevance must be an object")
+        try:
+            graded_values = _GRADED_RELEVANCE_ADAPTER.validate_python(graded_relevance)
+        except ValidationError as exc:
+            raise TypeError("golden case graded_relevance must be an object") from exc
         grades: dict[str, int] = {url: 1 for url in canonical_urls}
-        for url, grade in graded_relevance.items():
-            if not isinstance(url, str) or not isinstance(grade, int) or isinstance(grade, bool):
+        for url, grade_value in graded_values.items():
+            grade = grade_value
+            if not isinstance(grade, int) or isinstance(grade, bool):
                 raise TypeError("golden case graded_relevance values must be integer grades")
             canonical = canonicalize_url(url)
             if not canonical or grade < 0:
@@ -323,7 +337,9 @@ def evaluate_citations(
     if not 0.0 < min_overlap <= 1.0:
         raise ValueError("min_overlap must be greater than 0 and at most 1")
     source_values = tuple(sources)
-    source_map = MappingProxyType({source.source_id: source for source in source_values if source.source_id})
+    source_map: Mapping[str, CitationSource] = MappingProxyType(
+        {source.source_id: source for source in source_values if source.source_id},
+    )
     normalized_conflict_sets = tuple(
         frozenset(source_id for source_id in group if source_id in source_map)
         for group in (*tuple(conflict_sets), *source_conflict_sets(source_values))
@@ -331,7 +347,8 @@ def evaluate_citations(
     claims: list[ClaimEvaluation] = []
     prior_claim_acknowledged_conflict = False
     for raw_claim in _CLAIM_SPLIT_PATTERN.split(response_text):
-        cited_ids = tuple(dict.fromkeys(_CITATION_PATTERN.findall(raw_claim)))
+        citation_ids: list[str] = [match.group(1) for match in _CITATION_PATTERN.finditer(raw_claim)]
+        cited_ids: tuple[str, ...] = tuple(dict.fromkeys(citation_ids))
         claim = _CITATION_PATTERN.sub("", raw_claim).strip(" \t-*•")
         claim_tokens = _tokens(claim)
         if len(claim_tokens) < 2:

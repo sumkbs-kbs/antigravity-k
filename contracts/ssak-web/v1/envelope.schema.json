@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ssak-ai.local/contracts/ssak-web/v1/envelope.schema.json",
+  "title": "ssak-web v1 result envelope",
+  "description": "Ssak-Ai가 소유하는 검색·추출·딥리서치 결과의 단일 계약 원본이다. 이 파일이 source of truth이며 W의 contracts/ssak-web/v1/ 은 같은 bytes의 버전 고정 사본이다. 필드 의미는 기준 계획(ssak-ai-web-integration.md)의 '공통 계약' 절을 따른다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "status",
+    "data",
+    "evidence",
+    "error",
+    "usage",
+    "timings",
+    "warnings"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "major.minor. required field 추가/의미 변경은 major를 올린다. 소비자는 알 수 없는 major를 거절한다."
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 8,
+      "description": "host가 생성해 전체 span에 전달한다. 서비스가 임의로 만들지 않는다."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "partial", "blocked", "error", "cancelled"],
+      "description": "ok=모든 소스 성공, partial=일부 소스 성공(isError=false), blocked/error/cancelled=성공 소스 0개."
+    },
+    "data": {
+      "description": "capability별 payload. status=error/blocked/cancelled 이면 null일 수 있다.",
+      "type": ["object", "null"]
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence" },
+      "description": "출처·본문 증거. status=error/blocked/cancelled 이면 빈 배열이 허용된다."
+    },
+    "error": {
+      "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }],
+      "description": "status=ok|partial 이면 반드시 null."
+    },
+    "usage": {
+      "oneOf": [{ "$ref": "#/$defs/usage" }, { "type": "null" }],
+      "description": "실제로 측정하지 못한 값은 null 이다. 0으로 위장하지 않는다."
+    },
+    "timings": { "$ref": "#/$defs/timings" },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "비치명적 사실(캐시 사용, fallback 시도, 잘림 등)을 사람이 읽을 문장으로 남긴다."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "enum": ["ok", "partial"] } }, "required": ["status"] },
+      "then": {
+        "properties": { "error": { "type": "null" }, "data": { "type": "object" } },
+        "required": ["data"]
+      }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["blocked", "error", "cancelled"] } }, "required": ["status"] },
+      "then": { "properties": { "error": { "$ref": "#/$defs/error" } }, "required": ["error"] }
+    },
+    {
+      "if": { "properties": { "status": { "const": "partial" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": ["source_failures"],
+            "properties": { "source_failures": { "type": "array", "minItems": 1 } }
+          }
+        },
+        "description": "partial은 성공 소스가 1개 이상이고 실패 소스 목록이 비어 있지 않을 때만 성립한다."
+      }
+    }
+  ],
+  "$defs": {
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "stage"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "POLICY_DENIED",
+            "AUTH_REQUIRED",
+            "TIMEOUT",
+            "CANCELLED",
+            "UPSTREAM_UNAVAILABLE",
+            "INVALID_ARGUMENT",
+            "STALE_SNAPSHOT",
+            "UNSUPPORTED_CAPABILITY",
+            "INTERNAL_ERROR"
+          ]
+        },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "stage": {
+          "type": "string",
+          "minLength": 1,
+          "description": "실패가 관측된 단계. 예: validation, policy, negotiation, fetch, extract, aggregate, protocol."
+        },
+        "detail": { "type": ["string", "null"] },
+        "suggested_action": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "code": { "enum": ["POLICY_DENIED", "AUTH_REQUIRED"] } }, "required": ["code"] },
+          "then": {
+            "properties": { "retryable": { "const": false }, "stage": { "enum": ["policy", "auth"] } },
+            "description": "정책·인증 거절은 provider fallback으로 우회하지 않는다. 따라서 retryable=false 이고 stage는 policy 또는 auth 다."
+          }
+        },
+        {
+          "if": { "properties": { "code": { "const": "INVALID_ARGUMENT" } }, "required": ["code"] },
+          "then": { "properties": { "stage": { "const": "validation" } } }
+        },
+        {
+          "if": { "properties": { "code": { "const": "UNSUPPORTED_CAPABILITY" } }, "required": ["code"] },
+          "then": { "properties": { "stage": { "const": "negotiation" } } }
+        },
+        {
+          "if": { "properties": { "code": { "const": "CANCELLED" } }, "required": ["code"] },
+          "then": { "properties": { "stage": { "const": "execute" } } }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "requested_url",
+        "final_url",
+        "retrieved_at",
+        "extraction_tier",
+        "content",
+        "truncated"
+      ],
+      "properties": {
+        "evidence_id": { "type": "string", "minLength": 1 },
+        "requested_url": { "type": "string", "minLength": 1 },
+        "final_url": { "type": "string", "minLength": 1 },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC ISO-8601. 로컬 시간대 표기를 쓰지 않는다."
+        },
+        "title": { "type": ["string", "null"] },
+        "publisher": { "type": ["string", "null"] },
+        "published_date": { "type": ["string", "null"] },
+        "extraction_tier": {
+          "type": "string",
+          "enum": ["TIER_1_STATIC", "TIER_2_JINA_PROXY", "TIER_3_STEALTH_SIDECAR", "UNKNOWN"]
+        },
+        "content": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["locator", "sha256", "bytes"],
+          "properties": {
+            "locator": { "type": "string", "minLength": 1, "description": "본문을 찾을 수 있는 위치 표기(section selector, anchor 등)." },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "bytes": { "type": "integer", "minimum": 0 },
+            "token_count": { "type": ["integer", "null"], "minimum": 0 },
+            "tokenizer": { "type": ["string", "null"], "description": "token_count가 어느 tokenizer 기준인지. 미측정이면 null." }
+          }
+        },
+        "truncated": { "type": "boolean" },
+        "truncation": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reason"],
+              "properties": {
+                "reason": { "type": "string", "minLength": 1 },
+                "omitted_tokens": { "type": ["integer", "null"], "minimum": 0 },
+                "original_tokens": { "type": ["integer", "null"], "minimum": 0 }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "artifact_ref": { "type": ["string", "null"], "description": "다운로드·이미지 등 본문 외 산출물 참조." }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "truncated": { "const": true } }, "required": ["truncated"] },
+          "then": { "properties": { "truncation": { "type": "object" } }, "required": ["truncation"] },
+          "description": "truncated=true 인데 절단 정보가 없으면 소비자가 절단 사실을 잃는다."
+        }
+      ]
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_calls", "content_tokens", "accounted"],
+      "properties": {
+        "provider_calls": { "type": ["integer", "null"], "minimum": 0 },
+        "content_tokens": { "type": ["integer", "null"], "minimum": 0, "description": "문서화된 tokenizer 기준 반환 content의 token 수." },
+        "accounted": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["json_framing_tokens", "evidence_overhead_tokens"],
+          "properties": {
+            "json_framing_tokens": { "type": ["integer", "null"], "minimum": 0 },
+            "evidence_overhead_tokens": { "type": ["integer", "null"], "minimum": 0 }
+          },
+          "description": "framing·evidence overhead는 별도로 노출한다(계획 §공통 계약)."
+        }
+      }
+    },
+    "timings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_ms"],
+      "properties": {
+        "total_ms": { "type": "number", "minimum": 0 },
+        "queue_ms": { "type": ["number", "null"], "minimum": 0 },
+        "provider_ms": { "type": ["number", "null"], "minimum": 0 },
+        "extract_ms": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "source_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "code", "retryable"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "code": { "type": "string", "enum": ["TIMEOUT", "UPSTREAM_UNAVAILABLE", "POLICY_DENIED", "AUTH_REQUIRED", "INVALID_ARGUMENT", "INTERNAL_ERROR"] },
+        "retryable": { "type": "boolean" },
+        "detail": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

@@ -63,7 +63,7 @@ async def main():
     print("=== Starting E2E Test for Ssak AI Lab ===\n")
 
     prompt = (
-        "Ssak AI Lab 프로젝트를 /Users/mr.k/program/coding/ssak_comp/antigravity-k/ssak-ai-lab 에 구축해줘. "
+        "Ssak AI Lab 프로젝트를 /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/ssak-ai-lab 에 구축해줘. "
         "지식 공유를 위한 웹사이트이며, 이번에는 순수 HTML, CSS, JS만 사용하여 다크모드 기반의 모던 UI로 만들어줘. "
         "자율 기획(Planning Mode)을 통해 기획부터 코딩까지 완수해라."
     )

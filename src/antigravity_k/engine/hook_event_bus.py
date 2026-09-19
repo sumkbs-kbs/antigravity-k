@@ -29,9 +29,9 @@ import stat
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import cast, final
 
 logger = logging.getLogger("antigravity_k.engine.hook_event_bus")
 
@@ -58,26 +58,54 @@ EVENT_KIND_MAP = {
 }
 
 
-def classify_event(payload: dict[str, Any]) -> str:
+def _as_mapping(value: object) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        return cast(Mapping[str, object], value)
+    return {}
+
+
+def _as_object(value: object) -> dict[str, object]:
+    if isinstance(value, dict):
+        return cast(dict[str, object], value)
+    return {}
+
+
+def _as_str(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _parse_json(value: str) -> object:
+    return cast(object, json.loads(value))
+
+
+def classify_event(payload: Mapping[str, object]) -> str:
     """이벤트 페이로드에서 종류를 분류합니다 (Sidabari classify_event 이식)."""
     # _antigravity 메타데이터에서 먼저 확인
-    meta = payload.get("_antigravity", {})
-    raw = meta.get("hook_event_name_arg", "")
+    meta = _as_mapping(payload.get("_antigravity"))
+    raw = _as_str(meta.get("hook_event_name_arg"))
     if not raw:
-        raw = payload.get("hook_event_name", "")
+        raw = _as_str(payload.get("hook_event_name"))
     if not raw:
-        raw = payload.get("event", "")
+        raw = _as_str(payload.get("event"))
     if not raw:
         return "unknown"
     return EVENT_KIND_MAP.get(raw, f"other:{raw}")
 
 
+@final
 class HookEventEmit:
     """프론트엔드/대시보드로 방출할 훅 이벤트 구조체."""
 
-    __slots__ = ("kind", "payload", "timestamp")
+    __slots__: tuple[str, ...] = ("kind", "payload", "timestamp")
+    kind: str
+    payload: Mapping[str, object]
+    timestamp: float
 
-    def __init__(self, kind: str, payload: dict[str, Any]):
+    def __init__(self, kind: str, payload: Mapping[str, object]):
         """Initialize the HookEventEmit.
 
         Args:
@@ -89,7 +117,7 @@ class HookEventEmit:
         self.payload = payload
         self.timestamp = time.time()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
@@ -103,17 +131,22 @@ class HookEventEmit:
         }
 
 
+@final
 class GateRequest:
     """양방향 IPC Gate 요청 (Sidabari의 req-/resp- 파일 패턴)."""
 
-    __slots__ = ("hook_event_name", "panel_id", "payload", "request_id")
+    __slots__: tuple[str, ...] = ("hook_event_name", "panel_id", "payload", "request_id")
+    hook_event_name: str
+    panel_id: str | None
+    payload: Mapping[str, object]
+    request_id: str
 
     def __init__(
         self,
         request_id: str,
         panel_id: str | None,
         hook_event_name: str,
-        payload: dict[str, Any],
+        payload: Mapping[str, object],
     ):
         """Initialize the GateRequest.
 
@@ -147,11 +180,11 @@ class HookEventBus:
         self._base_dir: Path | None = Path(base_dir) if base_dir else None
         self._events_path: Path | None = None
         self._offset: int = 0
-        self._subscribers: dict[str, list[Callable[..., Any]]] = {}
+        self._subscribers: dict[str, list[Callable[[HookEventEmit], object]]] = {}
         self._watcher_thread: threading.Thread | None = None
-        self._stop_event = threading.Event()
-        self._lock = threading.Lock()
-        self._initialized = False
+        self._stop_event: threading.Event = threading.Event()
+        self._lock: threading.Lock = threading.Lock()
+        self._initialized: bool = False
 
     def init(self, vault_data_dir: str | None = None) -> HookEventBus:
         """이벤트 버스를 초기화합니다.
@@ -164,11 +197,23 @@ class HookEventBus:
         if vault_data_dir:
             self._base_dir = Path(vault_data_dir) / HOOKS_SUBDIR
         elif self._base_dir is None:
-            project_root = Path(__file__).resolve().parent.parent.parent.parent
-            self._base_dir = project_root / "vault_data" / HOOKS_SUBDIR
+            try:
+                from antigravity_k.config import config
 
-        # 디렉토리 생성
-        self._base_dir.mkdir(parents=True, exist_ok=True)
+                self._base_dir = config.paths.data_dir / "vault_data" / HOOKS_SUBDIR
+            except Exception:
+                project_root = Path(__file__).resolve().parent.parent.parent.parent
+                self._base_dir = project_root / "vault_data" / HOOKS_SUBDIR
+
+        # 디렉토리 생성 및 권한 확인 (읽기 전용 환경 폴백)
+        try:
+            self._base_dir.mkdir(parents=True, exist_ok=True)
+            test_file = self._base_dir / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+        except OSError:
+            self._base_dir = Path.home() / ".antigravity-k" / "vault_data" / HOOKS_SUBDIR
+            self._base_dir.mkdir(parents=True, exist_ok=True)
 
         # Unix 권한 설정 (0700)
         if platform.system() != "Windows":
@@ -180,7 +225,7 @@ class HookEventBus:
         # events.jsonl 생성/확인
         self._events_path = self._base_dir / EVENTS_FILE
         if not self._events_path.exists():
-            self._events_path.write_text("", encoding="utf-8")
+            _ = self._events_path.write_text("", encoding="utf-8")
 
         # 시작 시점의 파일 끝을 기준 offset으로 (과거 이벤트 무시)
         self._offset = self._events_path.stat().st_size
@@ -205,7 +250,7 @@ class HookEventBus:
         )
         return self
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Watcher를 종료합니다."""
         self._stop_event.set()
         if self._watcher_thread and self._watcher_thread.is_alive():
@@ -218,10 +263,10 @@ class HookEventBus:
     def emit_event(
         self,
         event_name: str,
-        payload: dict[str, Any] | None = None,
+        payload: Mapping[str, object] | None = None,
         *,
         panel_id: str | None = None,
-    ):
+    ) -> None:
         """이벤트를 JSONL 파일에 기록합니다.
 
         기록 후 watcher가 자동으로 파싱하여 구독자에게 전달합니다.
@@ -230,18 +275,21 @@ class HookEventBus:
             logger.warning("[HookEventBus] Not initialized, cannot emit")
             return
 
-        event_data: dict[str, Any] = {
+        event_data: dict[str, object] = {
             "hook_event_name": event_name,
             "timestamp": time.time(),
             **(payload or {}),
         }
         if panel_id:
-            event_data.setdefault("_antigravity", {})["panel_id"] = panel_id
+            metadata = _as_mapping(event_data.get("_antigravity"))
+            metadata_dict = dict(metadata)
+            metadata_dict["panel_id"] = panel_id
+            event_data["_antigravity"] = metadata_dict
 
         try:
             line = json.dumps(event_data, ensure_ascii=False, default=str) + "\n"
             with open(self._events_path, "a", encoding="utf-8") as f:
-                f.write(line)
+                _ = f.write(line)
         except Exception:
             logger.exception("[HookEventBus] 이벤트 기록 실패")
 
@@ -250,7 +298,7 @@ class HookEventBus:
 
     # ── 이벤트 구독 ──
 
-    def subscribe(self, kind: str, callback: Callable[..., Any]):
+    def subscribe(self, kind: str, callback: Callable[[HookEventEmit], object]) -> None:
         """특정 종류의 이벤트에 콜백을 등록합니다."""
         with self._lock:
             if kind not in self._subscribers:
@@ -258,11 +306,11 @@ class HookEventBus:
             if callback not in self._subscribers[kind]:
                 self._subscribers[kind].append(callback)
 
-    def subscribe_all(self, callback: Callable[..., Any]):
+    def subscribe_all(self, callback: Callable[[HookEventEmit], object]) -> None:
         """모든 이벤트에 콜백을 등록합니다."""
         self.subscribe("*", callback)
 
-    def unsubscribe(self, kind: str, callback: Callable[..., Any]):
+    def unsubscribe(self, kind: str, callback: Callable[[HookEventEmit], object]) -> None:
         """이벤트 구독을 해제합니다."""
         with self._lock:
             if kind in self._subscribers and callback in self._subscribers[kind]:
@@ -273,11 +321,11 @@ class HookEventBus:
     def send_gate_request(
         self,
         hook_event_name: str,
-        payload: dict[str, Any],
+        payload: Mapping[str, object],
         *,
         panel_id: str | None = None,
         timeout: float = 30.0,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, object] | None:
         """Gate 요청을 보내고 응답을 대기합니다.
 
         req-<uuid>.json 작성 후 resp-<uuid>.json이 나타날 때까지 대기.
@@ -299,8 +347,8 @@ class HookEventBus:
         try:
             # Atomic write via tmp file
             tmp_path = req_path.with_suffix(".json.tmp")
-            tmp_path.write_text(json.dumps(req_data, ensure_ascii=False), encoding="utf-8")
-            tmp_path.rename(req_path)
+            _ = tmp_path.write_text(json.dumps(req_data, ensure_ascii=False), encoding="utf-8")
+            _ = tmp_path.rename(req_path)
         except Exception:
             logger.exception("[HookEventBus] Gate 요청 작성 실패")
             return None
@@ -310,7 +358,8 @@ class HookEventBus:
         while time.time() < deadline:
             if resp_path.exists():
                 try:
-                    resp_data = json.loads(resp_path.read_text(encoding="utf-8"))
+                    parsed_response = _parse_json(resp_path.read_text(encoding="utf-8"))
+                    resp_data = _as_object(parsed_response)
                     # Cleanup
                     req_path.unlink(missing_ok=True)
                     resp_path.unlink(missing_ok=True)
@@ -352,8 +401,8 @@ class HookEventBus:
         }
 
         try:
-            tmp_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
-            tmp_path.rename(resp_path)
+            _ = tmp_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+            _ = tmp_path.rename(resp_path)
             return True
         except Exception:
             logger.exception("[HookEventBus] Gate 응답 작성 실패")
@@ -361,7 +410,7 @@ class HookEventBus:
 
     # ── 내부 Watcher ──
 
-    def _watch_loop(self):
+    def _watch_loop(self) -> None:
         """JSONL 파일과 req- 파일을 폴링으로 감시합니다.
 
         watchdog가 설치되어 있으면 이벤트 기반, 아니면 폴링 폴백.
@@ -375,9 +424,9 @@ class HookEventBus:
             except Exception:
                 logger.exception("[HookEventBus] Watch loop error")
 
-            self._stop_event.wait(poll_interval)
+            _ = self._stop_event.wait(poll_interval)
 
-    def _tail_events(self):
+    def _tail_events(self) -> None:
         """events.jsonl의 새로운 라인을 읽어 구독자에게 전달합니다."""
         if not self._events_path or not self._events_path.exists():
             return
@@ -396,7 +445,7 @@ class HookEventBus:
 
         try:
             with open(self._events_path, encoding="utf-8") as f:
-                f.seek(self._offset)
+                _ = f.seek(self._offset)
                 new_offset = self._offset
 
                 for line in f:
@@ -406,7 +455,8 @@ class HookEventBus:
                         continue
 
                     try:
-                        payload = json.loads(trimmed)
+                        parsed_payload = _parse_json(trimmed)
+                        payload = _as_object(parsed_payload)
                     except json.JSONDecodeError as e:
                         logger.warning(
                             "[HookEventBus] JSON 파싱 실패: %s (line %s bytes)",
@@ -423,7 +473,7 @@ class HookEventBus:
         except Exception:
             logger.exception("[HookEventBus] tail 실패")
 
-    def _check_req_files(self):
+    def _check_req_files(self) -> None:
         """req-*.json 파일을 확인하여 gate 요청 이벤트를 발생시킵니다."""
         if not self._base_dir:
             return
@@ -436,23 +486,25 @@ class HookEventBus:
         except Exception:
             logger.exception("[HookEventBus] req 파일 확인 실패")
 
-    def _handle_req_file(self, path: Path):
+    def _handle_req_file(self, path: Path) -> None:
         """Req 파일을 읽어 gate-request 이벤트를 발생시킵니다."""
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            parsed_data = _parse_json(path.read_text(encoding="utf-8"))
+            data = _as_object(parsed_data)
         except (OSError, ValueError):
             # Windows: atomic rename 직후 읽기 실패 → 짧은 재시도
             time.sleep(0.05)
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
+                parsed_data = _parse_json(path.read_text(encoding="utf-8"))
+                data = _as_object(parsed_data)
             except (OSError, ValueError):
                 logger.exception("[HookEventBus] req 읽기 실패 (%s)", path)
                 return
 
         request = GateRequest(
-            request_id=data.get("request_id", ""),
-            panel_id=data.get("panel_id"),
-            hook_event_name=data.get("hook_event_name_arg", ""),
+            request_id=_as_str(data.get("request_id")),
+            panel_id=_as_optional_str(data.get("panel_id")),
+            hook_event_name=_as_str(data.get("hook_event_name_arg")),
             payload=data,
         )
         gate_event = HookEventEmit(
@@ -466,23 +518,23 @@ class HookEventBus:
         )
         self._dispatch(gate_event)
 
-    def _dispatch(self, event: HookEventEmit):
+    def _dispatch(self, event: HookEventEmit) -> None:
         """구독자에게 이벤트를 전달합니다."""
         with self._lock:
             # kind 별 구독자
             for callback in self._subscribers.get(event.kind, []):
                 try:
-                    callback(event)
+                    _ = callback(event)
                 except Exception:
                     logger.exception("[HookEventBus] 콜백 실행 오류 (%s)", event.kind)
             # 와일드카드 구독자
             for callback in self._subscribers.get("*", []):
                 try:
-                    callback(event)
+                    _ = callback(event)
                 except Exception:
                     logger.exception("[HookEventBus] 와일드카드 콜백 오류 (%s)", event.kind)
 
-    def _sweep_stale(self):
+    def _sweep_stale(self) -> None:
         """시작 시 잔여 req-/resp- 파일을 제거합니다."""
         if not self._base_dir:
             return
@@ -538,5 +590,5 @@ def get_hook_event_bus() -> HookEventBus:
 def init_hook_event_bus(vault_data_dir: str | None = None) -> HookEventBus:
     """글로벌 HookEventBus를 초기화합니다."""
     bus = get_hook_event_bus()
-    bus.init(vault_data_dir)
+    _ = bus.init(vault_data_dir)
     return bus

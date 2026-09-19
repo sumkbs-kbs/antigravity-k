@@ -1,7 +1,7 @@
 # See https://pre-commit.com for more information
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.15.12
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
@@ -12,15 +12,24 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # 생성 산출물(`src/antigravity_k/dashboard_dist/`)은 vite 가 emit 한 **바이트가 곧 진실원**이다.
+      # 아래 소스 위생 훅이 그 파일을 다시 쓰면 커밋된 번들과 `pnpm run build` 결과가 갈라진다 —
+      # CR-14 F-01 이 실측한 "빌드는 바이트 단위 멱등" 성질이 깨지고, 다음 빌드가 트리를 다시
+      # 더럽혀(C-10/CR-11 'stale bundle' 과 같은 병) 검증이 후보를 흔든다. 2026-09-13: 실제로
+      # 커밋 시 trailing-whitespace 가 번들 11개를 다시 써서 커밋이 중단됐다.
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
+        exclude: ^src/antigravity_k/dashboard_dist/
       - id: end-of-file-fixer
+        exclude: ^src/antigravity_k/dashboard_dist/
       - id: check-yaml
         args: [--allow-multiple-documents]
       - id: check-toml
       - id: check-json
+      # 번들 크기는 빌드가 정한다(모나코·TS 워커는 원래 MB 단위). 소스에만 상한을 적용한다.
       - id: check-added-large-files
         args: [--maxkb=1024]
+        exclude: ^src/antigravity_k/dashboard_dist/
       - id: detect-private-key
       - id: check-merge-conflict
       - id: check-case-conflict
@@ -34,6 +43,14 @@ repos:
         additional_dependencies:
           - "pydantic>=2.10.0"
           - "types-PyYAML>=6.0.2"
+          - "types-croniter>=6.0.0"
+          # 런타임이 py.typed를 제공하는 베이스 클래스 패키지 — 훅 격리 env에
+          # 없으면 @override가 "no base method" 오탐을 냈다 (tui/compose,
+          # httpcore 백엔드, starlette StaticFiles). 2026-09-06.
+          - "textual>=8.2,<9"
+          - "httpcore>=1.0,<2"
+          - "starlette>=0.40,<2"
+          - "fastapi>=0.115,<1"  # server.py가 fastapi.staticfiles.StaticFiles를 상속
         args: [--ignore-missing-imports, --no-strict-optional]
         # Only check files that have type annotations at module level
         # Exclude tests and generated/legacy files
@@ -43,10 +60,9 @@ repos:
             src/antigravity_k/engine/legacy_.*|
             src/antigravity_k/demo/.*
           )$
-        # Mypy is advisory (matches CI's continue-on-error). It surfaces type
-        # issues on staged files but does not block commits, since the legacy
-        # codebase still has pre-existing errors that are being worked down.
+        # 2026-09-06: repo-wide mypy 0 errors 달성 (460 files) — 더 이상 report-only
+        # 탈출구(|| true)가 필요 없다. 훅이 실제로 차단한다. 회귀 시 커밋이 막히며,
+        # 예외적으로 커밋해야 한다면 `pre-commit run mypy` 결과를 문서로 남길 것.
         verbose: true
-        # Report-only: exit zero even if type errors are found.
         pass_filenames: false
-        entry: bash -c 'mypy --ignore-missing-imports --no-strict-optional --exclude "tests/|legacy_|demo/" src/antigravity_k || true'
+        entry: bash -c 'mypy --ignore-missing-imports --no-strict-optional --exclude "tests/|legacy_|demo/" src/antigravity_k'

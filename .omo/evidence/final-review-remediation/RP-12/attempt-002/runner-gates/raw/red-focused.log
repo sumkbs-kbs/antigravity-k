@@ -1,0 +1,18 @@
+...FF                                                                    [100%]
+=================================== FAILURES ===================================
+________ test_production_python_gates_use_frozen_isolated_environments _________
+tests/test_ga_gate.py:192: in test_production_python_gates_use_frozen_isolated_environments
+    assert all({"--frozen", "--isolated"} <= command_flags for command_flags in flags)
+E   assert False
+E    +  where False = all(<generator object test_production_python_gates_use_frozen_isolated_environments.<locals>.<genexpr> at 0x10b4a1970>)
+__ test_production_build_and_dependency_audit_do_not_use_editable_environment __
+tests/test_ga_gate.py:202: in test_production_build_and_dependency_audit_do_not_use_editable_environment
+    assert commands["package-build"] == ["uv", "build", "--no-sources"]
+E   AssertionError: assert ['uv', 'build'] == ['uv', 'build...--no-sources']
+E
+E     Right contains one more item: '--no-sources'
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/test_ga_gate.py::test_production_python_gates_use_frozen_isolated_environments
+FAILED tests/test_ga_gate.py::test_production_build_and_dependency_audit_do_not_use_editable_environment
+2 failed, 3 passed in 1.73s

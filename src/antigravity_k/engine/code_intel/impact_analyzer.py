@@ -1,21 +1,19 @@
 """Impact Analyzer module."""
 
-from typing import Any
-
 
 class ImpactAnalyzer:
     """Analyzes the blast radius of code changes via the knowledge graph."""
 
-    def __init__(self, graph):
+    def __init__(self, graph: object):
         """Initialize the ImpactAnalyzer.
 
         Args:
             graph: graph.
 
         """
-        self.graph = graph
+        self.graph: object = graph
 
-    def analyze(self, symbol_id: str, max_depth: int = 5) -> dict[str, Any]:
+    def analyze(self, symbol_id: str, max_depth: int = 5) -> dict[str, object]:
         """Analyze.
 
         Args:
@@ -26,6 +24,7 @@ class ImpactAnalyzer:
             dict[str, Any]: The dict[str, any] result.
 
         """
+        _ = (symbol_id, max_depth)
         # Perform graph traversal to find upstream and downstream dependencies
         # This is a simplified mock implementation
         return {

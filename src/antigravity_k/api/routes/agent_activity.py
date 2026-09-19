@@ -6,16 +6,28 @@ Sidabari의 패널 활동 추적 + SQLite 감사 로그를 대시보드에 제�
 
 import logging
 import time
+from typing import Annotated, TypeAlias, cast
 
 from fastapi import APIRouter, Query
+from pydantic import JsonValue
 
 logger = logging.getLogger("antigravity_k.api.routes.agent_activity")
 
 router = APIRouter(prefix="/api/agent")
+RouteResponse: TypeAlias = dict[str, JsonValue]
+LimitParam = Annotated[int, Query(le=500)]
+OptionalTextParam = Annotated[str | None, Query()]
+OptionalMinutesParam = Annotated[int | None, Query()]
+
+
+def _error_response(error: str, **extra: JsonValue) -> RouteResponse:
+    response: RouteResponse = {"ok": False, "error": error}
+    response.update(extra)
+    return response
 
 
 @router.get("/activity")
-async def get_agent_activity():
+async def get_agent_activity() -> RouteResponse:
     """모든 에이전트의 현재 활동 상태를 조회합니다.
 
     Returns:
@@ -33,23 +45,23 @@ async def get_agent_activity():
 
         return {
             "ok": True,
-            "activities": activities,
+            "activities": cast(JsonValue, activities),
             "thinking_count": len(thinking_panels),
-            "thinking_panels": thinking_panels,
+            "thinking_panels": cast(JsonValue, thinking_panels),
             "timestamp": time.time(),
         }
     except Exception as e:
         logger.exception("Activity query failed")
-        return {"ok": False, "error": str(e), "activities": {}}
+        return _error_response(str(e), activities={})
 
 
 @router.get("/audit/recent")
 async def get_recent_audit_events(
-    limit: int = Query(default=50, le=500),
-    kind: str | None = Query(default=None),
-    panel_id: str | None = Query(default=None),
-    since_minutes: int | None = Query(default=None),
-):
+    limit: LimitParam = 50,
+    kind: OptionalTextParam = None,
+    panel_id: OptionalTextParam = None,
+    since_minutes: OptionalMinutesParam = None,
+) -> RouteResponse:
     """최근 감사 이벤트를 조회합니다.
 
     Args:
@@ -63,8 +75,8 @@ async def get_recent_audit_events(
         from antigravity_k.engine.audit_db import get_audit_db
 
         db = get_audit_db()
-        if not db._initialized:
-            return {"ok": False, "error": "AuditDb not initialized", "events": []}
+        if not db.initialized:
+            return _error_response("AuditDb not initialized", events=[])
 
         since_ms = None
         if since_minutes:
@@ -79,19 +91,19 @@ async def get_recent_audit_events(
 
         return {
             "ok": True,
-            "events": events,
+            "events": cast(JsonValue, events),
             "count": len(events),
             "total": db.count_events(since_ms=since_ms),
         }
     except Exception as e:
         logger.exception("Audit query failed")
-        return {"ok": False, "error": str(e), "events": []}
+        return _error_response(str(e), events=[])
 
 
 @router.get("/audit/tool-stats")
 async def get_tool_stats(
-    since_minutes: int | None = Query(default=60),
-):
+    since_minutes: OptionalMinutesParam = 60,
+) -> RouteResponse:
     """도구별 호출 통계를 조회합니다.
 
     Args:
@@ -102,8 +114,8 @@ async def get_tool_stats(
         from antigravity_k.engine.audit_db import get_audit_db
 
         db = get_audit_db()
-        if not db._initialized:
-            return {"ok": False, "error": "AuditDb not initialized", "stats": []}
+        if not db.initialized:
+            return _error_response("AuditDb not initialized", stats=[])
 
         since_ms = None
         if since_minutes:
@@ -113,16 +125,16 @@ async def get_tool_stats(
 
         return {
             "ok": True,
-            "stats": stats,
+            "stats": cast(JsonValue, stats),
             "period_minutes": since_minutes,
         }
     except Exception as e:
         logger.exception("Tool stats query failed")
-        return {"ok": False, "error": str(e), "stats": []}
+        return _error_response(str(e), stats=[])
 
 
 @router.get("/deny-rules/status")
-async def get_deny_rules_status(directory: str | None = Query(default=None)):
+async def get_deny_rules_status(directory: OptionalTextParam = None) -> RouteResponse:
     """현재 deny 패턴 설치 상태를 확인합니다."""
     try:
         from antigravity_k.engine.claude_deny_patterns import (
@@ -136,16 +148,17 @@ async def get_deny_rules_status(directory: str | None = Query(default=None)):
 
         status = get_deny_rules_status(directory)
         if status:
-            return {"ok": True, "installed": True, **status.to_dict()}
+            status_payload = cast(dict[str, JsonValue], status.to_dict())
+            return {"ok": True, "installed": True, **status_payload}
         else:
             return {"ok": True, "installed": False}
     except Exception as e:
         logger.exception("Deny rules status check failed")
-        return {"ok": False, "error": str(e)}
+        return _error_response(str(e))
 
 
 @router.post("/deny-rules/install")
-async def install_deny_rules(directory: str | None = None):
+async def install_deny_rules(directory: str | None = None) -> RouteResponse:
     """Deny 패턴을 설치합니다."""
     try:
         from antigravity_k.engine.claude_deny_patterns import (
@@ -158,7 +171,8 @@ async def install_deny_rules(directory: str | None = None):
             directory = os.getcwd()
 
         report = _install(directory)
-        return {"ok": True, **report.to_dict()}
+        report_payload = cast(dict[str, JsonValue], report.to_dict())
+        return {"ok": True, **report_payload}
     except Exception as e:
         logger.exception("Deny rules installation failed")
-        return {"ok": False, "error": str(e)}
+        return _error_response(str(e))

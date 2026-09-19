@@ -37,10 +37,10 @@ class FastPathResult:
 class FastPathKernel:
     """Bypasses LLM orchestration loops for deterministic queries."""
 
-    def __init__(self, project_root: str | Path):
-        self.project_root = Path(project_root).resolve()
-        self.navigator = SymbolNavigator(self.project_root)
-        self.code_graph = IncrementalCodeGraph(self.project_root)
+    def __init__(self, project_root: str | Path) -> None:
+        self.project_root: Path = Path(project_root).resolve()
+        self.navigator: SymbolNavigator = SymbolNavigator(self.project_root)
+        self.code_graph: IncrementalCodeGraph = IncrementalCodeGraph(self.project_root)
 
     def try_execute(self, user_query: str) -> FastPathResult:
         """Attempt to resolve user query directly without invoking LLM."""

@@ -1,6 +1,6 @@
 ---
 name: antigravity-agent-memory
-description: Antigravity-K의 메모리 관리 가이드 — User.md/的记忆.md 구조, 하드리밋 관리, 월간 정리
+description: Ssak-Ai의 메모리 관리 가이드 — User.md/적기억.md 구조, 하드리밋 관리, 월간 정리
 version: "1.0.0"
 tags: [memory, user, management, hard-limit]
 triggers: ["메모리", "기억", "user.md", "memory.md"]
@@ -17,7 +17,7 @@ triggers: ["메모리", "기억", "user.md", "memory.md"]
 
 ### Memory.md (에이전트 기억) — 2,200자 한도
 - 세션 내 학습: 작업 패턴, 발견한 conventions, 피해야 할 것들
-- 프로젝트별 상태 추적: Antigravity-K 진행 상태, Wiki 구조 등
+- 프로젝트별 상태 추적: Ssak-Ai 진행 상태, Wiki 구조 등
 - **매월 1일 자동 검토 → 정리/압축**
 
 ### Memory Context Injection
@@ -65,7 +65,7 @@ memory: Wiki 외부 장기 기억
 ```yaml
 last_reviewed: 2026-06-01
 active_projects:
-  - Antigravity-K: Soul/Agent 구조 완성 중
+  - Ssak-Ai: Soul/Agent 구조 완성 중
   - Wiki: broken link audit 완료
 patterns: [한국어 응답, Cross-domain, 결론-근거-액션 순]
 pitfalls: [git merge 충돌 지속, tree 명령어 unavailable]

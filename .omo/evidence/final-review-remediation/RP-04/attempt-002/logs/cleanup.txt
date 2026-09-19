@@ -1,0 +1,11 @@
+git worktree remove --force /tmp/ssak-rp04-red.YVY86s/source
+rmdir /tmp/ssak-rp04-red.YVY86s
+
+Remaining worktrees after cleanup:
+worktree /Users/mr.k/program/coding/ssak_comp/Ssak-Ai
+HEAD 8794aaecabf5664a7ee560b104e0115d915aabb7
+
+worktree /private/tmp/ssak-rp01-head-5992
+HEAD 8794aaecabf5664a7ee560b104e0115d915aabb7
+
+The RP-01 worktree was pre-existing and outside RP-04 ownership.

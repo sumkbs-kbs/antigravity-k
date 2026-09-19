@@ -1,7 +1,6 @@
 import React from 'react';
 import { SearchResult } from './types';
 import SearchResultCard from './SearchResultCard';
-import EmptyState from './EmptyState';
 
 interface SearchTabProps {
   results: SearchResult[];

@@ -1,0 +1,2 @@
+91de1b84b1b0d340bb7e1ff3152533c4438c15c0d8514c4edae3240ad851f945  antigravity_k-0.1.0-py3-none-any.whl
+e4980e782a05395970f1c28b3f3e109aedd31acda799a23022ebda1f2c179315  antigravity_k-0.1.0.tar.gz

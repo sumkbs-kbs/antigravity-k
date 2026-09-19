@@ -5,9 +5,13 @@
  * of two selected snapshots from local history.
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import type { DiffOnMount } from '@monaco-editor/react';
+// CR-09: 스냅샷 diff도 로컬 Monaco/워커를 쓴다(CDN 로더 기본값 제거).
+import { configureLocalMonacoRuntime } from '../../utils/monacoRuntime';
+
+configureLocalMonacoRuntime();
 import { useLocalHistoryStore, type FileSnapshot } from '../../stores/localHistoryStore';
 
 /* ─── Custom Theme ─────────────────────────────────────────── */
@@ -45,27 +49,40 @@ function formatSnapshotLabel(snap: FileSnapshot): string {
 
 const SnapshotDiffView: React.FC = () => {
   const { compareIds, getSnapshotById, swapComparePair } = useLocalHistoryStore();
+  const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [mountedDiffEditor, setMountedDiffEditor] = useState<Parameters<DiffOnMount>[0] | null>(null);
 
-  const snapA = useMemo(() => getSnapshotById(compareIds[0]), [compareIds[0], getSnapshotById]);
-  const snapB = useMemo(() => getSnapshotById(compareIds[1]), [compareIds[1], getSnapshotById]);
+  const compareIdA = compareIds[0];
+  const compareIdB = compareIds[1];
+  const snapA = useMemo(() => getSnapshotById(compareIdA), [compareIdA, getSnapshotById]);
+  const snapB = useMemo(() => getSnapshotById(compareIdB), [compareIdB, getSnapshotById]);
 
   const handleMount: DiffOnMount = useCallback((diffEditor, monaco) => {
+    setMountedDiffEditor(diffEditor);
     // Only define theme once
     const existing = monaco.editor.getTheme?.('snapshot-diff-theme');
     if (!existing) monaco.editor.defineTheme('snapshot-diff-theme', SNAPSHOT_DIFF_THEME);
     monaco.editor.setTheme('snapshot-diff-theme');
 
-    setTimeout(() => {
+    layoutTimerRef.current = setTimeout(() => {
       try { diffEditor?.layout?.(); } catch { /* ignore */ }
     }, 50);
 
-    const container = diffEditor.getContainerDomNode();
-    if (container) {
-      const observer = new ResizeObserver(() => {
-        try { diffEditor?.layout?.(); } catch { /* ignore */ }
-      });
-      observer.observe(container);
-    }
+  }, []);
+
+  useEffect(() => {
+    if (!mountedDiffEditor) return undefined;
+    const container = mountedDiffEditor.getContainerDomNode();
+    if (!container) return undefined;
+    const observer = new ResizeObserver(() => {
+      try { mountedDiffEditor.layout(); } catch { /* ignore */ }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [mountedDiffEditor]);
+
+  useEffect(() => () => {
+    if (layoutTimerRef.current !== null) clearTimeout(layoutTimerRef.current);
   }, []);
 
   if (!compareIds[0] && !compareIds[1]) {

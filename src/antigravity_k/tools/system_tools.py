@@ -3,13 +3,25 @@
 import logging
 import os
 import subprocess
-from typing import Any
+from typing import Any, Protocol, TypeAlias, cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
+ToolValue: TypeAlias = object
+ToolSchema: TypeAlias = dict[str, Any]  # pyright: ignore[reportExplicitAny]
 
+
+class _OrchestratorLike(Protocol):
+    def run_sync(self, messages: list[dict[str, object]], *, target_model: object) -> str: ...
+
+
+class _OrchestratorFactory(Protocol):
+    def __call__(self, *, model_manager: object) -> _OrchestratorLike: ...
+
+
+@final
 class ReadFileTool(BaseTool):
     """Readfiletool.
 
@@ -21,6 +33,9 @@ class ReadFileTool(BaseTool):
     risk_level = RiskLevel.SAFE
     icon = "📄"
     tags = ["file", "read", "io", "view"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the ReadFileTool."""
@@ -50,6 +65,7 @@ class ReadFileTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -60,6 +76,7 @@ class ReadFileTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -70,7 +87,8 @@ class ReadFileTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -79,7 +97,8 @@ class ReadFileTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -89,9 +108,9 @@ class ReadFileTool(BaseTool):
             Any: The any result.
 
         """
-        file_path = kwargs.get("file_path")
-        start_line = kwargs.get("start_line")
-        end_line = kwargs.get("end_line")
+        file_path = cast(str | os.PathLike[str] | None, kwargs.get("file_path"))
+        start_line = cast(int | None, kwargs.get("start_line"))
+        end_line = cast(int | None, kwargs.get("end_line"))
 
         if not file_path or not os.path.exists(file_path):
             return f"Error: File not found at {file_path}"
@@ -124,6 +143,7 @@ class ReadFileTool(BaseTool):
             return f"Error reading file: {e}"
 
 
+@final
 class ReplaceFileContentTool(BaseTool):
     """Replacefilecontenttool.
 
@@ -135,6 +155,9 @@ class ReplaceFileContentTool(BaseTool):
     risk_level = RiskLevel.LOW
     icon = "✏️"
     tags = ["file", "write", "edit"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the ReplaceFileContentTool."""
@@ -161,6 +184,7 @@ class ReplaceFileContentTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -171,6 +195,7 @@ class ReplaceFileContentTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -181,7 +206,8 @@ class ReplaceFileContentTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -190,7 +216,8 @@ class ReplaceFileContentTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -200,9 +227,9 @@ class ReplaceFileContentTool(BaseTool):
             Any: The any result.
 
         """
-        file_path = kwargs.get("file_path")
-        target_text = kwargs.get("target_text", "")
-        replacement_text = kwargs.get("replacement_text", "")
+        file_path = cast(str | os.PathLike[str] | None, kwargs.get("file_path"))
+        target_text = cast(str, kwargs.get("target_text", ""))
+        replacement_text = cast(str, kwargs.get("replacement_text", ""))
 
         if not file_path:
             return "Error: No file_path provided."
@@ -219,7 +246,7 @@ class ReplaceFileContentTool(BaseTool):
             new_content = content.replace(target_text, replacement_text)
 
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+                _ = f.write(new_content)
 
             return f"Successfully updated {file_path}."
         except Exception as e:
@@ -227,6 +254,7 @@ class ReplaceFileContentTool(BaseTool):
             return f"Error replacing content: {e}"
 
 
+@final
 class RunBashCommandTool(BaseTool):
     """Runbashcommandtool.
 
@@ -238,6 +266,10 @@ class RunBashCommandTool(BaseTool):
     risk_level = RiskLevel.HIGH
     icon = "⚡"
     tags = ["shell", "command", "bash", "exec"]
+    _execution_permit: object
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the RunBashCommandTool."""
@@ -254,11 +286,16 @@ class RunBashCommandTool(BaseTool):
                     "type": "string",
                     "description": "The shell command to execute.",
                 },
+                "cwd": {
+                    "type": "string",
+                    "description": "Absolute project working directory (injected by tool runtime).",
+                },
             },
             "required": ["command"],
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -269,6 +306,7 @@ class RunBashCommandTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -279,7 +317,8 @@ class RunBashCommandTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -288,7 +327,8 @@ class RunBashCommandTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -298,7 +338,7 @@ class RunBashCommandTool(BaseTool):
             Any: The any result.
 
         """
-        command = kwargs.get("command")
+        command = cast(str, kwargs.get("command", ""))
         if not command:
             return "Error: No command provided."
 
@@ -308,61 +348,62 @@ class RunBashCommandTool(BaseTool):
         logger.info("Executing approved command: %s", command)
 
         try:
-            from ..engine.provider_manager import get_provider_manager
+            # WS-02: explicit project cwd (rewritten by ToolRegistry); never ambient process cwd.
+            from .tool_path import effective_project_root
 
-            pm = get_provider_manager()
-            env_vars = os.environ.copy()
-            env_vars.update(pm.get_provider_env())
+            raw_cwd = kwargs.get("cwd")
+            cwd = str(raw_cwd) if isinstance(raw_cwd, str) and raw_cwd.strip() else effective_project_root()
 
-            # P2-1: 샌드박스 적용 — config의 sandbox_enabled가 true면 OS 수준 격리
-            sandbox_result = self._run_with_sandbox(command, env_vars)
-            if sandbox_result is not None:
-                return sandbox_result
-
-            # 폴백: 일반 subprocess (샌드박스 비활성화 시)
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                env=env_vars,
-            )
-            output = result.stdout
-            if result.stderr:
-                output += f"\nSTDERR:\n{result.stderr}"
-            # Surface a non-zero exit code so the model can definitively detect failure
-            # and trigger a correction — inferring it from stderr content is unreliable.
-            if result.returncode != 0:
-                output = f"[exit_code={result.returncode}]\n" + output
-            return output if output else "Command executed successfully with no output."
+            # FR-02/RP-02: 모델 제공 shell 명령은 항상 OS sandbox에서 실행한다.
+            # sandbox를 보장할 수 없으면 명령을 거부하며 raw host 실행이 없다.
+            return self._run_with_sandbox(command, cwd=cwd)
         except subprocess.TimeoutExpired:
             return "Error: Command timed out after 60 seconds."
         except Exception as e:
             logger.exception("Unhandled exception")
             return f"Error executing command: {e}"
 
-    def _run_with_sandbox(self, command: str, env_vars: dict[str, str]) -> str | None:
-        """샌드박스가 활성화된 경우 SandboxRunner로 실행 (P2-1).
+    def _run_with_sandbox(
+        self,
+        command: str,
+        *,
+        cwd: str | None = None,
+    ) -> str:
+        """모델 제공 shell 명령을 OS sandbox로 실행하거나 거부한다 (P2-1, FR-02/RP-02).
 
         Returns:
-            결과 문자열 (샌드박스 적용 시), None (비활성화 시 — 호출자가 폴백)
+            결과 문자열. sandbox 비활성/백엔드 부재는 거부 오류 문자열이며
+            raw host 실행 폴백은 존재하지 않는다.
         """
         try:
             from ..config import config as app_config
-            from ..engine.sandbox import SandboxRunner
+            from ..engine.sandbox import SandboxRunner, _minimal_child_env
+            from .tool_path import effective_project_root
 
             sandbox_enabled = getattr(app_config.security, "sandbox_enabled", False)
             if not sandbox_enabled:
-                return None  # 샌드박스 비활성 — 폴백
+                return (
+                    "Error: run_bash_command requires an enabled OS sandbox "
+                    "(security.sandbox_enabled=true); raw host execution is disabled."
+                )
+
+            project_cwd = cwd or effective_project_root(str(app_config.paths.project_root))
+            from ..engine.sandbox import _python_runtime_read_paths
 
             runner = SandboxRunner(
-                project_root=str(app_config.paths.project_root),
+                project_root=project_cwd,
                 enabled=True,
                 network=getattr(app_config.security, "sandbox_network", "none"),
                 timeout=60,
+                # FR-02: 사용자 트리/공유 임시 디렉토리 읽기와 root 밖 쓰기를 차단한다.
+                restrict_reads=True,
+                read_allow_paths=[project_cwd, *_python_runtime_read_paths()],
             )
-            result = runner.execute(command, env=env_vars)
+            # 최소 자식 환경: 부모 os.environ/provider 시크릿을 상속하지 않는다.
+            child_env = _minimal_child_env(runner.project_root)
+            result = runner.execute(command, env=child_env, cwd=project_cwd)
+            if not result.sandboxed:
+                return "Error: sandbox could not be applied; raw host execution is disabled."
             output = result.stdout
             if result.stderr:
                 output += f"\nSTDERR:\n{result.stderr}"
@@ -371,13 +412,13 @@ class RunBashCommandTool(BaseTool):
             if not result.success:
                 output_part = result.error or result.stderr or "Sandbox execution failed."
                 return f"[exit_code={result.return_code}]\n{output_part}"
-            tag = " [sandboxed]" if result.sandboxed else ""
-            return (output if output else "Command executed successfully.") + tag
+            return (output if output else "Command executed successfully.") + " [sandboxed]"
         except Exception:
             logger.exception("Sandbox execution failed")
             return "Error: sandbox execution failed; raw execution is disabled."
 
 
+@final
 class ListDirectoryTool(BaseTool):
     """디렉토리 탐색 도구.
 
@@ -389,6 +430,9 @@ class ListDirectoryTool(BaseTool):
     risk_level = RiskLevel.SAFE
     icon = "📂"
     tags = ["directory", "list", "explore", "tree"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the ListDirectoryTool."""
@@ -421,6 +465,7 @@ class ListDirectoryTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -431,6 +476,7 @@ class ListDirectoryTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -441,7 +487,8 @@ class ListDirectoryTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -450,7 +497,8 @@ class ListDirectoryTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -460,9 +508,9 @@ class ListDirectoryTool(BaseTool):
             Any: The any result.
 
         """
-        path = kwargs.get("path", ".")
-        recursive = kwargs.get("recursive", False)
-        max_depth = kwargs.get("max_depth", 3)
+        path = cast(str, kwargs.get("path", "."))
+        recursive = cast(bool, kwargs.get("recursive", False))
+        max_depth = cast(int, kwargs.get("max_depth", 3))
 
         IGNORE = {
             ".git",
@@ -482,21 +530,22 @@ class ListDirectoryTool(BaseTool):
         if not os.path.isdir(path):
             return f"Error: '{path}' is not a directory."
 
-        def _format_size(size):
+        def _format_size(size: float) -> str:
             for unit in ["B", "KB", "MB", "GB"]:
                 if size < 1024:
                     return f"{size:.0f}{unit}"
                 size /= 1024
             return f"{size:.1f}TB"
 
-        def _list(dir_path, depth=0):
-            items = []
+        def _list(dir_path: str, depth: int = 0) -> list[str]:
+            items: list[str] = []
             try:
                 entries = sorted(os.listdir(dir_path))
             except PermissionError:
                 return [f"{'  ' * depth}[Permission denied]"]
 
-            dirs, files = [], []
+            dirs: list[str] = []
+            files: list[str] = []
             for e in entries:
                 if e in IGNORE or e.startswith("."):
                     continue
@@ -535,6 +584,7 @@ class ListDirectoryTool(BaseTool):
         return header + "\n".join(lines[:200])  # 최대 200항목
 
 
+@final
 class NaturalLanguageBashTool(BaseTool):
     """AiShell: Natural Language to Bash Command Tool.
 
@@ -547,6 +597,9 @@ class NaturalLanguageBashTool(BaseTool):
     risk_level = RiskLevel.MEDIUM
     icon = "🤖"
     tags = ["bash", "shell", "nlp", "aishell"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the NaturalLanguageBashTool."""
@@ -568,6 +621,7 @@ class NaturalLanguageBashTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -578,6 +632,7 @@ class NaturalLanguageBashTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -588,7 +643,8 @@ class NaturalLanguageBashTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -597,7 +653,8 @@ class NaturalLanguageBashTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -607,37 +664,35 @@ class NaturalLanguageBashTool(BaseTool):
             Any: The any result.
 
         """
-        intent = kwargs.get("intent")
+        intent = cast(str, kwargs.get("intent", ""))
         if not intent:
             return "Error: No intent provided."
 
         try:
             from ..engine.model_manager import ModelManager
-            from ..engine.orchestrator import OrchestratorAgent
 
             prompt = (
                 "Translate the following task to a macOS shell command. Users provide a text-query as input.\nProvide ONLY the"  # noqa: E501
-                "command in ONE LINE, with no explanation:\n\nOne-line command for: {intent}"
+                f"command in ONE LINE, with no explanation:\n\nOne-line command for: {intent}"
             )
 
             try:
-                # Use default ModelManager and Orchestrator
                 from ..engine.model_registry import ModelRegistry
 
                 model_manager = ModelManager(registry=ModelRegistry())
-                orchestrator = OrchestratorAgent(model_manager=model_manager)
+                orchestrator_module = cast(
+                    object,
+                    __import__(
+                        "antigravity_k.engine.orchestrator",
+                        fromlist=["OrchestratorAgent"],
+                    ),
+                )
+                module_dict = cast(dict[str, object], getattr(orchestrator_module, "__dict__", {}))
+                orchestrator_factory = cast(_OrchestratorFactory, module_dict["OrchestratorAgent"])
+                orchestrator = orchestrator_factory(model_manager=model_manager)
+                target_model = model_manager.get_target_for_role("natural_language_bash", default_role="coding")
 
-                try:
-                    registry = model_manager._registry
-                    if registry is not None:
-                        info = registry.list_models()
-                        target_model = info[0].name if info else "qwen3.6:latest"
-                    else:
-                        target_model = "qwen3.6:latest"
-                except Exception:
-                    target_model = "qwen3.6:latest"
-
-                messages = [{"role": "user", "content": prompt}]
+                messages: list[dict[str, object]] = [{"role": "user", "content": prompt}]
                 command = orchestrator.run_sync(messages, target_model=target_model).strip()
 
                 # Remove markdown code blocks if any
@@ -654,28 +709,8 @@ class NaturalLanguageBashTool(BaseTool):
 
             logger.info("AiShell translated '%s' -> `%s`", intent, command)
 
-            import os
-
-            from ..engine.provider_manager import get_provider_manager
-
-            # Now execute it
-            pm = get_provider_manager()
-            env_vars = os.environ.copy()
-            env_vars.update(pm.get_provider_env())
-
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                env=env_vars,
-            )
-            output = result.stdout
-            if result.stderr:
-                output += f"\nSTDERR:\n{result.stderr}"
-
-            return f"Executed Command: `{command}`\n\nOutput:\n{output if output else 'Success (no output).'}"
+            output = RunBashCommandTool()._run_with_sandbox(command)
+            return f"Executed Command: `{command}`\n\nOutput:\n{output}"
 
         except Exception as e:
             logger.exception("Unhandled exception")

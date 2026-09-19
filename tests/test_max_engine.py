@@ -9,18 +9,75 @@ Tests the full run() pipeline:
 - MAX_EXECUTE handler integration
 """
 
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from typing import cast
 from unittest.mock import MagicMock
 
 from antigravity_k.engine.max_engine import (
     MaxModeEngine,
+    MaxOrchestratorProtocol,
     MaxRunResult,
+    WorkerConfig,
     WorkerResult,
 )
+
+
+def _available_models(engine: MaxModeEngine) -> list[str]:
+    method = cast(Callable[[], list[str]], getattr(engine, "_get_available_models"))
+    return method()
+
+
+def _worker_configs(engine: MaxModeEngine, delegate_to: str, target_model: str) -> list[WorkerConfig]:
+    method = cast(Callable[[str, str], list[WorkerConfig]], getattr(engine, "_build_worker_configs"))
+    return method(delegate_to, target_model)
+
+
+def _worker_prompt(engine: MaxModeEngine, prompt: str, model: str, strategy: str, temperature: float) -> str:
+    method = cast(Callable[[str, str, str, float], str], getattr(engine, "_build_worker_prompt"))
+    return method(prompt, model, strategy, temperature)
+
+
+def _select_best(
+    engine: MaxModeEngine,
+    prompt: str,
+    results: list[WorkerResult],
+    delegate_to: str,
+    orchestrator: MaxOrchestratorProtocol | None,
+) -> int:
+    method = cast(
+        Callable[[str, list[WorkerResult], str, MaxOrchestratorProtocol | None], int], getattr(engine, "_select_best")
+    )
+    return method(prompt, results, delegate_to, orchestrator)
+
+
+def _format_trace(
+    engine: MaxModeEngine,
+    results: list[WorkerResult],
+    selected_idx: int,
+    configs: Sequence[Mapping[str, object]],
+) -> str:
+    method = cast(
+        Callable[[list[WorkerResult], int, Sequence[Mapping[str, object]]], str],
+        getattr(engine, "_format_trace"),
+    )
+    return method(results, selected_idx, configs)
+
+
+def _max_workers(engine: MaxModeEngine) -> int:
+    return cast(int, getattr(engine, "_max_workers"))
+
+
+def _max_handler(ctx: object, orchestrator: object) -> Iterator[str]:
+    from antigravity_k.engine import orchestrator_handlers
+
+    method = cast(Callable[[object, object], Iterator[str]], getattr(orchestrator_handlers, "max_execute_handler"))
+    return method(ctx, orchestrator)
+
 
 # ─── Helper: Mock Manager ────────────────────────────────────────
 
 
-def _make_mock_manager(models: list[str] | None = None, config: dict | None = None):
+def _make_mock_manager(config: dict[str, object] | None = None) -> MagicMock:
     """Mock ModelManager를 생성합니다."""
     mgr = MagicMock()
     mgr._loaded_models = None
@@ -29,17 +86,26 @@ def _make_mock_manager(models: list[str] | None = None, config: dict | None = No
     return mgr
 
 
-def _make_mock_orchestrator(manager=None, qa_response: str = "SELECTED: 1\nREASON: Best output"):
+def _make_mock_orchestrator(
+    manager: MagicMock | None = None,
+    qa_response: str = "SELECTED: 1\nREASON: Best output",
+) -> MagicMock:
     """Mock OrchestratorAgent를 생성합니다."""
     orch = MagicMock()
-    orch.manager = manager or _make_mock_manager()
 
     # Selector 호출 시 qa_response 반환
-    def mock_generate(prompt="", target="", max_tokens=256):
+    def mock_generate(prompt: str = "", target: str = "", max_tokens: int = 256, **kwargs: object) -> str:
+        _ = (prompt, target, max_tokens, kwargs)
         return qa_response
 
-    orch.manager.generate = mock_generate
-    orch._get_model_for_role = lambda role: "qa-model"
+    resolved_manager = manager if manager is not None else _make_mock_manager()
+    resolved_manager.generate = mock_generate
+    orch.manager = resolved_manager
+
+    def resolve_role(_role: str) -> str:
+        return "qa-model"
+
+    orch._get_model_for_role = resolve_role
     orch.project_root = "/tmp/test_project"
     return orch
 
@@ -122,9 +188,9 @@ class TestWorkerConfigBuilding:
         """1개 모델만 있으면 1개 워커만 생성되는지 검증."""
         mgr = _make_mock_manager()
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: ["model-a"]
+        setattr(engine, "_get_available_models", lambda: ["model-a"])
 
-        configs = engine._build_worker_configs("WORKER", "model-a")
+        configs = _worker_configs(engine, "WORKER", "model-a")
 
         assert len(configs) == 1
         assert configs[0]["model"] == "model-a"
@@ -134,9 +200,9 @@ class TestWorkerConfigBuilding:
         """2개 모델이 있으면 2개 워커가 생성되는지 검증."""
         mgr = _make_mock_manager()
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: ["model-a", "model-b"]
+        setattr(engine, "_get_available_models", lambda: ["model-a", "model-b"])
 
-        configs = engine._build_worker_configs("WORKER", "model-a")
+        configs = _worker_configs(engine, "WORKER", "model-a")
 
         assert len(configs) == 2
         assert configs[0]["model"] == "model-a"
@@ -148,9 +214,9 @@ class TestWorkerConfigBuilding:
         """3개 모델이 있으면 3개 워커가 생성되는지 검증."""
         mgr = _make_mock_manager()
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: ["model-a", "model-b", "model-c"]
+        setattr(engine, "_get_available_models", lambda: ["model-a", "model-b", "model-c"])
 
-        configs = engine._build_worker_configs("WORKER", "model-a")
+        configs = _worker_configs(engine, "WORKER", "model-a")
 
         assert len(configs) == 3
         assert configs[0]["strategy"] == "default"
@@ -160,26 +226,26 @@ class TestWorkerConfigBuilding:
     def test_no_manager_returns_empty(self):
         """model_manager 없으면 빈 리스트 반환."""
         engine = MaxModeEngine(None)
-        configs = engine._build_worker_configs("WORKER", "")
+        configs = _worker_configs(engine, "WORKER", "")
         assert configs == []
 
     def test_no_available_models_returns_empty(self):
         """가용 모델 없으면 빈 리스트 반환."""
         mgr = _make_mock_manager()
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: []
+        setattr(engine, "_get_available_models", lambda: cast(list[str], []))
 
-        configs = engine._build_worker_configs("WORKER", "")
+        configs = _worker_configs(engine, "WORKER", "")
         assert configs == []
 
     def test_max_workers_limits_configs(self):
         """set_max_workers(2)로 제한하면 2개만 생성되는지 검증."""
         mgr = _make_mock_manager()
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: ["a", "b", "c"]
+        setattr(engine, "_get_available_models", lambda: ["a", "b", "c"])
         engine.set_max_workers(2)
 
-        configs = engine._build_worker_configs("WORKER", "a")
+        configs = _worker_configs(engine, "WORKER", "a")
         assert len(configs) == 2
 
 
@@ -192,7 +258,8 @@ class TestWorkerPromptBuilding:
     def test_default_strategy(self):
         """default 전략이 정확성과 완전성을 강조하는지 검증."""
         engine = MaxModeEngine(None)
-        prompt = engine._build_worker_prompt(
+        prompt = _worker_prompt(
+            engine,
             "Create a function",
             "model-a",
             "default",
@@ -206,7 +273,8 @@ class TestWorkerPromptBuilding:
     def test_creative_strategy(self):
         """creative 전략이 창의적 접근을 강조하는지 검증."""
         engine = MaxModeEngine(None)
-        prompt = engine._build_worker_prompt(
+        prompt = _worker_prompt(
+            engine,
             "Refactor this code",
             "model-b",
             "creative",
@@ -220,7 +288,8 @@ class TestWorkerPromptBuilding:
     def test_safe_strategy(self):
         """safe 전략이 안전성과 안정성을 강조하는지 검증."""
         engine = MaxModeEngine(None)
-        prompt = engine._build_worker_prompt(
+        prompt = _worker_prompt(
+            engine,
             "Update dependency",
             "model-c",
             "safe",
@@ -234,7 +303,8 @@ class TestWorkerPromptBuilding:
     def test_balanced_strategy(self):
         """balanced 전략이 pragmatism과 quality의 균형을 강조하는지 검증."""
         engine = MaxModeEngine(None)
-        prompt = engine._build_worker_prompt(
+        prompt = _worker_prompt(
+            engine,
             "Design API",
             "model-d",
             "balanced",
@@ -246,7 +316,8 @@ class TestWorkerPromptBuilding:
     def test_unknown_strategy_falls_back_to_default(self):
         """알 수 없는 전략이 default로 폴백되는지 검증."""
         engine = MaxModeEngine(None)
-        prompt = engine._build_worker_prompt(
+        prompt = _worker_prompt(
+            engine,
             "Do task",
             "model-e",
             "unknown_strategy",
@@ -267,7 +338,8 @@ class TestSelectorLogic:
     def test_single_result_returns_0(self):
         """결과가 1개면 Selector 없이 바로 0 반환."""
         engine = MaxModeEngine(None)
-        result = engine._select_best(
+        result = _select_best(
+            engine,
             "task",
             [WorkerResult(0, "a", "default", "output", 1.0)],
             "WORKER",
@@ -285,8 +357,34 @@ class TestSelectorLogic:
             WorkerResult(0, "a", "default", "short", 1.0),
             WorkerResult(1, "b", "creative", "longer complete solution", 2.0),
         ]
-        selected = engine._select_best("task", results, "WORKER", orch)
+        selected = _select_best(engine, "task", results, "WORKER", orch)
         assert selected == 1  # 1-based SELECTED:2 → 0-based 1
+
+    def test_selector_parses_json_response(self):
+        """JSON 모드 응답({"selected": N})을 1차 파싱 경로로 처리한다."""
+        mgr = _make_mock_manager()
+        orch = _make_mock_orchestrator(mgr, '{"selected": 2, "reason": "more complete"}')
+        engine = MaxModeEngine(mgr)
+
+        results = [
+            WorkerResult(0, "a", "default", "short", 1.0),
+            WorkerResult(1, "b", "creative", "longer complete solution", 2.0),
+        ]
+        selected = _select_best(engine, "task", results, "WORKER", orch)
+        assert selected == 1
+
+    def test_selector_json_out_of_range_falls_back(self):
+        """JSON의 selected가 범위 밖이면 후보 1번으로 폴백한다."""
+        mgr = _make_mock_manager()
+        orch = _make_mock_orchestrator(mgr, '{"selected": 99, "reason": "bad"}')
+        engine = MaxModeEngine(mgr)
+
+        results = [
+            WorkerResult(0, "a", "default", "short", 1.0),
+            WorkerResult(1, "b", "creative", "longer complete solution", 2.0),
+        ]
+        selected = _select_best(engine, "task", results, "WORKER", orch)
+        assert selected == 0
 
     def test_selector_fallback_on_parse_failure(self):
         """Selector 파싱 실패 시 첫 번째 결과로 폴백되는지 검증."""
@@ -298,14 +396,15 @@ class TestSelectorLogic:
             WorkerResult(0, "a", "default", "out1", 1.0),
             WorkerResult(1, "b", "creative", "out2", 2.0),
         ]
-        selected = engine._select_best("task", results, "WORKER", orch)
+        selected = _select_best(engine, "task", results, "WORKER", orch)
         assert selected == 0  # fallback to first
 
     def test_selector_fallback_on_exception(self):
         """Selector 예외 발생 시 첫 번째 결과로 폴백되는지 검증."""
         mgr = _make_mock_manager()
 
-        def broken_generate(prompt="", target="", max_tokens=256):
+        def broken_generate(prompt: str = "", target: str = "", max_tokens: int = 256) -> str:
+            _ = (prompt, target, max_tokens)
             raise RuntimeError("API failure")
 
         mgr.generate = broken_generate
@@ -316,7 +415,7 @@ class TestSelectorLogic:
             WorkerResult(0, "a", "default", "out1", 1.0),
             WorkerResult(1, "b", "creative", "out2", 2.0),
         ]
-        selected = engine._select_best("task", results, "WORKER", orch)
+        selected = _select_best(engine, "task", results, "WORKER", orch)
         assert selected == 0  # fallback to first
 
     def test_selector_out_of_range_fallback(self):
@@ -328,7 +427,7 @@ class TestSelectorLogic:
         results = [
             WorkerResult(0, "a", "default", "out1", 1.0),
         ]
-        selected = engine._select_best("task", results, "WORKER", orch)
+        selected = _select_best(engine, "task", results, "WORKER", orch)
         assert selected == 0  # out of range → fallback to 0
 
 
@@ -344,7 +443,7 @@ class TestAvailableModels:
         mgr._loaded_models = {"model-a": {}, "model-b": {}, "model-c": {}}
         engine = MaxModeEngine(mgr)
 
-        models = engine._get_available_models()
+        models = _available_models(engine)
         assert "model-a" in models
         assert "model-b" in models
         assert "model-c" in models
@@ -355,7 +454,7 @@ class TestAvailableModels:
         mgr.loaded_models = [{"name": "model-x"}, {"name": "model-y"}]
         engine = MaxModeEngine(mgr)
 
-        models = engine._get_available_models()
+        models = _available_models(engine)
         assert "model-x" in models
         assert "model-y" in models
 
@@ -371,7 +470,7 @@ class TestAvailableModels:
         )
         engine = MaxModeEngine(mgr)
 
-        models = engine._get_available_models()
+        models = _available_models(engine)
         assert len(models) >= 2
         assert "llama3:70b" in models
 
@@ -380,7 +479,7 @@ class TestAvailableModels:
         mgr = _make_mock_manager(config={})
         engine = MaxModeEngine(mgr)
         # manager has no models and empty config
-        models = engine._get_available_models()
+        models = _available_models(engine)
         assert len(models) >= 1
 
     def test_respects_max_workers_limit(self):
@@ -390,7 +489,7 @@ class TestAvailableModels:
         engine = MaxModeEngine(mgr)
         engine.set_max_workers(3)
 
-        models = engine._get_available_models()
+        models = _available_models(engine)
         assert len(models) <= 3
 
 
@@ -405,14 +504,24 @@ class TestRunIntegration:
         mgr = _make_mock_manager()
         orch = _make_mock_orchestrator(mgr, "SELECTED: 2\nREASON: More complete")
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: ["model-a", "model-b"]
+        setattr(engine, "_get_available_models", lambda: ["model-a", "model-b"])
 
-        def mock_run_worker(worker_id, config, prompt, messages, task_type, delegate_to, max_steps, orchestrator):
+        def mock_run_worker(
+            worker_id: int,
+            config: WorkerConfig,
+            prompt: str,
+            messages: list[dict[str, str]],
+            task_type: str,
+            delegate_to: str,
+            max_steps: int,
+            orchestrator: MaxOrchestratorProtocol,
+        ) -> WorkerResult:
+            _ = (config, prompt, messages, task_type, delegate_to, max_steps, orchestrator)
             if worker_id == 0:
                 return WorkerResult(0, "model-a", "default", "short", 0.5)
             return WorkerResult(1, "model-b", "creative", "longer complete solution with details", 1.2)
 
-        engine._run_worker = mock_run_worker
+        setattr(engine, "_run_worker", mock_run_worker)
 
         result = engine.run(
             {
@@ -438,12 +547,22 @@ class TestRunIntegration:
         mgr = _make_mock_manager()
         orch = _make_mock_orchestrator(mgr, "SELECTED: 1")
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: ["model-a", "model-b"]
+        setattr(engine, "_get_available_models", lambda: ["model-a", "model-b"])
 
-        def mock_run_worker(worker_id, config, prompt, messages, task_type, delegate_to, max_steps, orchestrator):
+        def mock_run_worker(
+            worker_id: int,
+            config: WorkerConfig,
+            prompt: str,
+            messages: list[dict[str, str]],
+            task_type: str,
+            delegate_to: str,
+            max_steps: int,
+            orchestrator: MaxOrchestratorProtocol,
+        ) -> WorkerResult:
+            _ = (prompt, messages, task_type, delegate_to, max_steps, orchestrator)
             return WorkerResult(worker_id, config["model"], config["strategy"], "", 2.0, error="Worker crashed")
 
-        engine._run_worker = mock_run_worker
+        setattr(engine, "_run_worker", mock_run_worker)
 
         result = engine.run(
             {
@@ -495,7 +614,7 @@ class TestRunIntegration:
         mgr = _make_mock_manager()
         orch = _make_mock_orchestrator(mgr)
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: []
+        setattr(engine, "_get_available_models", lambda: cast(list[str], []))
 
         result = engine.run(
             {
@@ -513,17 +632,17 @@ class TestRunIntegration:
         mgr = _make_mock_manager()
         orch = _make_mock_orchestrator(mgr)
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: ["model-a", "model-b"]
+        setattr(engine, "_get_available_models", lambda: ["model-a", "model-b"])
 
         call_count = [0]
 
-        def mock_run_worker(*args, **kwargs):
+        def mock_run_worker(*_args: object, **_kwargs: object) -> WorkerResult:
             call_count[0] += 1
             if call_count[0] == 1:
                 raise RuntimeError("Worker thread crash")
             return WorkerResult(1, "model-b", "creative", "successful output", 1.0)
 
-        engine._run_worker = mock_run_worker
+        setattr(engine, "_run_worker", mock_run_worker)
 
         result = engine.run(
             {
@@ -543,19 +662,29 @@ class TestRunIntegration:
         mgr = _make_mock_manager()
         orch = _make_mock_orchestrator(mgr, "SELECTED: 1")
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: ["model-a"]
+        setattr(engine, "_get_available_models", lambda: ["model-a"])
 
         captured = {}
 
-        def mock_run_worker(worker_id, config, prompt, messages, task_type, delegate_to, max_steps, orchestrator):
+        def mock_run_worker(
+            worker_id: int,
+            config: WorkerConfig,
+            prompt: str,
+            messages: list[dict[str, str]],
+            task_type: str,
+            delegate_to: str,
+            max_steps: int,
+            orchestrator: MaxOrchestratorProtocol,
+        ) -> WorkerResult:
+            _ = (worker_id, config, messages, max_steps, orchestrator)
             captured["task_type"] = task_type
             captured["delegate_to"] = delegate_to
             captured["prompt"] = prompt
             return WorkerResult(0, "model-a", "default", "result", 0.5)
 
-        engine._run_worker = mock_run_worker
+        setattr(engine, "_run_worker", mock_run_worker)
 
-        engine.run(
+        _ = engine.run(
             {
                 "prompt": "Refactor auth",
                 "messages": [{"role": "user", "content": "Refactor auth module"}],
@@ -587,7 +716,7 @@ class TestFormatTrace:
         ]
         configs = [{"model": "a", "strategy": "default"}, {"model": "b", "strategy": "creative"}]
 
-        trace = engine._format_trace(results, 0, configs)
+        trace = _format_trace(engine, results, 0, configs)
 
         assert "MAX Mode" in trace
         assert "Worker 1" in trace
@@ -603,7 +732,7 @@ class TestFormatTrace:
         ]
         configs = [{"model": "a", "strategy": "default"}, {"model": "b", "strategy": "creative"}]
 
-        trace = engine._format_trace(results, 1, configs)
+        trace = _format_trace(engine, results, 1, configs)
 
         # Worker 2만 SELECTED — SELECTED 마커가 Worker 2 라인에 있는지 검증
         assert trace.count("SELECTED") == 1
@@ -620,19 +749,19 @@ class TestSetMaxWorkers:
         """set_max_workers(0)이 1로 클램핑되는지 검증."""
         engine = MaxModeEngine(None)
         engine.set_max_workers(0)
-        assert engine._max_workers == 1
+        assert _max_workers(engine) == 1
 
     def test_set_workers_clamps_to_max_8(self):
         """set_max_workers(999)가 8로 클램핑되는지 검증."""
         engine = MaxModeEngine(None)
         engine.set_max_workers(999)
-        assert engine._max_workers == 8
+        assert _max_workers(engine) == 8
 
     def test_set_workers_normal(self):
         """set_max_workers(5)가 정상 설정되는지 검증."""
         engine = MaxModeEngine(None)
         engine.set_max_workers(5)
-        assert engine._max_workers == 5
+        assert _max_workers(engine) == 5
 
 
 # ─── Error Handling / Edge Cases ───────────────────────────────
@@ -646,12 +775,12 @@ class TestEdgeCases:
         mgr = _make_mock_manager()
         orch = _make_mock_orchestrator(mgr)
         engine = MaxModeEngine(mgr)
-        engine._get_available_models = lambda: ["model-a"]
+        setattr(engine, "_get_available_models", lambda: ["model-a"])
 
-        def mock_run_worker(*args, **kwargs):
+        def mock_run_worker(*_args: object, **_kwargs: object) -> WorkerResult:
             return WorkerResult(0, "model-a", "default", "output", 0.3)
 
-        engine._run_worker = mock_run_worker
+        setattr(engine, "_run_worker", mock_run_worker)
 
         result = engine.run({}, orchestrator=orch)
         assert result.successful >= 0  # graceful handling
@@ -677,7 +806,6 @@ class TestMaxExecuteHandler:
 
     def test_handler_calls_max_engine_and_yields_result(self):
         """max_execute_handler가 MaxModeEngine.run()을 호출하고 결과를 yield하는지 검증."""
-        from antigravity_k.engine.orchestrator_handlers import max_execute_handler
         from antigravity_k.engine.state_graph import StateContext
 
         mgr = _make_mock_manager()
@@ -714,7 +842,7 @@ class TestMaxExecuteHandler:
         ctx.target_model = "model-a"
         ctx.rag_context = ""
 
-        chunks = list(max_execute_handler(ctx, orch))
+        chunks = list(_max_handler(ctx, orch))
 
         # MAX 모드 안내 메시지가 포함되어야 함
         assert any("MAX Mode" in c for c in chunks)
@@ -726,7 +854,6 @@ class TestMaxExecuteHandler:
 
     def test_handler_fallback_when_no_max_engine(self):
         """max_engine이 None일 때 싱글 에이전트로 fallback되는지 검증."""
-        from antigravity_k.engine.orchestrator_handlers import max_execute_handler
         from antigravity_k.engine.state_graph import StateContext
 
         # max_engine이 None인 orchestrator
@@ -744,10 +871,10 @@ class TestMaxExecuteHandler:
         ctx.refined_prompt = ""
         ctx.rag_context = ""
 
-        chunks = []
+        chunks: list[str] = []
         try:
-            for c in max_execute_handler(ctx, orch):
-                chunks.append(c)
+            for c in _max_handler(ctx, orch):
+                chunks.append(str(c))
         except Exception:
             pass
 
@@ -755,13 +882,13 @@ class TestMaxExecuteHandler:
 
     def test_handler_handles_engine_exception(self):
         """MaxModeEngine.run()에서 예외 발생 시 graceful 처리되는지 검증."""
-        from antigravity_k.engine.orchestrator_handlers import max_execute_handler
         from antigravity_k.engine.state_graph import StateContext
 
         mgr = _make_mock_manager()
         engine = MaxModeEngine(mgr)
 
-        def broken_run(task_spec, orchestrator=None):
+        def broken_run(task_spec: dict[str, object], orchestrator: object | None = None) -> MaxRunResult:
+            _ = (task_spec, orchestrator)
             raise RuntimeError("Engine crashed")
 
         engine.run = broken_run
@@ -781,10 +908,10 @@ class TestMaxExecuteHandler:
         ctx.refined_prompt = ""
         ctx.rag_context = ""
 
-        chunks = []
+        chunks: list[str] = []
         try:
-            for c in max_execute_handler(ctx, orch):
-                chunks.append(c)
+            for c in _max_handler(ctx, orch):
+                chunks.append(str(c))
         except Exception:
             pass
 

@@ -1,4 +1,4 @@
-"""Antigravity-K: External Brain E2E Integration Test.
+"""Ssak-Ai: External Brain E2E Integration Test.
 ==================================================
 ExternalBrainRouter의 엔드투엔드 위임 동작을 검증합니다.
 """
@@ -25,7 +25,7 @@ async def test_external_brain_e2e_delegation():
     ) as mock_send:
         mock_send.return_value = mock_response
 
-        CognitiveLoop(
+        _ = CognitiveLoop(
             project_root="/tmp",
             external_brain_router=router,
         )
