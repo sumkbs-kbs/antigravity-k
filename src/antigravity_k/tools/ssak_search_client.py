@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from antigravity_k.tools.egress_policy import safe_urlopen
+from antigravity_k.tools.search_auth import SEARCH_TOKEN_ENV, search_auth_headers
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "https://search-engine-api.pages.dev"
 
@@ -50,12 +55,22 @@ def search(
             "Content-Type": "application/json",
             "Accept": "application/json",
             "User-Agent": "SSAK-AI/1.0",
+            # 인증 게이트가 기본 closed 다 — 헤더가 없으면 401 이고 결과는 조용히 빈다.
+            **search_auth_headers(),
         },
         method="POST",
     )
     try:
         with safe_urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            logger.warning(
+                "Ssak-Search 인증 실패(HTTP %s) — %s 를 설정하세요",
+                error.code,
+                SEARCH_TOKEN_ENV,
+            )
+        return []
     except Exception:
         return []
     hits: list[SsakHit] = []

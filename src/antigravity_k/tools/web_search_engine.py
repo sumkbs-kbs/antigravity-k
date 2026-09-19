@@ -24,6 +24,7 @@ from httpcore._backends.auto import AutoBackend
 
 from .crawler_policy import LegalTermsPolicy, RobotsRateLimitPolicy
 from .egress_policy import validate_httpx_request, validate_httpx_request_async
+from .search_auth import SEARCH_TOKEN_ENV, search_auth_headers
 from .search_conflicts import source_conflict_sets
 from .search_quality_evaluator import (
     CitationEvaluationReport,
@@ -354,8 +355,20 @@ class WebSearchEngine:
                     "include_answer": False,
                     "include_raw_content": False,
                 },
+                headers=search_auth_headers(),
                 timeout=15.0,
             )
+            if response.status_code in (401, 403):
+                # 이 백엔드는 기본 모드에서 bearer를 요구한다. 조용히 []로 강등하면
+                # 모델은 "결과 없음"으로 읽고 원인을 알 수 없다(실제로 그랬다).
+                self._provider_failed("self_hosted")
+                logger.warning(
+                    "Self-hosted search 인증 실패(HTTP %s) — %s(또는 %s)를 설정하세요",
+                    response.status_code,
+                    SEARCH_TOKEN_ENV,
+                    f"{SEARCH_TOKEN_ENV}_FILE",
+                )
+                return []
             if response.status_code != 200:
                 self._provider_failed("self_hosted")
                 return []

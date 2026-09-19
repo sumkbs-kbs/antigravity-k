@@ -20,6 +20,7 @@ import httpx
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .egress_policy import validate_httpx_request
+from .search_auth import SEARCH_TOKEN_ENV, search_auth_headers
 from .web_search_cache import _generate_fallback_queries
 from .web_search_engine import WebSearchEngine
 from .web_search_models import SearchResult
@@ -462,8 +463,16 @@ class WebSearchTool(BaseTool):
                         "include_answer": True,
                         "include_raw_content": deep,
                     },
-                    headers={"Content-Type": "application/json"},
+                    # 같은 백엔드다 — 인증 헤더가 빠지면 기본 모드에서 항상 401이다.
+                    headers={"Content-Type": "application/json", **search_auth_headers()},
                 )
+                if resp.status_code in (401, 403):
+                    logger.warning(
+                        "Self-hosted search 인증 실패(HTTP %s) — %s 를 설정하세요",
+                        resp.status_code,
+                        SEARCH_TOKEN_ENV,
+                    )
+                    return []
                 if resp.status_code != 200:
                     return []
 
