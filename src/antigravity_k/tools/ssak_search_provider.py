@@ -25,15 +25,20 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
 import threading
+import time
 from collections import deque
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from antigravity_k.engine.tool_policy import mcp_server_policy_denial
+
+# 번들 배치는 store 한 곳이 소유한다(task 15). store 는 런타임만 import 하므로 순환이 없다.
+from antigravity_k.tools.ssak_bundle_store import BundleResolution, resolve_bundle
 
 if TYPE_CHECKING:  # pragma: no cover — 순환 import 방지(설정/런타임은 지연 import)
     from antigravity_k.tools.mcp_tool_result import MCPToolOutcome
@@ -47,7 +52,7 @@ SUPPORTED_MODES: frozenset[str] = frozenset({"bundled_stdio"})
 FALLBACK_POLICIES: frozenset[str] = frozenset({"legacy_on_transient", "none"})
 DEFAULT_MANIFEST_NAME = "ssak-search-manifest.json"
 MANIFEST_RELATIVE_DIR = "release"
-TRUSTED_ROOTS_ENV = "AGK_SEARCH_TRUSTED_ROOTS"
+# `TRUSTED_ROOTS_ENV` 는 아래에서 `ssak_search_trust` 로부터 재-export 된다(정의는 한 곳).
 
 # 일시적 장애: 대체(fallback)가 허용된다. `CIRCUIT_OPEN` 은 **반복된 transient 실패의 결과**이므로
 # 여기 포함한다(회로가 열려 있다는 사실 자체가 "지금은 번들이 못 한다"는 뜻이다).
@@ -64,8 +69,22 @@ TRANSIENT_ERROR_CODES: frozenset[str] = frozenset(
 )
 
 # 결정적인 실패: 대체 금지. 대체하면 사용자/설정의 **결정**이 조용히 뒤집힌다.
+#: 네트워크가 없어서 실패한 경우(task 15). **영구**로 분류한다: 재시도로 낫지 않고, legacy 로 대체해도
+#: 마찬가지로 네트워크가 필요하다 — 대체하면 사용자에게 "두 번 실패한 결과"만 보여준다.
+NETWORK_UNAVAILABLE = "NETWORK_UNAVAILABLE"
+
+#: 오프라인 판정의 명시적 스위치(검증 스크립트 `--offline-start` 와 시험이 쓴다).
+#: `1`/`true` = 네트워크 없음으로 취급, `0`/`false` = 있다고 취급, 비어 있으면 실제 probe.
+OFFLINE_ENV = "AGK_SEARCH_OFFLINE"
+
+#: 실제 probe 에 쓰는 대상·타임아웃. IP 로 두는 이유: DNS 실패와 "네트워크 없음"을 섞지 않기 위해서다.
+_NETWORK_PROBE_TARGET = ("1.1.1.1", 443)
+_NETWORK_PROBE_TIMEOUT_SECONDS = 0.6
+_NETWORK_PROBE_CACHE_SECONDS = 5.0
+
 PERMANENT_ERROR_CODES: frozenset[str] = frozenset(
     {
+        NETWORK_UNAVAILABLE,
         "POLICY_DENIED",
         "INVALID_ARGUMENT",
         "INVALID_TOOL_ARGS",
@@ -249,6 +268,39 @@ class SearchEvidence:
         }
 
 
+_network_probe_cache: tuple[float, bool] | None = None
+
+
+def network_available(env: Mapping[str, str] | None = None, *, force_probe: bool = False) -> bool:
+    """네트워크가 있는가 — 짧은 TCP probe(결과는 몇 초간 캐시).
+
+    왜 필요한가(task 15): 오프라인에서 검색은 **실패한다**. 그때 "일시 장애"라고 말하면 사용자는
+    번들이 고장났다고 읽고 영원히 재시도한다. 사실은 "네트워크가 없다"이고, 그건 사용자가 고칠 수
+    있는 문제다. 그래서 실패가 transport/timeout 류일 때만 이 함수를 보고 코드를 바꿔 단다.
+
+    probe 대상이 IP 인 이유: DNS 실패를 "네트워크 없음"으로 단정하지 않기 위해서다.
+    """
+    global _network_probe_cache
+    source = env if env is not None else os.environ
+    raw = str(source.get(OFFLINE_ENV, "") or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return False
+    if raw in {"0", "false", "no", "off"}:
+        return True
+
+    now = time.monotonic()
+    cached = _network_probe_cache
+    if cached is not None and not force_probe and now - cached[0] < _NETWORK_PROBE_CACHE_SECONDS:
+        return cached[1]
+    try:
+        with socket.create_connection(_NETWORK_PROBE_TARGET, timeout=_NETWORK_PROBE_TIMEOUT_SECONDS):
+            reachable = True
+    except OSError:
+        reachable = False
+    _network_probe_cache = (now, reachable)
+    return reachable
+
+
 def classify_error_code(code: str | None) -> str:
     """오류 코드를 ok/transient/permanent 로 분류한다(알 수 없는 코드는 **permanent**).
 
@@ -331,52 +383,56 @@ def _validate(section: Mapping[str, object]) -> str | None:
         return f"fallback must be one of {sorted(FALLBACK_POLICIES)}, got {fallback!r}"
     enabled = bool(_field(section, "enabled", False))
     if enabled and not _optional_text(_field(section, "artifact_path", None)):
-        return "enabled=true requires artifact_path (fail-closed: 어느 bytes 를 실행할지 모른다)"
+        # task 15: 명시 경로가 없어도 **설치 패키지 리소스가 있으면** 유효하다(그게 정상 설치의 모습니다).
+        # 어느 쪽도 없을 때만 "어느 bytes 를 실행할지 모른다"고 거절한다 — fail-closed 는 그대로다.
+        resolution = effective_bundle(section=section)
+        if not resolution.found:
+            return (
+                "enabled=true requires either artifact_path or a bundled artifact in the installation "
+                f"({resolution.reason})"
+            )
     return None
+
+
+def effective_bundle(
+    settings: SsakSearchSettings | None = None,
+    *,
+    section: Mapping[str, object] | None = None,
+) -> BundleResolution:
+    """실제로 실행될 번들 — 명시 설정 → 갱신 저장소의 현재 버전 → 설치 패키지 리소스.
+
+    화면·상태·검증 스크립트가 모두 이 함수를 쓴다: "어느 bytes 를 실행하는가"를 두 곳에서 따로
+    판단하면 한쪽만 알아채는 갈라짐이 생긴다.
+    """
+    if settings is None:
+        if section is not None:
+            settings = SsakSearchSettings(
+                artifact_path=_optional_text(_field(section, "artifact_path", None)),
+                manifest_path=_optional_text(_field(section, "manifest_path", None)),
+            )
+        else:
+            settings = settings_snapshot()
+    return resolve_bundle(settings.artifact_path, settings.manifest_path)
 
 
 # ── 신뢰 경로 ────────────────────────────────────────────────────────────────
 
 
-def extra_trusted_roots(env: Mapping[str, str] | None = None) -> tuple[str, ...]:
-    """`AGK_SEARCH_TRUSTED_ROOTS` (os.pathsep 구분). 운영자/시험이 추가하는 루트."""
-    source = env if env is not None else os.environ
-    raw = str(source.get(TRUSTED_ROOTS_ENV, "") or "")
-    return tuple(part.strip() for part in raw.split(os.pathsep) if part.strip())
+def bundle_status() -> dict[str, object]:
+    """설치 패키지·갱신 저장소의 번들 상황(상태 화면·검증 스크립트용). 지연 import 로 순환을 피한다."""
+    from antigravity_k.tools.ssak_bundle_store import bundle_status as _bundle_status
+
+    return _bundle_status()
 
 
-def trusted_roots(extra: Sequence[str] = ()) -> tuple[Path, ...]:
-    """artifact 가 있을 수 있는 루트들: 설치된 패키지 루트 · 사용자 데이터 디렉터리 · 명시 루트."""
-    roots: list[Path] = []
-    for candidate in (
-        Path(__file__).resolve().parents[3],  # 설치/개발 트리 루트
-        Path.home() / ".antigravity-k",
-        *(Path(item) for item in extra),
-    ):
-        try:
-            resolved = candidate.expanduser().resolve()
-        except OSError:  # pragma: no cover — 해석 불가 경로는 신뢰하지 않는다
-            continue
-        if resolved not in roots:
-            roots.append(resolved)
-    return tuple(roots)
-
-
-def is_trusted_artifact_path(path: str | os.PathLike[str] | None, extra: Sequence[str] = ()) -> bool:
-    """`path`(심볼릭 링크 해석 후)가 신뢰된 루트 안에 있는가."""
-    if path is None:
-        return False
-    try:
-        candidate = Path(path).expanduser()
-        if not candidate.is_absolute():
-            return False
-        resolved = candidate.resolve()
-    except OSError:  # pragma: no cover
-        return False
-    for root in trusted_roots(extra):
-        if resolved == root or root in resolved.parents:
-            return True
-    return False
+# 신뢰 규칙은 별도 모듈 한 곳에 있다 — provider 와 bundle store 가 같은 문장을 쓰게 하려는 것이다
+# (task 15: 두 곳에 복사했더니 순환 import 가 생기고 규칙이 갈라질 위험이 드러났다).
+from antigravity_k.tools.ssak_search_trust import (  # noqa: E402 — 아래 정의들과 함께 쓰인다
+    TRUSTED_ROOTS_ENV,
+    extra_trusted_roots,
+    is_trusted_artifact_path,
+    trusted_roots,
+)
 
 
 def resolve_manifest_path(artifact: str | os.PathLike[str] | None, explicit: str | None) -> Path | None:
@@ -412,9 +468,15 @@ def resolve_manifest_path(artifact: str | os.PathLike[str] | None, explicit: str
 def bundled_runtime_config(settings: SsakSearchSettings) -> SearchRuntimeConfig:
     from antigravity_k.tools.ssak_search_runtime import SearchRuntimeConfig
 
-    manifest = resolve_manifest_path(settings.artifact_path, settings.manifest_path)
+    # 명시 설정이 없으면 설치 패키지/갱신 저장소의 번들을 쓴다(task 15). 그래야 "정상 설치"에서
+    # 사용자가 경로를 적어 넣지 않아도 켜진 검색이 실제로 동작한다.
+    bundle = effective_bundle(settings)
+    artifact = settings.artifact_path or (str(bundle.layout.binary) if bundle.layout else None)
+    manifest = resolve_manifest_path(artifact, settings.manifest_path)
+    if manifest is None and bundle.layout is not None:
+        manifest = bundle.layout.manifest
     return SearchRuntimeConfig(
-        artifact_path=settings.artifact_path,
+        artifact_path=artifact,
         manifest_path=str(manifest) if manifest is not None else None,
         enabled=True,
         server_name=BUNDLED_SERVER_NAME,
@@ -681,9 +743,16 @@ def search_with_bundled_provider(
         return ProviderAttempt(
             False, False, settings.problem, error_code="INVALID_ARGUMENT", evidence=record_search_evidence(evidence)
         )
-    if not is_trusted_artifact_path(settings.artifact_path, settings.extra_trusted_roots):
+    # 신뢰 판정은 **실제로 실행할 바이트**를 본다. 명시 경로가 없으면 설치 패키지/갱신 저장소의
+    # 번들이 그 대상이다 — 예전에는 `settings.artifact_path`(None)만 보아서, 정상 설치(경로를 손으로
+    # 적지 않은 상태)의 모든 검색이 UNTRUSTED_ARTIFACT_PATH 로 거절됐다. 오프라인 실측이 이 결함을
+    # 드러냈다(E/task-15/artifacts/offline-api.txt).
+    resolved = effective_bundle(settings)
+    effective_artifact = settings.artifact_path or (str(resolved.layout.binary) if resolved.layout else None)
+    if not is_trusted_artifact_path(effective_artifact, settings.extra_trusted_roots):
         message = (
-            f"artifact_path is outside the trusted roots (set {TRUSTED_ROOTS_ENV} to add one): {settings.artifact_path}"
+            f"artifact is outside the trusted roots (set {TRUSTED_ROOTS_ENV} to add one): "
+            f"{effective_artifact or '<no bundle found>'}"
         )
         evidence = _refused_evidence(query, code="UNTRUSTED_ARTIFACT_PATH", message=message, settings=settings)
         return ProviderAttempt(
@@ -719,11 +788,29 @@ def search_with_bundled_provider(
     if is_error:
         code = getattr(outcome, "error_code", None)
         code_text = str(code) if code else None
+        offline = False
+        if classify_error_code(code_text) == "transient" and not network_available():
+            # child 를 먼저 부른다(오프라인에서도 캐시 응답은 정상 결과이므로 먼저 막지 않는다). 실패했고
+            # 네트워크도 없으면 그 사실을 **사실대로** 말한다 — "일시 장애"는 거짓 안내다.
+            code_text = NETWORK_UNAVAILABLE
+            offline = True
         evidence = _evidence_from_outcome(outcome, query=query, settings=settings, route="bundled (error)")
+        if offline:
+            evidence = replace(
+                evidence,
+                message=(
+                    f"{evidence.message} — 네트워크에 연결하지 못했습니다(오프라인): 번들·legacy 어느 쪽도 "
+                    "검색에는 네트워크가 필요합니다. 연결을 확인한 뒤 다시 시도하세요."
+                ),
+                error_code=NETWORK_UNAVAILABLE,
+                failure_class="permanent",
+            )
         return ProviderAttempt(
             False,
             classify_error_code(code_text) == "transient",
-            str(outcome),
+            # 오프라인이면 **사용자에게 설명하는 문장**을 쓴다 — child 의 raw 문자열(`ENOTFOUND`)만
+            # 보여주면 사용자는 그것이 "네트워크가 없다"는 뜻임을 알 수 없다.
+            evidence.message if offline else str(outcome),
             error_code=code_text or "UNKNOWN_ERROR",
             evidence=record_search_evidence(evidence),
         )
@@ -741,6 +828,8 @@ __all__ = [
     "BUNDLED_TOOL_NAME",
     "DEFAULT_MANIFEST_NAME",
     "EVIDENCE_HISTORY_LIMIT",
+    "NETWORK_UNAVAILABLE",
+    "OFFLINE_ENV",
     "PERMANENT_ERROR_CODES",
     "SUPPORTED_MODES",
     "TRANSIENT_ERROR_CODES",
@@ -750,7 +839,10 @@ __all__ = [
     "SearchEvidence",
     "SearchSource",
     "SsakSearchSettings",
+    "bundle_status",
     "bundled_runtime_config",
+    "effective_bundle",
+    "network_available",
     "classify_error_code",
     "clear_search_evidence",
     "extra_trusted_roots",

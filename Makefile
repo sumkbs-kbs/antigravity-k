@@ -93,6 +93,12 @@ ga-gate-list: ## Validate and list commercial GA gates without executing them
 verify-clean-machine: ## 클린머신 재현 검증: HEAD 신규 익스포트 → uv sync(잠금강제) → CLI smoke → API E2E
 	bash scripts/verify_clean_machine.sh $(ARGS)
 
+vendor-ssak-bundle: ## W 릴리스에서 번들 artifact 를 패키지 데이터로 materialize (핀 검증)
+	$(PYTHON) scripts/vendor_ssak_bundle.py --from $(SSAK_BUNDLE_SOURCE)
+
+verify-ssak-bundle: ## 번들 검증: 설치본 handshake · 오프라인 시작 · 갱신/rollback (task 15 QA)
+	uv run --frozen python scripts/verify_ssak_bundle.py --offline-start --rollback-test $(ARGS)
+
 test-quick: ## Run fast tests (exclude slow/benchmark)
 	$(PYTHON) -m pytest tests/ -v --tb=short -m 'not slow and not benchmark'
 

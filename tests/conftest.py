@@ -213,3 +213,34 @@ def _sec01_test_auth_harness() -> Iterator[None]:
     # config 인스턴스는 프로세스 종료와 함께 버려지므로 복원 불필요.
     auth_routes_mod._token_service = None
     auth_routes_mod._pin_hash = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_ssak_bundle_locations() -> Iterator[None]:
+    """세션 전체: 번들 검색 artifact 의 **배치 위치**를 임시 디렉터리로 돌린다.
+
+    왜 필요한가(task 15): 이제 설치 패키지가 번들을 들고 있고, 갱신된 버전은 사용자 저장소
+    (`~/.antigravity-k/ssak_search`)에 산다. 격리가 없으면 다음 두 가지가 실제로 일어난다.
+
+    - 개발 트리에 vendored 바이트(64MB)가 있으면 `search.ssak.enabled=true` 인 시험이 **그 실물**을
+      실행한다(느리고, 시험 의도와 무관한 계약까지 함께 재게 된다).
+    - `~/.antigravity-k` 는 이미 신뢰 루트라, 개발자가 굴린 갱신 버전이 시험 결과를 바꾼다 — 시험이
+      공유 체크아웃/사용자 상태에 따라 달라지는 것은 task 14 에서 `.env` 로 실제로 겪은 실패다.
+
+    실물 경로를 재는 시험은 `AGK_SSAK_BUNDLE_DIR`/`AGK_SSAK_STORE_DIR` 를 직접 지정한다.
+    """
+    import tempfile
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="ssak-bundle-"))
+    orig = {key: os.environ.get(key) for key in ("AGK_SSAK_BUNDLE_DIR", "AGK_SSAK_STORE_DIR")}
+    os.environ["AGK_SSAK_BUNDLE_DIR"] = str(tmpdir / "package-bundle")
+    os.environ["AGK_SSAK_STORE_DIR"] = str(tmpdir / "store")
+    yield
+    for key, value in orig.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    import shutil
+
+    shutil.rmtree(tmpdir, ignore_errors=True)

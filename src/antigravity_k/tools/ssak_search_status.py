@@ -25,6 +25,7 @@ from antigravity_k.tools.ssak_search_provider import (
     EVIDENCE_HISTORY_LIMIT,
     SsakSearchSettings,
     bundled_runtime_config,
+    effective_bundle,
     is_trusted_artifact_path,
     latest_search_evidence,
     search_with_bundled_provider,
@@ -117,15 +118,25 @@ def _availability_for(settings: SsakSearchSettings, runtime: SsakSearchRuntime |
 
 def _settings_dict(settings: SsakSearchSettings) -> dict[str, object]:
     artifact = str(settings.artifact_path or "").strip()
+    # 명시 경로가 없어도 설치 패키지/갱신 저장소가 번들을 갖고 있으면 `configured` 이다 — "실행할
+    # artifact 가 정해져 있는가"가 이 필드의 의미이고, 그 판단은 store 한 곳에서 온다(task 15).
+    bundle = effective_bundle(settings)
+    layout = bundle.layout
+    name = artifact.rsplit("/", 1)[-1] if artifact else (layout.binary.name if layout else None)
     return {
         "enabled": settings.enabled,
         "mode": settings.mode,
         "mode_supported": settings.mode_supported,
         "fallback": settings.fallback,
-        "artifact_configured": bool(artifact),
+        "artifact_configured": bool(artifact) or layout is not None,
         # 경로 전체가 아니라 파일명 — 화면이 사용자 입력값을 다시 보여주는 자리는 설정 입력란이다.
-        "artifact_name": artifact.rsplit("/", 1)[-1] if artifact else None,
-        "artifact_trusted": is_trusted_artifact_path(settings.artifact_path, settings.extra_trusted_roots),
+        "artifact_name": name,
+        "artifact_trusted": is_trusted_artifact_path(
+            settings.artifact_path or (str(layout.binary) if layout else None), settings.extra_trusted_roots
+        ),
+        # 어느 출처의 바이트인가(explicit/store/package) + 갱신 버전 — 경로는 싣지 않는다.
+        "bundle_source": layout.source if layout else None,
+        "bundle_version": layout.version if layout else None,
         "problem": settings.problem,
     }
 
