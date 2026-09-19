@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "request_id": "req-3f9c1d2e-0003",
+  "status": "ok",
+  "data": {
+    "url": "https://nextjs.org/docs/app/api-reference/functions/revalidatePath",
+    "final_url": "https://nextjs.org/docs/app/api-reference/functions/revalidatePath",
+    "title": "revalidatePath",
+    "extract_depth": "full",
+    "markdown_content": "# revalidatePath\n\n`revalidatePath` allows you to purge cached data on-demand for a specific path.",
+    "structured_data": null,
+    "table_of_contents": ["revalidatePath", "Parameters", "Returns"],
+    "code_symbols": [
+      {
+        "heading": "revalidatePath(path)",
+        "code": "revalidatePath('/blog/[slug]', 'page')",
+        "language": "ts"
+      }
+    ],
+    "token_count": 742,
+    "tokenizer": "estimateTokens/v1",
+    "max_token_budget": 8000,
+    "extraction_tier": "TIER_1_STATIC",
+    "metadata": {
+      "published_time": null,
+      "author": null,
+      "content_type": "documentation",
+      "is_deprecated": false,
+      "freshness_warning": null,
+      "security_warning": null
+    },
+    "truncated": false,
+    "truncation": null,
+    "source_failures": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "ev-0003",
+      "requested_url": "https://nextjs.org/docs/app/api-reference/functions/revalidatePath",
+      "final_url": "https://nextjs.org/docs/app/api-reference/functions/revalidatePath",
+      "retrieved_at": "2026-09-18T11:23:02Z",
+      "title": "revalidatePath",
+      "publisher": "Vercel",
+      "published_date": null,
+      "extraction_tier": "TIER_1_STATIC",
+      "content": {
+        "locator": "#main-content > article",
+        "sha256": "911534534b11c9a64c0a9495c3af47940ba5969adc0b041cd743affe6d7a257d",
+        "bytes": 4310,
+        "token_count": 742,
+        "tokenizer": "estimateTokens/v1"
+      },
+      "truncated": false,
+      "truncation": null,
+      "artifact_ref": null
+    }
+  ],
+  "error": null,
+  "usage": {
+    "provider_calls": 1,
+    "content_tokens": 742,
+    "accounted": {
+      "json_framing_tokens": 28,
+      "evidence_overhead_tokens": 74
+    }
+  },
+  "timings": {
+    "total_ms": 612.4,
+    "queue_ms": 0.0,
+    "provider_ms": null,
+    "extract_ms": 588.0
+  },
+  "warnings": []
+}

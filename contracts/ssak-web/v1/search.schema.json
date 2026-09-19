@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ssak-ai.local/contracts/ssak-web/v1/search.schema.json",
+  "title": "ssak-web v1 search result",
+  "description": "ssak_search 결과. envelope의 공통 필드를 그대로 쓰고 data만 검색 payload로 좁힌다.",
+  "$ref": "envelope.schema.json",
+  "allOf": [
+    {
+      "properties": {
+        "data": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["query", "results", "signal_confidence", "source_failures"],
+          "properties": {
+            "query": { "type": "string", "minLength": 1 },
+            "results": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["title", "url", "snippet", "retrieval_score", "source"],
+                "properties": {
+                  "title": { "type": "string" },
+                  "url": { "type": "string", "minLength": 1 },
+                  "snippet": { "type": "string" },
+                  "retrieval_score": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "검색 랭킹 점수다. 문서가 사실인지에 대한 판정이 아니다."
+                  },
+                  "source": { "type": "string", "minLength": 1 },
+                  "authority_hint": {
+                    "type": ["boolean", "null"],
+                    "description": "출처 품질 힌트이며 정답 판정으로 쓰지 않는다."
+                  },
+                  "security_warning": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["code", "detail"],
+                        "properties": {
+                          "code": { "type": "string", "minLength": 1 },
+                          "detail": { "type": "string", "minLength": 1 }
+                        }
+                      },
+                      { "type": "null" }
+                    ]
+                  }
+                }
+              }
+            },
+            "signal_confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+            "decomposed_subqueries": {
+              "oneOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } }, { "type": "null" }]
+            },
+            "cached": { "type": "boolean" },
+            "cache_age_ms": { "type": ["integer", "null"], "minimum": 0 },
+            "phishing_filtered": { "type": ["integer", "null"], "minimum": 0 },
+            "source_failures": {
+              "type": "array",
+              "items": { "$ref": "envelope.schema.json#/$defs/source_failure" },
+              "description": "성공 소스가 0개면 status는 error/blocked 다. 실패 목록은 partial에서 필수nonempty."
+            },
+            "claim_verification": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["verified", "method", "checked_at"],
+                  "properties": {
+                    "verified": { "type": "boolean" },
+                    "method": { "type": "string", "minLength": 1 },
+                    "checked_at": { "type": "string", "format": "date-time" }
+                  },
+                  "description": "검증된 주장 일치 여부. 검증을 수행하지 않았으면 null이며 retrieval_score로 대체하지 않는다."
+                },
+                { "type": "null" }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

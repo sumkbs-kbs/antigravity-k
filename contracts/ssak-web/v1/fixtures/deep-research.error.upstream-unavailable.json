@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "request_id": "req-3f9c1d2e-0006",
+  "status": "error",
+  "data": {
+    "query": "규정집 2026 개정 이력",
+    "max_sources": 3,
+    "token_budget_per_source": 4000,
+    "sources": [],
+    "aggregated_context": null,
+    "source_failures": [
+      {
+        "source": "self_hosted:search",
+        "code": "UPSTREAM_UNAVAILABLE",
+        "retryable": true,
+        "detail": "검색 API 502"
+      },
+      {
+        "source": "duckduckgo",
+        "code": "TIMEOUT",
+        "retryable": true,
+        "detail": "6000ms 초과"
+      },
+      {
+        "source": "searxng",
+        "code": "UPSTREAM_UNAVAILABLE",
+        "retryable": true,
+        "detail": "설정된 SEARXNG_URL 응답이 검색 스키마와 불일치"
+      }
+    ]
+  },
+  "evidence": [],
+  "error": {
+    "code": "UPSTREAM_UNAVAILABLE",
+    "message": "성공한 소스가 0개라 딥리서치 결과를 만들지 않았다.",
+    "retryable": true,
+    "stage": "aggregate",
+    "detail": "3개 소스 전부 실패(모두 retryable=true)",
+    "suggested_action": "잠시 후 같은 query로 재시도한다. 부분 결과를 성공으로 보고하지 않는다."
+  },
+  "usage": {
+    "provider_calls": 3,
+    "content_tokens": null,
+    "accounted": {
+      "json_framing_tokens": null,
+      "evidence_overhead_tokens": null
+    }
+  },
+  "timings": {
+    "total_ms": 18422.9,
+    "queue_ms": 210.0,
+    "provider_ms": 18212.0,
+    "extract_ms": null
+  },
+  "warnings": ["usage.content_tokens 는 측정하지 못해 null 이다(0으로 위장하지 않음)"]
+}

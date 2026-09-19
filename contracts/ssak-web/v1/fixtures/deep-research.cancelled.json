@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "request_id": "req-3f9c1d2e-0005",
+  "status": "cancelled",
+  "data": {
+    "query": "2026 국내 전기차 보조금 개편",
+    "max_sources": 5,
+    "token_budget_per_source": 4000,
+    "sources": [
+      {
+        "url": "https://ev.or.kr/nportal/buySupprt/evSubsidy.do",
+        "title": "무공해차 통합누리집 — 보조금",
+        "evidence_id": "ev-0005",
+        "token_count": 3910,
+        "status": "ok"
+      }
+    ],
+    "aggregated_context": null,
+    "source_failures": [
+      {
+        "source": "self_hosted:extract",
+        "code": "INTERNAL_ERROR",
+        "retryable": true,
+        "detail": "2번째 소스 추출 중 호스트가 cancel_requested 를 관측하고 중단"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "evidence_id": "ev-0005",
+      "requested_url": "https://ev.or.kr/nportal/buySupprt/evSubsidy.do",
+      "final_url": "https://ev.or.kr/nportal/buySupprt/evSubsidy.do",
+      "retrieved_at": "2026-09-18T11:24:11Z",
+      "title": "무공해차 통합누리집 — 보조금",
+      "publisher": "한국환경산업기술원",
+      "published_date": null,
+      "extraction_tier": "TIER_1_STATIC",
+      "content": {
+        "locator": "#contents",
+        "sha256": "62298e9f431cf236b61894c731837fc7dc313a4ae5924021b3f86065f0dc2dfa",
+        "bytes": 15220,
+        "token_count": 3910,
+        "tokenizer": "estimateTokens/v1"
+      },
+      "truncated": false,
+      "truncation": null,
+      "artifact_ref": null
+    }
+  ],
+  "error": {
+    "code": "CANCELLED",
+    "message": "호스트가 취소를 요청했고, 실행기가 중단을 확인한 뒤 cancelled 로 보고했다.",
+    "retryable": false,
+    "stage": "execute",
+    "detail": "cancel_requested observed at source 2/5",
+    "suggested_action": "필요하면 새 request_id로 다시 호출한다. 이 결과를 ok로 승격하지 않는다."
+  },
+  "usage": {
+    "provider_calls": 2,
+    "content_tokens": 3910,
+    "accounted": {
+      "json_framing_tokens": 34,
+      "evidence_overhead_tokens": 88
+    }
+  },
+  "timings": {
+    "total_ms": 5320.7,
+    "queue_ms": 0.0,
+    "provider_ms": 5104.0,
+    "extract_ms": 180.2
+  },
+  "warnings": ["취소 시점까지 성공한 소스 1개는 증거로 보존했다(성공으로 보고하지 않음)"]
+}

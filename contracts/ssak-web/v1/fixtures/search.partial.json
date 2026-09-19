@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "request_id": "req-3f9c1d2e-0002",
+  "status": "partial",
+  "data": {
+    "query": "Next.js 15 server actions 공식 문서",
+    "results": [
+      {
+        "title": "Server Actions and Mutations",
+        "url": "https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions-and-mutations",
+        "snippet": "공식 문서: server actions 의 정의와 사용법.",
+        "retrieval_score": 0.91,
+        "source": "self_hosted",
+        "authority_hint": true,
+        "security_warning": null
+      }
+    ],
+    "signal_confidence": "MEDIUM",
+    "decomposed_subqueries": ["Next.js 15 server actions", "server actions 공식 문서"],
+    "cached": false,
+    "cache_age_ms": null,
+    "phishing_filtered": 0,
+    "source_failures": [
+      {
+        "source": "searxng",
+        "code": "UPSTREAM_UNAVAILABLE",
+        "retryable": true,
+        "detail": "SEARXNG_URL=http://localhost:8080 이 검색 엔진이 아닌 프로세스에 점유되어 응답이 스키마와 다름"
+      },
+      {
+        "source": "duckduckgo",
+        "code": "TIMEOUT",
+        "retryable": true,
+        "detail": "6000ms 안에 응답 없음"
+      }
+    ],
+    "claim_verification": null
+  },
+  "evidence": [
+    {
+      "evidence_id": "ev-0002",
+      "requested_url": "https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions-and-mutations",
+      "final_url": "https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions-and-mutations",
+      "retrieved_at": "2026-09-18T11:21:37Z",
+      "title": "Server Actions and Mutations",
+      "publisher": "Vercel",
+      "published_date": "2026-03-11",
+      "extraction_tier": "TIER_1_STATIC",
+      "content": {
+        "locator": "#main-content",
+        "sha256": "cb6dba4ed6a7dce923c946db4223179a11528995f986b3d7dfd8206efba089e5",
+        "bytes": 90211,
+        "token_count": 14120,
+        "tokenizer": "estimateTokens/v1"
+      },
+      "truncated": true,
+      "truncation": {
+        "reason": "max_token_budget=8000",
+        "omitted_tokens": 6120,
+        "original_tokens": 14120
+      },
+      "artifact_ref": null
+    }
+  ],
+  "error": null,
+  "usage": {
+    "provider_calls": 4,
+    "content_tokens": 8000,
+    "accounted": {
+      "json_framing_tokens": 63,
+      "evidence_overhead_tokens": 118
+    }
+  },
+  "timings": {
+    "total_ms": 2233.0,
+    "queue_ms": 12.5,
+    "provider_ms": 1810.0,
+    "extract_ms": 401.2
+  },
+  "warnings": ["2개 provider 실패 — 성공 소스 1개로 partial 반환"]
+}

@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ssak-ai.local/contracts/ssak-web/v1/extract.schema.json",
+  "title": "ssak-web v1 extract result",
+  "description": "ssak_extract 결과. depth/strip_links/section/budget 의미는 tier와 무관하게 같아야 한다(기준 계획 task 5).",
+  "$ref": "envelope.schema.json",
+  "allOf": [
+    {
+      "properties": {
+        "data": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": [
+            "url",
+            "final_url",
+            "extract_depth",
+            "token_count",
+            "tokenizer",
+            "extraction_tier",
+            "metadata",
+            "truncated",
+            "source_failures"
+          ],
+          "properties": {
+            "url": { "type": "string", "minLength": 1, "description": "요청한 URL(정규화 전 원문)." },
+            "final_url": { "type": "string", "minLength": 1, "description": "redirect 이후 실제로 읽은 URL." },
+            "title": { "type": ["string", "null"] },
+            "extract_depth": { "type": "string", "enum": ["summary", "full", "json_ld", "toc", "code"] },
+            "markdown_content": { "type": ["string", "null"] },
+            "structured_data": { "oneOf": [{ "type": "object" }, { "type": "null" }] },
+            "table_of_contents": {
+              "oneOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }]
+            },
+            "code_symbols": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["heading", "code"],
+                    "properties": {
+                      "heading": { "type": "string" },
+                      "code": { "type": "string" },
+                      "language": { "type": ["string", "null"] }
+                    }
+                  }
+                },
+                { "type": "null" }
+              ]
+            },
+            "token_count": { "type": "integer", "minimum": 0 },
+            "tokenizer": { "type": "string", "minLength": 1, "description": "token_count가 어느 tokenizer 기준인지 명시한다." },
+            "max_token_budget": { "type": ["integer", "null"], "minimum": 1 },
+            "extraction_tier": {
+              "type": "string",
+              "enum": ["TIER_1_STATIC", "TIER_2_JINA_PROXY", "TIER_3_STEALTH_SIDECAR", "UNKNOWN"]
+            },
+            "metadata": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["content_type"],
+              "properties": {
+                "published_time": { "type": ["string", "null"] },
+                "author": { "type": ["string", "null"] },
+                "content_type": {
+                  "type": "string",
+                  "enum": ["article", "documentation", "forum", "structured_json_ld", "unknown"]
+                },
+                "is_deprecated": { "type": ["boolean", "null"] },
+                "freshness_warning": { "type": ["string", "null"] },
+                "security_warning": { "type": ["string", "null"] }
+              }
+            },
+            "truncated": { "type": "boolean" },
+            "truncation": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["reason"],
+                  "properties": {
+                    "reason": { "type": "string", "minLength": 1 },
+                    "omitted_tokens": { "type": ["integer", "null"], "minimum": 0 },
+                    "original_tokens": { "type": ["integer", "null"], "minimum": 0 }
+                  }
+                },
+                { "type": "null" }
+              ]
+            },
+            "source_failures": {
+              "type": "array",
+              "items": { "$ref": "envelope.schema.json#/$defs/source_failure" },
+              "description": "tier 승격 과정에서 실패한 단계가 있으면 기록한다(예: TIER_2 Jina 404 뒤 TIER_3 성공 → status=partial)."
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "truncated": { "const": true } }, "required": ["truncated"] },
+              "then": { "required": ["truncation"] }
+            },
+            {
+              "if": { "properties": { "max_token_budget": { "type": "integer" } }, "required": ["max_token_budget"] },
+              "then": {
+                "properties": { "token_count": { "type": "integer", "minimum": 0 } },
+                "description": "token_count <= max_token_budget 는 소비자 테스트가 강제한다(스키마 산술은 구현별 차이가 있다)."
+              }
+            },
+            {
+              "if": {
+                "properties": { "extract_depth": { "const": "json_ld" } },
+                "required": ["extract_depth"]
+              },
+              "then": {
+                "properties": { "structured_data": { "type": "object" } },
+                "required": ["structured_data"],
+                "description": "json_ld depth 인데 structured_data 가 없으면 소비자는 빈 결과를 성공으로 읽는다."
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

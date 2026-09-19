@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"query\":\"삼성전자 2026 실적 발표\",\"took_ms\":1620,\"hits\":[{\"title\":\"삼성전자 실적발표 자료실\",\"url\":\"https://www.samsung.com/sec/ir/quarterly-results/\",\"snippet\":\"분기 실적 발표 자료와 컨퍼런스콜 녹취를 제공합니다.\",\"score\":0.93,\"source\":\"naver\",\"authority_boost\":true}],\"aborted_backends\":[\"bing\"],\"signal_confidence\":\"MEDIUM\",\"phishing_filtered\":2}"
+    }
+  ]
+}
