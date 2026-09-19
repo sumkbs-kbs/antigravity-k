@@ -137,7 +137,9 @@ def verify_bundled_artifact(
         return ArtifactVerdict(False, f"artifact is not executable: {artifact}")
 
     actual = _sha256_file(artifact)
-    if manifest_path is None:
+    # 빈 문자열은 "주지 않음"이다 — `Path("")` 는 `.` 이라 매니페스트로 읽히면 디렉터리를 연다
+    # (task 13 이 이 느슨한 비교를 실제로 밟았다).
+    if manifest_path is None or not str(manifest_path).strip():
         detail = "no manifest given, so the bytes cannot be pinned"
         if require_manifest:
             return ArtifactVerdict(False, f"{detail} — refusing to run an unpinned artifact", sha256=actual)

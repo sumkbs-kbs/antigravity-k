@@ -90,6 +90,17 @@ def _load_yaml_config() -> ConfigMap:
     return {str(key): cast(ConfigValue, value) for key, value in raw_data.items()}
 
 
+def _nested_settings_model(config_cls: type[BaseSettings], key: str) -> type[BaseSettings] | None:
+    """필드가 다른 BaseSettings 섹션인지 판단한다(`search.ssak` 처럼 중첩된 경우)."""
+    field = config_cls.model_fields.get(key)
+    if field is None:
+        return None
+    annotation = field.annotation
+    if isinstance(annotation, type) and issubclass(annotation, BaseSettings):
+        return annotation
+    return None
+
+
 def _section_overrides(
     raw_config: ConfigMap,
     section: str,
@@ -103,6 +114,20 @@ def _section_overrides(
     overrides: dict[str, object] = {}
     for key, value in section_data.items():
         if key not in config_cls.model_fields:
+            continue
+        nested_cls = _nested_settings_model(config_cls, key)
+        if nested_cls is not None and isinstance(value, dict):
+            # 중첩 섹션은 **한 단계 더** 걸러야 한다: yaml 값을 그대로 넘기면 환경변수가 진다
+            # (pydantic-settings 는 명시 인자를 환경보다 우선한다). 하위 키 중 환경변수가 있는 것은
+            # 빼야 "환경변수 > config.yaml" 이 규칙이 중첩에서도 유지된다.
+            nested_prefix = nested_cls.model_config.get("env_prefix", "")
+            nested_overrides = {
+                sub_key: sub_value
+                for sub_key, sub_value in value.items()
+                if f"{nested_prefix}{sub_key}".upper() not in os.environ
+            }
+            if nested_overrides:
+                overrides[key] = nested_overrides
             continue
         env_name = f"{env_prefix}{key}".upper()
         if env_name in os.environ:
@@ -391,6 +416,36 @@ class ComputerUseConfig(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_CU_")
 
 
+class SsakSearchConfig(BaseSettings):
+    """번들 ssak-search provider(단일 검색 경로) 설정 — task 13.
+
+    기본은 **꺼짐**이다: 켜기 전까지 기존 4-engine web_search 가 그대로 돈다. 기존 사용자 설정에
+    이 섹션이 없어도 default 로 채워지고(마이그레이션), 있는 값을 덮어쓰지 않는다.
+
+    - ``enabled``: 켜면 `web_search` 가 번들 provider 로 **한 번** 간다.
+    - ``mode``: 지금은 ``bundled_stdio`` 하나다(런타임이 child 를 소유).
+    - ``fallback``: ``legacy_on_transient`` = transient 실패에만 1회 legacy 로 대체.
+    - ``artifact_path``: 신뢰된 루트 아래의 번들 바이너리 경로(필수, fail-closed).
+    - ``manifest_path``: 비우면 artifact 옆 ``release/ssak-search-manifest.json`` 규약을 찾는다.
+    """
+
+    enabled: bool = Field(default=False, description="번들 ssak-search provider 사용(opt-in)")
+    mode: str = Field(default="bundled_stdio", description="검색 provider 모드")
+    fallback: str = Field(default="legacy_on_transient", description="번들 실패 시 대체 정책")
+    artifact_path: Path | None = Field(default=None, description="번들 바이너리 경로(신뢰된 루트 아래)")
+    manifest_path: Path | None = Field(default=None, description="artifact provenance 매니페스트 경로")
+
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_SEARCH_SSAK_")
+
+
+class SearchConfig(BaseSettings):
+    """검색 계층 설정(현재는 번들 provider 섹션 하나)."""
+
+    ssak: SsakSearchConfig = Field(default_factory=SsakSearchConfig)
+
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_SEARCH_")
+
+
 @final
 class AppConfig:
     """전체 애플리케이션 설정을 통합합니다."""
@@ -417,6 +472,9 @@ class AppConfig:
         )
         self.computer_use: ComputerUseConfig = _build_settings(
             ComputerUseConfig, _section_overrides(raw_config, "computer_use", ComputerUseConfig)
+        )
+        self.search: SearchConfig = _build_settings(
+            SearchConfig, _section_overrides(raw_config, "search", SearchConfig)
         )
 
     def ensure_directories(self):

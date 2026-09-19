@@ -574,6 +574,15 @@ cost:
 computer_use:
   enabled: true
   hitl_required: true
+# 검색 경로 (task 13). 기본은 꺼짐 — 켜기 전까지 기존 4-engine web_search 가 그대로 돈다.
+# 켜려면 artifact_path 를 신뢰된 루트 아래의 번들 바이너리 경로로 지정한다.
+search:
+  ssak:
+    enabled: false
+    mode: bundled_stdio
+    fallback: legacy_on_transient
+    artifact_path: null
+    manifest_path: null
 agent:
   default_entry: unified
   headroom: true

@@ -21,6 +21,7 @@ import httpx
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .egress_policy import validate_httpx_request
 from .search_auth import SEARCH_TOKEN_ENV, search_auth_headers
+from .ssak_search_provider import search_with_bundled_provider, settings_snapshot
 from .web_search_cache import _generate_fallback_queries
 from .web_search_engine import WebSearchEngine
 from .web_search_models import SearchResult
@@ -107,6 +108,8 @@ class WebSearchTool(BaseTool):
             "required": ["query"],
         }
         self.engine: WebSearchEngine = WebSearchEngine()
+        # 어느 경로가 이 호출을 처리했는가(진단/시험용). legacy 면 위 `_run_bundled_provider` 가 채운다.
+        self._last_route: str = "legacy (not evaluated)"
 
     @property
     @override
@@ -139,6 +142,11 @@ class WebSearchTool(BaseTool):
 
         # 1. 종목코드 검증
         query = self._validate_stock_codes(query)
+
+        # 2. 번들 provider 라우팅(opt-in, task 13) — 꺼져 있으면 None 이고 아래 기존 경로가 그대로 돈다.
+        bundled = self._run_bundled_provider(query)
+        if bundled is not None:
+            return bundled
 
         try:
             # 2. Multi-Engine 검색
@@ -175,6 +183,52 @@ class WebSearchTool(BaseTool):
         except (httpx.RequestError, json.JSONDecodeError, KeyError, IndexError) as e:
             logger.exception("Search pipeline error")
             return f"Search Error: {e}"
+
+    # ─── 1-b. 번들 provider 라우팅 (opt-in) ──────────────────────
+
+    def _run_bundled_provider(self, query: str) -> str | None:
+        """opt-in 이면 번들 provider 로 **한 번** 가고, 그 결과를 최종 문자열로 돌려준다.
+
+        반환값:
+          - 문자열 → 이 호출은 여기서 끝난다(성공 또는 **결정적** 실패 — legacy 를 돌리지 않는다).
+          - ``None`` → legacy 경로가 그대로 돈다(꺼져 있음, 또는 transient 실패로 ** 1회** 대체).
+
+        대체를 None 으로 표현하는 이유: 호출자에게 한 번만 돌아가라는 뜻이고, 그 한 번이 곧
+        "fallback 1회" 다. 결정적 실패(POLICY_DENIED/invalid/auth/설정 오류)에는 None 을 주지 않는다.
+        """
+        settings = settings_snapshot()
+        if not settings.enabled:
+            self._last_route = f"legacy ({settings.route_reason()})"
+            return None
+        if settings.problem or not settings.mode_supported:
+            # 켰는데 설정이 잘못됐다 — 조용히 legacy 로 돌리면 그 결정이 사라진다(fail-closed).
+            reason = settings.route_reason()
+            self._last_route = f"blocked ({reason})"
+            logger.error("번들 검색 설정이 올바르지 않습니다: %s", reason)
+            return f"Search Error: {reason}"
+
+        attempt = search_with_bundled_provider(query, max_results=self.max_results, settings=settings)
+        if attempt.ok:
+            self._last_route = f"bundled ({len(attempt.results)} hits)"
+            if not attempt.results:
+                return f"[웹 검색] '{query}' — 결과 없음"
+            # legacy 와 **같은 포맷터**를 쓴다 — 경로가 바뀌어도 답변 계약은 하나다.
+            return self._format_search_response(query, attempt.results, [attempt.engine])
+        if attempt.transient and settings.fallback_on_transient:
+            self._last_route = f"bundled→legacy (transient {attempt.error_code})"
+            logger.warning(
+                "번들 검색이 일시적으로 실패했습니다(%s) — legacy 로 1회 대체합니다: %s",
+                attempt.error_code,
+                attempt.message[:200],
+            )
+            return None
+        self._last_route = f"bundled failed ({attempt.error_code})"
+        logger.error(
+            "번들 검색이 실패했고 대체하지 않습니다(%s): %s",
+            attempt.error_code,
+            attempt.message[:200],
+        )
+        return f"Search Error: {attempt.message[:400]}"
 
     # ─── 1. 종목코드 검증 ─────────────────────────────────────────
 
