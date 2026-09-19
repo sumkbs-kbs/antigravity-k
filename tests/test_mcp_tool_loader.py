@@ -2,19 +2,38 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import cast
 from unittest import mock
 
+import pytest
+from mcp.types import (
+    BlobResourceContents,
+    CallToolResult,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+)
+
 import antigravity_k.tools.mcp_tool_loader as _loader
+from antigravity_k.engine.tool_executor import result_indicates_failure
+from antigravity_k.engine.tool_policy import (
+    ToolPolicy,
+    reset_tool_policy,
+    set_tool_policy,
+)
 from antigravity_k.tools.base_tool import RiskLevel
 from antigravity_k.tools.mcp_tool_loader import (
     MCPServerRegistry,
     MCPTool,
 )
+from antigravity_k.tools.mcp_tool_result import MCPToolOutcome
 
 
 def _annotations_to_dict(value: object) -> dict[str, object]:
@@ -51,6 +70,11 @@ def _transport_for(value: object) -> str:
 
 def _skill_servers() -> dict[str, dict[str, object]]:
     return cast(dict[str, dict[str, object]], getattr(MCPServerRegistry, "_skill_servers"))
+
+
+def _schema_problem(value: object) -> str | None:
+    function = cast(Callable[..., object], getattr(_loader, "_schema_problem"))
+    return cast(str | None, function(value))
 
 
 class _ModelDumpAnnotation:
@@ -491,3 +515,249 @@ class TestMCPTool:
             annotations={"destructiveHint": True},
         )
         assert tool.risk_level == RiskLevel.HIGH
+
+
+class TestSchemaProblem:
+    """inputSchema 계약 판정 — 위반은 조용히 넘기지 않는다."""
+
+    def test_empty_schema_is_accepted(self):
+        # 인자 없는 도구는 `{}` 로 오는 것이 정상이다(과잉 거절 금지).
+        assert _schema_problem({}) is None
+
+    def test_object_schema_is_accepted(self):
+        assert _schema_problem({"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]}) is None
+
+    def test_missing_schema_is_a_problem(self):
+        assert _schema_problem(None) is not None
+
+    def test_non_mapping_schema_is_a_problem(self):
+        assert _schema_problem(["not", "a", "mapping"]) is not None
+
+    def test_non_object_type_is_a_problem(self):
+        problem = _schema_problem({"type": "string"})
+        assert problem is not None and "object" in problem
+
+    def test_non_list_required_is_a_problem(self):
+        assert _schema_problem({"type": "object", "required": "q"}) is not None
+
+    def test_non_string_required_entries_are_a_problem(self):
+        assert _schema_problem({"type": "object", "required": [1, 2]}) is not None
+
+    def test_non_mapping_properties_is_a_problem(self):
+        assert _schema_problem({"type": "object", "properties": ["q"]}) is not None
+
+
+class TestMCPToolTypedOutcome:
+    """MCPTool.execute 는 CallToolResult 의 구조·오류를 typed 결과로 보존한다."""
+
+    @pytest.fixture
+    def loop(self) -> Iterator[asyncio.AbstractEventLoop]:
+        owned = asyncio.new_event_loop()
+        yield owned
+        owned.close()
+
+    def _tool(self, result: object, loop: asyncio.AbstractEventLoop, **kwargs: object) -> MCPTool:
+        client = mock.MagicMock()
+        client.call_tool = mock.AsyncMock(return_value=result)
+        return MCPTool(
+            name="ssak_search",
+            description="",
+            schema={"type": "object"},
+            mcp_client=client,
+            server_name="ssak",
+            transport="stdio",
+            session_loop=loop,
+            **kwargs,
+        )
+
+    def test_plain_text_is_returned_verbatim(self, loop: asyncio.AbstractEventLoop):
+        result = CallToolResult(content=[TextContent(type="text", text="hello")], isError=False)
+        outcome = self._tool(result, loop).execute(query="x")
+
+        assert isinstance(outcome, MCPToolOutcome)
+        assert str(outcome) == "hello"
+        assert outcome.is_error is False
+        assert outcome.error_code is None
+        assert outcome.partial is False
+        assert result_indicates_failure(outcome) is False
+
+    def test_is_error_is_typed_and_marked_in_text(self, loop: asyncio.AbstractEventLoop):
+        payload = {"error": {"code": "INVALID_TOOL_ARGS", "detail": "bad arg"}}
+        result = CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(payload))],
+            isError=True,
+        )
+        outcome = self._tool(result, loop).execute(query=1)
+
+        assert outcome.is_error is True
+        assert outcome.error_code == "INVALID_TOOL_ARGS"
+        assert result_indicates_failure(outcome) is True
+        text = str(outcome)
+        assert text.startswith("Error:")
+        assert '"code": "INVALID_TOOL_ARGS"' in text  # 원문 보존(개행·들여쓰기 무관)
+        # 문자열로 뭉개는 경로(레거시 분류)도 실패로 남는다 — 이중 안전장치.
+        assert result_indicates_failure(text) is True
+
+    def test_typed_flag_wins_even_without_error_marker(self, loop: asyncio.AbstractEventLoop):
+        # 서버가 오류 마커 없는 본문에 isError 만 실은 경우에도 성공으로 새지 않는다.
+        outcome = MCPToolOutcome("payload arrived fine", is_error=True, error_code="BOOM")
+        assert result_indicates_failure(outcome) is True
+        assert result_indicates_failure("payload arrived fine") is False
+
+    def test_structured_content_is_preserved(self, loop: asyncio.AbstractEventLoop):
+        result = CallToolResult(
+            content=[TextContent(type="text", text="summary")],
+            structuredContent={"status": "partial", "partial": True, "items": [1, 2]},
+            isError=False,
+        )
+        outcome = self._tool(result, loop).execute()
+
+        assert outcome.structured_content == {"status": "partial", "partial": True, "items": [1, 2]}
+        assert outcome.partial is True
+        text = str(outcome)
+        assert text.startswith("summary")
+        assert "[structuredContent]" in text
+        assert '"items"' in text
+        assert outcome.metadata()["partial"] is True
+
+    def test_media_blocks_are_preserved(self, loop: asyncio.AbstractEventLoop):
+        result = CallToolResult(
+            content=[
+                TextContent(type="text", text="bundle"),
+                ImageContent(type="image", data="QUJD", mimeType="image/png"),
+                EmbeddedResource(
+                    type="resource",
+                    resource=TextResourceContents(uri="fixture://n.txt", mimeType="text/plain", text="note body"),
+                ),
+                EmbeddedResource(
+                    type="resource",
+                    resource=BlobResourceContents(uri="fixture://b.bin", mimeType="application/pdf", blob="AAEC"),
+                ),
+                ResourceLink(type="resource_link", name="linked", uri="fixture://l.txt", mimeType="text/plain"),
+            ],
+            isError=False,
+        )
+        outcome = self._tool(result, loop).execute()
+
+        kinds = [block["type"] for block in outcome.blocks]
+        assert kinds == ["text", "image", "resource", "resource", "resource_link"]
+        assert outcome.blocks[1]["data"] == "QUJD"
+        assert outcome.blocks[1]["mimeType"] == "image/png"
+        assert outcome.blocks[2]["text"] == "note body"
+        assert outcome.blocks[3]["blob"] == "AAEC"
+        assert outcome.blocks[4]["uri"] == "fixture://l.txt"
+        text = str(outcome)
+        assert "bundle" in text
+        assert "note body" in text
+        assert "fixture://l.txt" in text  # AnyUrl 이 str 판정에서 사라지지 않는다
+        assert "[image: image/png" in text
+
+    def test_empty_content_falls_back_to_structured_dump(self, loop: asyncio.AbstractEventLoop):
+        # 종전에는 content 가 비면 결과 객체(pydantic repr)를 그대로 돌려줬다.
+        result = CallToolResult(content=[], isError=False)
+        outcome = self._tool(result, loop).execute()
+
+        assert isinstance(outcome, MCPToolOutcome)
+        assert "content" in str(outcome)
+        assert "CallToolResult" not in str(outcome)
+
+    def test_transport_failure_becomes_typed_error(self, loop: asyncio.AbstractEventLoop):
+        client = mock.MagicMock()
+        client.call_tool = mock.AsyncMock(side_effect=RuntimeError("broken pipe"))
+        tool = MCPTool(
+            name="ssak_search",
+            description="",
+            schema={},
+            mcp_client=client,
+            server_name="ssak",
+            transport="stdio",
+            session_loop=loop,
+        )
+        outcome = tool.execute(query="x")
+
+        assert isinstance(outcome, MCPToolOutcome)
+        assert outcome.is_error is True
+        assert outcome.error_code == "TRANSPORT_ERROR"
+        assert result_indicates_failure(outcome) is True
+        assert "broken pipe" in str(outcome)
+
+    def test_running_session_loop_is_refused_instead_of_hanging(self):
+        class _RunningLoop:
+            def is_running(self) -> bool:
+                return True
+
+        client = mock.MagicMock()
+        client.call_tool = mock.AsyncMock()
+        tool = MCPTool(
+            name="ssak_search",
+            description="",
+            schema={},
+            mcp_client=client,
+            server_name="ssak",
+            transport="stdio",
+            session_loop=cast(asyncio.AbstractEventLoop, _RunningLoop()),
+        )
+        outcome = tool.execute(query="x")
+
+        assert isinstance(outcome, MCPToolOutcome)
+        assert outcome.is_error is True
+        assert outcome.error_code == "CALL_LOOP_UNAVAILABLE"
+        assert client.call_tool.await_count == 0, "멈출 루프에 호출을 던졌다"
+
+    def test_request_policy_denial_blocks_before_the_server_call(self, loop: asyncio.AbstractEventLoop):
+        result = CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
+        tool = self._tool(result, loop)
+        client = tool._mcp_client
+
+        token = set_tool_policy(ToolPolicy(allowed_mcp_servers=frozenset({"other"})))
+        try:
+            outcome = tool.execute(query="x")
+        finally:
+            reset_tool_policy(token)
+
+        assert isinstance(outcome, MCPToolOutcome)
+        assert outcome.is_error is True
+        assert outcome.error_code == "POLICY_DENIED"
+        assert "[BLOCKED]" in str(outcome)
+        assert client.call_tool.await_count == 0, "허용되지 않은 서버로 호출이 나갔다"
+
+    def test_denied_tool_toggle_blocks_before_the_server_call(self, loop: asyncio.AbstractEventLoop):
+        result = CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
+        tool = self._tool(result, loop)
+
+        token = set_tool_policy(ToolPolicy(denied_tools=frozenset({"ssak_search"})))
+        try:
+            outcome = tool.execute(query="x")
+        finally:
+            reset_tool_policy(token)
+
+        assert outcome.is_error is True
+        assert outcome.error_code == "POLICY_DENIED"
+        assert tool._mcp_client.call_tool.await_count == 0
+
+    def test_loader_records_schema_violations_and_skips_those_tools(self):
+        """스키마 위반 도구는 등록하지 않고 이유를 남긴다(SDK 가 막지 못하는 경로)."""
+        good = mock.MagicMock()
+        good.name = "good"
+        good.description = "ok"
+        good.inputSchema = {"type": "object", "properties": {}}
+        good.annotations = None
+        bad = mock.MagicMock()
+        bad.name = "no_schema"
+        bad.description = "missing inputSchema"
+        bad.inputSchema = None
+        bad.input_schema = None
+        bad.annotations = None
+        listed = mock.MagicMock()
+        listed.tools = [good, bad]
+
+        session = mock.MagicMock()
+        session.list_tools = mock.AsyncMock(return_value=listed)
+
+        loader = _loader.MCPToolLoader(config_path=None, include_system_tools=False, load_skill_servers=False)
+        loader.session_manager.connect_server = mock.AsyncMock(return_value=session)
+
+        asyncio.run(loader._connect_and_load_servers({"srv": {"command": "x"}}, "test"))
+
+        assert [tool.name for tool in loader.tools] == ["good"]
+        assert loader.schema_errors == [{"server": "srv", "tool": "no_schema", "reason": "inputSchema 가 없다"}]

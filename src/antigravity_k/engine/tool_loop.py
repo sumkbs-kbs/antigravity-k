@@ -1985,7 +1985,9 @@ class ToolLoopEngine:
                         continue
                     executed_in_round += 1
 
-                    is_failed = _tool_result_failed(str(tool_result))
+                    # typed 결과(MCP isError 등)를 가진 객체를 그대로 넘긴다 — str() 로 감싸면
+                    # 기계 판독 플래그가 사라져 서버가 보고한 오류가 성공으로 집계된다.
+                    is_failed = _tool_result_failed(tool_result)
                     is_approval_required = (
                         "[APPROVAL REQUIRED]" in tool_result or "WAITING_FOR_USER_APPROVAL" in tool_result
                     )

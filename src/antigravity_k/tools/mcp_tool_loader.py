@@ -15,6 +15,7 @@ from antigravity_k.engine.mcp_health_cache import mcp_health_cache
 
 from .base_tool import BaseTool, RiskLevel, ToolCategory
 from .mcp_session_manager import MCPSessionManager
+from .mcp_tool_result import build_outcome, error_outcome
 from .system_tools import ReadFileTool, ReplaceFileContentTool, RunBashCommandTool
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,48 @@ def _as_float(value: object, default: float) -> float:
     return float(value) if isinstance(value, (int, float, str)) else default
 
 
+def _active_policy_denial(name: str, server_name: str) -> str | None:
+    """요청 단위 ToolPolicy 를 조회해 이 MCP 호출의 허용 여부를 판정한다.
+
+    규칙은 엔진 한 곳(`tool_executor.mcp_server_policy_denial`)에만 있다 — 여기서
+    다시 구현하면 두 벌로 갈라져 한쪽만 고쳐지는 우회가 생긴다.
+    """
+    try:
+        # 도구 계층 → 엔진 정책 모듈(잎) 방향 import: tool_executor 를 끌어오면 순환이 된다.
+        from antigravity_k.engine.tool_policy import mcp_server_policy_denial
+    except Exception:  # noqa: BLE001 — 정책 레이어가 없는 경량 실행(스크립트/CLI)에서는 통과
+        logger.debug("tool policy layer unavailable; MCP policy self-check skipped", exc_info=True)
+        return None
+    return mcp_server_policy_denial(name, server_name)
+
+
+def _schema_problem(schema: object) -> str | None:
+    """서버가 준 `inputSchema` 가 호출 가능한 형태인지 판정한다(스펙 위반은 오류).
+
+    종전에는 `inputSchema` 가 없으면 `{}` 로 대체해 **스키마 불일치를 숨기고** 도구를
+    등록했다 — 호스트의 사전 검증(required)도 무력해졌다. 여기서는 보수적으로 판정한다:
+    실제 서버들이 `{}`(인자 없음)와 `{"type": "object"}` 를 모두 보내므로 명백한
+    위반(누락·비객체·type != object·required/properties 타입 불일치)만 오류로 본다.
+    """
+    if schema is None:
+        return "inputSchema 가 없다"
+    if not isinstance(schema, Mapping):
+        return f"inputSchema 가 객체가 아니다({type(schema).__name__})"
+    mapping = cast(Mapping[str, object], schema)
+    declared_type = mapping.get("type")
+    if declared_type is not None and declared_type != "object":
+        return f"inputSchema type 이 'object' 가 아니다({declared_type!r})"
+    required = mapping.get("required")
+    if required is not None and not (
+        isinstance(required, list) and all(isinstance(item, str) for item in cast(list[object], required))
+    ):
+        return "inputSchema required 가 문자열 목록이 아니다"
+    properties = mapping.get("properties")
+    if properties is not None and not isinstance(properties, Mapping):
+        return "inputSchema properties 가 객체가 아니다"
+    return None
+
+
 @final
 class MCPTool(BaseTool):
     """MCP(Model Context Protocol) 리소스를 래핑하는 도구.
@@ -59,6 +102,7 @@ class MCPTool(BaseTool):
         transport: str = "stdio",
         annotations: Mapping[str, object] | None = None,
         server_policy: Mapping[str, object] | None = None,
+        session_loop: asyncio.AbstractEventLoop | None = None,
     ):
         """Initialize the MCPTool.
 
@@ -71,6 +115,8 @@ class MCPTool(BaseTool):
             transport (str): str transport.
             annotations (Mapping[str, Any] | None): Mapping[str, Any] | None annotations.
             server_policy (Mapping[str, Any] | None): Mapping[str, Any] | None server policy.
+            session_loop (asyncio.AbstractEventLoop | None): 세션을 만든 이벤트 루프.
+                anyio 스트림은 이 루프에 묶여 있어 다른 루프에서 부르면 응답이 오지 않는다.
 
         """
         self._name = name
@@ -79,6 +125,7 @@ class MCPTool(BaseTool):
         self._mcp_client = mcp_client
         self._server_name = server_name
         self._transport = transport
+        self._session_loop = session_loop
         self._annotations = dict(annotations or {})
         self._server_policy = dict(server_policy or {})
         self.category = ToolCategory.DATA
@@ -121,38 +168,87 @@ class MCPTool(BaseTool):
 
     @override
     def execute(self, **kwargs: object) -> object:
-        """Execute.
+        """도구를 실행하고 typed 결과를 반환한다.
 
-        Args:
-            **kwargs: kwargs.
-
-        Returns:
-            Any: The any result.
-
+        반환값은 `MCPToolOutcome`(str 하위)이라 문자열 소비자는 본문을 그대로 받고,
+        호스트는 `is_error`·`structured_content`·`blocks`·`partial` 을 직접 읽는다.
         """
         logger.info("Executing MCP Tool '%s' with args: %s", self._name, kwargs)
 
-        # Async MCP call wrapped synchronously
+        # 요청 단위 정책을 도구에서도 재확인한다(승인 실행 경로는 ToolExecutor.execute 의
+        # 정책 검사를 지나가지 않는다 — MCP 서버 허용 목록 우회 금지).
+        denial = _active_policy_denial(self._name, self._server_name)
+        if denial is not None:
+            logger.warning("MCP tool '%s' blocked by request tool policy: %s", self._name, denial)
+            return error_outcome(
+                f"MCP tool '{self._name}' is blocked for this request. [BLOCKED] {denial}",
+                server_name=self._server_name,
+                tool_name=self._name,
+                transport=self._transport,
+                error_code="POLICY_DENIED",
+            )
+
+        loop_problem = self._prepare_call_loop()
+        if isinstance(loop_problem, str):
+            return error_outcome(
+                f"MCP tool '{self._name}' on server '{self._server_name}' could not be called: {loop_problem}",
+                server_name=self._server_name,
+                tool_name=self._name,
+                transport=self._transport,
+                error_code="CALL_LOOP_UNAVAILABLE",
+            )
+        loop = loop_problem
+
         try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self._mcp_client.call_tool(self._name, arguments=kwargs))
+        except Exception as exc:  # noqa: BLE001 — 전송/프로토콜 실패도 typed 오류로 보존한다
+            logger.exception("MCP tool '%s' call failed", self._name)
+            return error_outcome(
+                f"MCP tool '{self._name}' on server '{self._server_name}' call failed: {exc}",
+                server_name=self._server_name,
+                tool_name=self._name,
+                transport=self._transport,
+                error_code="TRANSPORT_ERROR",
+            )
 
-        result = loop.run_until_complete(self._mcp_client.call_tool(self._name, arguments=kwargs))
+        outcome = build_outcome(
+            result,
+            server_name=self._server_name,
+            tool_name=self._name,
+            transport=self._transport,
+        )
+        if outcome.is_error:
+            logger.warning(
+                "MCP tool '%s' returned isError=true (%s) — 호스트는 이를 성공으로 집계하지 않는다.",
+                self._name,
+                outcome.error_code or "no-code",
+            )
+        return outcome
 
-        # Format the CallToolResult
-        # The result might contain .content which is a list of blocks
-        if hasattr(result, "content") and result.content:
-            outputs: list[str] = []
-            for block in result.content:
-                if block.type == "text":
-                    outputs.append(block.text)
-                else:
-                    outputs.append(str(block))
-            return "\n".join(outputs)
+    def _prepare_call_loop(self) -> asyncio.AbstractEventLoop | str:
+        """호출을 돌릴 이벤트 루프를 고르거나, 불가능하면 사람이 읽는 이유를 돌려준다.
 
-        return result
+        ① 세션을 만든 루프를 알면 **그 루프에서** 실행한다. anyio 스트림은 생성 루프에
+           묶여 있어 다른 루프(예: `asyncio.to_thread` 작업 스레드가 새로 만든 루프)에서
+           부르면 응답이 영원히 오지 않는다 — 실측 hang 이 그랬다.
+        ② 그 루프가 이미 어딘가에서 돌고 있으면 `run_until_complete` 는 예외를 던지거나
+           끝나지 않는다. 멈추는 대신 typed 오류로 즉시 돌려준다(호스트를 볼모로 잡지 않는다).
+        ③ 루프를 모르는 경우(테스트가 클라이언트를 직접 주입한 경우)만 종전처럼 현재
+           스레드의 루프를 쓴다.
+        """
+        loop = self._session_loop
+        if loop is None:
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        if loop.is_running():
+            return (
+                f"its session event loop is already running in another thread "
+                f"(server '{self._server_name}'); MCP calls must run on the loop that owns the session"
+            )
+        return loop
 
     @override
     def to_metadata(self) -> dict[str, object]:
@@ -204,6 +300,8 @@ class MCPToolLoader:
         self.project_root = project_root or os.getcwd()
         self.tools: list[BaseTool] = []
         self.session_manager = MCPSessionManager()
+        # 스키마 계약 위반으로 **등록하지 않은** 도구 기록(서버는 살아 있어도 그 도구는 못 쓴다).
+        self.schema_errors: list[dict[str, str]] = []
 
     def load_tools(self) -> list[BaseTool]:
         """MCP 서버와 통신하여 사용 가능한 도구 목록을 조회하고 로드합니다.
@@ -330,16 +428,31 @@ class MCPToolLoader:
                 tool_names: list[str] = []
 
                 for tool in tools_response.tools:
+                    raw_schema = getattr(tool, "inputSchema", None)
+                    if raw_schema is None:
+                        raw_schema = getattr(tool, "input_schema", None)
+                    problem = _schema_problem(raw_schema)
+                    if problem is not None:
+                        # 스키마 불일치는 조용히 넘기지 않는다(호스트 사전 검증이 무력해진다).
+                        logger.error(
+                            "Skipping MCP tool '%s' from '%s': %s",
+                            tool.name,
+                            server_name,
+                            problem,
+                        )
+                        self.schema_errors.append({"server": server_name, "tool": str(tool.name), "reason": problem})
+                        continue
                     annotations = _annotations_to_dict(getattr(tool, "annotations", None))
                     mcp_tool = MCPTool(
                         name=tool.name,
                         description=tool.description or "",
-                        schema=getattr(tool, "inputSchema", None) or getattr(tool, "input_schema", {}) or {},
+                        schema=cast(dict[str, object], raw_schema),
                         mcp_client=session,
                         server_name=server_name,
                         transport=transport,
                         annotations=annotations,
                         server_policy=_server_policy(server_config, server_name),
+                        session_loop=self.session_manager.session_loops.get(server_name),
                     )
                     self.tools.append(mcp_tool)
                     tool_names.append(tool.name)

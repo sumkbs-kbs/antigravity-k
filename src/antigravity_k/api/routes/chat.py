@@ -1146,7 +1146,7 @@ async def chat_completions(
     # ToolExecutor 정책으로 변환한다. 키가 없는 구형 클라이언트는
     # 도구 토글에 한해 제한 없이 동작한다(tri-state).
     from antigravity_k.engine.access_mode import AccessMode, get_access_mode
-    from antigravity_k.engine.tool_executor import (
+    from antigravity_k.engine.tool_policy import (
         ToolPolicy,
         reset_tool_policy,
         set_tool_policy,

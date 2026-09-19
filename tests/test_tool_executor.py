@@ -24,7 +24,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from antigravity_k.engine.tool_executor import ToolExecutor
+from antigravity_k.engine.tool_executor import ToolExecutor, result_indicates_failure
+from antigravity_k.tools.mcp_tool_result import MCPToolOutcome
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.tool_contracts import Permission
 from antigravity_k.tools.tool_registry import ToolRegistry
@@ -861,7 +862,7 @@ class TestApprovalWiring:
 
 def test_tool_policy_denies_registered_tool(executor: ToolExecutor):
     """A denied tool must be blocked with a [BLOCKED] message before gates run."""
-    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+    from antigravity_k.engine.tool_policy import ToolPolicy, reset_tool_policy, set_tool_policy
 
     token = set_tool_policy(ToolPolicy(denied_tools=frozenset({"dummy"})))
     try:
@@ -880,7 +881,7 @@ def test_tool_policy_absent_keeps_default_behavior(executor: ToolExecutor):
 
 def test_tool_policy_filters_unlisted_mcp_server(executor: ToolExecutor, tool_registry: MagicMock):
     """MCP tools from servers outside the allowlist must be blocked."""
-    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+    from antigravity_k.engine.tool_policy import ToolPolicy, reset_tool_policy, set_tool_policy
 
     mcp_tool = _make_tool("mcp_query")
     mcp_tool._server_name = "other-server"
@@ -897,7 +898,7 @@ def test_tool_policy_filters_unlisted_mcp_server(executor: ToolExecutor, tool_re
 
 def test_tool_policy_allows_listed_mcp_server(executor: ToolExecutor, tool_registry: MagicMock):
     """MCP tools from allowlisted servers must execute normally."""
-    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+    from antigravity_k.engine.tool_policy import ToolPolicy, reset_tool_policy, set_tool_policy
 
     mcp_tool = _make_tool("mcp_query")
     mcp_tool._server_name = "codebase-memory-mcp"
@@ -913,7 +914,7 @@ def test_tool_policy_allows_listed_mcp_server(executor: ToolExecutor, tool_regis
 
 def test_tool_policy_safe_only_blocks_side_effect_tools(executor: ToolExecutor, tool_registry: MagicMock):
     """Read-only mode (safe_only) must block tools whose risk_level != SAFE."""
-    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+    from antigravity_k.engine.tool_policy import ToolPolicy, reset_tool_policy, set_tool_policy
 
     writer = _make_tool("write_file")
     writer.risk_level = "low"  # RiskLevel.LOW (문자열 비교 대신 identity가 아닌 != 비교)
@@ -930,7 +931,7 @@ def test_tool_policy_safe_only_blocks_side_effect_tools(executor: ToolExecutor, 
 
 def test_tool_policy_safe_only_allows_safe_tools(executor: ToolExecutor, tool_registry: MagicMock):
     """Read-only mode must still allow SAFE (side-effect-free) tools."""
-    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+    from antigravity_k.engine.tool_policy import ToolPolicy, reset_tool_policy, set_tool_policy
     from antigravity_k.tools.base_tool import RiskLevel
 
     reader = _make_tool("read_file")
@@ -943,3 +944,93 @@ def test_tool_policy_safe_only_allows_safe_tools(executor: ToolExecutor, tool_re
     finally:
         reset_tool_policy(token)
     assert "[BLOCKED]" not in result
+
+
+# ---------------------------------------------------------------------------
+# MCP typed 결과 — isError 를 성공으로 집계하지 않는다 (task 9)
+# ---------------------------------------------------------------------------
+
+
+def _mcp_error_outcome() -> MCPToolOutcome:
+    return MCPToolOutcome(
+        "Error: MCP tool 'ssak_search' on server 'ssak' reported an error (BUSY).\n"
+        '{"error": {"code": "BUSY", "retryable": true}}',
+        is_error=True,
+        error_code="BUSY",
+        server_name="ssak",
+        tool_name="ssak_search",
+        transport="stdio",
+    )
+
+
+def test_mcp_typed_error_is_recorded_as_failure(
+    executor: ToolExecutor, tool_registry: MagicMock, monkeypatch: pytest.MonkeyPatch
+):
+    """서버가 isError=true 로 답한 호출은 이력·카운터·이벤트 모두 실패다."""
+    published: list[tuple[str, dict[str, object]]] = []
+
+    class _FakeBus:
+        def publish(self, event_name: str, **kwargs: object) -> None:
+            published.append((event_name, kwargs))
+
+    monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+    outcome = _mcp_error_outcome()
+    _registry_tools(tool_registry)["ssak_search"] = _make_tool("ssak_search", required=["query"])
+
+    def execute_with_permission(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
+        _ = objective
+        return Permission.ALLOW, outcome
+
+    tool_registry.execute_with_permission = execute_with_permission
+
+    result = executor.execute("ssak_search", {"query": "x"})
+
+    assert result is outcome, "typed 결과가 호스트까지 살아남아야 한다"
+    assert executor.tool_call_history[-1]["success"] is False, "isError 가 성공으로 기록됐다"
+    assert cast(int, getattr(executor, "_consecutive_errors")) == 1
+    assert any(name == "FailureDetected" for name, _ in published)
+
+
+def test_mcp_typed_flag_beats_harmless_text(
+    executor: ToolExecutor, tool_registry: MagicMock, monkeypatch: pytest.MonkeyPatch
+):
+    """본문이 평범해 보여도 isError 면 실패다 — 텍스트 모양 추측으로 되돌리지 않는다."""
+    _registry_tools(tool_registry)["ssak_search"] = _make_tool("ssak_search", required=[])
+    outcome = MCPToolOutcome("results: all good on the surface", is_error=True, error_code="INTERNAL")
+    tool_registry.execute_with_permission = lambda *_a, **_k: (Permission.ALLOW, outcome)
+
+    _ = executor.execute("ssak_search", {})
+
+    assert executor.tool_call_history[-1]["success"] is False
+    assert result_indicates_failure(outcome) is True
+
+
+def test_mcp_successful_outcome_is_not_a_failure(executor: ToolExecutor, tool_registry: MagicMock):
+    """정상 결과는 실패로 뒤집히지 않는다(과잉 실패 집계 방지)."""
+    _registry_tools(tool_registry)["ssak_search"] = _make_tool("ssak_search", required=[])
+    outcome = MCPToolOutcome("results: 3 hits", is_error=False)
+    tool_registry.execute_with_permission = lambda *_a, **_k: (Permission.ALLOW, outcome)
+
+    _ = executor.execute("ssak_search", {})
+
+    assert executor.tool_call_history[-1]["success"] is True
+    assert cast(int, getattr(executor, "_consecutive_errors")) == 0
+
+
+def test_flag_only_typed_errors_trigger_recovery(executor: ToolExecutor, tool_registry: MagicMock):
+    """본문에 오류 마커가 없어도 typed 플래그만으로 복구 경로가 발동한다.
+
+    `_trigger_recovery` 판정이 `str(result)` 로 뭉개지면 플래그가 사라져 이 시험이 빨개진다.
+    """
+    flag_only = MCPToolOutcome("payload looks harmless", is_error=True, error_code="INTERNAL")
+    tool_registry.execute_with_permission = lambda *_a, **_k: (Permission.ALLOW, flag_only)
+    recovery = MagicMock(return_value="recovery result")
+    setattr(executor, "_trigger_recovery", recovery)
+
+    _ = executor.execute("dummy", {"x": 1})  # error 1
+    _ = executor.execute("dummy", {"x": 1})  # error 2
+    result = executor.execute("dummy", {"x": 1})  # error 3 → trigger
+
+    assert result == "recovery result"
+    recovery.assert_called_once()

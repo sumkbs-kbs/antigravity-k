@@ -1,5 +1,6 @@
 """Mcp Session Manager module."""
 
+import asyncio
 import logging
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
@@ -110,6 +111,10 @@ class MCPSessionManager:
         self.sessions: dict[str, ClientSession] = {}
         self.exit_stacks: dict[str, AsyncExitStack] = {}
         self.session_ids: dict[str, str | None] = {}
+        # 세션의 anyio 스트림은 **생성된 루프에 묶인다**. 다른 스레드/루프에서 call_tool 을
+        # 돌리면 응답이 영원히 오지 않는다(실측 hang) — 그래서 소유 루프를 기록해 두고
+        # 호출을 그 루프로 돌려보낸다.
+        self.session_loops: dict[str, asyncio.AbstractEventLoop] = {}
 
     async def connect_server(
         self,
@@ -130,6 +135,7 @@ class MCPSessionManager:
         self.exit_stacks[server_name] = stack
 
         server_params = StdioServerParameters(command=command, args=args, env=env)
+        self.session_loops[server_name] = asyncio.get_running_loop()
 
         try:
             # Connect to the stdio server
@@ -148,6 +154,7 @@ class MCPSessionManager:
             await stack.aclose()
             if server_name in self.exit_stacks:
                 del self.exit_stacks[server_name]
+            self.session_loops.pop(server_name, None)
             raise
 
     async def connect_streamable_http(
@@ -164,6 +171,7 @@ class MCPSessionManager:
 
         stack = AsyncExitStack()
         self.exit_stacks[server_name] = stack
+        self.session_loops[server_name] = asyncio.get_running_loop()
 
         try:
             read, write, get_session_id = await stack.enter_async_context(
@@ -198,6 +206,7 @@ class MCPSessionManager:
                 del self.exit_stacks[server_name]
             if server_name in self.session_ids:
                 del self.session_ids[server_name]
+            self.session_loops.pop(server_name, None)
             raise
 
     async def connect_sse(
@@ -217,6 +226,7 @@ class MCPSessionManager:
 
         stack = AsyncExitStack()
         self.exit_stacks[server_name] = stack
+        self.session_loops[server_name] = asyncio.get_running_loop()
 
         try:
             read, write = await stack.enter_async_context(
@@ -244,6 +254,7 @@ class MCPSessionManager:
             await stack.aclose()
             if server_name in self.exit_stacks:
                 del self.exit_stacks[server_name]
+            self.session_loops.pop(server_name, None)
             raise
 
     async def disconnect_server(self, server_name: str) -> None:
@@ -258,6 +269,8 @@ class MCPSessionManager:
 
         if server_name in self.session_ids:
             del self.session_ids[server_name]
+
+        self.session_loops.pop(server_name, None)
 
     def get_session(self, server_name: str) -> ClientSession | None:
         """Retrieve session.

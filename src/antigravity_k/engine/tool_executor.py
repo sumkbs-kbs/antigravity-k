@@ -6,14 +6,12 @@ I-1 리팩터링: Orchestrator에서 분리된 도구 실행/등록 로직.
 """
 
 import asyncio
-import contextvars
 import json
 import logging
 import os
 import re
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, TypedDict, cast, final
 
 from antigravity_k.engine.failure_classifier import (
@@ -24,7 +22,7 @@ from antigravity_k.engine.failure_classifier import (
 )
 from antigravity_k.engine.immune_system import ImmuneSystem
 from antigravity_k.engine.task_state_store import current_task_execution_context
-from antigravity_k.tools.base_tool import RiskLevel
+from antigravity_k.engine.tool_policy import tool_policy_denial as _tool_policy_denial
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.tool_contracts import Permission
 from antigravity_k.tools.tool_path import effective_project_root
@@ -37,63 +35,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class ToolPolicy:
-    """요청 단위 도구 허용 정책.
+# 요청 단위 정책(ToolPolicy·set/reset_tool_policy)은 engine.tool_policy 로 옮겼다 —
+# 도구 계층(MCP 도구)이 같은 규칙을 import 순환 없이 재사용하기 위해서다.
 
-    대시보드 컴포저의 Search/Code/MCP 칩 상태와 실행 권한 모드(읽기 전용)를
-    채팅 요청에 반영하기 위해 ``chat`` 라우트가 설정하고
-    ``ToolExecutor.execute``가 조회한다. contextvar 기반이므로 요청
-    스레드풀 컨텍스트 안에서만 유효하다.
+
+def result_indicates_failure(result: object) -> bool:
+    """Classify a tool result as a failure.
+
+    Typed 결과(`MCPToolOutcome`)는 도구가 보고한 `is_error` 플래그가 우선한다 — 서버가
+    `isError=true` 로 답한 호출을 텍스트 모양으로 판정하면 성공으로 새어 나간다.
+    플래그가 없는 레거시 문자열 결과는 종전 규칙을 그대로 쓴다: "Error:" 접두어,
+    ErrorDistiller 형식("❌ [tool Error]..."), run_bash_command 의 [exit_code=N] 마커.
+    마커는 ErrorDistiller 가 접두어를 붙일 수 있어 텍스트 어디에서든 찾는다.
     """
-
-    denied_tools: frozenset[str] = field(default_factory=frozenset)
-    allowed_mcp_servers: frozenset[str] | None = None
-    safe_only: bool = False
-    """True면 risk_level != SAFE(부작용 있는) 도구를 모두 차단한다(읽기 전용 모드)."""
-
-
-_tool_policy_var: contextvars.ContextVar[ToolPolicy | None] = contextvars.ContextVar("agk_tool_policy", default=None)
-
-
-def set_tool_policy(policy: ToolPolicy | None) -> contextvars.Token[ToolPolicy | None]:
-    """Set the request-scoped tool policy. Returns a token for :func:`reset_tool_policy`."""
-    return _tool_policy_var.set(policy)
-
-
-def reset_tool_policy(token: contextvars.Token[ToolPolicy | None]) -> None:
-    """Restore the previous tool policy captured by :func:`set_tool_policy`."""
-    _tool_policy_var.reset(token)
-
-
-def _tool_policy_denial(name: str, tool: object | None) -> str | None:
-    """Return a denial message when the active policy blocks this tool, else None."""
-    policy = _tool_policy_var.get()
-    if policy is None:
-        return None
-    if name in policy.denied_tools:
-        return f"Tool '{name}' is disabled for this request by the user's tool toggles."
-    if policy.safe_only and tool is not None:
-        risk_level = getattr(tool, "risk_level", None)
-        if risk_level is not None and risk_level != RiskLevel.SAFE:
-            risk_value = getattr(risk_level, "value", risk_level)
-            return f"Tool '{name}' has side effects (risk: {risk_value}) and is blocked in read-only mode."
-    if policy.allowed_mcp_servers is not None and tool is not None:
-        server_name = getattr(tool, "_server_name", "")
-        if server_name and server_name not in policy.allowed_mcp_servers:
-            return f"MCP server '{server_name}' is disabled for this request by the user's MCP selection."
-    return None
-
-
-def result_indicates_failure(result: str) -> bool:
-    """Classify a tool result string as a failure.
-
-    Recognizes the legacy "Error:" prefix, the ErrorDistiller format
-    ("❌ [tool Error]..."), and the [exit_code=N] marker surfaced by
-    run_bash_command for non-zero exits. Markers are matched anywhere in
-    the text because ErrorDistiller may prefix failures.
-    """
-    stripped = result.strip()
+    if getattr(result, "is_error", False):
+        return True
+    text = result if isinstance(result, str) else str(result)
+    stripped = text.strip()
     if stripped.startswith("Error") or stripped.startswith("❌ ["):
         return True
     exit_match = re.search(r"\[exit_code=(\d+)\]", stripped)
@@ -365,7 +323,7 @@ class ToolExecutor:
 
             # Auto-Rollback & Self-Healing logic — 현재 결과가 실제 실패일 때만
             # (과거 스키마 실수 누적으로 성공 호출 직후 롤백되는 것 방지)
-            if self._consecutive_errors >= 3 and result_indicates_failure(str(result)):
+            if self._consecutive_errors >= 3 and result_indicates_failure(result):
                 return self._trigger_recovery(name, args, result)
 
             return result
