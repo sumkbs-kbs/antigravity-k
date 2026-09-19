@@ -34,6 +34,10 @@ from antigravity_k.engine.harness_models import (
     TestStatus,
 )
 from antigravity_k.engine.healing_loop import HealingLoop, HealingLoopV2
+from antigravity_k.tools.browser_session_owner import (
+    current_browser_owner,
+    get_browser_session_owner,
+)
 from antigravity_k.tools.egress_policy import safe_urlopen
 
 # Re-export all public symbols so downstream `from .harness import X` keeps working.
@@ -510,10 +514,24 @@ class TestHarness:
             Callable[[], AbstractAsyncContextManager[_PlaywrightLike]],
             async_playwright,
         )
+        # 소유자를 지나간다(task 16): 하네스도 호스트의 브라우저를 빌리는 것이다 — 자기 나름의
+        # 브라우저를 열면 상한·회수·종료 정리 밖으로 나간다.
+        session_owner = get_browser_session_owner()
+        browser_owner = current_browser_owner()
+        reservation = session_owner.begin(browser_owner, purpose="ui harness")
+        try:
+            # 하네스가 여는 주소도 egress 규칙을 지나되, 대상은 **운영자가 지정한** 앱 주소라 로컬이 허용된다.
+            _ = session_owner.validate_navigation(self.dashboard_url, allow_local=True)
+        except Exception:
+            # 거절된 주소로는 브라우저를 열지 않는다. 예약도 돌려준다 — 안 그러면 자리만 남는다.
+            session_owner.abort(reservation)
+            raise
+
         async with playwright_factory() as p:
             browser = await p.chromium.launch(headless=True)
             try:
                 page = await browser.new_page()
+                _ = session_owner.commit(reservation, page=page)
                 # SEC-02: PIN 쿠키/localStorage 주입 제거 — 브라우저 실행도 token 기반.
                 token = self._ensure_token()
                 if token:
@@ -545,6 +563,7 @@ class TestHarness:
                 # launch 이후 단계(new_page/쿠키/이동)에서 예외가 나도
                 # 브라우저가 유출되지 않도록 닫는다.
                 _ = await browser.close()
+                _ = session_owner.release(browser_owner)
 
         return results
 

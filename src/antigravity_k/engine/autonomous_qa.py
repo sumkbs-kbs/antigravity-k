@@ -30,6 +30,10 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol, TypedDict, cast, final
 
+from antigravity_k.tools.browser_session_owner import (
+    current_browser_owner,
+    get_browser_session_owner,
+)
 from antigravity_k.tools.egress_policy import validate_httpx_request_async
 
 logger = logging.getLogger("antigravity_k.autonomous_qa")
@@ -343,6 +347,18 @@ class AutonomousQAEngine:
         report = AutonomousQAReport(url=target_url)
         start = time.time()
 
+        # 소유자를 지나간다(task 16): 이 엔진도 호스트의 브라우저를 빌린다.
+        session_owner = get_browser_session_owner()
+        browser_owner = current_browser_owner()
+        reservation = session_owner.begin(browser_owner, purpose="autonomous qa")
+        try:
+            # 대상은 운영자가 지정한 앱 주소다 — 로컬 허용을 **여기서 명시**한다(task 16).
+            _ = session_owner.validate_navigation(target_url, allow_local=True)
+        except Exception:
+            # 열지 못할 주소로 브라우저를 시작하지 않고, 예약도 돌려준다.
+            session_owner.abort(reservation)
+            raise
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             from typing import cast
@@ -353,6 +369,7 @@ class AutonomousQAEngine:
                 viewport=cast(ViewportSize, cast(object, self.VIEWPORTS["desktop"])),
             )
             page = await context.new_page()
+            _ = session_owner.commit(reservation, page=page)
 
             # 콘솔 에러 수집
             console_errors: list[dict[str, object]] = []
@@ -439,6 +456,8 @@ class AutonomousQAEngine:
                     break
 
             # ── 반응형 테스트 ──
+            # 루프가 끝나면 세션을 소유자에게 돌려준다(예약만 남기면 deadline 까지 자리를 잡는다).
+            _ = session_owner.release(browser_owner)
             report.viewport_results = cast(
                 dict[str, dict[str, object]],
                 cast(object, await self._test_viewports(page, target_url)),

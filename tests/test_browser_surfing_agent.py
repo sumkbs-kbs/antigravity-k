@@ -40,6 +40,12 @@ async def test_surf_with_mock_playwright(mock_async_playwright: MagicMock, mock_
     setattr(chromium, "launch", AsyncMock(return_value=mock_browser))
     browser = cast(MagicMock, mock_browser)
     setattr(browser, "new_page", AsyncMock(return_value=mock_page))
+    # 서퍼는 이제 **격리된 컨텍스트**에서 새 페이지를 연다(task 16) — 그 대상도 모델링한다.
+    mock_context = AsyncMock()
+    setattr(mock_context, "new_page", AsyncMock(return_value=mock_page))
+    context = cast(MagicMock, mock_context)
+    setattr(context, "pages", [])
+    setattr(browser, "new_context", AsyncMock(return_value=mock_context))
 
     # Mock extract elements
     page = cast(MagicMock, mock_page)

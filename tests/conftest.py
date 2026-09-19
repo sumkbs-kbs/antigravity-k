@@ -244,3 +244,18 @@ def _isolate_ssak_bundle_locations() -> Iterator[None]:
     import shutil
 
     shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _reset_browser_session_owner() -> Iterator[None]:
+    """시험마다 브라우저 세션 소유자를 버린다(task 16).
+
+    소유자와 그 원장은 호스트 전역이다. 한 시험이 브라우저를 열고 닫지 않으면, 다음 시험이 같은
+    owner 로 `begin()` 을 부를 때 "이미 네 세션이 있다"로 **재사용**되고 아무것도 실행하지 않는다 —
+    실제로 그렇게 8개 시험이 깨졌다(단독으로 돌리면 통과해서 더 찾기 어려웠다).
+    """
+    from antigravity_k.tools.browser_session_owner import reset_browser_session_owner
+
+    reset_browser_session_owner()
+    yield
+    reset_browser_session_owner()

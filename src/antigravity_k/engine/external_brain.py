@@ -21,6 +21,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Protocol, cast, final, override
 
+from antigravity_k.tools.browser_session_owner import (
+    PERSONAL_PROFILE_ENV,
+    get_browser_session_owner,
+    personal_profile_allowed,
+)
+
 logger = logging.getLogger("antigravity_k.external_brain")
 
 
@@ -376,7 +382,14 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
                 temp_dir = tempfile.mkdtemp(prefix="agk_chrome_")
                 try:
                     cookie_src = os.path.join(original_dir, "Default", "Cookies")
-                    if os.path.exists(cookie_src):
+                    if not personal_profile_allowed():
+                        # 사용자 Chrome 쿠키를 읽는 것은 **개인 프로필 사용**이다(task 16).
+                        # 기본은 격리된 빈 프로필이고, 쓰려면 명시 동의가 필요하다.
+                        logger.info(
+                            "[Browser] personal Chrome cookies were NOT read; set %s=1 to opt in",
+                            PERSONAL_PROFILE_ENV,
+                        )
+                    elif os.path.exists(cookie_src):
                         os.makedirs(os.path.join(temp_dir, "Default"), exist_ok=True)
                         _ = shutil.copy2(cookie_src, os.path.join(temp_dir, "Default", "Cookies"))
                 except Exception:
@@ -390,7 +403,10 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
                     args=["--disable-blink-features=AutomationControlled"],
                 )
 
-                page = browser.pages[0] if browser.pages else await browser.new_page()
+                # 이미 열려 있는 페이지(사용자 개인 Chrome/CDP 탭)를 **채택하지 않는다**(task 16).
+                # 남의 탭을 자동화에 끌어들이는 대신 항상 새 페이지를 열고, 무시한 탭은 기록한다.
+                _ = get_browser_session_owner().remember_foreign_pages(list(browser.pages))
+                page = await browser.new_page()
                 _ = await page.goto(self.CHATGPT_URL, wait_until="networkidle", timeout=30000)
                 await asyncio.sleep(2)
 
@@ -548,14 +564,21 @@ class GeminiWebAdapter(ExternalBrainAdapter):
 
         try:
             async with async_playwright() as p:
-                user_data_dir = os.path.expanduser("~/Library/Application Support/Google/Chrome")
+                import tempfile
+
+                if personal_profile_allowed():
+                    user_data_dir = os.path.expanduser("~/Library/Application Support/Google/Chrome")
+                else:
+                    # 개인 프로필은 명시 동의가 있을 때만 연다(task 16) — 기본은 격리된 임시 프로필.
+                    user_data_dir = tempfile.mkdtemp(prefix="agk_gemini_profile_")
                 browser = await p.chromium.launch_persistent_context(
                     user_data_dir=user_data_dir,
                     headless=False,
                     channel="chrome",
                     args=["--disable-blink-features=AutomationControlled"],
                 )
-                page = browser.pages[0] if browser.pages else await browser.new_page()
+                _ = get_browser_session_owner().remember_foreign_pages(list(browser.pages))
+                page = await browser.new_page()
                 _ = await page.goto(self.GEMINI_URL, wait_until="networkidle", timeout=30000)
                 await asyncio.sleep(2)
 

@@ -227,6 +227,21 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("[Shutdown] bundled search child shutdown skipped")
 
+    # 브라우저 세션 종료 — 호스트가 소유한 세션은 호스트가 닫는다(task 16).
+    # 아직 만든 적이 없으면 아무것도 하지 않는다(종료 경로에서 새로 만들지 않는다).
+    try:
+        from antigravity_k.tools.browser_session_owner import shutdown_browser_sessions
+
+        browser_shutdown = shutdown_browser_sessions()
+        if browser_shutdown is not None:
+            logger.info(
+                "[Shutdown] browser sessions: closed=%s max_active=%s",
+                browser_shutdown.get("closed"),
+                browser_shutdown.get("max_active_sessions"),
+            )
+    except Exception:
+        logger.exception("[Shutdown] browser session shutdown skipped")
+
     # Sidabari 서브시스템 정리
     try:
         from antigravity_k.engine.hook_event_bus import get_hook_event_bus

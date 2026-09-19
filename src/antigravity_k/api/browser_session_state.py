@@ -3,15 +3,21 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import TYPE_CHECKING, final
 
+from antigravity_k.tools.browser_session_owner import BrowserSessionLimitError
+
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page, Playwright
 
 
 BrowserConsoleEntry = dict[str, str]
 
-
-class BrowserSessionLimitError(RuntimeError):
-    pass
+#: 예외는 **한 곳**(소유자 모듈)에만 있다 — 여기서는 기존 import 경로를 위해 재수출한다.
+__all__ = [
+    "BrowserConsoleEntry",
+    "BrowserSessionLimitError",
+    "BrowserSessionRegistry",
+    "BrowserSessionState",
+]
 
 
 @final
@@ -30,12 +36,23 @@ class BrowserSessionState:
 class BrowserSessionRegistry:
     """Owns isolated browser states with a bounded number of custom sessions."""
 
-    def __init__(self, max_sessions: int = 32, default_state: BrowserSessionState | None = None) -> None:
+    def __init__(self, max_sessions: int = 2, default_state: BrowserSessionState | None = None) -> None:
         if max_sessions < 1:
             raise ValueError("max_sessions must be positive")
         self._max_sessions: int = max_sessions
         self._sessions: OrderedDict[str, BrowserSessionState] = OrderedDict()
         self._sessions["default"] = default_state or BrowserSessionState()
+
+    @property
+    def max_sessions(self) -> int:
+        return self._max_sessions
+
+    @max_sessions.setter
+    def max_sessions(self, value: int) -> None:
+        """상한의 권위는 소유자 정책(`browser_session_owner`)이다 — 여기는 그 값을 받아 쓴다."""
+        if value < 1:
+            raise ValueError("max_sessions must be positive")
+        self._max_sessions = value
 
     def get(self, session_id: str) -> BrowserSessionState:
         """Return a session state, creating it unless the custom-session cap is reached."""

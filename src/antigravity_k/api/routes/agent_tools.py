@@ -8,7 +8,10 @@ import logging
 import os
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Annotated, Protocol, cast
+from typing import TYPE_CHECKING, Annotated, Protocol, cast
+
+if TYPE_CHECKING:
+    from playwright.async_api import Page as _AsyncPage
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -27,6 +30,12 @@ from antigravity_k.api.contracts.shell import (
 from antigravity_k.config import config
 from antigravity_k.engine.access_mode import AccessMode, get_access_mode
 from antigravity_k.engine.sandbox import SandboxRunner, _minimal_child_env, _python_runtime_read_paths
+from antigravity_k.tools.browser_session_owner import (
+    DEFAULT_SCOPE,
+    BrowserOwner,
+    BrowserSessionRefusedError,
+    get_browser_session_owner,
+)
 from antigravity_k.tools.egress_policy import EgressPolicyError, validate_egress_url, validate_httpx_request_async
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.tool_contracts import Permission, PermissionDecision, ToolInvocation, ToolSpec
@@ -36,9 +45,15 @@ router = APIRouter()
 
 
 browser_state = BrowserSessionState()
-browser_sessions = BrowserSessionRegistry(default_state=browser_state)
+# 상한은 **소유자 정책**이 정한다(task 16). 레지스트리는 상태 저장소이고, 세션 수의 권위는 소유자다.
+# 예전 기본값 32 는 "상한"이라기보다 사실상 무제한이었고, 시간 축도 없었다.
+browser_sessions = BrowserSessionRegistry(
+    max_sessions=get_browser_session_owner().max_active_sessions,
+    default_state=browser_state,
+)
 _MAX_CONSOLE_ENTRIES = 500
 _BROWSER_SESSION_HEADER = "X-AGK-Browser-Session"
+_BROWSER_TASK_HEADER = "X-AGK-Task-Id"
 _MAX_BROWSER_SESSION_ID_LENGTH = 128
 
 
@@ -102,12 +117,66 @@ def _browser_session_id(request: Request | None) -> str:
     return hashlib.sha256(session_key.encode("utf-8")).hexdigest()
 
 
+def _browser_owner(request: Request | None) -> BrowserOwner:
+    """요청 → 세션 소유자(subject·scope·task). 인증 없는 요청은 `anonymous` 이고,
+    그 주체와 기본 scope 는 persistent profile 을 열 수 없다(정책은 소유자 모듈에 있다)."""
+    if request is None:
+        return BrowserOwner()
+    raw_scope = request.headers.get(_BROWSER_SESSION_HEADER, "").strip()
+    if len(raw_scope) > _MAX_BROWSER_SESSION_ID_LENGTH:
+        raise HTTPException(status_code=400, detail="Browser session identifier is too long")
+    subject = getattr(request.state, "auth_subject", "anonymous")
+    if not isinstance(subject, str) or not subject:
+        subject = "anonymous"
+    task_id = request.headers.get(_BROWSER_TASK_HEADER, "").strip()
+    return BrowserOwner(subject=subject, scope=raw_scope or DEFAULT_SCOPE, task_id=task_id)
+
+
 def _browser_state_for(request: Request | None) -> tuple[str, BrowserSessionState]:
     session_id = _browser_session_id(request)
+    # 상한을 소유자 정책과 계속 맞춘다(운영 중 env 로 정책이 바뀌면 여기도 따라간다).
+    browser_sessions.max_sessions = get_browser_session_owner().max_active_sessions
     try:
         return session_id, browser_sessions.get(session_id)
     except BrowserSessionLimitError as exc:
         raise HTTPException(status_code=429, detail="Too many active browser sessions") from exc
+
+
+def _api_session_closer(state: BrowserSessionState) -> Callable[[], object]:
+    """소유자가 회수할 때 부르는 닫기. Playwright 자원은 async 라 **돌고 있는 루프에 예약**한다
+    (회수는 `begin()` 안에서 동기로 일어난다). 루프가 없으면(종료 중 등) 로그만 남긴다 —
+    그 한계는 `E/task-16/result.md` 에 적었다.
+    """
+
+    def _close() -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning("[Browser] no running loop; async browser session close deferred to shutdown")
+            return
+        _ = loop.create_task(_close_api_session_async(state))
+
+    return _close
+
+
+async def _close_api_session_async(state: BrowserSessionState) -> None:
+    """브라우저·플레이라이트를 순서대로 닫는다(실패해도 다른 자원은 계속 닫는다)."""
+    try:
+        if state.browser:
+            await state.browser.close()
+    except Exception:
+        logger.exception("Unhandled exception")
+    finally:
+        state.browser = None
+        state.context = None
+        state.page = None
+    try:
+        if state.playwright:
+            await state.playwright.stop()
+    except Exception:
+        logger.exception("Unhandled exception")
+    finally:
+        state.playwright = None
 
 
 def _browser_error_status(error: Exception) -> int:
@@ -449,6 +518,19 @@ async def browser_action(req: BrowserActionRequest, request: Request):
         ) from exc
     try:
         if req.action == "launch":
+            owner = _browser_owner(request)
+            session_owner = get_browser_session_owner()
+            try:
+                reservation = session_owner.begin(owner, purpose="api browser action")
+            except BrowserSessionLimitError as exc:
+                raise HTTPException(status_code=429, detail=str(exc)) from exc
+            except BrowserSessionRefusedError as exc:
+                raise HTTPException(status_code=403, detail=str(exc)) from exc
+            if reservation.is_reuse and state.page is None:
+                reuse = reservation.reuse
+                assert reuse is not None
+                state.page = cast("_AsyncPage", reuse.page)
+                return {"ok": True, "message": "Reusing the owner's existing browser session"}
             if not state.playwright:
                 state.playwright = await async_playwright().start()
             assert state.playwright is not None
@@ -463,6 +545,8 @@ async def browser_action(req: BrowserActionRequest, request: Request):
                 )
                 state.context = context
                 _ = await context.route("**/*", _guard_browser_route)
+                # 개인 Chrome·CDP 가 이미 열어 둔 페이지는 **채택하지 않는다**(관찰만).
+                _ = session_owner.remember_foreign_pages(list(getattr(context, "pages", []) or []))
                 page = await context.new_page()
                 state.page = page
                 # Console error/log auto-collection
@@ -476,6 +560,10 @@ async def browser_action(req: BrowserActionRequest, request: Request):
                         else _append_console_entry(state.console_logs, {"type": msg.type, "text": msg.text})
                     ),
                 )
+            # 예약을 실제 세션으로 확정한다 — 안 하면 자리만 차지한 예약이 남는다(그리고 소유자는
+            # 이 세션을 모른다). close 콜백을 넘겨서 유휴/deadline 회수도 같은 경로로 닫히게 한다.
+            if state.page is not None:
+                _ = session_owner.commit(reservation, page=state.page, close=_api_session_closer(state))
             return {"ok": True, "message": "Browser launched with console capture"}
 
         elif req.action == "close":
@@ -487,6 +575,8 @@ async def browser_action(req: BrowserActionRequest, request: Request):
             if state.playwright:
                 await state.playwright.stop()
                 state.playwright = None
+            # 소유자 원장에서도 뺀다 — 안 빼면 다음 launch 가 "이미 너 세션이 있다"고 잘못 답한다.
+            _ = get_browser_session_owner().release(_browser_owner(request))
             if session_id != "default":
                 _ = browser_sessions.discard(session_id)
             return {"ok": True, "message": "Browser closed"}
@@ -502,7 +592,8 @@ async def browser_action(req: BrowserActionRequest, request: Request):
             if not req.url:
                 raise HTTPException(status_code=400, detail="URL is required for goto")
             try:
-                _ = validate_egress_url(req.url, allow_local=False)
+                # egress 규칙은 소유자 한 곳에 있다(task 16) — 다른 진입점과 같은 코드를 지난다.
+                _ = get_browser_session_owner().validate_navigation(req.url)
             except EgressPolicyError as exc:
                 raise HTTPException(status_code=403, detail="Browser navigation target is not public.") from exc
             _ = await state.page.goto(req.url, wait_until="networkidle")

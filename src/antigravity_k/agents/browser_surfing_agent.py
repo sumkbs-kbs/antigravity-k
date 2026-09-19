@@ -15,6 +15,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol, cast, final
 
+from antigravity_k.tools.browser_session_owner import (
+    current_browser_owner,
+    get_browser_session_owner,
+)
+
 
 class _MouseLike(Protocol):
     async def wheel(self, delta_x: float, delta_y: float) -> object: ...
@@ -36,8 +41,16 @@ class _PageLike(Protocol):
     async def close(self) -> object: ...
 
 
+class _ContextLike(Protocol):
+    async def new_page(self) -> _PageLike: ...
+
+    async def close(self) -> object: ...
+
+
 class _BrowserLike(Protocol):
     async def new_page(self) -> _PageLike: ...
+
+    async def new_context(self) -> _ContextLike: ...
 
     async def close(self) -> object: ...
 
@@ -160,10 +173,29 @@ class BrowserSurfingAgent:
         final_result = ""
 
         page = None
+        context = None
+        session_owner = get_browser_session_owner()
+        browser_owner = current_browser_owner()
+        reservation = None
+        committed = False
         try:
-            if self._browser is None:
-                return "Error: Browser not initialized"
-            page = await self._browser.new_page()
+            # 다른 진입점과 같은 egress 규칙(task 16) — 서퍼가 아무 주소나 열게 두지 않는다.
+            _ = session_owner.validate_navigation(url)
+            # 세션 자리를 소유자에게 받는다(상한을 넘으면 여기서 거절된다).
+            reservation = session_owner.begin(browser_owner, purpose="browser_surfing_agent")
+            if reservation.is_reuse:
+                reuse = reservation.reuse
+                assert reuse is not None
+                page = cast(_PageLike, reuse.page)
+            else:
+                if self._browser is None:
+                    return "Error: Browser not initialized"
+                # 격리된 일회용 컨텍스트 — 사용자 프로필/기존 페이지를 쓰지 않는다.
+                context = await self._browser.new_context()
+                _ = session_owner.remember_foreign_pages(list(getattr(context, "pages", []) or []))
+                page = await context.new_page()
+                _ = session_owner.commit(reservation, page=page)
+                committed = True
             assert page is not None
             _ = await page.goto(url, wait_until="networkidle", timeout=15000)
 
@@ -216,8 +248,16 @@ class BrowserSurfingAgent:
             logger.exception("Browser surfing error on %s", url)
             final_result = f"Error during surfing: {e}"
         finally:
-            if page is not None:
-                _ = await page.close()
+            if reservation is not None and not reservation.is_reuse:
+                # 이 번 탐색이 연 세션은 이 번에 닫는다(소유자 원장에서도 빠진다).
+                if context is not None:
+                    _ = await context.close()
+                if committed:
+                    _ = session_owner.release(browser_owner)
+                else:
+                    # launch/이동이 실패했으면 **예약만** 돌려준다 — 안 그러면 자리가 남은 채
+                    # deadline 까지 아무도 그 슬롯을 못 쓴다.
+                    session_owner.abort(reservation)
             await self._close_browser()
 
         return final_result

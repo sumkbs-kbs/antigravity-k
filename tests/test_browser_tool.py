@@ -187,9 +187,19 @@ class TestBrowserToolExecute:
     """execute with playwright mocked — various actions."""
 
     def test_execute_import_error(self):
-        """playwright.sync_api를 찾을 수 없으면 ImportError -> 설치 안내 반환."""
+        """playwright.sync_api를 찾을 수 없으면 ImportError -> 설치 안내 반환.
+
+        `playwright` 만 None 으로 두면 **같은 세션에서 앞선 시험이 `playwright.sync_api` 를 이미 import 한 경우**
+        효과가 없다: `from playwright.sync_api import ...` 는 부모를 다시 import 하지 않고 sys.modules 의
+        submodule 을 그대로 돌려준다. 그래서 이 시험은 파일 순서에 따라 진짜 브라우저를 띄우며 통과했다
+        (실측: `test_browser_session_state.py test_browser_tools.py test_browser_tool.py` 순서에서 실패 —
+        task 16 에서 발견한 기존 결함). 하위 모듈까지 None 으로 막아 **순서와 무관**하게 만든다.
+        """
         tool = BrowserTool()
-        with patch.dict("sys.modules", {"playwright": None}):
+        with patch.dict(
+            "sys.modules",
+            {"playwright": None, "playwright.sync_api": None, "playwright.async_api": None},
+        ):
             result = tool.execute(action="goto", url="http://example.com")
             assert "playwright" in result.lower()
             assert "설치" in result

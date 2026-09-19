@@ -22,6 +22,14 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Protocol, cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+from .browser_session_owner import (
+    BrowserOwner,
+    BrowserSessionLimitError,
+    BrowserSessionRefusedError,
+    SessionReservation,
+    current_browser_owner,
+    get_browser_session_owner,
+)
 
 logger = logging.getLogger("antigravity_k.tools.browser")
 
@@ -121,6 +129,10 @@ class BrowserTool(BaseTool):
         self._dom_parser: _DOMParserProtocol | None = None
         self._vision_hybrid: _VisionHybridProtocol | None = None
         self._last_snapshot: SemanticSnapshot | None = None
+        # task 16: 세션 자리를 **소유자에게** 받아 둔다(상한·유휴 회수·owner 가 여기에도 걸린다).
+        self._reservation: SessionReservation | None = None
+        self._owner: BrowserOwner | None = None
+        self._video_path: str | None = None
 
     @property
     @override
@@ -245,19 +257,45 @@ class BrowserTool(BaseTool):
         if not self.is_running:
             import os
 
-            playwright = sync_playwright().start()
-            browser = playwright.chromium.launch(headless=True)
+            session_owner = get_browser_session_owner()
+            browser_owner = current_browser_owner()
+            try:
+                reservation = session_owner.begin(browser_owner, purpose="browser 도구")
+            except (BrowserSessionLimitError, BrowserSessionRefusedError) as e:
+                return f"Error: {e}"
+            if reservation.is_reuse:
+                reuse = reservation.reuse
+                assert reuse is not None
+                self._reservation = reservation
+                self._owner = browser_owner
+                self.page = cast("Page", reuse.page)
+                self.is_running = True
+                return "Browser session reused (already open for this owner)."
 
-            # 컨텍스트 기반으로 변경하여 record_video_dir 지원
-            video_dir = os.path.abspath(".gstack/qa-reports/videos")
-            os.makedirs(video_dir, exist_ok=True)
-            context = browser.new_context(record_video_dir=video_dir)
-            page = context.new_page()
+            try:
+                playwright = sync_playwright().start()
+                browser = playwright.chromium.launch(headless=True)
+
+                # 컨텍스트 기반으로 변경하여 record_video_dir 지원
+                video_dir = os.path.abspath(".gstack/qa-reports/videos")
+                os.makedirs(video_dir, exist_ok=True)
+                context = browser.new_context(record_video_dir=video_dir)
+                page = context.new_page()
+            except Exception:
+                session_owner.abort(reservation)
+                raise
             self.playwright = playwright
             self.browser = browser
             self.context = context
             self.page = page
             self.is_running = True
+            self._reservation = reservation
+            self._owner = browser_owner
+            _ = session_owner.commit(
+                reservation,
+                page=page,
+                close=lambda: self._release_session(),
+            )
 
         try:
             if action == "goto":
@@ -308,6 +346,11 @@ class BrowserTool(BaseTool):
         timeout = _param_timeout(params, 15000)
         if not url:
             return "Error: 'url' 파라미터가 필요합니다"
+        try:
+            # 다른 진입점과 같은 egress 규칙(task 16).
+            _ = get_browser_session_owner().validate_navigation(url)
+        except Exception as e:
+            return f"Error: navigation target is not allowed: {e}"
         _ = page.goto(url, wait_until="networkidle", timeout=timeout)
         title = page.title()
         return f"Navigated to {url}. Title: {title}"
@@ -424,24 +467,40 @@ class BrowserTool(BaseTool):
         result = cast(object, page.evaluate(script))
         return json.dumps(result, ensure_ascii=False, default=str)
 
+    def _release_session(self) -> None:
+        """자원을 닫고 **소유자 원장에서도** 뺄다(안 빼면 다음 호출이 죽은 세션을 재사용한다)."""
+        video_path = None
+        page = self.page
+        context = self.context
+        browser = self.browser
+        playwright = self.playwright
+        if page and page.video:
+            video_path = page.video.path()
+        if context:
+            context.close()
+        if browser:
+            browser.close()
+        if playwright:
+            playwright.stop()
+        self.page = None
+        self.context = None
+        self.browser = None
+        self.playwright = None
+        self.is_running = False
+        self._reservation = None
+        self._video_path = video_path if isinstance(video_path, str) else None
+
     def _action_close(self) -> str:
         if self.is_running:
-            video_path = None
-            page = self.page
-            context = self.context
-            browser = self.browser
-            playwright = self.playwright
-            if page and page.video:
-                video_path = page.video.path()
-
-            if context:
-                context.close()
-            if browser:
-                browser.close()
-            if playwright:
-                playwright.stop()
-            self.is_running = False
-
+            owner = self._owner
+            if owner is not None:
+                # 소유자가 닫기를 부른다(원장 정리 + 자원 정리).
+                _ = get_browser_session_owner().release(owner)
+            else:
+                self._release_session()
+            self._owner = None
+            video_path = self._video_path
+            self._video_path = None
             if video_path:
                 return f"Browser closed. Video recorded at: {video_path}"
         return "Browser closed."

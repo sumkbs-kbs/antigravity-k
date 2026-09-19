@@ -5,18 +5,30 @@ SPA(React, Vue 등)의 동적 렌더링 요소를 에이전트가 직접 파싱�
 
 포함 도구:
 - FetchDOMTool: Playwright를 사용하여 URL에 접속하고 렌더링된 후의 DOM 텍스트를 반환합니다.
+
+**소유권(task 16)**: 이 모듈의 전역 `_page` 는 이제 **호스트 소유자**(`browser_session_owner`)가
+관리하는 세션의 캐시다. 페이지를 새로 열기 전에 반드시 `begin()`(자리 확인)을 지나므로, 세션 상한·
+유휴 회수·owner 확인이 이 경로에도 똑같이 걸린다. 예전에는 이 도구만 정책 밖에 있었다.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+from contextlib import suppress
 from typing import Callable, Protocol, cast, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+from .browser_session_owner import (
+    BrowserSessionLimitError,
+    BrowserSessionRefusedError,
+    current_browser_owner,
+    get_browser_session_owner,
+)
 
 logger = logging.getLogger(__name__)
 
-# ─── 전역 브라우저 세션 (Stateful) ───
+# ─── 전역 브라우저 세션 (소유자 경유 캐시) ───
 
 
 class _LocatorLike(Protocol):
@@ -47,10 +59,18 @@ class _PageLike(Protocol):
     def close(self) -> None: ...
 
 
+class _ContextLike(Protocol):
+    def new_page(self) -> _PageLike: ...
+
+    def close(self) -> None: ...
+
+
 class _BrowserLike(Protocol):
     def is_connected(self) -> bool: ...
 
     def new_page(self) -> _PageLike: ...
+
+    def new_context(self) -> _ContextLike: ...
 
     def close(self) -> None: ...
 
@@ -72,52 +92,85 @@ _browser: _BrowserLike | None = None
 _page: _PageLike | None = None
 
 
-def get_browser_page() -> _PageLike:
-    """싱글톤 패턴으로 브라우저 페이지를 유지합니다."""
-    global _playwright, _browser, _page
-    if _page is None or _page.is_closed():
-        try:
-            from playwright.sync_api import sync_playwright
+def _browser_headless() -> bool:
+    """기본은 headless. 에이전트 도구가 호출마다 사용자 화면에 창을 띄우던 동작은 `AGK_BROWSER_HEADLESS=0` 으로만."""
+    raw = os.environ.get("AGK_BROWSER_HEADLESS", "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return True
 
-            if _playwright is None:
-                start_playwright = cast(Callable[[], _PlaywrightLike], sync_playwright)
-                _playwright = start_playwright().start()
-            playwright = _playwright
-            assert playwright is not None
-            if _browser is None or not _browser.is_connected():
-                # Headless=False 로 설정하여 사용자 화면에 보이도록 함
-                _browser = playwright.chromium.launch(headless=False)
-            browser = _browser
-            assert browser is not None
-            _page = browser.new_page()
-        except ImportError:
-            raise ImportError(
-                "Playwright is not installed. Run: pip install playwright && playwright install chromium",
-            )
-    return _page
+
+def get_browser_page() -> _PageLike:
+    """브라우저 페이지를 유지합니다 — **호스트 소유자를 거쳐서**(task 16).
+
+    소유자에게 자리를 먼저 확인받는다(상한·회수·owner). 그래서 이 도구가 아무리 많이 호출돼도
+    호스트 전체 세션 수는 정책 상한을 넘지 않는다.
+    """
+    global _playwright, _browser, _page
+    owner = get_browser_session_owner()
+    browser_owner = current_browser_owner()
+    reservation = owner.begin(browser_owner, purpose="fetch_dom 도구")
+    if reservation.is_reuse:
+        reuse = reservation.reuse
+        assert reuse is not None
+        _page = cast(_PageLike, reuse.page)
+        return _page
+
+    if _page is not None and not _page.is_closed():
+        _ = owner.commit(reservation, page=_page, close=_close_resources)
+        return _page
+
+    try:
+        from playwright.sync_api import sync_playwright
+
+        if _playwright is None:
+            start_playwright = cast(Callable[[], _PlaywrightLike], sync_playwright)
+            _playwright = start_playwright().start()
+        playwright = _playwright
+        assert playwright is not None
+        if _browser is None or not _browser.is_connected():
+            _browser = playwright.chromium.launch(headless=_browser_headless())
+        browser = _browser
+        assert browser is not None
+        # 격리된 일회용 컨텍스트 — 사용자 프로필을 쓰지 않는다(그 선택은 명시 연결일 때만).
+        context = browser.new_context()
+        _page = context.new_page()
+    except ImportError:
+        owner.abort(reservation)
+        raise ImportError(
+            "Playwright is not installed. Run: pip install playwright && playwright install chromium",
+        )
+    except Exception:
+        owner.abort(reservation)
+        raise
+
+    page = _page
+    assert page is not None
+    _ = owner.commit(reservation, page=page, close=_close_resources)
+    return page
+
+
+def _close_resources() -> None:
+    """소유자가 부르는 닫기(전역 캐시만 정리 — 소유자 원장은 소유자가 관리한다)."""
+    global _playwright, _browser, _page
+    if _page:
+        with suppress(Exception):
+            _page.close()
+        _page = None
+    if _browser:
+        with suppress(Exception):
+            _browser.close()
+        _browser = None
+    if _playwright:
+        with suppress(Exception):
+            _playwright.stop()
+        _playwright = None
 
 
 def close_browser() -> None:
-    """브라우저 세션을 명시적으로 닫습니다."""
-    global _playwright, _browser, _page
-    if _page:
-        try:
-            _page.close()
-        except Exception:
-            logger.exception("Failed to close page")
-        _page = None
-    if _browser:
-        try:
-            _browser.close()
-        except Exception:
-            logger.exception("Failed to close browser")
-        _browser = None
-    if _playwright:
-        try:
-            _playwright.stop()
-        except Exception:
-            logger.exception("Failed to stop playwright")
-        _playwright = None
+    """브라우저 세션을 명시적으로 닫습니다(소유자 원장에서도 빠진다)."""
+    _ = get_browser_session_owner().release(current_browser_owner())
+    _close_resources()
 
 
 class BrowserDOMTool(BaseTool):
@@ -228,6 +281,12 @@ class BrowserDOMTool(BaseTool):
             page = get_browser_page()
         except ImportError as e:
             return f"Error: {e}"
+        except BrowserSessionLimitError as e:
+            # 상한은 기다리지 않고 거절한다 — 줄 세우면 결국 같은 수의 브라우저가 뜨고, 사용자는
+            # 아무 대답도 못 받은 채 멈춘 것처럼 보인다.
+            return f"Error: {e}"
+        except BrowserSessionRefusedError as e:
+            return f"Error: {e}"
         except Exception as e:
             logger.exception("Unhandled exception")
             return f"Error starting browser: {e}"
@@ -238,6 +297,11 @@ class BrowserDOMTool(BaseTool):
                 url = url_value if isinstance(url_value, str) else ""
                 if not url:
                     return "Error: 'url' required for goto action."
+                try:
+                    # 다른 진입점과 **같은** egress 규칙(task 1·4·7 계층).
+                    _ = get_browser_session_owner().validate_navigation(url)
+                except Exception as e:
+                    return f"Error: navigation target is not allowed for this tool: {e}"
                 _ = page.goto(url, wait_until="networkidle")
                 return f"Successfully navigated to {url}."
 
