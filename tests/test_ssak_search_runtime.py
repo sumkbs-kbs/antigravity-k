@@ -355,6 +355,22 @@ def test_shutdown_leaves_zero_children_and_never_kills_foreign_processes(
         decoy.wait(timeout=10)
 
 
+def test_shutdown_clean_flag_is_derived_from_the_child_list(
+    runtimes: list[SsakSearchRuntime], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`shutdown_clean` 은 **증거 필드**다 — 하드코딩된 True 는 아무것도 증명하지 않는다.
+
+    child 목록을 위조해 "정리했는데도 child 가 남아 있는" 순간을 만들고, 플래그가 그 사실을
+    따라가는지 본다(상수로 박아 두면 이 시험이 빨강이 된다).
+    """
+    record = tmp_path / "derived.json"
+    runtime = start(runtimes, record)
+    assert runtime.ensure_ready(timeout=20) is True
+    monkeypatch.setattr(type(runtime), "child_pids", lambda self: [424242])
+    status = runtime.shutdown(timeout=20)
+    assert status["shutdown_clean"] is False, "종료 증거가 실제 child 목록에서 계산되지 않는다"
+
+
 def test_runtime_can_be_restarted_after_shutdown(runtimes: list[SsakSearchRuntime], tmp_path: Path) -> None:
     record = tmp_path / "restart.json"
     runtime = start(runtimes, record)
@@ -371,6 +387,9 @@ def test_host_singleton_shutdown_closes_the_child(tmp_path: Path) -> None:
     record = tmp_path / "singleton.json"
     runtime = get_ssak_search_runtime(make_config(record))
     try:
+        # "한 host instance = 한 런타임" 은 동일성으로만 잴 수 있다. 두 번째 호출이 새 런타임을
+        # 만들면 child 가 둘이 되고 stdout 을 나눠 읽는다(이 시험이 그걸 잡는다).
+        assert get_ssak_search_runtime(make_config(record)) is runtime
         assert runtime.ensure_ready(timeout=20) is True
         status = shutdown_ssak_search_runtime(timeout=20)
         assert status is not None
@@ -433,12 +452,18 @@ def test_call_timeout_fails_the_call_without_killing_the_session(
     )
     assert runtime.ensure_ready(timeout=20) is True
 
+    pid_before = runtime.child_pids()
+    assert pid_before, "손잡기 전에 child pid 를 못 잡았다"
     slow = runtime.call_tool("ssak_search", {"query": "slow"}, timeout=0.25)
     assert slow.is_error is True and slow.error_code == "TIMEOUT"
 
     fast = runtime.call_tool("ssak_search", {"query": "after"}, timeout=20)
     assert fast.is_error is False, "타임아웃이 세션을 죽였다"
     assert runtime.state is SearchRuntimeState.READY
+    # 손잡기 **전에** 잡은 pid·spawn 수가 그대로여야 한다: 타임아웃을 child 죽음으로 오판하면
+    # 세션이 갈리고 새 pid 가 나온다(느린 정상 검색이 child 를 잃는 그 실패 모드다).
+    assert runtime.child_pids() == pid_before, "타임아웃이 child 를 갈아치웠다"
+    assert status_of(runtime)["spawn_attempts"] == 1
 
 
 # ── artifact fail-closed ─────────────────────────────────────────────────────
@@ -584,3 +609,62 @@ def test_lifespan_gate_is_looking_at_a_real_function_body() -> None:
     body = _lifespan_body()
     assert len(body) > 500
     assert "yield" in body, "lifespan 본문에 yield 가 없다 — 잘못된 구간을 읽고 있다"
+
+
+# ── 실패한 이빨이 지목한 계약 2개 ────────────────────────────────────────────
+# 두 변이(R10·R16)가 초록이었다: 계약이 시험으로 고정되지 않았다는 뜻이다. 그 자리를 채운다.
+
+
+def test_queued_call_is_failed_when_the_runtime_stops(runtimes: list[SsakSearchRuntime], tmp_path: Path) -> None:
+    """호스트가 멈추면 **아직 돌지 않은 요청**은 매달리지 않고 typed 오류로 끝난다.
+
+    child 를 붙잡아 두는 호출(느린 검색) 하나가 진행 중일 때 두 번째 요청을 큐에 넣고 런타임을
+    닫는다. 두 번째 요청은 서비스되지 않으므로, 그것을 실패시키는 코드가 없으면 호출자는
+    자기 타임아웃까지 매달린다 — 그게 이 계약이 막는 실패다.
+    """
+    record = tmp_path / "pending.json"
+    runtime = start(
+        runtimes,
+        record,
+        "slow",
+        extra_env={"SSAK_CHILD_RECORD": str(record), "SSAK_CHILD_SLOW_MS": "2500"},
+    )
+    assert runtime.ensure_ready(timeout=20) is True
+
+    results: dict[str, MCPToolOutcome] = {}
+
+    def call(name: str) -> None:
+        outcome = runtime.call_tool("ssak_search", {"query": name}, timeout=30)
+        results[name] = outcome
+
+    in_flight = threading.Thread(target=call, args=("in-flight",), daemon=True)
+    queued = threading.Thread(target=call, args=("queued",), daemon=True)
+    in_flight.start()
+    time.sleep(0.3)  # 첫 요청이 child 에 들어가 큐를 비우게 한다
+    queued.start()
+    time.sleep(0.3)  # 두 번째 요청이 큐에 남아 있게 한다
+
+    status = runtime.shutdown(timeout=25)
+    assert status["child_pids"] == []
+    assert wait_for(lambda: "queued" in results, timeout=15.0), "큐에 남은 요청이 끝나지 않았다(호출자가 매달린다)"
+    assert results["queued"].is_error is True
+    assert results["queued"].error_code == "RUNTIME_STOPPED", str(results["queued"])
+    assert "was not run" in str(results["queued"])
+
+
+def test_a_successful_call_resets_the_episode_budget(runtimes: list[SsakSearchRuntime], tmp_path: Path) -> None:
+    """성공한 호출은 \"이 child 는 일하고 있다\"는 증거다 — 예산을 되돌리지 않으면 정상 동작이 회로를 연다.
+
+    예산(`start_attempts_in_episode`)은 첫 연결이 이미 1을 쓴 상태로 시작한다. 성공한 호출이
+    되돌리면 0으로 돌아가고, 되돌리지 않으면 1로 남아 다음 상실이 곧바르 회로를 연다.
+    (child 를 실제로 죽여 관측하는 방식은 회로가 열리기 전에 재연결이 끼어들어 흔들린다 —
+    이 계약은 부기(bookkeeping) 규칙이므로 상태 스냅숏으로 직접 잰다.)
+    """
+    record = tmp_path / "episode.json"
+    runtime = start(runtimes, record)
+    assert runtime.ensure_ready(timeout=20) is True
+    assert status_of(runtime)["start_attempts_in_episode"] == 1, status_of(runtime)
+
+    outcome = runtime.call_tool("ssak_search", {"query": "proves the child works"}, timeout=20)
+    assert outcome.is_error is False, outcome
+    assert status_of(runtime)["start_attempts_in_episode"] == 0, "성공한 호출이 예산을 되돌리지 않았다"
