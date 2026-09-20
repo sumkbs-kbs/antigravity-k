@@ -41,7 +41,7 @@ RUN pip install --upgrade pip \
     && pip install --target="/install" ".[rag]"
 
 # ─── Stage 3: Dashboard Build ───────────────────────────────────
-FROM node:20-alpine AS dashboard-builder
+FROM node:26-alpine AS dashboard-builder
 
 WORKDIR /app/dashboard
 COPY dashboard/ ./
